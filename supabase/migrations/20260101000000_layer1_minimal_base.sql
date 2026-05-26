@@ -1,8 +1,8 @@
 -- =============================================================================
--- Layer 1 Minimal Base — 補完 migration (CEO 確定 5 回目、 7 件最小補完)
+-- Layer 1 Minimal Base — 補完 migration (CEO 確定 6 回目、 7 件最小補完、 historical shape)
 -- =============================================================================
--- 起草日: 2026-05-26
--- 親 phase: migration-debt-phase → migration-debt-repair → Stage R2-1
+-- 起草日: 2026-05-26 (initial) / 2026-05-27 (historical-shape 補正)
+-- 親 phase: migration-debt-phase → migration-debt-repair → Stage R2-1 / R3
 --
 -- 7 table (L-A 2 + L-B 5):
 --   L-A (Active + Replay-blocker):
@@ -24,10 +24,23 @@
 --   6. ENABLE ROW LEVEL SECURITY → そのまま
 --   7. OWNER TO → 除去
 --
+-- Historical-shape 補正 (2026-05-27):
+--   stargazer 3 件は constellation_* shape で base を置く。
+--   - stargazer_core_star: constellation_code + constellation_label
+--   - stargazer_resolved_types: constellation_code のみ (label は元から無し)
+--   - stargazer_orbit_snapshots: constellation_code + constellation_label
+--   後続の 20260324100000 (constellation_code reset) と
+--   20260330200000 (constellation_* → archetype_* rename) が history 通りに replay 可能。
+--
+-- profiles については baseline_home_* 4 column を本ファイルから外す:
+--   - 後続 20260418120000_baseline_home_columns.sql が ADD COLUMN を実行する。
+--   - 本ファイルでも prereq でも baseline_home_* は持たない。
+--
 -- 関連 doc:
 --   docs/alter-plan-migration-debt-stage-r1-result.md
 --   docs/alter-plan-migration-debt-stage-r2-redesign-readiness.md
 --   docs/alter-plan-migration-debt-stage-r2-1-layer1-base-readiness.md
+--   docs/alter-plan-migration-debt-stage-r3-staging-replay-readiness.md
 -- =============================================================================
 
 -- ════════════════════════════════════════════════════════════════════
@@ -50,11 +63,6 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "occupation" "text",
     "occupation_detail" "text",
     "public_id" "text" NOT NULL,
-    "baseline_home_label" "text",
-    "baseline_home_place_type" "text" DEFAULT 'home'::"text" NOT NULL,
-    "baseline_home_lat" numeric(9,6),
-    "baseline_home_lng" numeric(9,6),
-    CONSTRAINT "profiles_baseline_home_place_type_check" CHECK (("baseline_home_place_type" = ANY (ARRAY['home'::"text", 'other'::"text"]))),
     CONSTRAINT "profiles_gender_check" CHECK (("gender" = ANY (ARRAY['male'::"text", 'female'::"text", 'non_binary'::"text", 'prefer_not_to_say'::"text"]))),
     CONSTRAINT "profiles_locale_check" CHECK (("locale" = ANY (ARRAY['en'::"text", 'ja'::"text"])))
 );
@@ -305,10 +313,13 @@ CREATE POLICY "stargazer_observations_select_own" ON "public"."stargazer_observa
 -- table: stargazer_core_star
 -- ════════════════════════════════════════════════════════════════════
 
+-- HISTORICAL shape: constellation_code / constellation_label.
+-- 20260330200000_rename_constellation_to_archetype.sql が
+-- constellation_* → archetype_* に rename する。
 CREATE TABLE IF NOT EXISTS "public"."stargazer_core_star" (
     "user_id" "uuid" NOT NULL,
-    "archetype_code" "text" DEFAULT 'unobserved'::"text" NOT NULL,
-    "archetype_label" "text" DEFAULT '未観測'::"text" NOT NULL,
+    "constellation_code" "text" DEFAULT 'unobserved'::"text" NOT NULL,
+    "constellation_label" "text" DEFAULT '未観測'::"text" NOT NULL,
     "core_traits" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
     "stability_score" numeric(4,3) DEFAULT 0 NOT NULL,
     "confidence_score" numeric(4,3) DEFAULT 0 NOT NULL,
@@ -357,10 +368,16 @@ CREATE POLICY "stargazer_core_star_update_own" ON "public"."stargazer_core_star"
 -- table: stargazer_resolved_types
 -- ════════════════════════════════════════════════════════════════════
 
+-- HISTORICAL shape: constellation_code のみ (constellation_label は元から無し)。
+-- 20260330200000_rename_constellation_to_archetype.sql で
+-- constellation_code → archetype_code に rename。
+-- 20260330200000 line 134-142 のコメント参照:
+--   「archetype_label may not exist on resolved_types
+--    (original schema had no constellation_label)」
 CREATE TABLE IF NOT EXISTS "public"."stargazer_resolved_types" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
-    "archetype_code" "text",
+    "constellation_code" "text",
     "top_matches" "jsonb",
     "axis_scores" "jsonb",
     "confidence" numeric(4,3),
@@ -421,12 +438,15 @@ CREATE POLICY "Users can update own resolved types" ON "public"."stargazer_resol
 -- table: stargazer_orbit_snapshots
 -- ════════════════════════════════════════════════════════════════════
 
+-- HISTORICAL shape: constellation_code / constellation_label。
+-- 20260330200000_rename_constellation_to_archetype.sql で
+-- constellation_* → archetype_* に rename される。
 CREATE TABLE IF NOT EXISTS "public"."stargazer_orbit_snapshots" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
     "captured_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "archetype_code" "text" NOT NULL,
-    "archetype_label" "text" NOT NULL,
+    "constellation_code" "text" NOT NULL,
+    "constellation_label" "text" NOT NULL,
     "drift_index" numeric(4,3) DEFAULT 0 NOT NULL,
     "summary" "text",
     "core_traits_snapshot" "jsonb" DEFAULT '{}'::"jsonb",

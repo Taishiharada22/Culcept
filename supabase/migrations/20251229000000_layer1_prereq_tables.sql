@@ -53,11 +53,6 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "occupation" "text",
     "occupation_detail" "text",
     "public_id" "text" NOT NULL,
-    "baseline_home_label" "text",
-    "baseline_home_place_type" "text" DEFAULT 'home'::"text" NOT NULL,
-    "baseline_home_lat" numeric(9,6),
-    "baseline_home_lng" numeric(9,6),
-    CONSTRAINT "profiles_baseline_home_place_type_check" CHECK (("baseline_home_place_type" = ANY (ARRAY['home'::"text", 'other'::"text"]))),
     CONSTRAINT "profiles_gender_check" CHECK (("gender" = ANY (ARRAY['male'::"text", 'female'::"text", 'non_binary'::"text", 'prefer_not_to_say'::"text"]))),
     CONSTRAINT "profiles_locale_check" CHECK (("locale" = ANY (ARRAY['en'::"text", 'ja'::"text"])))
 );
