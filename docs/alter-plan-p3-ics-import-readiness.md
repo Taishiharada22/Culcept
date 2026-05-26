@@ -1,21 +1,59 @@
 # P3 Alter Plan App — .ics / iCal Import Readiness
 
-**Status**: 起草中 (= CEO 「次の本丸 P3」 指示 2026-05-26、 LLM closeout 帯 並行)
+**Status**: W1 完了 / W2 着手 (= CEO + GPT 4 補正反映済 2026-05-26)
 **Date**: 2026-05-26
 **Author**: Build Unit (Claude)
 **Scope**: Google Calendar / Apple Calendar / Outlook 等の **.ics (iCalendar) ファイル** を Plan App に取り込む経路を確立する。 既存 ExternalAnchor / DB schema は 70% ready、 新規実装は parser + file UI + mapping service + API。
 **CEO 思考原則 ①〜⑦ 適用**: 「シンプルから (③)」 「外科的に (④)」 「ゴールから逆算 (⑤)」 を結合する。
 
+## 改訂履歴
+
+| Version | 内容 |
+|---|---|
+| 初版 (= a111701c) | 70% ready 調査、 Q1-Q6 設計判断点起草 |
+| **W1 完了 + 4 補正 (= 本稿)** | parser + mapper 完了 (= dc689d56)、 CEO + GPT 4 補正反映 (= rigidity/recurring/review-UI/dedup) |
+
 ## 0. 結論 (= TL;DR)
 
 P3 は **既存 ExternalAnchor 経路への外部 input チャネル追加**。 0 からの作り直しではない (= 既存 API / repository / 承認 invariant を再利用):
 
-1. **W1: parser + mapping service** (= pure module、 .ics → ExternalAnchor[])
-2. **W2: file upload UI + preview** (= AddAnchorModal 拡張 or 新 modal)
-3. **W3: API + persist + 重複判定** (= 既存 server action + repository 拡張)
+1. **W1: parser + mapping service** (= pure module、 .ics → ParsedIcsEvent → IcsAnchorDraft) ✓ 完了 (= dc689d56)
+2. **W2: review/approve UI** (= file input + parse preview + per-event check/uncheck + 注意表示 + 承認後保存) ← 着手中
+3. **W3: API + persist + 完全 dedup** (= server action + repository 拡張、 UID-based dedup、 migration)
 4. **W4: smoke + docs + edge case**
 
 **工数**: 3.5-4.5 day (= 既存資産 70% ready)。 P3 着手後 1-2 週で MVP。
+
+---
+
+## 0.5 CEO + GPT 4 補正 (= W1 完了後 2026-05-26)
+
+W1 後の評価で 4 点の補正が入った。 readiness と W2 設計に反映済:
+
+### 補正 1: rigidity="hard" は invariant ではない
+- 旧設計: 「.ics 予定は外部固定 (= hard 強制)」 と W1 mapper で固定
+- 補正: 「動かせなさ」 (= rigidity) と 「由来 / authority」 (= imported / import_locked) は **別 concept**
+  - rigidity: 仕事会議 hard / 定期ジム soft (= user の生活上の性質)
+  - authority: imported / user_owned (= 由来 + 編集可否)
+- W2 で user が rigidity を **toggle 可能** (= デフォルト "hard"、 「動かせる予定」 なら "soft" 選択)
+- 永続時の lock 管理は **W3 で authority="import_locked"** 設定 (= 既存 sourceProvenance.ts の ImportedLockedSource pattern を踏襲)
+
+### 補正 2: recurring は判定と表示のみ (= 完全対応は後段)
+- W1: anchorKind="recurring" + recurrenceRule raw 保存 (= expansion なし、 既達)
+- **W2: preview で recurring を明示表示 + warning** (= 「繰り返し予定です」)
+- W3/W4: dedup と保存 (= UID で 1 件として保存、 expansion は別)
+- 複雑 RRULE 解釈 (= EXDATE / UNTIL / COUNT / BYDAY 細部) は **後段 W4 以降**、 まず保存のみ
+
+### 補正 3: W2 の主役は upload ではなく review/approve
+- 旧設計: 「W2 = file upload UI」 と表記
+- 補正: **W2 の本質は 「安全な取り込み審査画面」**
+- 順序: file input → parse preview → per-event check/uncheck → recurring/all-day/timezone 注意 → 承認して保存
+- modal で即保存寄りは **危険** (= user 認知不足のまま大量 anchor 永続化のリスク)
+
+### 補正 4: dedup 完全版は W3、 W2 で簡易 「重複候補」 表示
+- 完全 UID 一致 dedup: W3 server action 内 (= 既存 anchor との UID 比較)
+- **W2 preview: 簡易 「重複候補あり」 warning** (= DTSTART / SUMMARY / LOCATION 近接)
+- 完全 dedup 不要、 user が preview で気付くための signal
 
 ---
 
@@ -104,15 +142,32 @@ P3 は **既存 ExternalAnchor 経路への外部 input チャネル追加**。 
 
 | W | 内容 | 推奨 day |
 |---|---|---|
-| W1 | ical.js 追加 + parser + mapping service (= pure module) | 1 day |
-| W2 | file upload UI (= AddAnchorModal 拡張 + preview component) | 1-1.5 day |
-| W3 | server action + API + repository 拡張 (= UID dedup + migration) | 1-1.5 day |
+| W1 | ical.js 追加 + parser + mapping service (= pure module) ✓ 完了 | 1 day |
+| **W2** | **review/approve UI** (= file input + parse preview + per-event check/uncheck + 注意表示 + 簡易重複候補 warning + 承認後保存) | 1-1.5 day |
+| W3 | server action + API + repository 拡張 (= 完全 UID dedup + migration + authority="import_locked") | 1-1.5 day |
 | W4 | smoke + docs + edge case (= timezone / 大量 events / 不正 file) | 0.5-1 day |
 | **合計** | | **3.5-5 day** |
 
+W2 範囲詳細 (= GPT 補正 3 反映、 「審査画面」 主軸):
+1. **file input**: .ics 1 ファイル受領 (= drag&drop or file picker)
+2. **parse**: icsParser.parseIcsString → ParsedIcsEvent[]
+3. **map**: mapIcsEventsToDrafts → IcsAnchorDraft[]
+4. **preview list**: 各 draft を card 表示
+   - title / 日時 / location / recurring badge / all-day badge
+   - rigidity toggle (= hard/soft 切替、 default "hard")
+   - check / uncheck (= 各 event 個別 select)
+5. **注意表示** (= GPT 補正 2、 「判定のみ」):
+   - recurring event → 「繰り返し予定です」 badge
+   - all-day event → 「終日予定」 badge
+   - tzid 不在 → 「時刻 timezone 不明」 warning
+6. **簡易重複候補 warning** (= GPT 補正 4): 既存 anchor との DTSTART/SUMMARY/LOCATION 近接で 「重複の可能性あり」 表示 (= 完全 dedup は W3)
+7. **承認して保存** button (= checked 全 draft を server action 経由で persist、 W3 で実装)
+   - W2 では UI まで、 server action は **stub** で OK (= 後で W3 で完成)
+
 CEO 承認順:
-- W1 着手前: CEO Q1-Q5 確定
-- W1 完了後: pure module 単体 test PASS で stop、 W2 着手 CEO 承認
+- W1 着手前: CEO Q1-Q6 確定 ✓ 完了
+- W1 完了後: 4 補正反映 + W2 GO ✓ 完了 (= 本稿)
+- W2 完了後: UI smoke + W3 着手 CEO 承認
 - W3 完了後: migration apply CEO 承認
 - W4 完了後: smoke + CEO pass 判定
 

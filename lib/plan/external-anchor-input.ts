@@ -52,8 +52,16 @@ interface CreateExternalAnchorInputBase {
   /**
    * W1-4-pre 範囲では "manual" / "template" のみ許可。
    * "pdf" / "image" / "chat" は Document Import（Wave 2）の責務。
+   * P3 W3 (= 2026-05-26): "ics" 追加 (= .ics / iCalendar import 経路、 dedup 用 externalUid 持つ)
    */
-  sourceType: "manual" | "template";
+  sourceType: "manual" | "template" | "ics";
+  /**
+   * P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType="ics" のみ設定)
+   *
+   * - 用途: 同 .ics ファイルの再 import で 同 UID 既存 anchor を update or skip (= dedup)
+   * - 他 sourceType では undefined (= NULL persist)
+   */
+  externalUid?: string;
 }
 
 /** 単発予定の入力 */
@@ -142,7 +150,8 @@ const ALLOWED_LOCATION: readonly LocationCategory[] = [
   "transit",
   "unknown",
 ];
-const ALLOWED_SOURCE_TYPES = ["manual", "template"] as const;
+// P3 W3 (= 2026-05-26): "ics" 追加 (= .ics / iCalendar import 経路)
+const ALLOWED_SOURCE_TYPES = ["manual", "template", "ics"] as const;
 
 /** HH:MM or HH:MM:SS（24h、秒は任意） */
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
@@ -257,7 +266,7 @@ export function validateCreateExternalAnchorInput(
     errors.push({
       field: "sourceType",
       code: "not_allowed_value",
-      message: `sourceType must be one of: ${ALLOWED_SOURCE_TYPES.join(", ")} (W1-4-pre scope)`,
+      message: `sourceType must be one of: ${ALLOWED_SOURCE_TYPES.join(", ")}`,
     });
   }
 

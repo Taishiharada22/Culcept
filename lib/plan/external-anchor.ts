@@ -54,6 +54,16 @@ interface ExternalAnchorBase {
   confidence?: number;
 
   sensitiveCategory?: AnchorSensitiveCategory;
+
+  /**
+   * P3 W3 (= 2026-05-26): .ics VEVENT UID
+   *
+   * - 用途: 同 .ics ファイルの再 import で 同 UID 既存 anchor を検出 → update or skip (= dedup)
+   * - source_type='ics' の anchor のみ保持、 他 source では undefined
+   * - NULL 許容 (= 既存 manual / template / pdf / image / chat anchor は持たない)
+   * - DB column: external_anchors.external_uid TEXT NULL (= 20260526100000 migration)
+   */
+  externalUid?: string;
 }
 
 /** 単発予定: 特定の日付に紐づく */
