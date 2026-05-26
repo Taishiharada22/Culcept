@@ -190,6 +190,52 @@ CEO 「read-only で確認 → 結果で分岐」 指示に従い、 production 
 
 詳細計画は `docs/alter-plan-migration-apply-plan.md` 参照。
 
+### sourceType 'ics' 流用 暫定措置 (= 同日 2026-05-26、 CEO 確定)
+
+C-α (= Google events → AnchorDraft 変換) で sourceType の自立判断:
+
+**現状**: 既存 schema (= `external_anchor_sources.source_type` CHECK 制約) は 'manual' | 'template' | 'pdf' | 'image' | 'chat' | 'ics' のみ許可。 'google_calendar' は未存在。
+
+**判断**: 新規 sourceType 'google_calendar' 追加には migration 必要 → D-e 不変原則 (= apply 実施しない) 違反のため、 **既存 'ics' を流用**。
+
+**CEO 確定文** (= 2026-05-26):
+> 「`sourceType: 'ics'` 流用は、 D-e 不変原則下の暫定措置として許容。 ただし恒久化はしない。
+>  decision-log か code comment に 「migration apply 後に `google_calendar` へ分離予定」 を必ず残してください。」
+
+**遵守事項** (= migration apply phase で必ず実施):
+1. sourceType に 'google_calendar' を追加する migration を起草 / apply
+2. `lib/oauth/googleEventsToAnchorMapper.ts` の sourceType 'ics' → 'google_calendar' に切替
+3. 既存 .ics import (= IcsAnchorDraft) と Google Calendar import の source 区別を schema レベルで確立
+4. `docs/alter-plan-migration-apply-plan.md` に本件を含めて移行計画統合
+
+**実装上の TODO 残置場所** (= 忘却防止):
+- `lib/oauth/googleEventsToAnchorMapper.ts` (= module header コメントに ⚠️ TODO 明示済)
+- `docs/decision-log.md` (= 本 section)
+- `docs/alter-plan-migration-apply-plan.md` (= migration apply phase 統合時に追記予定)
+
+**本流用は P3-A-1-2 phase 限定の暫定措置、 恒久化しない**。
+
+### E-α 進行 (= 同日 2026-05-26、 CEO GO)
+
+C-α 完了後の次着手として、 sync の前提機能 (= access_token 期限切れ前の refresh) を実装。
+
+**範囲**:
+- `lib/oauth/googleCalendarApi.ts` に `refreshGoogleAccessToken` 追加 (= pure helper、 fetch mockable)
+- POST /token grant_type=refresh_token
+- error 種別: invalid_grant (= refresh_token 失効、 user 再連携要) / invalid_client / invalid_request / network / unknown
+- refresh_token は引数で受け取る (= caller 側で復号、 本 helper は暗号化を扱わない)
+- 新 refresh_token は通常返却されない (= Google 仕様、 初回のみ発行)
+- unit test 網羅 (= 8 tests)
+
+**不変原則 (= D-e 整合)**:
+- DB touch なし
+- 暗号化処理を含まない (= caller 責務)
+- pure module、 fetch inject 可能
+
+**次着手候補**:
+- G-α: 設定画面 UI (= 連携セクション、 per-calendar toggle 構造)
+- migration apply phase は別タイミング (= CEO 慎重判断)
+
 ### 関連 docs
 
 - `docs/alter-plan-p3-a-1-google-calendar-readiness.md` (= 本日起草 + Q2 補正、 本体 12 問 + Appendix 3 項目)

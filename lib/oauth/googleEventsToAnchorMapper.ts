@@ -17,11 +17,19 @@
  *   4. recurring は singleEvents=true 前提で個別 instance 扱い (= AnchorDraft は OneOff)
  *   5. multi-day event は 開始日のみ で OneOff (= MVP、 将来 split は別 phase)
  *
- * sourceType 選択 (= 2026-05-26 自立判断):
+ * sourceType 選択 (= 2026-05-26 自立判断、 CEO 確定 「暫定許容、 恒久化しない」):
  *   - 既存 schema (= sourceType union) は 'manual' | 'template' | 'ics'
  *   - 新規 'google_calendar' 追加は migration 必要 → D-e 不変原則違反
- *   - → **'ics' を流用** (= 既存 dedup 機構 [externalUid] も再利用)
- *   - 後で migration apply phase で 'google_calendar' 新 sourceType を作る選択肢を残す
+ *   - → **'ics' を流用** (= 暫定措置、 既存 dedup 機構 [externalUid] も再利用)
+ *
+ * ⚠️ TODO (= migration apply phase で必ず実施):
+ *   - sourceType に 'google_calendar' を追加する migration を起草 / apply
+ *   - 本 mapper の sourceType 'ics' → 'google_calendar' に切替
+ *   - 既存 .ics import (= IcsAnchorDraft) と Google Calendar import (= 本 mapper) の
+ *     source 区別を schema レベルで確立
+ *   - 関連 docs: docs/alter-plan-migration-apply-plan.md (= 移行計画整理)
+ *   - decision-log 2026-05-26 D-e + E-α section 参照
+ *   - **本流用は P3-A-1-2 phase 限定の暫定措置、 恒久化しない**
  */
 
 import type {
