@@ -419,6 +419,29 @@ export function createSupabaseExternalAnchorRepository(
         anchorInsertPayloadForRpc(a)
       );
 
+      // P3 Phase A debug (= 2026-05-28 payload mismatch 解析、 NODE_ENV !== production で active)
+      // CEO 指示: 「本当に何を RPC に渡しているか」 を確定する
+      if (process.env.NODE_ENV !== "production") {
+        const sourceTypeRaw = rpcSourcePayload.source_type;
+        const sourceTypeJson = JSON.stringify(sourceTypeRaw);
+        console.info("[external-anchor-repo] RPC payload (snake_case before send)", {
+          userId,
+          rpcSourcePayload,
+          source_type_value: sourceTypeRaw,
+          source_type_typeof: typeof sourceTypeRaw,
+          source_type_json: sourceTypeJson,
+          source_type_length:
+            typeof sourceTypeRaw === "string" ? sourceTypeRaw.length : null,
+          source_type_charCodes:
+            typeof sourceTypeRaw === "string"
+              ? Array.from(sourceTypeRaw).map((c) => c.charCodeAt(0))
+              : null,
+          original_filename: rpcSourcePayload.original_filename,
+          anchors_length: rpcAnchorsPayload.length,
+          first_anchor: rpcAnchorsPayload[0] ?? null,
+        });
+      }
+
       const { data: rpcData, error: rpcError } = await client.rpc(
         "create_external_anchor_bundle",
         {
