@@ -18,7 +18,8 @@ export type ExternalAnchorSourceType =
   | "template"    // 曜日テンプレート
   | "pdf"         // PDF 取り込み
   | "image"       // 画像取り込み
-  | "chat";       // Home 会話キャプチャ
+  | "chat"        // Home 会話キャプチャ
+  | "ics";        // P3 W3 (= 2026-05-26): .ics / iCalendar ファイル取り込み
 
 /** raw 保持方針（§11.1 参照）。default: discarded */
 export type RawRetention = "discarded" | "stored";

@@ -49,6 +49,7 @@ const ALLOWED_SOURCE_TYPES: readonly ExternalAnchorSourceType[] = [
   "pdf",
   "image",
   "chat",
+  "ics", // P3 W3 (= 2026-05-26): .ics / iCalendar 取り込み経路
 ];
 
 const ALLOWED_RAW_RETENTION: readonly RawRetention[] = ["discarded", "stored"];
@@ -108,7 +109,7 @@ export function validateCreateExternalAnchorSourceInput(
       message: `rawRetention must be one of: ${ALLOWED_RAW_RETENTION.join(", ")}`,
     });
     // retention 不明なら raw_*_payload の整合検査は skip
-    return errors.length > 0 ? { valid: false, errors } : { valid: true, input: obj as CreateExternalAnchorSourceInput };
+    return errors.length > 0 ? { valid: false, errors } : { valid: true, input: obj as unknown as CreateExternalAnchorSourceInput };
   }
 
   // raw retention 整合
@@ -148,7 +149,7 @@ export function validateCreateExternalAnchorSourceInput(
   if (errors.length > 0) {
     return { valid: false, errors };
   }
-  return { valid: true, input: obj as CreateExternalAnchorSourceInput };
+  return { valid: true, input: obj as unknown as CreateExternalAnchorSourceInput };
 }
 
 /**

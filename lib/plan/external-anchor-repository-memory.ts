@@ -80,6 +80,8 @@ function buildOneOffAnchor(args: {
   if (i.locationText !== undefined) base.locationText = i.locationText;
   if (i.locationCategory !== undefined) base.locationCategory = i.locationCategory;
   if (i.sensitiveCategory !== undefined) base.sensitiveCategory = i.sensitiveCategory;
+  // P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType='ics' のみ設定)
+  if (i.externalUid !== undefined) base.externalUid = i.externalUid;
   return base;
 }
 
@@ -111,6 +113,8 @@ function buildRecurringAnchor(args: {
   if (i.locationText !== undefined) base.locationText = i.locationText;
   if (i.locationCategory !== undefined) base.locationCategory = i.locationCategory;
   if (i.sensitiveCategory !== undefined) base.sensitiveCategory = i.sensitiveCategory;
+  // P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType='ics' のみ設定)
+  if (i.externalUid !== undefined) base.externalUid = i.externalUid;
   return base;
 }
 
