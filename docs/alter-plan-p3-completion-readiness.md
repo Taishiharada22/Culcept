@@ -100,15 +100,39 @@ CEO 確定: 2026-05-27 (= migration-debt closeout 後の本流復帰、 4 点固
 
 ---
 
-## §4. 環境方針 (= Q4 確定済)
+## §4. 環境方針 (= Q4 確定済、 2026-05-28 §4-X 緊急補正反映)
 
-| Phase | linked ref | 用途 |
-|-------|------------|------|
-| 開発中 (= Phase A / B) | **local** が理想、 または `staging` | unit test + local smoke、 dev server `npm run dev` |
-| end-to-end 確認 (= Phase C) | **staging** | 実 user 視点の動作確認 |
-| production | **触らない** | 本 phase 内では一切手を出さない |
+| Phase | linked ref (CLI) | runtime SUPABASE_URL (= dev server) | 用途 |
+|-------|------------------|-------------------------------------|------|
+| 開発中 (= Phase A / B) | `staging` | **`staging` 必須** | unit test + local smoke、 dev server `npm run dev` |
+| end-to-end 確認 (= Phase C) | `staging` | **`staging` 必須** | 実 user 視点の動作確認 |
+| production | **触らない** | **touch しない** | 本 phase 内では一切手を出さない |
 
-**local Supabase 起動の判断**: Phase A / B で必要になった時点で `supabase start` を実行検討。 不要なら staging linked のまま開発可能 (= staging は data 空に近い)。 着手時に CEO と相談。
+### §4-X. 重大注意 (= 2026-05-28 致命的 mismatch 発覚を受けた恒久ルール)
+
+**`supabase link` と dev server runtime env は別物。** 切替忘れによる事故が実発生したため、 以下を smoke 前に必ず確認:
+
+1. **CLI link** (= `cat supabase/.temp/project-ref`): 目的 ref か
+2. **runtime URL** (= `.env.local` の `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_URL`): 目的 ref か
+3. **両者一致**: link と runtime URL が同じ project ref を指していること
+
+**production runtime での smoke は禁止**。 もし `.env.local` が production を指したまま dev server を起動した場合、 即座に kill し、 CEO 報告。
+
+**env 切替後は必ず dev server 再起動**: Next.js は env を起動時にしか load しない (= HMR では再 load しない)。
+
+### §4-Y. 切替手順 (= staging へ向ける場合)
+
+1. `.env.local` を staging credentials に書き換える (= `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 等)
+2. **commit しない** (= `.env.local` は通常 `.gitignore` 配下、 secret も含むため絶対 commit 禁止)
+3. dev server 完全 kill (= 子 process まで)
+4. dev server 再起動
+5. runtime ref 確認 (= `cat .env.local | grep SUPABASE_URL`)
+6. smoke 実行
+7. smoke 完了後、 `.env.local` を production に戻す (= 通常運用環境への復帰、 secret 漏れ防止)
+
+### §4-Z. local Supabase 起動の判断
+
+不採用 — `supabase start` は別 phase で検討。 今は staging 直接で進める方が速度優先。
 
 ---
 

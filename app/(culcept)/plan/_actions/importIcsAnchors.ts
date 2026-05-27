@@ -138,6 +138,23 @@ export async function importIcsAnchorsAction(
   };
 
   // ── 6. atomic persist (= RPC + fallback、 best-effort atomicity 内包) ──
+  // P3 Phase A debug (= 2026-05-27 staging smoke 失敗解析用):
+  // bundle payload の実値を log で確認 (= source_type / anchor 数 / 各 anchor の source_type 引きずり等)
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[plan/ics] before createSourceWithAnchors", {
+      userId,
+      source: bundle.source,
+      anchorCount: bundle.anchors.length,
+      firstAnchor: bundle.anchors[0]
+        ? {
+            anchorKind: bundle.anchors[0].anchorKind,
+            sourceType: bundle.anchors[0].sourceType,
+            externalUid: bundle.anchors[0].externalUid,
+            title: bundle.anchors[0].title,
+          }
+        : null,
+    });
+  }
   let result: Awaited<ReturnType<typeof repository.createSourceWithAnchors>>;
   try {
     result = await repository.createSourceWithAnchors(userId, bundle);
