@@ -29,10 +29,10 @@ CEO 確定: 2026-05-28 (Phase A 主要経路 pass、 Phase B 着手判断へ)
 | 6/1 (月) OneOff: `P3 Smoke - Team Meeting` | ✅ | 09:00-10:00 @ Office Tokyo |
 | 6/1 (月) Recurring: `P3 Smoke - Daily Standup` | ✅ | 10:00-10:15 @ Online |
 | 6/2 (火) Recurring: `P3 Smoke - Daily Standup` 展開 | ✅ | 09:30-09:45 表示 |
-| 6/3 (水) AllDay: `P3 Smoke - Public Holiday` | ❓ | 日付移動 UI で 6/3 に進めず未確認 (= ICS import 自体は通った、 表示は別問題) |
+| 6/3 (水) AllDay: `P3 Smoke - Public Holiday` | ✅ | 6/3 へ日付移動 → all-day event 表示確認 (= CEO 視覚確認済、 2026-05-29 補正) |
 | Source 一覧 (= SourceListModal) | ❓ | 導線不明、 後回し可 (= CEO 確認) |
 
-→ **核心経路** (= preview → save → DB → UI 反映 → 展開) は全 pass
+→ **核心経路** (= preview → save → DB → UI 反映 → 展開 → all-day 表示) は全 pass。 残るは SourceListModal 導線のみ (= 後段)
 
 ### §2.2 検証環境
 
@@ -106,12 +106,12 @@ CEO が α 採用で `.env.local` を staging credentials に切替 → dev serv
 
 ## §5. 残課題 (= Phase A scope 外 / 別 phase)
 
-### §5-a. 6/3 (水) AllDay event 未確認
+### §5-a. 6/3 (水) AllDay event — 確認済 (= 2026-05-29 補正、 残課題ではない)
 
-- 観察: UI で 6/3 への日付移動が進まなかった
-- 原因仮説: Plan UI の日付移動制御 (= スワイプ / arrow button) の挙動問題
-- ICS import 自体は **無関係** (= AllDay event は DB には保存されている可能性が高い、 ただし未確認)
-- 対応: 日付移動 UI の別 phase で扱う (= Plan UI 改修系、 P3 scope 外)
+- 観察: 当初 6/3 への日付移動が進まず未確認と報告したが、 CEO 再確認で **6/3 へ移動 → all-day event 正常表示** を視覚確認済
+- 結論: ICS import → DB 保存 → UI 反映 → all-day 表示 まで **全経路 pass**
+- 日付移動 UI も正常動作 (= 当初の「不到達」 は一時的な操作問題)
+- → 本項は **解消済**、 残課題から除外
 
 ### §5-b. SourceListModal 導線
 
@@ -122,9 +122,8 @@ CEO が α 採用で `.env.local` を staging credentials に切替 → dev serv
 ### §5-c. 後段 phase 候補
 
 1. **Phase B**: Google Calendar end-to-end (= 本流復帰の続き)
-2. 日付移動 UI 改修 (= 6/3 不到達問題)
-3. SourceListModal 導線改善
-4. 1114 件の tsc error 整理 (= 既存 main の type debt、 migration-debt closeout §5 同様の deferred)
+2. SourceListModal 導線改善
+3. 1114 件の tsc error 整理 (= 既存 main の type debt、 migration-debt closeout §5 同様の deferred)
 
 ---
 
