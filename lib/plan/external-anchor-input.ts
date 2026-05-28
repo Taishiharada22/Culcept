@@ -54,7 +54,7 @@ interface CreateExternalAnchorInputBase {
    * "pdf" / "image" / "chat" は Document Import（Wave 2）の責務。
    * P3 W3 (= 2026-05-26): "ics" 追加 (= .ics / iCalendar import 経路、 dedup 用 externalUid 持つ)
    */
-  sourceType: "manual" | "template" | "ics";
+  sourceType: "manual" | "template" | "ics" | "google_calendar";
   /**
    * P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType="ics" のみ設定)
    *
@@ -151,7 +151,8 @@ const ALLOWED_LOCATION: readonly LocationCategory[] = [
   "unknown",
 ];
 // P3 W3 (= 2026-05-26): "ics" 追加 (= .ics / iCalendar import 経路)
-const ALLOWED_SOURCE_TYPES = ["manual", "template", "ics"] as const;
+// P3 Phase B (= 2026-05-29): "google_calendar" 追加 (= Google Calendar 連携、 β 恒久化)
+const ALLOWED_SOURCE_TYPES = ["manual", "template", "ics", "google_calendar"] as const;
 
 /** HH:MM or HH:MM:SS（24h、秒は任意） */
 const TIME_REGEX = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
