@@ -36,6 +36,7 @@ import { anchorsToOutfitEvents } from "./anchorsToOutfitEvents";
 import { projectCalendarEvents, buildOutfitDayContext } from "./outfitEventProjection";
 import { generateCalendarOutfitProposal } from "./outfitEngineAdapter";
 import { buildOutfitReasonVM } from "./outfitReasonFactors";
+import { buildWardrobeStats } from "./wardrobeAnalysis";
 
 interface OutfitMaterials {
   wardrobe: WardrobeItem[];
@@ -109,6 +110,10 @@ export function useCalendarOutfit({
       // (材料が無ければ null → mock 理由を維持。 機微情報は出さない)
       const reasonVM = buildOutfitReasonVM({ weather, dayContext, sync: engineSync });
       if (reasonVM) next = { ...next, reason: reasonVM };
+
+      // B-5B-read: ワードローブ分析を実 wardrobe から生成（空なら null → mock 分析を維持）
+      const wardrobeStats = buildWardrobeStats({ wardrobe, weather, dayContext });
+      if (wardrobeStats) next = { ...next, wardrobeStats };
 
       if (active) setVm(next);
     })();
