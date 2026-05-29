@@ -14646,3 +14646,48 @@ B-3 (= Google import trigger 結線) 完了後、 staging dev server で B-4 end
 - **ステータス**: env block **解消済**。 testing-mode test-user block は **CEO の Console 作業待ち** (= Claude touch 禁止領域)。 doc 同期完了。
 
 ---
+
+## 2026-05-29 [Build] P3 Phase B B-4 — Google end-to-end smoke PASS + 実データ限定バグ 2 件修正 + Phase B closeout [承認: CEO]
+
+### B-4 smoke 結果 (= CEO pass 確定)
+
+CEO 主導の staging smoke で **connect → fetch → save → UI 反映** が通過:
+- Google 接続成功
+- ログ `import_success / imported: 3 / skipped: 0`
+- 取り込んだ予定が 5/29・5/30 の Plan UI に実表示
+
+→ Phase B scope 6 条件 (connect / fetch / mapping / save / UI 反映 / disconnect) 全達成。 CEO 「B-4 は合格でよい」。
+
+### B-4 smoke で発見・修正した実データ限定バグ 2 件
+
+いずれも mock ベース unit test を pass していた (= 実 Supabase / 実 OAuth でしか踏まない経路)。
+
+1. **Path B (= commit `703dc89b`)**: 部分接続 (events.readonly のみ許可) で subscriptions 0 件 → import 空振り。 `runGoogleAnchorImport` step 4 に primary fallback (空なら `['primary']`、 `db_error` 時は fallback せず error)。 33 test pass。
+2. **decrypt bytea (= commit `a683e4fb`、 本 phase 最重要)**: `upsertConnection` が暗号化済み生 Buffer を supabase-js upsert payload へ直渡し → JSON 直列化で `Buffer.toJSON()` (`{"type":"Buffer",...}`) に化け、 別バイト列が bytea へ保存 (= upsert は成功)。 読み戻し後の AES-256-GCM auth-tag 検証が必ず失敗 → `decrypt_failed: authentication` → UI「再接続が必要」。 修正 = 書込時に `\x${buf.toString("hex")}` (= PostgreSQL bytea hex 入力形式)。 読み戻し側 `findConnection` は既に `\x`-hex decode 済で対称。 schema / migration / 鍵 変更なし。 test 補強 = payload が生 Buffer でなく `\x...` 文字列 + write⇄read round-trip ガード。
+
+### methodology 教訓 (= 恒久メモ)
+
+- **mock ベース unit test は「実 wire の直列化」 を踏まない**。 bytea / OAuth scope 等の実インフラ依存経路は **staging smoke が唯一の検出手段**。 外部連携 (DB serialization / OAuth scope / network) を持つ機能は unit green を「実装完了」 とせず、 staging smoke gate まで通して初めて closeout する。
+
+### 検証
+
+- oauth 該当 44/44 pass (= round-trip ガード含む)、 full suite **661 files / 15509 pass** (1 skipped)、 source tsc **1114 不変** (新規 error 0)
+- production への書き込み 0 (= 全 smoke staging runtime、 §4-X 厳守)
+
+### docs (= 本 commit)
+
+新規:
+- `docs/alter-plan-p3-phase-b-result.md` (= Phase B result 固定 + closeout、 Phase A result の型)
+- `docs/alter-plan-p3-phase-c-readiness.md` (= 次フェーズ readiness、 ICS + Google 共存確認 → P3 完成判定)
+
+### 次 (= Phase C)
+
+- **Phase C は薄い**: Phase A (ICS) / Phase B (Google) は独立に end-to-end pass 済。 残るは両系統が同一 Plan UI で共存する確認 + 正式な P3 完成判定のみ。
+- CEO 確認 stop point 3 点 (= Phase C 着手 GO / 共存 smoke の版 / main merge タイミング)。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「B-4 は合格でよい」「Phase B は B-4 まで PASS として閉じてよい」「Phase B result 固定 + closeout + 次フェーズ readiness に進め」)
+- **ステータス**: **Phase B closeout 完了**。 Phase C 着手は CEO GO 待ち。
+
+---
