@@ -33,7 +33,7 @@ export function DateWeatherSummaryCard({
 
   return (
     <section
-      className={`${CAL_OUTFIT_PALETTE.card} overflow-hidden p-6`}
+      className={`${CAL_OUTFIT_PALETTE.card} overflow-hidden p-4`}
       data-testid="plan-calendar-outfit-summary"
     >
       {/* 上段: 日付 (左) + 天気 (右) */}
@@ -45,7 +45,7 @@ export function DateWeatherSummaryCard({
           <p className={`mt-1.5 text-[13px] ${CAL_OUTFIT_PALETTE.subtle}`}>今日の装いを見てみましょう</p>
           {/* SYNC ピル (薄いピル、 ring ではない) */}
           <span
-            className={`${CAL_OUTFIT_PALETTE.syncPill} mt-4 text-xs font-medium`}
+            className={`${CAL_OUTFIT_PALETTE.syncPill} mt-2.5 text-xs font-medium`}
             data-testid="plan-calendar-outfit-sync-pill"
           >
             <span className="text-[11px] tracking-wide text-violet-500">SYNC スコア</span>
@@ -76,7 +76,7 @@ export function DateWeatherSummaryCard({
       </div>
 
       {/* 下段: 日付セレクタ (週、各日に天気アイコン) */}
-      <div className="mt-5 border-t border-violet-100/70 pt-4">
+      <div className="mt-3 border-t border-violet-100/70 pt-3">
         <DaySelectorStrip now={now} selectedIso={selectedIso} onSelect={onSelectDay} />
       </div>
     </section>

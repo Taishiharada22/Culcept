@@ -97,6 +97,10 @@ describe("collagePlacements — 理想画像の配置文法（V1.5）", () => {
   it("主役トップスはほぼ無回転（|rotate| <= 1）", () => {
     expect(Math.abs(byId.top.rotateDeg)).toBeLessThanOrEqual(1);
   });
+  it("ボトムスを縦の柱として top 以上に大きく取る（V1.6）", () => {
+    expect(byId.bottom.scale).toBeGreaterThanOrEqual(byId.top.scale);
+    expect(byId.bottom.scale).toBeGreaterThan(byId.shoes.scale);
+  });
   it("全アイテムの回転は静か（|rotate| <= 3）", () => {
     for (const p of full) expect(Math.abs(p.rotateDeg)).toBeLessThanOrEqual(3);
   });

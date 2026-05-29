@@ -66,13 +66,14 @@ export function shapeToSlot(shape: CalendarOutfitItemShape): OutfitSlot {
 //   - 回転は最大 ±3°（主役はほぼ 0）。 “静か・編集的”。
 //   - 縦長ボード上で、 アイテム群の外接箱が概ね 横:左右1/9 余白・縦:上下1/5 余白に収まる配置。
 const SLOT_LAYOUT: Record<OutfitSlot, Omit<CollagePlacement, "id" | "slot">> = {
-  outer: { leftPct: 33, topPct: 40, scale: 0.58, rotateDeg: -3, z: 1 },
-  top: { leftPct: 42, topPct: 38, scale: 0.56, rotateDeg: 0, z: 3 },
-  bottom: { leftPct: 62, topPct: 48, scale: 0.52, rotateDeg: 2, z: 2 },
-  shoes: { leftPct: 56, topPct: 68, scale: 0.3, rotateDeg: 2, z: 4 },
-  bag: { leftPct: 33, topPct: 64, scale: 0.3, rotateDeg: -3, z: 4 },
-  accessory: { leftPct: 80, topPct: 26, scale: 0.18, rotateDeg: 0, z: 5 },
-  extra: { leftPct: 50, topPct: 50, scale: 0.42, rotateDeg: 1, z: 2 },
+  outer: { leftPct: 33, topPct: 40, scale: 0.62, rotateDeg: -3, z: 1 },
+  top: { leftPct: 40, topPct: 38, scale: 0.6, rotateDeg: 0, z: 3 },
+  // bottom は「縦の柱」。 top より少し大きく取り、 コーデ全体の存在感を支える。
+  bottom: { leftPct: 64, topPct: 50, scale: 0.66, rotateDeg: 2, z: 2 },
+  shoes: { leftPct: 56, topPct: 72, scale: 0.34, rotateDeg: 2, z: 4 },
+  bag: { leftPct: 32, topPct: 66, scale: 0.34, rotateDeg: -3, z: 4 },
+  accessory: { leftPct: 80, topPct: 25, scale: 0.2, rotateDeg: 0, z: 5 },
+  extra: { leftPct: 50, topPct: 50, scale: 0.46, rotateDeg: 1, z: 2 },
 };
 
 const clampPct = (v: number): number => Math.min(100, Math.max(0, v));

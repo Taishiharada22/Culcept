@@ -35,8 +35,8 @@ export const CAL_OUTFIT_PALETTE = {
   accentSoft: "text-violet-400",
   /** SYNC ピル (band 非依存の基底、 画像準拠の薄紫ピル) */
   syncPill: "inline-flex items-center gap-1.5 rounded-full bg-violet-100/70 px-3 py-1 text-violet-700",
-  /** section 間の余白 */
-  sectionGap: "space-y-7",
+  /** section 間の余白（密度重視: 1 画面に収めるため詰める） */
+  sectionGap: "space-y-3",
 } as const;
 
 /**

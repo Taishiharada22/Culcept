@@ -46,8 +46,8 @@ export function OutfitCard({
       className={
         "relative rounded-3xl border bg-white/90 backdrop-blur-sm transition-all duration-300 " +
         (active
-          ? "border-violet-300 p-5 shadow-md ring-2 ring-violet-400/80"
-          : "scale-[0.97] border-violet-100/60 p-4 opacity-60 shadow-sm")
+          ? "border-violet-300 p-3.5 shadow-md ring-2 ring-violet-400/80"
+          : "scale-[0.97] border-violet-100/60 p-3 opacity-60 shadow-sm")
       }
     >
       {/* 非 active でも「選択中」が分かる極小マーカー（active は CTA で表示するため出さない） */}
@@ -90,18 +90,18 @@ export function OutfitCard({
       {/* styling board: アイテムを少し重ねて 1 枚のコーデとして見せる（OutfitCollage）。
           外枠は縦長（mx-auto + maxWidth で portrait に寄せる）。 実画像 / SVG / 欠損も同じ board 上。 */}
       <div
-        className="mt-3 mx-auto overflow-visible rounded-2xl bg-gradient-to-br from-violet-50/80 via-white to-white p-2.5"
-        style={{ maxWidth: active ? 320 : 208 }}
+        className="mt-2 mx-auto overflow-visible rounded-2xl bg-gradient-to-br from-violet-50/80 via-white to-white p-1.5"
+        style={{ maxWidth: active ? 232 : 172 }}
       >
         <OutfitCollage items={proposal.items} active={active} />
       </div>
 
-      {/* SYNC スコア + CTA */}
-      <div className="mt-4 flex items-center justify-between">
-        <span className="inline-flex items-baseline gap-1.5">
-          <span className="text-[11px] tracking-wide text-violet-500">SYNC スコア</span>
-          <span className="text-2xl font-bold leading-none text-violet-700">{proposal.syncScore}</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${band.pill}`}>
+      {/* SYNC スコア + CTA（密度重視: 1 行・折返しなし） */}
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        <span className="inline-flex items-baseline gap-1">
+          <span className="text-[10px] tracking-wide text-violet-500">SYNC</span>
+          <span className="text-xl font-bold leading-none text-violet-700">{proposal.syncScore}</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${band.pill}`}>
             {band.label}
           </span>
         </span>
@@ -112,14 +112,14 @@ export function OutfitCard({
             aria-pressed={selected}
             data-testid={`plan-calendar-outfit-cta-${proposal.id}`}
             className={
-              "inline-flex items-center gap-1 rounded-full px-4 py-2 text-[13px] font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 " +
+              "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 " +
               (selected
                 ? "bg-violet-100 text-violet-700"
                 : "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:from-violet-600 hover:to-purple-600")
             }
           >
             {selected ? "選択中" : "このコーデにする"}
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M5 12l5 5L20 7"
                 stroke="currentColor"
