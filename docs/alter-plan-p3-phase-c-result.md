@@ -1,8 +1,8 @@
-# P3 Phase C Result — ICS + Google 共存 pass → P3 完成判定 (案)
+# P3 Phase C Result — ICS + Google 共存 pass → P3 完成 (確定)
 
 起草日: 2026-05-29
 親 phase: P3 Completion → Phase C (= 共存確認 + 完成判定)
-CEO 確定: (= 完成宣言 + main merge GO は CEO 待ち)
+CEO 確定: 2026-05-29 (= P3 完成宣言 + local main merge GO。 push / PR / remote 反映は別承認)
 
 ---
 
@@ -46,7 +46,7 @@ CEO 確定: (= 完成宣言 + main merge GO は CEO 待ち)
 
 ---
 
-## §4. P3 完成判定 (案) — completion-readiness §0 照合
+## §4. P3 完成判定 — completion-readiness §0 照合
 
 | P3 完成条件 | 状態 |
 |------------|------|
@@ -55,15 +55,16 @@ CEO 確定: (= 完成宣言 + main merge GO は CEO 待ち)
 | 両系統が同一 UI で共存 (= Phase C 5 条件) | ✅ Phase C pass (= 本 doc) |
 | production への副作用 0 | ✅ 全 smoke staging runtime |
 
-→ **4 条件すべて満たす。 P3 完成判定 = PASS (案)**。 CEO の**完成宣言 + main merge GO 待ち**。
+→ **4 条件すべて満たす。 P3 完成判定 = PASS (確定)**。 CEO 完成宣言済 (= 2026-05-29)。 local main merge 実施 (= push / PR / remote 反映は別承認)。
 
 ---
 
-## §5. 次の動作 (= CEO 判断待ち)
+## §5. 着地 (= 2026-05-29)
 
-1. **P3 完成宣言** (= CEO) → 本 doc の (案) を確定に
-2. **main merge** (= `feat/p3-completion` → main、 中間 merge せず Phase C pass 後にまとめて = CEO 既定方針)。 Claude が実行する場合は branch 確認 + full suite green + closeout 固定の上で。
-3. merge 後の残課題 = Phase C readiness §6 (= Outlook / sync 高度化 / overlap 描画 #206 / tsc debt / カレンダータブ再設計) + 戦略トラック §6.3 (= 情報→経営転用フロー)
+- **P3 完成宣言済** (= CEO、 2026-05-29)。
+- **次操作 = local main merge** (= 本 result commit を含む `feat/p3-completion` を main へ `--no-ff` merge)。 **push / PR / remote 反映は別承認** (= CEO 補正)。
+- merge hash / main HEAD は merge 実行後に decision-log + 報告へ記録。
+- merge 後の残課題 = Phase C readiness §6 (= Outlook / sync 高度化 / overlap 描画 #206 / tsc debt / カレンダータブ再設計) + 戦略トラック §6.3 (= 情報→経営転用フロー)
 
 ---
 
