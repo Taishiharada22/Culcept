@@ -8,7 +8,8 @@
  *   - user が「Outlook を接続」tap → 本 route → state 生成 + signed cookie + MS OAuth URL + 302
  *
  * MS 固有:
- *   - authorize: login.microsoftonline.com/common/oauth2/v2.0/authorize
+ *   - authorize: login.microsoftonline.com/consumers/oauth2/v2.0/authorize
+ *     (= 個人 Microsoft アカウント専用。 Azure が Consumer 登録のため /common/ 不可。 TB-5 知見)
  *   - scope: openid offline_access Calendars.Read (= refresh token は offline_access)
  *   - response_mode=query。 access_type は使わない (= Google 固有)
  *

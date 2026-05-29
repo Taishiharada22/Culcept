@@ -14,7 +14,11 @@
  *   4. refresh_token なし (= offline_access scope 漏れ / reconnect 等) は missing_refresh_token
  *
  * MS 固有メモ:
- *   - tenant は `common` (= work/school + personal account 両対応)
+ *   - tenant は `consumers` (= 個人 Microsoft アカウント専用: Outlook.com / Hotmail / Live)。
+ *     Azure アプリ登録が "Consumer" (= signInAudience PersonalMicrosoftAccount) のため、
+ *     `/common/` は MS が userAudience 不一致で invalid_request を返す (= TB-5 知見 2026-05-29)。
+ *     職場/学校 (M365) も対応する場合は Azure を AzureADandPersonalMicrosoftAccount に変更し、
+ *     ここを `/common/` に戻す (= 両対応)。現状は個人アカウント先行のため `/consumers/`。
  *   - token request に scope は不要 (= authorization code が consented scope を内包)
  *   - MS は Google の revoke endpoint 相当の簡易 API を持たない → disconnect は DB delete のみ
  */
@@ -23,11 +27,11 @@
 // Constants
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** Microsoft identity platform v2.0 (= common tenant: work/school + personal) */
+/** Microsoft identity platform v2.0 (= consumers tenant: 個人 Microsoft アカウント専用) */
 export const MICROSOFT_OAUTH_AUTHORIZE_URL =
-  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+  "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
 export const MICROSOFT_TOKEN_ENDPOINT =
-  "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+  "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Token Exchange
@@ -63,7 +67,7 @@ export type MsTokenExchangeFailure = {
 export type MsTokenExchangeResult = MsTokenExchangeSuccess | MsTokenExchangeFailure;
 
 /**
- * code → tokens 交換 (= POST login.microsoftonline.com/common/oauth2/v2.0/token)
+ * code → tokens 交換 (= POST login.microsoftonline.com/consumers/oauth2/v2.0/token)
  *
  * 成功時: { access_token, refresh_token, expires_in, scope, token_type, ext_expires_in }
  * 失敗時: HTTP 4xx + JSON { error: 'invalid_grant' | ..., error_description }
