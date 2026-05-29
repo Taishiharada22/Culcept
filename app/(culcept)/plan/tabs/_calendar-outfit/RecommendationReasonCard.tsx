@@ -14,6 +14,7 @@ import { useState } from "react";
 import type { CalendarOutfitReasonVM } from "./types";
 import { CAL_OUTFIT_PALETTE, STATUS_TONE_SOFT, STATUS_TONE_TEXT } from "./_palette";
 import { SectionHeader } from "./SectionHeader";
+import { CalIcon, REASON_ICON } from "./icons";
 
 export function RecommendationReasonCard({ reason }: { reason: CalendarOutfitReasonVM }) {
   const [open, setOpen] = useState(false);
@@ -31,14 +32,19 @@ export function RecommendationReasonCard({ reason }: { reason: CalendarOutfitRea
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {reason.factors.map((f) => {
               const tone = f.tone ?? "neutral";
+              const svgIcon = REASON_ICON[f.id];
               return (
                 <span
                   key={f.id}
                   className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${STATUS_TONE_SOFT[tone]}`}
                 >
-                  <span className="text-sm leading-none" aria-hidden="true">
-                    {f.icon}
-                  </span>
+                  {svgIcon ? (
+                    <CalIcon name={svgIcon} size={14} className={STATUS_TONE_TEXT[tone]} />
+                  ) : (
+                    <span className="text-sm leading-none" aria-hidden="true">
+                      {f.icon}
+                    </span>
+                  )}
                   <span className="text-[10px] leading-none text-slate-500">{f.label}</span>
                   <span className={`text-[11px] font-semibold leading-none ${STATUS_TONE_TEXT[tone]}`}>
                     {f.value}
