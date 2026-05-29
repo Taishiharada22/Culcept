@@ -37,6 +37,7 @@ import { projectCalendarEvents, buildOutfitDayContext } from "./outfitEventProje
 import { generateCalendarOutfitProposal } from "./outfitEngineAdapter";
 import { buildOutfitReasonVM } from "./outfitReasonFactors";
 import { buildWardrobeStats } from "./wardrobeAnalysis";
+import { buildDayContextSummary } from "./dayContextSummary";
 
 interface OutfitMaterials {
   wardrobe: WardrobeItem[];
@@ -114,6 +115,10 @@ export function useCalendarOutfit({
       // B-5B-read: ワードローブ分析を実 wardrobe から生成（空なら null → mock 分析を維持）
       const wardrobeStats = buildWardrobeStats({ wardrobe, weather, dayContext });
       if (wardrobeStats) next = { ...next, wardrobeStats };
+
+      // B-5C: 最上部 intro を「今日の文脈 1 行」へ格上げ（予定なし → null → 汎用 intro を維持）
+      const dayIntro = buildDayContextSummary(dayContext);
+      if (dayIntro) next = { ...next, intro: dayIntro };
 
       if (active) setVm(next);
     })();
