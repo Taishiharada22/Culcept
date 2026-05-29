@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   getWornForDate,
   saveWorn,
+  rateWornForDate,
   clearWornForDate,
   toWornRecord,
   type PlanWornRecord,
@@ -132,5 +133,37 @@ describe("wornStore", () => {
     saveWorn(toWornRecord(proposal, "2026-05-29", "mock", "t"));
     expect(getWornForDate("2026-05-29")?.source).toBe("mock");
     expect(getWornForDate("2026-05-29")?.proposalId).toBe("p1");
+  });
+
+  // ── rateWornForDate (B-5E-C-A: 隔離 store 内の評価) ──
+  it("rateWornForDate: 既存 record に satisfaction/ratedAt を追記", () => {
+    saveWorn(worn("2026-05-29"));
+    rateWornForDate("2026-05-29", 5, "2026-05-29T21:00:00.000Z");
+    const r = getWornForDate("2026-05-29");
+    expect(r?.satisfaction).toBe(5);
+    expect(r?.ratedAt).toBe("2026-05-29T21:00:00.000Z");
+    // 既存フィールドは保持
+    expect(r?.proposalId).toBe("p1");
+  });
+
+  it("rateWornForDate: worn record が無い日は no-op（評価できない）", () => {
+    rateWornForDate("2026-05-29", 5, "t");
+    expect(getWornForDate("2026-05-29")).toBeNull();
+  });
+
+  it("rateWornForDate: satisfaction は 1-5 に clamp、 不正値は no-op", () => {
+    saveWorn(worn("2026-05-29"));
+    rateWornForDate("2026-05-29", 9, "t");
+    expect(getWornForDate("2026-05-29")?.satisfaction).toBe(5);
+    rateWornForDate("2026-05-29", 0, "t");
+    expect(getWornForDate("2026-05-29")?.satisfaction).toBe(1);
+    rateWornForDate("2026-05-29", Number.NaN, "t2");
+    // NaN は no-op（直前の値 1 を保持）
+    expect(getWornForDate("2026-05-29")?.satisfaction).toBe(1);
+  });
+
+  it("rateWornForDate: SSR では throw しない", () => {
+    delete g.localStorage;
+    expect(() => rateWornForDate("2026-05-29", 5, "t")).not.toThrow();
   });
 });

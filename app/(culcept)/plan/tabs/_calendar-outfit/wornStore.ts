@@ -96,6 +96,29 @@ export function saveWorn(record: PlanWornRecord): void {
   }
 }
 
+/**
+ * 既存の着用記録に **軽い評価** を追記する（B-5E-C-A）。
+ *   - その日の worn record が無ければ no-op（着ていない日は評価できない）。
+ *   - satisfaction は 1〜5 に clamp。 不正値は no-op。
+ *   - ここも /plan 隔離 key のみ。 学習 / server-sync には一切波及しない。
+ *   - SSR / quota / 破損は throw せず no-op。
+ */
+export function rateWornForDate(date: string, satisfaction: number, ratedAt: string): void {
+  const ls = getLocalStorage();
+  if (!ls) return;
+  if (!Number.isFinite(satisfaction)) return;
+  const clamped = Math.min(5, Math.max(1, Math.round(satisfaction))) as 1 | 2 | 3 | 4 | 5;
+  try {
+    const all = loadAll();
+    const idx = all.findIndex((r) => r.date === date);
+    if (idx < 0) return; // worn record が無い → 評価しない
+    all[idx] = { ...all[idx], satisfaction: clamped, ratedAt };
+    ls.setItem(WORN_KEY, JSON.stringify(all));
+  } catch {
+    // no-op
+  }
+}
+
 /** 指定日の着用記録を削除（rollback / 着用取り消し用） */
 export function clearWornForDate(date: string): void {
   const ls = getLocalStorage();

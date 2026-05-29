@@ -18,6 +18,8 @@ export function OutfitCard({
   onSelect,
   worn = false,
   onMarkWorn,
+  satisfaction,
+  onRate,
 }: {
   proposal: CalendarOutfitProposalVM;
   active?: boolean;
@@ -27,6 +29,10 @@ export function OutfitCard({
   worn?: boolean;
   /** 「今日これを着た」確認 (選択済みカードにのみ表示) */
   onMarkWorn?: () => void;
+  /** 着用後の軽い評価 (1-5。 未評価は undefined) — B-5E-C-A */
+  satisfaction?: number;
+  /** 「よかった / 微妙」評価 (着用済みカードにのみ表示)。 学習には流さない (隔離 store のみ) */
+  onRate?: (value: "good" | "bad") => void;
 }) {
   const band = SYNC_BAND_VM[proposal.syncBandKey];
 
@@ -110,17 +116,10 @@ export function OutfitCard({
         )}
       </div>
 
-      {/* B-5E: 選択済みカードにのみ「今日これを着た」確認を小さく出す（rating はまだ無し・隔離記録のみ） */}
+      {/* B-5E: 選択済みカードにのみ「今日これを着た」＋着用後の軽い評価を小さく出す（隔離 store のみ・学習なし） */}
       {active && selected && (
-        <div className="mt-2 flex justify-end">
-          {worn ? (
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-600">
-              着用済み
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </span>
-          ) : (
+        <div className="mt-2 flex items-center justify-end gap-2">
+          {!worn ? (
             <button
               type="button"
               onClick={onMarkWorn}
@@ -129,6 +128,39 @@ export function OutfitCard({
             >
               今日これを着た
             </button>
+          ) : (
+            <>
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-600">
+                着用済み
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              {satisfaction != null ? (
+                <span className="text-[11px] text-slate-500">
+                  感触: {satisfaction >= 4 ? "よかった" : "微妙"}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onRate?.("good")}
+                    data-testid={`plan-calendar-outfit-rate-good-${proposal.id}`}
+                    className="rounded-full border border-violet-200 px-2 py-0.5 text-[11px] font-medium text-violet-600 transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                  >
+                    よかった
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRate?.("bad")}
+                    data-testid={`plan-calendar-outfit-rate-bad-${proposal.id}`}
+                    className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                  >
+                    微妙
+                  </button>
+                </span>
+              )}
+            </>
           )}
         </div>
       )}

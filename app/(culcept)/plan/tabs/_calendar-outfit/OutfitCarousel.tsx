@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 
 import type { CalendarOutfitProposalSource, CalendarOutfitProposalVM } from "./types";
 import { getSelectionForDate, saveSelection, toSelectionRecord } from "./outfitSelectionStore";
-import { getWornForDate, saveWorn, toWornRecord } from "./wornStore";
+import { getWornForDate, saveWorn, rateWornForDate, toWornRecord } from "./wornStore";
 import { OutfitCard } from "./OutfitCard";
 import { CarouselDots } from "./CarouselDots";
 
@@ -41,6 +41,8 @@ export function OutfitCarousel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // B-5E: この日に「着た」記録があるか（proposalId 一致時のみ「着用済み」表示）。
   const [wornId, setWornId] = useState<string | null>(null);
+  // B-5E-C-A: 着用後の軽い評価（1-5。 未評価は null）。 隔離 store のみ、 学習には流さない。
+  const [wornSatisfaction, setWornSatisfaction] = useState<number | null>(null);
 
   // B-5D/B-5E: 同日の保存済み選択・着用を復元（現在の proposals に同 id がある時だけ。 無ければ force しない）。
   // proposals / 日付が変わるたびに再評価し、 activeIndex も範囲内に収める。
@@ -54,9 +56,15 @@ export function OutfitCarousel({
       setSelectedId(null);
       setActiveIndex((prev) => Math.min(prev, Math.max(0, proposals.length - 1)));
     }
-    // 着用記録の復元（選択とは独立。 現在の proposals に同 id がある時だけ）。
+    // 着用記録・評価の復元（選択とは独立。 現在の proposals に同 id がある時だけ）。
     const wornRec = getWornForDate(dayIso);
-    setWornId(wornRec && proposals.some((p) => p.id === wornRec.proposalId) ? wornRec.proposalId : null);
+    if (wornRec && proposals.some((p) => p.id === wornRec.proposalId)) {
+      setWornId(wornRec.proposalId);
+      setWornSatisfaction(wornRec.satisfaction ?? null);
+    } else {
+      setWornId(null);
+      setWornSatisfaction(null);
+    }
   }, [dayIso, proposals]);
 
   if (count === 0) return null;
@@ -73,7 +81,15 @@ export function OutfitCarousel({
   // B-5E: 「今日これを着た」→ /plan 隔離 store に保存（saveWornRecord / 学習 / server-sync には書かない）。
   const handleMarkWorn = (proposal: CalendarOutfitProposalVM) => {
     setWornId(proposal.id);
+    setWornSatisfaction(null); // 新規着用は未評価
     saveWorn(toWornRecord(proposal, dayIso, source, new Date().toISOString()));
+  };
+
+  // B-5E-C-A: 「よかった / 微妙」→ 隔離 store の satisfaction に追記（good=5 / bad=2）。 学習には流さない。
+  const handleRate = (value: "good" | "bad") => {
+    const satisfaction = value === "good" ? 5 : 2;
+    setWornSatisfaction(satisfaction);
+    rateWornForDate(dayIso, satisfaction, new Date().toISOString());
   };
 
   const trackTransform = `translateX(calc(10% - ${activeIndex * 80}%))`;
@@ -96,6 +112,8 @@ export function OutfitCarousel({
                   onSelect={() => handleSelect(proposal)}
                   worn={proposal.id === wornId}
                   onMarkWorn={() => handleMarkWorn(proposal)}
+                  satisfaction={proposal.id === wornId && wornSatisfaction != null ? wornSatisfaction : undefined}
+                  onRate={handleRate}
                 />
               </div>
             ))}
