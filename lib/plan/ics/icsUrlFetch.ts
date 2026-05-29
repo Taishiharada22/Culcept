@@ -29,6 +29,9 @@
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 
+import { parseIcsString } from "./icsParser";
+import { mapIcsEventsToDrafts, type IcsAnchorDraft } from "./icsToAnchorMapper";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -368,4 +371,92 @@ export async function fetchIcsText(
   }
 
   return { ok: false, reason: "too_many_redirects" };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// importIcsFromUrl (= URL → drafts orchestration、 fetch + parse + map)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type IcsUrlImportResult =
+  | {
+      readonly ok: true;
+      readonly drafts: IcsAnchorDraft[];
+      readonly warnings: string[];
+      readonly skipped: number;
+      readonly host: string;
+    }
+  | { readonly ok: false; readonly reason: IcsUrlFetchReason; readonly detail?: string };
+
+/**
+ * URL から .ics を取得 → parse → map して IcsAnchorDraft[] を返す (= A-2 action の中核)。
+ *
+ * - fetch は SSRF-guarded (= fetchIcsText)
+ * - parse / map は既存 pure module を再利用 (= file flow と同一経路)
+ * - deps を透過して fetchIcsText に渡す (= network なし単体 test 可能)
+ */
+export async function importIcsFromUrl(
+  url: string,
+  deps: FetchIcsTextDeps = {},
+): Promise<IcsUrlImportResult> {
+  const fetched = await fetchIcsText(url, deps);
+  if (!fetched.ok) {
+    return {
+      ok: false,
+      reason: fetched.reason,
+      ...(fetched.detail !== undefined ? { detail: fetched.detail } : {}),
+    };
+  }
+  const parsed = parseIcsString(fetched.icsText);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      reason: "not_calendar_body",
+      ...(parsed.error !== undefined ? { detail: parsed.error } : {}),
+    };
+  }
+  const mapped = mapIcsEventsToDrafts(parsed.events);
+  return {
+    ok: true,
+    drafts: [...mapped.drafts],
+    warnings: [...parsed.warnings],
+    skipped: mapped.skipped.length,
+    host: fetched.finalHost,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// reasonToMessage (= reason → user 向け 1 行、 detail は出さない = log 衛生)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export function reasonToMessage(reason: IcsUrlFetchReason): string {
+  switch (reason) {
+    case "invalid_url":
+      return "URL の形式が正しくありません。";
+    case "scheme_not_https":
+      return "https:// または webcal:// の URL を指定してください。";
+    case "userinfo_not_allowed":
+      return "URL に認証情報（user:pass@）は含められません。";
+    case "port_not_allowed":
+      return "標準ポート以外の URL は取り込めません。";
+    case "blocked_address":
+      return "安全のため、このURL（内部/非公開アドレス）は取り込めません。";
+    case "dns_resolution_failed":
+      return "URL のホストが見つかりませんでした。";
+    case "too_many_redirects":
+      return "リダイレクトが多すぎます。";
+    case "redirect_no_location":
+      return "リダイレクト先が不正です。";
+    case "timeout":
+      return "取得がタイムアウトしました。時間をおいて再度お試しください。";
+    case "too_large":
+      return "カレンダーのデータが大きすぎます。";
+    case "not_calendar_body":
+      return "指定された URL は iCalendar 形式ではありませんでした。";
+    case "http_error":
+      return "取得に失敗しました（サーバー応答エラー）。";
+    case "fetch_failed":
+      return "取得に失敗しました。URL をご確認ください。";
+    default:
+      return "取り込みに失敗しました。";
+  }
 }

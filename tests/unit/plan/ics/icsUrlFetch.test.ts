@@ -12,8 +12,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   fetchIcsText,
+  importIcsFromUrl,
   isBlockedIp,
   normalizeIcsUrl,
+  reasonToMessage,
 } from "@/lib/plan/ics/icsUrlFetch";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -435,5 +437,92 @@ describe("fetchIcsText — body / size / http / timeout", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe("fetch_failed");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// importIcsFromUrl (= URL → drafts orchestration、 A-2 中核)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const ICS_WITH_EVENT = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:u1@test",
+  "DTSTAMP:20260529T000000Z",
+  "DTSTART:20260529T130000Z",
+  "DTEND:20260529T140000Z",
+  "SUMMARY:Test Event",
+  "LOCATION:Tokyo",
+  "END:VEVENT",
+  "END:VCALENDAR",
+].join("\n");
+
+describe("importIcsFromUrl", () => {
+  it("公開 host + 有効 .ics → drafts 1 件", async () => {
+    const r = await importIcsFromUrl("https://cal.example.com/feed.ics", {
+      lookup: async () => [PUBLIC_IP],
+      fetchImpl: async () => makeRes({ status: 200, text: ICS_WITH_EVENT }),
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.drafts).toHaveLength(1);
+      expect(r.drafts[0]!.title).toBe("Test Event");
+      expect(r.drafts[0]!.date).toBe("2026-05-29");
+      expect(r.drafts[0]!.startTime).toBe("13:00");
+      expect(r.skipped).toBe(0);
+      expect(r.host).toBe("cal.example.com");
+    }
+  });
+
+  it("SSRF 遮断 (= private 解決) → reason 伝播 (= drafts に進まない)", async () => {
+    const fetchImpl = vi.fn(async () => makeRes({ status: 200, text: ICS_WITH_EVENT }));
+    const r = await importIcsFromUrl("https://evil.example.com/feed.ics", {
+      lookup: async () => ["169.254.169.254"],
+      fetchImpl,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("blocked_address");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("非 iCalendar 本文 → not_calendar_body", async () => {
+    const r = await importIcsFromUrl("https://cal.example.com/feed.ics", {
+      lookup: async () => [PUBLIC_IP],
+      fetchImpl: async () => makeRes({ status: 200, text: "<html>nope</html>" }),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_calendar_body");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// reasonToMessage
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("reasonToMessage", () => {
+  it("全 reason が非空 1 行 message を返す", () => {
+    const reasons = [
+      "invalid_url",
+      "scheme_not_https",
+      "userinfo_not_allowed",
+      "port_not_allowed",
+      "blocked_address",
+      "dns_resolution_failed",
+      "too_many_redirects",
+      "redirect_no_location",
+      "timeout",
+      "too_large",
+      "not_calendar_body",
+      "http_error",
+      "fetch_failed",
+    ] as const;
+    for (const reason of reasons) {
+      const msg = reasonToMessage(reason);
+      expect(typeof msg).toBe("string");
+      expect(msg.length).toBeGreaterThan(0);
+      // log 衛生: 内部 IP を漏らさない (= message は静的定数、 user URL を含まない)
+      expect(msg).not.toMatch(/169\.254|127\.0\.0\.1/);
+    }
   });
 });
