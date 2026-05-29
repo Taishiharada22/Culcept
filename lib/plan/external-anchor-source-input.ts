@@ -52,6 +52,7 @@ const ALLOWED_SOURCE_TYPES: readonly ExternalAnchorSourceType[] = [
   "chat",
   "ics", // P3 W3 (= 2026-05-26): .ics / iCalendar 取り込み経路
   "google_calendar", // P3 Phase B (= 2026-05-29 β 恒久化): Google Calendar 連携取り込み
+  "microsoft_calendar", // Track B (= 2026-05-29): Outlook / Microsoft 365 連携取り込み
 ];
 
 const ALLOWED_RAW_RETENTION: readonly RawRetention[] = ["discarded", "stored"];
