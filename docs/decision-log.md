@@ -14741,3 +14741,37 @@ CEO 主導の staging smoke で **connect → fetch → save → UI 反映** が
 - **ステータス**: Phase C **Claude 側準備完了** (= fixture 作成 + 検証 + readiness 確定)。 CEO-driven 共存 smoke 待ち。
 
 ---
+
+## 2026-05-29 [Build] P3 Phase C 共存 smoke PASS + overlap 描画 deferred + P3 完成判定 (案) [承認: CEO 待ち]
+
+### Phase C smoke 結果 (= CEO 視覚確認)
+
+staging で Google import 済 user のまま `/tmp/p3-phase-c-smoke.ics` を追加 import。 5/29・5/30 の Plan UI で ICS 由来予定と既存予定 (= Google import 含む) が**共存表示**。 Phase C pass 5 条件すべて達成 (= CEO「共存できているように思います」):
+
+1. Google import 済維持 ✅ / 2. ICS 追加 import (3 件) ✅ / 3. 同一 UI 共存表示 ✅ / 4. 既存非破壊 ✅ / 5. 重複・消失なし ✅
+
+### overlap 描画事項 → P3 範囲外で deferred (= CEO 認識と一致)
+
+- **観察 (CEO)**: 5/30「仕事」09:00-17:00 と ICS「コーヒーチャット」11:00-11:30 が時間重複。 望ましい表示は「仕事」を 09:00-11:00 / 11:30-17:00 に分割し間にコーヒーチャットを置くこと。 現状は両 block 独立表示。
+- **scope 判断 (= 範囲外)**: ①import は正常 (= 両者正しい時刻、 データ破損でない) ②source 非依存 (= 任意の重複予定で起きるタイムライン描画全般) ③プロダクト設計論点を含む (= 割る/重ねる/入れ子、「仕事中の小休止」 の意味論)。 → カレンダータブ再設計 / Plan UI トラック。
+- **対応**: task #206 でバックログ化。 CEO「今回の修正範囲外で、 以降に行う予定だったら、 それでいい」 → **deferred 確定**。
+
+### P3 完成判定 (案)
+
+completion-readiness §0 の 4 条件すべて達成: ICS end-to-end (Phase A) ✅ / Google end-to-end (Phase B) ✅ / 共存 (Phase C) ✅ / production 副作用 0 ✅。 → **P3 完成 = PASS (案)**。 CEO の完成宣言 + main merge GO 待ち (= 中間 merge せず Phase C pass 後にまとめて、 既定方針)。
+
+### docs (= 本 commit)
+
+新規:
+- `docs/alter-plan-p3-phase-c-result.md` (= Phase C smoke 結果 + overlap deferred + P3 完成判定案)
+
+### 次 (= CEO 判断)
+
+- CEO が「P3 完成」 を宣言 → main merge GO。 merge は branch 確認 + full suite green + closeout 固定の上で実行。
+
+### 承認 + ステータス
+
+- **承認**: CEO 待ち (= 完成宣言 + merge GO)
+- **ステータス**: Phase C smoke **PASS**。 overlap **deferred (#206)**。 P3 完成判定は **CEO 宣言待ち**。
+
+---
