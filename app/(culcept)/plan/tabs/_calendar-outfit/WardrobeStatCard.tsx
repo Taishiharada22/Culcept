@@ -12,19 +12,18 @@ export function WardrobeStatCard({ stat }: { stat: CalendarOutfitStatVM }) {
   const tone = stat.tone ?? "neutral";
   return (
     <div
-      className="flex w-[100px] shrink-0 flex-col items-center gap-1.5 rounded-2xl border border-violet-100/60 bg-white/80 px-3 py-3.5 text-center"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-100/60 bg-white/80 px-2.5 py-1.5"
       data-testid={`plan-calendar-outfit-stat-${stat.id}`}
     >
       {stat.icon && (
-        <span className="text-2xl leading-none" aria-hidden="true">
+        <span className="text-sm leading-none" aria-hidden="true">
           {stat.icon}
         </span>
       )}
-      <span className="text-[11px] leading-tight text-slate-400">{stat.label}</span>
-      <span className={`text-sm font-semibold leading-tight ${STATUS_TONE_TEXT[tone]}`}>
+      <span className="text-[11px] leading-tight text-slate-500">{stat.label}</span>
+      <span className={`text-[11px] font-semibold leading-tight ${STATUS_TONE_TEXT[tone]}`}>
         {stat.value}
       </span>
-      {stat.caption && <span className="text-[10px] leading-tight text-slate-300">{stat.caption}</span>}
     </div>
   );
 }

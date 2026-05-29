@@ -54,11 +54,7 @@ export function TodayScheduleCard({
             {item.location}
           </span>
         )}
-        {item.rigid && (
-          <span className="mt-0.5 rounded-full bg-slate-100 px-1.5 py-px text-[9px] text-slate-500">
-            固定
-          </span>
-        )}
+        {/* 「固定」バッジは不要（密度・上品さ優先、 CEO 指示）。 */}
       </div>
     </div>
   );

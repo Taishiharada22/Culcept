@@ -40,26 +40,27 @@ export function DateWeatherSummaryCard({
       <div className="flex items-stretch gap-3">
         {/* 左: 当日の要約 */}
         <div className="min-w-0 shrink-0">
-          <p className={`text-xl font-bold leading-tight tracking-tight ${CAL_OUTFIT_PALETTE.heading}`}>
+          <p className={`text-base font-bold leading-tight tracking-tight ${CAL_OUTFIT_PALETTE.heading}`}>
             {dateLabel}
           </p>
-          <div className="mt-1 flex items-center gap-1.5">
-            <span className="text-2xl leading-none" aria-hidden="true">
+          {/* 天気 + 最高/最低 + 降水 を 1 行に（「降水」の文言は不要、 傘 + % のみ） */}
+          <div className="mt-1 flex items-center gap-2 text-[13px]">
+            <span className="leading-none" aria-hidden="true">
               {weather.icon}
             </span>
-            <span className="text-sm">
+            <span>
               <span className="font-semibold text-slate-700">{weather.tempMax}°</span>
-              <span className="text-slate-400"> / {weather.tempMin}°</span>
+              <span className="text-slate-400">/{weather.tempMin}°</span>
             </span>
+            <span className="text-slate-400">☂ {weather.pop}%</span>
           </div>
-          <p className="mt-0.5 text-[11px] text-slate-400">🌧️ 降水 {weather.pop}%</p>
-          {/* SYNC ピル (薄いピル) */}
+          {/* SYNC ピル (小さめ) */}
           <span
-            className={`${CAL_OUTFIT_PALETTE.syncPill} mt-2 text-xs font-medium`}
+            className={`${CAL_OUTFIT_PALETTE.syncPill} mt-1.5 px-2 py-0.5 text-xs font-medium`}
             data-testid="plan-calendar-outfit-sync-pill"
           >
             <span className="text-[10px] tracking-wide text-violet-500">SYNC</span>
-            <span className="text-base font-bold text-violet-700">{sync.score}</span>
+            <span className="text-sm font-bold text-violet-700">{sync.score}</span>
             <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${band.pill}`}>
               {sync.bandLabel}
             </span>

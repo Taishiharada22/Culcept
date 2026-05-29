@@ -20,8 +20,8 @@ import type { CalendarOutfitItemVM } from "./types";
 import { OutfitItemView, toOutfitItemAsset } from "./OutfitItemView";
 import { collagePlacements } from "./outfitCollagePlacement";
 
-/** board のアスペクト比。 ほぼ正方（セクションを短く保つ）。 縦長にし過ぎない。 */
-const BOARD_ASPECT = { active: "1 / 1", inactive: "1 / 1" } as const;
+/** board のアスペクト比。 横長（短い高さで top|bottom を横並び大きく載せる＝中央に小さく固まらせない）。 */
+const BOARD_ASPECT = { active: "8 / 5", inactive: "8 / 5" } as const;
 
 export function OutfitCollage({
   items,

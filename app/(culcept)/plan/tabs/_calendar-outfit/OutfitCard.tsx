@@ -46,8 +46,8 @@ export function OutfitCard({
       className={
         "relative rounded-3xl border bg-white/90 backdrop-blur-sm transition-all duration-300 " +
         (active
-          ? "border-violet-300 p-3.5 shadow-md ring-2 ring-violet-400/80"
-          : "scale-[0.97] border-violet-100/60 p-3 opacity-60 shadow-sm")
+          ? "border-violet-300 p-3 shadow-md ring-2 ring-violet-400/80"
+          : "scale-[0.9] border-violet-100/60 p-2.5 opacity-50 shadow-sm")
       }
     >
       {/* 非 active でも「選択中」が分かる極小マーカー（active は CTA で表示するため出さない） */}
@@ -87,12 +87,9 @@ export function OutfitCard({
         )}
       </div>
 
-      {/* styling board = カードそのもの。 内側の紫ボックスは置かず、 アイテムを白カード上に直接浮かせる
-          （frame-in-frame・中途半端な内側ボード感を解消）。 mx-auto + maxWidth で大きさだけ整える。 */}
-      <div
-        className="mt-1.5 mx-auto overflow-visible"
-        style={{ maxWidth: active ? 220 : 164 }}
-      >
+      {/* styling board = カードそのもの。 内側の紫ボックスは置かず、 アイテムをカード幅いっぱいに
+          浮かせる（中央に小さく固まらせない）。 横長ボードで高さは短く保つ。 */}
+      <div className="mt-1.5 overflow-visible">
         <OutfitCollage items={proposal.items} active={active} />
       </div>
 

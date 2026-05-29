@@ -99,7 +99,8 @@ export function OutfitCarousel({
     clearWornForDate(dayIso);
   };
 
-  const trackTransform = `translateX(calc(10% - ${activeIndex * 80}%))`;
+  // 3-up: 中央 76% + 左右 ~12% ずつ覗く（中央カードの左右端が枠の左右 ~1/8 に来る）。
+  const trackTransform = `translateX(calc(12% - ${activeIndex * 76}%))`;
 
   return (
     <div data-testid="plan-calendar-outfit-carousel">
@@ -111,7 +112,7 @@ export function OutfitCarousel({
             style={{ transform: trackTransform }}
           >
             {proposals.map((proposal, i) => (
-              <div key={proposal.id} className="w-[80%] shrink-0 px-1.5">
+              <div key={proposal.id} className="w-[76%] shrink-0 px-1.5">
                 <OutfitCard
                   proposal={proposal}
                   active={i === activeIndex}

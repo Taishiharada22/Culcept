@@ -26,24 +26,23 @@ export function RecommendationReasonCard({ reason }: { reason: CalendarOutfitRea
           {reason.headline}
         </p>
 
-        {/* 主要 5 因子 */}
+        {/* 主要因子: 横型コンパクトチップ（アイコン + 値を 1 行に、 縦積みを廃し高さを抑える） */}
         {reason.factors.length > 0 && (
-          <div className="mt-2.5 grid grid-cols-5 gap-2">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {reason.factors.map((f) => {
               const tone = f.tone ?? "neutral";
               return (
-                <div key={f.id} className="flex flex-col items-center gap-1.5 text-center">
-                  <span
-                    className={`flex h-12 w-12 items-center justify-center rounded-2xl text-xl ${STATUS_TONE_SOFT[tone]}`}
-                    aria-hidden="true"
-                  >
+                <span
+                  key={f.id}
+                  className={`inline-flex items-center gap-1 rounded-lg px-1.5 py-1 ${STATUS_TONE_SOFT[tone]}`}
+                >
+                  <span className="text-xs leading-none" aria-hidden="true">
                     {f.icon}
                   </span>
-                  <span className="text-[10px] leading-tight text-slate-400">{f.label}</span>
-                  <span className={`text-xs font-semibold leading-tight ${STATUS_TONE_TEXT[tone]}`}>
+                  <span className={`text-[11px] font-medium leading-none ${STATUS_TONE_TEXT[tone]}`}>
                     {f.value}
                   </span>
-                </div>
+                </span>
               );
             })}
           </div>
