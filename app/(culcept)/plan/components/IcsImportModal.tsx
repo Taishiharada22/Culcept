@@ -26,7 +26,7 @@
  *   - app/(culcept)/plan/components/AddAnchorModal.tsx (= pattern 参考、 不触)
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 
 import {
   GlassButton,
@@ -50,6 +50,12 @@ import { importGoogleAnchorsAction } from "../_actions/importGoogleAnchors";
 import { importMicrosoftAnchorsAction } from "../_actions/importMicrosoftAnchors";
 // ICS URL Import (Track A): URL から .ics を server SSRF-guarded fetch (= 副導線)
 import { fetchIcsFromUrlAction } from "../_actions/fetchIcsFromUrl";
+// URL Import Productization U3 (2026-05-30): 貼付内容の即時分類 (advisory) + サービス別ガイド
+import { classifyUrlInput } from "@/lib/plan/ics/urlInputClassify";
+import {
+  CALENDAR_URL_GUIDES,
+  type CalendarProviderKey,
+} from "@/lib/plan/ics/urlImportGuide";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // State 型
@@ -111,6 +117,12 @@ export function IcsImportModal({
   >("unknown");
   const [microsoftError, setMicrosoftError] = useState<string | null>(null);
 
+  // U3: ガイド accordion 開閉 + 展開中の provider (= URL 取得ガイド)
+  const [urlGuideOpen, setUrlGuideOpen] = useState(false);
+  const [expandedGuideKey, setExpandedGuideKey] = useState<CalendarProviderKey | null>(null);
+  // U3: URL input の即時分類 (advisory)
+  const urlClassification = useMemo(() => classifyUrlInput(urlInput), [urlInput]);
+
   // reset on close
   useEffect(() => {
     if (!isOpen) {
@@ -119,6 +131,9 @@ export function IcsImportModal({
       setGoogleError(null);
       setMicrosoftError(null);
       setUrlInput("");
+      // U3: ガイド state も close でリセット (= 次回 fresh)
+      setUrlGuideOpen(false);
+      setExpandedGuideKey(null);
     }
   }, [isOpen]);
 
@@ -281,6 +296,11 @@ export function IcsImportModal({
     }
   }
 
+  // U3: .ics 本文貼付時に呼ばれる CTA = OS のファイルピッカーを開く
+  function openFilePicker() {
+    fileInputRef.current?.click();
+  }
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file === undefined) return;
@@ -331,6 +351,8 @@ export function IcsImportModal({
   async function handleUrlFetch() {
     const url = urlInput.trim();
     if (url.length === 0) return;
+    // U3: advisory ガード (.ics 本文を URL として送らない、 他は server に精密判定させる)
+    if (urlClassification.kind === "ics_body") return;
 
     setState({ kind: "parsing" });
     try {
@@ -620,12 +642,141 @@ export function IcsImportModal({
                   <button
                     type="button"
                     onClick={handleUrlFetch}
-                    disabled={urlInput.trim().length === 0}
+                    disabled={urlInput.trim().length === 0 || urlClassification.kind === "ics_body"}
                     data-testid="ics-url-fetch-btn"
                     className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     取り込む
                   </button>
+                </div>
+
+                {/* U3 (CEO 補正 2026-05-30): U1 即時 feedback (advisory)
+                    - ics_body は赤カード + ファイル取込 CTA (= CEO error 微補正 #1)
+                    - webcal/https_calendar_like は緑 ✓
+                    - https_page_guess は黄色 soft warn (= server に試させる)
+                    - invalid(not_a_url) はグレー hint */}
+                {urlInput.trim().length > 0 && urlClassification.kind === "ics_body" && (
+                  <div
+                    className="mt-2 rounded-lg border border-rose-200 bg-rose-50/60 p-2.5"
+                    data-testid="url-classify-ics-body"
+                    role="alert"
+                  >
+                    <p className="text-[11px] text-rose-700 leading-snug">
+                      これは URL ではなくカレンダーファイル（.ics）の中身です。
+                      下の「ファイルを選ぶ」から取り込んでください。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openFilePicker}
+                      data-testid="url-classify-ics-body-cta"
+                      className="mt-1.5 text-[11px] font-medium text-rose-700 underline-offset-2 hover:underline"
+                    >
+                      ファイルから取り込む →
+                    </button>
+                  </div>
+                )}
+                {urlInput.trim().length > 0 &&
+                  (urlClassification.kind === "webcal" ||
+                    urlClassification.kind === "https_calendar_like") && (
+                    <p
+                      className="mt-1.5 text-[10px] text-emerald-600"
+                      data-testid="url-classify-ok"
+                    >
+                      ✓ カレンダー URL のようです
+                    </p>
+                  )}
+                {urlInput.trim().length > 0 && urlClassification.kind === "https_page_guess" && (
+                  <p
+                    className="mt-1.5 text-[10px] text-amber-600"
+                    data-testid="url-classify-page-guess"
+                  >
+                    公開カレンダーの URL ではないかもしれません。試してみることはできます。
+                  </p>
+                )}
+                {urlInput.trim().length > 0 &&
+                  urlClassification.kind === "invalid" &&
+                  urlClassification.invalidReason === "not_a_url" && (
+                    <p
+                      className="mt-1.5 text-[10px] text-slate-400"
+                      data-testid="url-classify-not-a-url"
+                    >
+                      <code className="text-[9px] bg-slate-100 px-1 rounded">https://</code>{" "}
+                      または <code className="text-[9px] bg-slate-100 px-1 rounded">webcal://</code>{" "}
+                      の URL を貼ってください。
+                    </p>
+                  )}
+
+                {/* U3: 「URL の取り方がわからない」ガイド accordion (= U2 接続)
+                    - ガイドは副導線維持 (OAuth が主、URL は補助、Apple は URL で取り込める明示) */}
+                <div className="mt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setUrlGuideOpen((v) => !v)}
+                    aria-expanded={urlGuideOpen}
+                    data-testid="url-guide-toggle"
+                    className="text-[10px] text-slate-500 hover:text-indigo-600 underline-offset-2 hover:underline"
+                  >
+                    {urlGuideOpen ? "▾ URL の取り方を閉じる" : "▸ URL の取り方がわからない"}
+                  </button>
+                  {urlGuideOpen && (
+                    <div
+                      className="mt-2 space-y-1.5"
+                      data-testid="url-guide-content"
+                    >
+                      {CALENDAR_URL_GUIDES.map((guide) => {
+                        const isExpanded = expandedGuideKey === guide.key;
+                        return (
+                          <div
+                            key={guide.key}
+                            className="rounded-md border border-slate-200 bg-white"
+                            data-testid={`url-guide-${guide.key}`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedGuideKey(isExpanded ? null : guide.key)
+                              }
+                              aria-expanded={isExpanded}
+                              data-testid={`url-guide-${guide.key}-toggle`}
+                              className="w-full flex items-center justify-between px-2.5 py-1.5 text-left"
+                            >
+                              <span className="text-[11px] font-medium text-slate-700">
+                                {guide.title}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {isExpanded ? "−" : "+"}
+                              </span>
+                            </button>
+                            {isExpanded && (
+                              <div
+                                className="border-t border-slate-100 px-2.5 py-2"
+                                data-testid={`url-guide-${guide.key}-body`}
+                              >
+                                <p className="text-[11px] text-slate-600 leading-snug">
+                                  {guide.lead}
+                                </p>
+                                <ol className="mt-1.5 list-decimal pl-4 space-y-0.5">
+                                  {guide.steps.map((step, i) => (
+                                    <li
+                                      key={i}
+                                      className="text-[10px] text-slate-500 leading-snug"
+                                    >
+                                      {step}
+                                    </li>
+                                  ))}
+                                </ol>
+                                {guide.note && (
+                                  <p className="mt-1.5 text-[9px] text-slate-400 leading-snug">
+                                    {guide.note}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
