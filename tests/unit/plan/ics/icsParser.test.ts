@@ -191,6 +191,16 @@ describe("parseIcsString: TZID-aware event", () => {
     const e = result.events[0]!;
     expect(e.tzid).toBe("Asia/Tokyo");
   });
+
+  it("TZID の時刻は wall-clock を保持 (= 2026-05-29 UTC 変換 bug 回帰ガード)", () => {
+    // DTSTART;TZID=Asia/Tokyo:20260601T140000 → 14:00 のまま保持し、
+    // toJSDate 経由の UTC 変換 (= 05:00) にズラさない (= app は timezone-naive)。
+    const result = parseIcsString(buildIcs(TZID_VEVENT));
+    const e = result.events[0]!;
+    expect(e.startDateIso).toContain("2026-06-01T14:00");
+    expect(e.startDateIso).not.toContain("T05:00");
+    expect(e.endDateIso).toContain("2026-06-01T15:00");
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

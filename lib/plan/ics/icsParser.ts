@@ -45,9 +45,9 @@ export type ParsedIcsEvent = {
   readonly uid: string;
   /** SUMMARY (= イベント名) */
   readonly summary: string;
-  /** DTSTART (= ISO 8601 文字列、 UTC 想定 or local floating) */
+  /** DTSTART (= ISO 8601 文字列、 「書かれた wall-clock」 を保持。 TZ 変換しない = 2026-05-29 修正) */
   readonly startDateIso: string;
-  /** DTEND (= optional、 ISO 8601、 UTC 想定) */
+  /** DTEND (= optional、 ISO 8601、 「書かれた wall-clock」 を保持) */
   readonly endDateIso?: string;
   /** LOCATION (= 任意の文字列) */
   readonly location?: string;
@@ -155,22 +155,36 @@ export function parseIcsString(raw: string): IcsParseResult {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * ICAL.Time → ISO 8601 string
+ * ICAL.Time → ISO 8601 string (= 「書かれた wall-clock」 を直接保持、 TZ 変換しない)
  *
- * - isDate (= 終日 event): YYYY-MM-DDT00:00:00.000Z 固定 (= timezone shift 回避)
- *   - 理由: toJSDate() は local-midnight を UTC に変換するため、 TZ shift で日付ずれる
- * - 時刻あり: toJSDate().toISOString() (= TZ 考慮済 UTC ISO)
+ * 重要 (= 2026-05-29 修正): 終日 / 時刻あり ともに year/month/day/hour/minute/second の
+ * **書かれた値** を直接 ISO 化する。 `toJSDate().toISOString()` は使わない。
+ *
+ * 理由:
+ *   - app は timezone-naive (= mapper が ISO の HH:MM / YYYY-MM-DD を wall-clock として slice、
+ *     viewer TZ への変換を持たない)。
+ *   - `toJSDate().toISOString()` は絶対時刻を UTC へ変換するため、 TZID=Asia/Tokyo の 21:00 が
+ *     12:00 へズレる (= 9h shift。 floating time は machine TZ 依存にもなる)。
+ *   - `.hour`/`.minute` 等は zone 変換せず「書かれた値」を返すので、 21:00 を 21:00 のまま保持できる。
+ *   - これは Google API path (= googleEventsToAnchorMapper が `+09:00` 文字列の HH:MM を
+ *     local wall-clock として採用) と一致する。
+ *
+ * 注: 末尾 "Z" は format 安定用 (= 下流 mapper は slice のみ、 真の UTC instant は意味しない)。
+ *     多 TZ 環境での viewer TZ 正規変換は app に TZ 概念が入った後の別 phase。
  */
 function icalTimeToIso(time: ICAL.Time): string {
+  const y = time.year.toString().padStart(4, "0");
+  const m = time.month.toString().padStart(2, "0");
+  const d = time.day.toString().padStart(2, "0");
   if (time.isDate === true) {
-    // 終日 event: 日付 components を直接 ISO 化 (= UTC midnight)
-    const y = time.year.toString().padStart(4, "0");
-    const m = time.month.toString().padStart(2, "0");
-    const d = time.day.toString().padStart(2, "0");
+    // 終日 event: 日付 components のみ (= 時刻なし)
     return `${y}-${m}-${d}T00:00:00.000Z`;
   }
-  // 時刻あり: toJSDate 経由 (= TZ 考慮済)
-  return time.toJSDate().toISOString();
+  // 時刻あり: 書かれた wall-clock components を直接 ISO 化 (= TZ shift 回避)
+  const hh = time.hour.toString().padStart(2, "0");
+  const mm = time.minute.toString().padStart(2, "0");
+  const ss = time.second.toString().padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}.000Z`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
