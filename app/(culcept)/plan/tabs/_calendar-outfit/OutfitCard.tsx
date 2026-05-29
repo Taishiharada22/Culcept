@@ -44,12 +44,28 @@ export function OutfitCard({
       data-testid={`plan-calendar-outfit-card-${proposal.id}`}
       aria-current={active ? "true" : undefined}
       className={
-        "rounded-3xl border bg-white/90 backdrop-blur-sm transition-all duration-300 " +
+        "relative rounded-3xl border bg-white/90 backdrop-blur-sm transition-all duration-300 " +
         (active
           ? "border-violet-300 p-5 shadow-md ring-2 ring-violet-400/80"
           : "border-violet-100/60 p-4 opacity-60 shadow-sm")
       }
     >
+      {/* 非 active でも「選択中」が分かる極小マーカー（active は CTA で表示するため出さない） */}
+      {selected && !active && (
+        <>
+          <span
+            className="absolute right-2.5 top-2.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-violet-100 text-violet-600 ring-1 ring-violet-200"
+            aria-hidden="true"
+            data-testid={`plan-calendar-outfit-selected-mark-${proposal.id}`}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+              <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="sr-only">選択中</span>
+        </>
+      )}
+
       {/* ヘッダ: タイトル + バッジ + ムード */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
