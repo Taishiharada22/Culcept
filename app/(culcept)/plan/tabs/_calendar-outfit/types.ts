@@ -79,6 +79,63 @@ export interface CalendarOutfitItemVM {
   color: string;
   /** 任意の emoji hint */
   emoji?: string;
+  /**
+   * 実アイテム画像 URL (任意)。 将来 wardrobe 実データ (WardrobeItem.imageUrl) 接続時に埋まる。
+   * 値があれば withImage 表示、 無ければ shape + color の SVG プレースホルダーへ自動フォールバック。
+   */
+  imageUrl?: string;
+}
+
+/**
+ * flat-lay 1 アイテムの **表示アセット** (3 状態の判別共用体)。
+ *
+ * 狙い (Slice 2 Option A): 実アイテム画像が来ても破綻せず、 来た瞬間に強くなる「器」。
+ *   - withImage  : 実画像あり → <img> 表示 (alt 付き)。
+ *   - placeholder: 画像なしだが形 + 色は既知 → SVG シルエットを高品質プレースホルダーとして表示。
+ *   - missing    : 画像も形も不明 → 中立シルエットで安全に表示 (煽らない)。
+ *
+ * 呼び出し側 (OutfitCard) は kind を意識しない。 OutfitItemView が分岐を吸収する。
+ * field 名は canonical WardrobeItem (id / name→label / category / color / colorHex→colorHint /
+ * imageUrl) に揃え、 実データ接続時に mapper をそのまま流用できるようにする。
+ */
+export type CalendarOutfitItemAsset =
+  | {
+      kind: "withImage";
+      id: string;
+      label: string;
+      category: string;
+      imageUrl: string;
+      /** 任意の色 hint (枠・読み込み地色などに使える、 WardrobeItem.colorHex / color 由来) */
+      colorHint?: string;
+    }
+  | {
+      kind: "placeholder";
+      id: string;
+      label: string;
+      category: string;
+      shape: CalendarOutfitItemShape;
+      /** silhouette の塗り色 (hex) */
+      color: string;
+    }
+  | {
+      kind: "missing";
+      id: string;
+      label: string;
+      category?: string;
+    };
+
+/**
+ * `CalendarOutfitItemAsset` を導出するための **緩い入力**。
+ *   - 現行 mock の `CalendarOutfitItemVM` (shape + color 必須) はそのまま代入可能。
+ *   - 将来の実 wardrobe item (画像のみ / 情報欠損あり) も同じ mapper で 3 状態へ落とせる。
+ */
+export interface OutfitItemAssetSource {
+  id: string;
+  label: string;
+  category?: string;
+  shape?: CalendarOutfitItemShape;
+  color?: string;
+  imageUrl?: string;
 }
 
 /** おすすめコーデ 1 枚 (section ④ carousel card) */

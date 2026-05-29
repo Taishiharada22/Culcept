@@ -9,7 +9,7 @@
 
 import type { CalendarOutfitProposalVM } from "./types";
 import { BADGE_TONE, CAL_OUTFIT_PALETTE, SYNC_BAND_VM } from "./_palette";
-import { OutfitItemSilhouette } from "./OutfitItemSilhouette";
+import { OutfitItemView, toOutfitItemAsset } from "./OutfitItemView";
 
 export function OutfitCard({
   proposal,
@@ -56,17 +56,13 @@ export function OutfitCard({
         )}
       </div>
 
-      {/* flat-lay: SVG シルエット群 (実画像は使わない、 服そのものを主役に) */}
+      {/* flat-lay: アイテム表示器 (OutfitItemView が 画像 / シルエット / 欠損 を吸収)。
+          現行 mock は画像なし → 全て placeholder (= 既存 SVG シルエット) に落ちるため見た目は不変。 */}
       <div className="mt-3 rounded-2xl bg-gradient-to-br from-violet-50/80 via-white to-white p-4">
         <div className="flex min-h-[120px] flex-wrap items-end justify-center gap-x-3 gap-y-3">
           {proposal.items.map((item) => (
             <div key={item.id} className="flex items-end justify-center">
-              <OutfitItemSilhouette
-                shape={item.shape}
-                color={item.color}
-                size={active ? 72 : 48}
-              />
-              <span className="sr-only">{item.category}</span>
+              <OutfitItemView asset={toOutfitItemAsset(item)} size={active ? 72 : 48} />
             </div>
           ))}
         </div>
