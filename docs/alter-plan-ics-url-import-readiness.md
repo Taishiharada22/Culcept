@@ -3,7 +3,7 @@
 起草日: 2026-05-29
 親: マルチ provider カレンダー取り込み (= A→B、 CEO 確定 2026-05-29)
 位置づけ: **Track A 先行**（= universal ICS URL）。 Track B（provider native）は後段個別。
-CEO 確定: (未) — 実装前 readiness、 CEO 承認待ち
+CEO 確定: 2026-05-29 (= CEO + GPT 承認。 補強 = SSRF 2 項目明記 [#11 非標準ポート拒否 / #12 認証付き取得禁止] + UI は file 主 / URL 副)
 
 ---
 
@@ -65,6 +65,10 @@ CEO 確定: (未) — 実装前 readiness、 CEO 承認待ち
 | 8 | **content / body 妥当性** | content-type は `text/calendar` を期待（緩く許容）+ **body 先頭が `BEGIN:VCALENDAR`** を確認（= HTML エラーページ等を弾く） |
 | 9 | **auth gate** | `fetchIcsFromUrlAction` は `getUser()` 必須（= 匿名による server fetch proxy 化を防止） |
 | 10 | **log 衛生** | server log に URL 全体を出さない（= host のみ等）。 secret 漏れ防止 |
+| 11 | **非標準ポート拒否**（= CEO 補強） | port は空（= 443 default）または `443` のみ許可。 それ以外（例 `:8080` / `:8443`）は reject（= 内部サービスポート叩き防止） |
+| 12 | **認証付き取得禁止**（= CEO 補強） | fetch に credentials を一切付けない: cookie 送らない（`credentials: "omit"`）/ `Authorization`・bearer・custom auth header を付与しない / URL userinfo は #3 で reject。 **公開リソースのみ取得**（= 内部 API を user 資格で叩く経路を作らない） |
+
+**IP 表記回避の潰し込み（= ④⑥⑦、 ナイーブ実装が破られる点）**: `127.0.0.1` を `2130706433`（10 進）/ `0x7f000001`（16 進）/ `0177.0.0.1`（8 進）/ `::ffff:127.0.0.1`（IPv4-mapped IPv6）で偽装する古典的 SSRF bypass を塞ぐ。 → WHATWG `new URL()` は IPv4 を canonical dotted-decimal へ正規化する性質を利用しつつ、 **IP literal は canonical 化して range 判定**、 **hostname は DNS 解決して全 IP を range 判定**、 **IPv4-mapped IPv6 は埋め込み IPv4 を抽出して再判定**する。
 
 **正直な limitation（= §7 残課題）**: 完全な DNS rebinding 対策（= 解決 IP を pin して fetch）は Node fetch では難。 v1 は「解決 → 検証 → fetch + redirect manual 再検証」で実務上十分とし、 IP pin は後段。
 
@@ -76,7 +80,7 @@ CEO 確定: (未) — 実装前 readiness、 CEO 承認待ち
 |----|--------|------|
 | **A-1** | `lib/plan/ics/icsUrlFetch.ts` | URL 正規化（webcal→https / userinfo 除去）+ SSRF 検証（scheme / host / IP range、 **pure 関数で単体 test**）+ fetch（timeout / size / content-type / redirect manual）→ `{ok:true, icsText} \| {ok:false, reason}` |
 | **A-2** | `app/(culcept)/plan/_actions/fetchIcsFromUrl.ts` | server action: auth → A-1 fetch → `parseIcsString` → `mapIcsEventsToDrafts` → `{ok:true, drafts, warnings} \| {ok:false, error}` |
-| **A-3** | `IcsImportModal.tsx` 改修 | 既存 file fallback 隣に「URL から取り込む」入力 + ボタン → A-2 → **既存 preview** に流す → 承認で既存 `importIcsAnchorsAction` |
+| **A-3** | `IcsImportModal.tsx` 改修 | **file import を主導線、 URL import を副導線**（= CEO 補強）。 URL 入力 + ボタン → A-2 → **既存 preview** に流す → 承認で既存 `importIcsAnchorsAction`。 視覚的に file を上位/既定、 URL は控えめな従配置 |
 | **A-4** | 単体 test | A-1 の SSRF 判定を**網羅**（各 IP range / scheme / webcal 変換 / userinfo / redirect / size / content-type）+ A-2 を fetch mock で網羅 |
 
 - **source**: `importIcsAnchorsAction` の `notes` を「ICS URL から取り込み」に出し分け（= provenance）。 `source_type='ics'` のまま。 **URL は v1 で永続化しない**（= 再取り込みは URL 再入力、 dedup で冪等）。
@@ -112,11 +116,15 @@ CEO 確定: (未) — 実装前 readiness、 CEO 承認待ち
 
 ---
 
-## §8. CEO 確認 stop point (= 着手前)
+## §8. CEO 確認 stop point (= 承認済、 2026-05-29)
 
-1. **本 readiness 承認**で A-1 着手してよいか。
-2. **SSRF 設計（§3）の十分性**確認（= 最優先項目、 過不足ないか）。
-3. **`source_type='ics'` 再利用 + URL 非永続化（v1）** の確認。
-4. UI 配置: 既存 IcsImportModal に同居（= file / URL / 手入力の 3 経路並列）でよいか。
+| 論点 | 判断 |
+|------|------|
+| readiness 承認 → A-1 着手 | **GO** |
+| SSRF 設計（§3）十分性 | **概ね十分** + 補強 2 項目（#11 非標準ポート拒否 / #12 認証付き取得禁止） |
+| `source_type='ics'` 再利用 + URL 非永続（v1） | **OK** |
+| UI 配置 | IcsImportModal 同居、 **file 主 / URL 副** |
 
-→ 上記承認後、 A-1（icsUrlFetch + SSRF 単体 test）着手 → 完了で停止・報告。
+進め方（= CEO + GPT）: **A-1 → A-2 → A-3、 実装後いったん stop。 staging smoke は別承認。**
+
+→ 各段で vitest + tsc baseline 不変を確認しつつ atomic commit。 A-3 まで実装したら停止・報告。
