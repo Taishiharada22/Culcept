@@ -11,50 +11,32 @@ import type { CalendarOutfitScheduleItemVM } from "./types";
 
 export function TodayScheduleCard({
   item,
-  isFirst,
-  isLast,
 }: {
   item: CalendarOutfitScheduleItemVM;
-  isFirst: boolean;
-  isLast: boolean;
 }) {
+  // 理想画像準拠: アイコン左 + 右に「時刻 / 予定名 / 要約(場所)」を縦に詰める（横並び・低い高さ）。
   return (
     <div
-      className="flex min-w-[84px] flex-1 flex-col items-center"
+      className="flex min-w-[132px] shrink-0 items-center gap-2 pr-3"
       data-testid={`plan-calendar-outfit-schedule-${item.id}`}
     >
-      <span className="font-mono text-[11px] font-medium text-violet-600">{item.time}</span>
-
-      {/* アイコン円 + 前後コネクタ */}
-      <div className="relative mt-1 flex w-full items-center justify-center">
-        {!isFirst && (
-          <span
-            className="absolute left-0 top-1/2 h-px w-1/2 -translate-y-1/2 bg-violet-200"
-            aria-hidden="true"
-          />
-        )}
-        {!isLast && (
-          <span
-            className="absolute right-0 top-1/2 h-px w-1/2 -translate-y-1/2 bg-violet-200"
-            aria-hidden="true"
-          />
-        )}
-        <span
-          className="relative z-10 flex h-9 w-9 items-center justify-center rounded-full border border-violet-100 bg-violet-50 text-base"
-          aria-hidden="true"
-        >
-          {item.icon}
-        </span>
-      </div>
-
-      <div className="mt-1 flex flex-col items-center px-0.5 text-center">
-        <span className="line-clamp-2 text-[11px] font-medium text-slate-700">{item.title}</span>
+      <span
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-violet-50 text-sm"
+        aria-hidden="true"
+      >
+        {item.icon}
+      </span>
+      <div className="min-w-0">
+        <p className="font-mono text-[10px] font-medium leading-tight text-violet-600">{item.time}</p>
+        <p className="truncate text-[12px] font-medium leading-tight text-slate-700">{item.title}</p>
         {item.location && (
-          <span className="mt-0.5 max-w-[80px] truncate text-[10px] text-slate-400" title={item.locationFull}>
+          <p
+            className="truncate text-[10px] leading-tight text-slate-400"
+            title={item.locationFull}
+          >
             {item.location}
-          </span>
+          </p>
         )}
-        {/* 「固定」バッジは不要（密度・上品さ優先、 CEO 指示）。 */}
       </div>
     </div>
   );

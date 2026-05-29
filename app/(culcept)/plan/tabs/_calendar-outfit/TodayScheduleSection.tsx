@@ -78,14 +78,9 @@ export function TodayScheduleSection({
         </div>
       ) : (
         <div className={`${CAL_OUTFIT_PALETTE.card} p-3`}>
-          <div className="flex items-start overflow-x-auto pb-1">
-            {items.map((item, idx) => (
-              <TodayScheduleCard
-                key={item.id}
-                item={item}
-                isFirst={idx === 0}
-                isLast={idx === items.length - 1}
-              />
+          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+            {items.map((item) => (
+              <TodayScheduleCard key={item.id} item={item} />
             ))}
           </div>
         </div>
