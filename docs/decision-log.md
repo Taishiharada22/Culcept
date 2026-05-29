@@ -14799,3 +14799,73 @@ merge 前の最終 gate full suite で **1 fail**。 内訳 = `tests/unit/plan/p
 - **ステータス**: P3 完成。 local main merge 実行 (= merge hash は報告に記載)。 push/PR/remote は別承認待ち。 flake #207 deferred。
 
 ---
+
+## 2026-05-29 [Build] マルチ provider カレンダー取り込み = A→B、 Track A (= universal ICS URL) 先行 [承認: CEO]
+
+### 方針 (= CEO、 ①前提を疑った結果)
+
+P3 完成後の次作業 = Outlook / Apple / その他カレンダー取り込み。 ①前提検証で「ICS pipeline は provider 非依存 → Outlook/Apple の .ics は file upload で既に取り込める。 不足は URL 取得経路のみ」 が判明。 → **A→B 採用**:
+
+- **Track A 先行 (= universal ICS URL)**: server が ICS 購読 URL を fetch → 既存 ICS pipeline 再利用。 Outlook 公開 / Apple iCloud 公開(webcal) / Google 秘密 iCal / Yahoo 等を **1 機能で横断カバー**。 既存資産最大再利用・native より速い・外部 API 依存少。
+- **Track B 後段 (= provider native)**: Outlook = Microsoft Graph OAuth / Apple = CalDAV。 非公開カレンダー / 常時同期が必要な provider が明確化したら個別検討。
+
+### CEO 条件 (= Track A)
+
+1. 実装前に readiness を出す（= 本 commit で起草）。
+2. readiness で **SSRF 対策を最優先明記**: https 限定 / webcal→https / localhost・private IP・metadata endpoint 遮断 / timeout・size 制限 / content-type・body 妥当性。
+3. **source_type はまず `'ics'` 再利用**（= migration 増やさない）。
+4. **sync は後回し**（= 初回は手動 import / 手動再取り込みで十分）。
+
+### Claude 側設計 (= readiness、 本 commit)
+
+- 新規 = 3 点のみ（SSRF-guarded fetch + `fetchIcsFromUrlAction` + IcsImportModal の URL 入力）。 preview/dedup/save は既存丸ごと再利用。
+- URL は **v1 で永続化しない**（= 再取り込み = URL 再入力、 dedup で冪等）→ migration 不要を担保。
+- SSRF は fail-closed（§3 に 10 項目: scheme / webcal / userinfo / IP range / redirect 再検証 / timeout / size / body / auth gate / log 衛生）。 DNS rebinding 完全 pin は limitation として後段明記。
+
+### docs (= 本 commit)
+
+新規:
+- `docs/alter-plan-ics-url-import-readiness.md`（= Track A readiness、 §0-8）
+
+### 次
+
+- 本 readiness を CEO 承認 → A-1（`icsUrlFetch` + SSRF 単体 test）着手 → 完了で停止・報告。 staging smoke は CEO gate。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「A→B / Track A 先行 / SSRF 最優先 / source_type='ics' 再利用 / sync 後回し」)
+- **ステータス**: branch `feat/ics-url-import`（main 派生）作成。 Track A readiness 起草完了。 **実装着手は CEO 承認待ち**（= readiness §8 の 4 点）。
+
+---
+
+## 2026-05-29 [Build] Track A (ICS URL import) A-1〜A-3 実装 + ICS 時刻 TZ バグ修正 (実機 pass) [承認: CEO]
+
+### Track A 実装 (= A-1→A-3、 CEO「A-1 GO」承認後)
+
+- **A-1** `lib/plan/ics/icsUrlFetch.ts` (commit `6944bbaf`): SSRF-guarded fetch (normalizeIcsUrl / isBlockedIp / fetchIcsText、 DI、 fail-closed)。 古典 SSRF bypass (10/16/8進 IP・IPv4-mapped IPv6・redirect/DNS 内部到達) を潰す。 36 単体 test。
+- **A-2** `fetchIcsFromUrl` action (commit `7a3cfb18`): auth gate + importIcsFromUrl → drafts、 save は既存 importIcsAnchorsAction に委譲。
+- **A-3** IcsImportModal URL 副導線 (commit `95f50b88`): file 主 / URL 副。 preview/承認/dedup は既存共通。
+
+### ICS 時刻 TZ バグ (= CEO 実機報告 → 修正 → 実機 pass)
+
+- **症状**: Google ICS URL 取り込みで 21:00(JST) が 12:00 表示 (= UTC)。
+- **v1 (commit `49b39cba`、 不十分)**: 「書かれた wall-clock 保持」。 だが Google ICS は時刻を **Z (UTC) 出力**するため、 書かれた値 = 12:00 のままで効かず (= CEO「変わらない」)。
+- **真因 (実測確定)**: app は timezone-naive。 Z / TZID=Asia/Tokyo / floating の 4 形式とも、 絶対時刻を **Asia/Tokyo の wall-clock に変換すると 21:00** に揃う。 Google OAuth path は timeZone 無指定で +09:00 を返すため元々正しく、 本 bug は URL/ICS path 固有。
+- **v2 (commit `1591d04d`、 実機 pass)**: `icalTimeToIso` を zone-aware 化。 zoned(UTC/解決済TZID)→絶対時刻を `APP_TIMEZONE="Asia/Tokyo"` の wall-clock へ変換 / floating・未解決→書かれた値保持 (server TZ 非依存) / 終日→日付。 → **CEO 実機で JST 表示を確認・pass**。
+- **教訓**: 実フィード形式 (Z vs TZID) を確認せず TZID 前提で直した v1 が空振り。 ① 前提 (= 実入力形式) を実測で確定してから直すべきだった。
+
+### 影響範囲 / 残
+
+- TZ 修正は `icsParser` (= ICS file / URL 両方の共通 parser)。 **main の ICS file import も同 bug** → Track A merge で main へ届く (= 今すぐなら cherry-pick 可)。
+- 多 TZ (viewer 別 TZ) 対応は app に TZ 概念導入後の別 phase。 現状 JST 製品前提で `APP_TIMEZONE` 固定。
+
+### 検証
+
+- plan/ics 95 pass (Z→JST 変換ガード + floating-preserve ガード追加)、 full suite 15546 pass (唯一の失敗は既知 flake #207、 単独 36/36 green)、 source tsc 1114 不変。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「URL 取り込み完了」「JPN タイムに変わったのを確認、 pass」)
+- **ステータス**: Track A (URL import + 時刻 JST 表示) **実機 pass**。 branch `feat/ics-url-import` HEAD `1591d04d`、 **未 merge**。 次は main merge 判断 / Track B / cleanup を CEO 指示待ち。
+
+---
