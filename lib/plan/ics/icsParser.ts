@@ -154,23 +154,46 @@ export function parseIcsString(raw: string): IcsParseResult {
 // internal: ICAL.Time → ISO 8601 (= timezone shift 回避)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/** app の表示 TZ (= v1: JST 製品。 多 TZ = viewer 別 TZ 対応は app に TZ 概念導入後の別 phase) */
+const APP_TIMEZONE = "Asia/Tokyo";
+
 /**
- * ICAL.Time → ISO 8601 string (= 「書かれた wall-clock」 を直接保持、 TZ 変換しない)
+ * 絶対時刻 (Date) を APP_TIMEZONE の wall-clock ISO 文字列に変換 (= Intl/ICU、 deterministic)。
+ * 末尾 "Z" は format 安定用 (= 下流 mapper は HH:MM/date を slice するだけ)。
+ */
+function absInstantToAppTzIso(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const p: Record<string, string> = {};
+  for (const part of parts) p[part.type] = part.value;
+  const hh = p.hour === "24" ? "00" : (p.hour ?? "00"); // ICU は 24h で midnight を "24" と返す場合あり
+  return `${p.year ?? "1970"}-${p.month ?? "01"}-${p.day ?? "01"}T${hh}:${p.minute ?? "00"}:${p.second ?? "00"}.000Z`;
+}
+
+/**
+ * ICAL.Time → ISO 8601 string (= app 表示 TZ の wall-clock を保持)
  *
- * 重要 (= 2026-05-29 修正): 終日 / 時刻あり ともに year/month/day/hour/minute/second の
- * **書かれた値** を直接 ISO 化する。 `toJSDate().toISOString()` は使わない。
+ * 重要 (= 2026-05-29 修正 v2): app は timezone-naive (= mapper が ISO の HH:MM / date を
+ * wall-clock として slice、 viewer TZ 変換を持たない)。 そのため parser 段で
+ * 「app の表示 TZ (= JST)」 の wall-clock に正規化して埋め込む。
  *
- * 理由:
- *   - app は timezone-naive (= mapper が ISO の HH:MM / YYYY-MM-DD を wall-clock として slice、
- *     viewer TZ への変換を持たない)。
- *   - `toJSDate().toISOString()` は絶対時刻を UTC へ変換するため、 TZID=Asia/Tokyo の 21:00 が
- *     12:00 へズレる (= 9h shift。 floating time は machine TZ 依存にもなる)。
- *   - `.hour`/`.minute` 等は zone 変換せず「書かれた値」を返すので、 21:00 を 21:00 のまま保持できる。
- *   - これは Google API path (= googleEventsToAnchorMapper が `+09:00` 文字列の HH:MM を
- *     local wall-clock として採用) と一致する。
+ * 分岐 (= 2026-05-29 実測で確定):
+ *   - 終日 (isDate): 書かれた日付のみ (= 時刻なし、 TZ 無関係)。
+ *   - floating / zone 未解決 (zone.tzid = "floating" or なし): 書かれた wall-clock を保持
+ *     (= toJSDate は server/machine TZ 依存なので floating には使わない、 deterministic 優先)。
+ *   - zoned (UTC or 解決済 TZID): 絶対時刻 (toJSDate) を APP_TIMEZONE の wall-clock へ変換。
+ *     → Google ICS が Z (UTC) で 12:00 (= 21:00 JST) を出力しても 21:00 に直る。
  *
- * 注: 末尾 "Z" は format 安定用 (= 下流 mapper は slice のみ、 真の UTC instant は意味しない)。
- *     多 TZ 環境での viewer TZ 正規変換は app に TZ 概念が入った後の別 phase。
+ * → Z / TZID=Asia/Tokyo / floating すべて 21:00 (= ユーザーが Google で見る JST) に揃う。
+ *   末尾 "Z" は format 安定用。 viewer 別 TZ 対応は app に TZ 概念が入った後の別 phase。
  */
 function icalTimeToIso(time: ICAL.Time): string {
   const y = time.year.toString().padStart(4, "0");
@@ -180,11 +203,16 @@ function icalTimeToIso(time: ICAL.Time): string {
     // 終日 event: 日付 components のみ (= 時刻なし)
     return `${y}-${m}-${d}T00:00:00.000Z`;
   }
-  // 時刻あり: 書かれた wall-clock components を直接 ISO 化 (= TZ shift 回避)
-  const hh = time.hour.toString().padStart(2, "0");
-  const mm = time.minute.toString().padStart(2, "0");
-  const ss = time.second.toString().padStart(2, "0");
-  return `${y}-${m}-${d}T${hh}:${mm}:${ss}.000Z`;
+  const tzid = time.zone?.tzid;
+  if (tzid === undefined || tzid === "floating") {
+    // floating / 未解決: 書かれた wall-clock を保持 (= server TZ 非依存)
+    const hh = time.hour.toString().padStart(2, "0");
+    const mm = time.minute.toString().padStart(2, "0");
+    const ss = time.second.toString().padStart(2, "0");
+    return `${y}-${m}-${d}T${hh}:${mm}:${ss}.000Z`;
+  }
+  // zoned (UTC / 解決済 TZID): 絶対時刻を APP_TIMEZONE の wall-clock へ変換
+  return absInstantToAppTzIso(time.toJSDate());
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

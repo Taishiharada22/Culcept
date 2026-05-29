@@ -135,8 +135,10 @@ describe("parseIcsString: OneOff event", () => {
     const e = result.events[0]!;
     expect(e.uid).toBe("event-one-off-001@example.com");
     expect(e.summary).toBe("Team Meeting");
-    expect(e.startDateIso).toContain("2026-06-01T09:00");
-    expect(e.endDateIso).toContain("2026-06-01T10:00");
+    // 2026-05-29 修正: Z (UTC) は app 表示 TZ (JST) の wall-clock に変換される。
+    // 09:00Z = 18:00 JST / 10:00Z = 19:00 JST。
+    expect(e.startDateIso).toContain("2026-06-01T18:00");
+    expect(e.endDateIso).toContain("2026-06-01T19:00");
     expect(e.location).toBe("Office");
     expect(e.description).toBe("Weekly sync");
     expect(e.recurrenceRuleRaw).toBeUndefined();
@@ -200,6 +202,24 @@ describe("parseIcsString: TZID-aware event", () => {
     expect(e.startDateIso).toContain("2026-06-01T14:00");
     expect(e.startDateIso).not.toContain("T05:00");
     expect(e.endDateIso).toContain("2026-06-01T15:00");
+  });
+
+  it("Z (UTC) は app 表示 TZ (JST) に変換 (= Google ICS が Z 出力でも JST 表示)", () => {
+    // Google ICS フィードは時刻を Z (UTC) で出力することがある。
+    // 12:00Z = 21:00 JST / 13:00Z = 22:00 JST。 12:00 のまま出さない。
+    const zVevent = [
+      "BEGIN:VEVENT",
+      "UID:event-z-001@example.com",
+      "SUMMARY:UTC event",
+      "DTSTART:20260601T120000Z",
+      "DTEND:20260601T130000Z",
+      "END:VEVENT",
+    ].join("\r\n");
+    const result = parseIcsString(buildIcs(zVevent));
+    const e = result.events[0]!;
+    expect(e.startDateIso).toContain("2026-06-01T21:00");
+    expect(e.endDateIso).toContain("2026-06-01T22:00");
+    expect(e.startDateIso).not.toContain("T12:00");
   });
 });
 

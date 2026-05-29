@@ -469,7 +469,8 @@ describe("importIcsFromUrl", () => {
       expect(r.drafts).toHaveLength(1);
       expect(r.drafts[0]!.title).toBe("Test Event");
       expect(r.drafts[0]!.date).toBe("2026-05-29");
-      expect(r.drafts[0]!.startTime).toBe("13:00");
+      // ICS_WITH_EVENT は Z (UTC) 13:00 → app 表示 TZ (JST) で 22:00 に変換 (= 2026-05-29 修正)
+      expect(r.drafts[0]!.startTime).toBe("22:00");
       expect(r.skipped).toHaveLength(0);
       expect(r.host).toBe("cal.example.com");
     }
