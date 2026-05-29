@@ -139,23 +139,53 @@ function schedulePhrase(ctx: OutfitDayContext): string {
   return "";
 }
 
+/**
+ * engine 非バック時の「今日の文脈」一文（断定せず参考情報に留める）。
+ * mock / 画像ハイドレートの提案を「予定から推薦された」と誤認させないため。
+ */
+function scheduleContextPhrase(ctx: OutfitDayContext): string {
+  if (ctx.hasMeeting) return "会議の予定があります";
+  if (ctx.hasCafeWork) return "カフェ作業の予定があります";
+  if (ctx.hasMeal) return "外食の予定があります";
+  if (ctx.eventCount > 0) return "予定に合わせた装いの参考に";
+  return "今日の天気に合わせた装いの参考に";
+}
+
 function buildHeadline(input: ReasonInput): string {
   const wp = weatherPhrase(input.weather);
-  const sp = schedulePhrase(input.dayContext);
-  const fp = formalityPhrase(input.dayContext.maxFormality);
   const lead = wp ? `${wp}。` : "";
-  if (sp) return `${lead}${sp}、${fp}整えました。`;
-  return `${lead}${fp}整えました。`;
+  // engine 提案があるとき **だけ**「このコーデを整えた」と言い切る。
+  if (input.sync) {
+    const sp = schedulePhrase(input.dayContext);
+    const fp = formalityPhrase(input.dayContext.maxFormality);
+    return sp ? `${lead}${sp}、${fp}整えました。` : `${lead}${fp}整えました。`;
+  }
+  // mock / 画像ハイドレートの提案時は断定せず、 今日の文脈提示に留める（誤認防止）。
+  return `${lead}${scheduleContextPhrase(input.dayContext)}。`;
 }
 
 function buildBody(input: ReasonInput): string {
-  const parts: string[] = [];
   const wp = weatherPhrase(input.weather);
+
+  // engine 非バック: 「選びました」と言い切らず、 今日の文脈メモに留める。
+  if (!input.sync) {
+    const bits: string[] = [];
+    if (wp) bits.push(wp);
+    const sp = schedulePhrase(input.dayContext);
+    if (sp) bits.push(sp.replace(/ので$/, "")); // "会議があるので" → "会議がある"
+    const detail = bits.length > 0 ? `${bits.join("、")}。` : "";
+    return `${detail}今日の予定と天気をまとめました。装いの参考にどうぞ。`;
+  }
+
+  // engine バック: 提案として説明してよい。
+  const parts: string[] = [];
   if (wp) parts.push(`${wp}の天気に合わせています`);
   const sp = schedulePhrase(input.dayContext);
-  if (sp) parts.push(`${sp}、${input.dayContext.mobility === "high" || input.dayContext.mobility === "medium" ? "動きやすさも意識し" : "TPO に馴染むよう"}選びました`);
-  if (input.sync) parts.push(`手持ちのアイテムとの相性は「${input.sync.bandLabel}」です`);
-  if (parts.length === 0) parts.push("手持ちのアイテムからバランスの良い組み合わせを選びました");
+  if (sp)
+    parts.push(
+      `${sp}、${input.dayContext.mobility === "high" || input.dayContext.mobility === "medium" ? "動きやすさも意識し" : "TPO に馴染むよう"}選びました`,
+    );
+  parts.push(`手持ちのアイテムとの相性は「${input.sync.bandLabel}」です`);
   return `${parts.join("。")}。`;
 }
 

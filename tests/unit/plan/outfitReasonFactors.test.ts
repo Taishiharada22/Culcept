@@ -51,6 +51,8 @@ describe("buildOutfitReasonVM — 5 因子生成", () => {
     expect(vm!.axisChips.map((c) => c.label)).toEqual(
       expect.arrayContaining(["気温 26°に対応", "会議あり", "相性 良好"]),
     );
+    // engine-backed → 「整えた」と言い切ってよい
+    expect(vm!.headline).toContain("整えました");
   });
 
   it("カフェ作業 → 環境因子『カフェ作業』、 mobility high → 移動量『多め』", () => {
@@ -76,14 +78,19 @@ describe("buildOutfitReasonVM — fallback", () => {
     expect(buildOutfitReasonVM({ weather: null, dayContext: dayCtx(), sync: null })).toBeNull();
   });
 
-  it("engine 失敗 (sync null) でも 予定があれば生成する", () => {
+  it("engine 失敗 (sync null) でも 予定があれば生成する。 ただし『整えました』と断定しない", () => {
     const vm = buildOutfitReasonVM({
       weather: null,
-      dayContext: dayCtx({ eventCount: 1, maxFormality: "smart_casual" }),
+      dayContext: dayCtx({ eventCount: 1, hasMeeting: true, maxFormality: "smart_casual" }),
       sync: null,
     });
     expect(vm).not.toBeNull();
     expect(vm!.factors[4].value).toBe("程よくきれいめ");
+    // engine 非バック (mock/hydrate 提案) → コーデを推薦したと誤認させない
+    expect(vm!.headline).not.toContain("整えました");
+    expect(vm!.body).not.toContain("選びました");
+    expect(vm!.body).toContain("参考に");
+    expect(vm!.headline).toContain("会議の予定があります");
   });
 
   it("予定なしでも engine sync があれば生成する", () => {
