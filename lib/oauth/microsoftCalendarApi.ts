@@ -151,3 +151,117 @@ export async function exchangeCodeForMicrosoftTokens(
     scopes,
   };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Token Refresh (= TB-4、 refresh_token → access_token)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** MS refresh で要求する scope (= connect と同、 MS は refresh 時 scope 必須) */
+const MS_REFRESH_SCOPE = "openid offline_access Calendars.Read";
+
+export type MsRefreshInput = {
+  /** 復号済 refresh_token (= caller が復号して渡す) */
+  readonly refreshToken: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+};
+
+export type MsRefreshSuccess = {
+  readonly ok: true;
+  readonly accessToken: string;
+  readonly expiresInSeconds: number;
+  readonly scopes: ReadonlyArray<string>;
+};
+
+export type MsRefreshFailure = {
+  readonly ok: false;
+  readonly reason:
+    | "invalid_grant"
+    | "invalid_client"
+    | "invalid_request"
+    | "network"
+    | "unknown";
+  readonly detail?: string;
+};
+
+export type MsRefreshResult = MsRefreshSuccess | MsRefreshFailure;
+
+/**
+ * refresh_token → 新 access_token (= POST /token grant_type=refresh_token)。
+ *
+ * MS 仕様メモ:
+ *   - scope 必須 (= Google と差分)。
+ *   - MS は refresh_token を rotation する (= 新 refresh_token を返しうる) が、 v1 では
+ *     access_token のみ使用 (= 旧 refresh_token は 90 日有効。 失効時は再接続。 Google と同方針)。
+ *   - 400 invalid_grant: refresh_token 失効 → 再接続要。
+ */
+export async function refreshMicrosoftAccessToken(
+  input: MsRefreshInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<MsRefreshResult> {
+  if (typeof input.refreshToken !== "string" || input.refreshToken.length === 0) {
+    return { ok: false, reason: "invalid_request", detail: "empty_refresh_token" };
+  }
+
+  const body = new URLSearchParams({
+    refresh_token: input.refreshToken,
+    client_id: input.clientId,
+    client_secret: input.clientSecret,
+    grant_type: "refresh_token",
+    scope: MS_REFRESH_SCOPE,
+  });
+
+  let response: Response;
+  try {
+    response = await fetchImpl(MICROSOFT_TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+  } catch (e) {
+    return { ok: false, reason: "network", detail: e instanceof Error ? e.message : "unknown" };
+  }
+
+  if (!response.ok) {
+    let errorCode = "unknown";
+    let detail = "";
+    try {
+      const json = (await response.json()) as {
+        error?: unknown;
+        error_description?: unknown;
+      };
+      if (typeof json.error === "string") errorCode = json.error;
+      if (typeof json.error_description === "string") detail = json.error_description;
+    } catch {
+      detail = `http_${response.status}`;
+    }
+    const reason =
+      errorCode === "invalid_grant" ||
+      errorCode === "invalid_client" ||
+      errorCode === "invalid_request"
+        ? errorCode
+        : "unknown";
+    return { ok: false, reason, detail };
+  }
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    return { ok: false, reason: "unknown", detail: "invalid_json" };
+  }
+  if (json === null || typeof json !== "object") {
+    return { ok: false, reason: "unknown", detail: "not_object" };
+  }
+  const obj = json as Record<string, unknown>;
+  if (typeof obj.access_token !== "string" || obj.access_token.length === 0) {
+    return { ok: false, reason: "unknown", detail: "missing_access_token" };
+  }
+
+  const expiresInSeconds =
+    typeof obj.expires_in === "number" && obj.expires_in > 0 ? obj.expires_in : 3600;
+  const scopes =
+    typeof obj.scope === "string" && obj.scope.length > 0 ? obj.scope.split(" ") : [];
+
+  return { ok: true, accessToken: obj.access_token, expiresInSeconds, scopes };
+}
