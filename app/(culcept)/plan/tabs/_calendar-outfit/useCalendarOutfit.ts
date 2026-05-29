@@ -1,23 +1,50 @@
 "use client";
 
 /**
- * Slice 1 — Calendar Outfit Dashboard data hook (mock 返却)
+ * Slice 2 (Option B-1) — Calendar Outfit Dashboard data hook
  *
- * CEO Slice 1 制約:
- *   - `generateTodayProposal` 実呼び出し / weather 実取得 / DB / AI は禁止。
- *   - この hook は **mock VM をそのまま返すだけ**。network / localStorage / 現在時刻参照なし。
+ * 役割:
+ *   - 既定では固定 mock VM を返す (SSR / 初回描画は mock = 即時・レイアウトシフトなし)。
+ *   - mount 後、 client 側 effect で IndexedDB の **画像付き wardrobe** を read-only で読み、
+ *     あれば mock のコーデカードを実画像で **表示用ハイドレーション**する。
  *
- * Slice 2 計画 (この hook の中だけが変わる):
- *   - params (wardrobe / date / weather / events / mood / persona) を受け取り、
- *     `@/lib/shared/outfitEngine` の generateTodayProposal を client-safe に呼び、
- *     TodayProposal / SyncScore / GapAnalysis → CalendarOutfitVM へ変換して返す。
- *   - 呼び出し側 (CalendarOutfitDashboard) の使用形は変えない。
+ * 制約 (CEO/GPT Option B-1):
+ *   - `generateTodayProposal` / weather 実取得 / DB / AI / engine には触れない (= まだ推薦しない)。
+ *   - wardrobe が空 / IDB 読めない / 失敗 → mock を維持 (退化ゼロ、 throw しない)。
+ *   - unmount 後に setState しない。
+ *
+ * Slice 2 以降 (B-2+) でこの hook の中だけが段階的に実データ化される
+ *   (weather → events 写像 → generateTodayProposal → reasons/analysis)。
  */
+
+import { useEffect, useState } from "react";
 
 import { MOCK_CALENDAR_OUTFIT_VM } from "./mockCalendarOutfit";
 import type { CalendarOutfitVM } from "./types";
+import { loadWardrobeImagesFromMyStyleIDB } from "./wardrobeAssets";
+import { hydrateOutfitVM } from "./wardrobeToOutfit";
 
 export function useCalendarOutfit(): CalendarOutfitVM {
-  // Slice 1: 固定 mock。Slice 2 で実 engine 結果へ差し替える。
-  return MOCK_CALENDAR_OUTFIT_VM;
+  // 初期値は mock。 ハイドレーションで何も変わらない場合、 hydrateOutfitVM は同じ参照を返すため
+  // setVm しても React は再描画をスキップする。
+  const [vm, setVm] = useState<CalendarOutfitVM>(MOCK_CALENDAR_OUTFIT_VM);
+
+  useEffect(() => {
+    let active = true;
+    loadWardrobeImagesFromMyStyleIDB()
+      .then((wardrobe) => {
+        if (!active) return;
+        if (!wardrobe || wardrobe.length === 0) return; // mock 維持
+        const hydrated = hydrateOutfitVM(MOCK_CALENDAR_OUTFIT_VM, wardrobe);
+        if (hydrated !== MOCK_CALENDAR_OUTFIT_VM) setVm(hydrated);
+      })
+      .catch(() => {
+        /* 読み取り失敗 → mock 維持 */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return vm;
 }
