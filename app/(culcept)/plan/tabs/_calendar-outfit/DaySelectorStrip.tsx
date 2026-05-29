@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { addDays, isoDate, utcMidnight, WEEKDAY_LABELS } from "../_helpers";
 import { CAL_OUTFIT_PALETTE } from "./_palette";
-import { buildDiaryStatusMap, type DiaryDayStatus } from "./diaryDayStatus";
+import { buildDiaryStatusMap, loadDiaryStatusMap, type DiaryDayStatus } from "./diaryDayStatus";
 
 /** 決定論的な mock 天気サイクル (日付番号で index、 実取得しない) */
 const DAY_WEATHER_CYCLE: ReadonlyArray<string> = ["☀️", "⛅", "☀️", "🌧️", "⛅", "☁️", "☀️"];
@@ -75,7 +75,10 @@ export function DaySelectorStrip({
       active.offsetLeft - container.clientWidth / 2 + active.clientWidth / 2;
   }, []);
 
-  // diary 状態（選択/着用/評価）を /plan 隔離 store から read-only で集約（書き込みなし・学習/sync 不接触）。
+  // diary 状態（選択/着用/評価）を read-only で集約（書き込みなし・学習/sync 不接触）。
+  //   1) 即時に plan-only（同期）で反映し、 読み込み中・read-view 失敗時もドットを維持。
+  //   2) shared WornHistory read-view（plan worn + calendar worn を conflict 解決）で上書き反映。
+  //      → /calendar の現行着用履歴も同じドットに見える（観測 consumer）。
   // 選択日や今日が変わるたびに再集約し、 直近の記録をドットへ反映する。
   const [diaryStatus, setDiaryStatus] = useState<Record<string, DiaryDayStatus>>({});
   useEffect(() => {
@@ -83,7 +86,18 @@ export function DaySelectorStrip({
     const isos = Array.from({ length: RANGE_BEFORE + 1 + RANGE_AFTER }, (_, i) =>
       isoDate(addDays(base, i - RANGE_BEFORE)),
     );
-    setDiaryStatus(buildDiaryStatusMap(isos));
+    setDiaryStatus(buildDiaryStatusMap(isos)); // 即時 plan-only fallback
+    let cancelled = false;
+    loadDiaryStatusMap(isos)
+      .then((map) => {
+        if (!cancelled) setDiaryStatus(map);
+      })
+      .catch(() => {
+        // read-view 失敗 → 上の plan-only fallback を維持。
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedIso, todayIso]);
 
   return (
