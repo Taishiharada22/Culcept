@@ -32,3 +32,14 @@ export {
   resolveWornHistoryConflict,
   type WornHistoryConflictDecision,
 } from "./conflictPolicy";
+
+export {
+  buildWornHistoryView,
+  loadWornHistoryView,
+  getWornHistoryEntryForDate,
+  getLearningCorpus,
+  type BuildWornHistoryViewInput,
+  type LoadWornHistoryViewOptions,
+  type WornHistoryView,
+  type WornHistoryConflictNote,
+} from "./readView";
