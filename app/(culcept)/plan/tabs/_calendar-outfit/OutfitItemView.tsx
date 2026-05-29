@@ -105,16 +105,24 @@ export function OutfitItemView({
   asset,
   size,
   floating = false,
+  fill = false,
 }: {
   asset: CalendarOutfitItemAsset;
-  size: number;
+  /** px 指定（fill=false のとき）。 fill=true では無視され、 親ボックスを満たす。 */
+  size?: number;
   /**
-   * styling board 上の floating 表示（V1）。
-   *   - 枠を弱め（frameless 寄り）、 柔らかい drop-shadow を付け、 コラージュとして「置かれた」感を出す。
+   * styling board 上の floating 表示。
+   *   - 枠を弱め（frameless 寄り）、 浅く広い drop-shadow で「置かれた」感を出す。
    *   - 背景つき写真を CSS で無理に切り抜かない（mix-blend は使わない）。 配置と影で「組まれた」感を出す。
    */
   floating?: boolean;
+  /** styling board の % ボックスを満たす（OutfitCollage 用）。 size は無視され w-full h-full で描く。 */
+  fill?: boolean;
 }) {
+  const shadow = floating ? FLOAT_SHADOW : "";
+  // fill 時は SVG も親を満たすよう h-full/w-full を強制（svg の intrinsic width/height を上書き）。
+  const svgFill = "[&_svg]:h-full [&_svg]:w-full";
+
   switch (asset.kind) {
     case "withImage":
       return (
@@ -124,23 +132,20 @@ export function OutfitItemView({
         <img
           src={asset.imageUrl}
           alt={itemA11yText(asset.label, asset.category)}
-          width={size}
-          height={size}
           loading="lazy"
           decoding="async"
           draggable={false}
-          className={
-            // floating は枠を弱める（角丸控えめ）。 背景つき写真の「紙を貼った」感を抑える。
-            floating ? `rounded-md object-contain ${FLOAT_SHADOW}` : "rounded-2xl object-contain"
-          }
-          style={{ width: size, height: size }}
+          className={`object-contain ${floating ? "rounded-md" : "rounded-2xl"} ${shadow} ${
+            fill ? "h-full w-full" : ""
+          }`}
+          {...(fill ? {} : { width: size, height: size, style: { width: size, height: size } })}
         />
       );
 
     case "placeholder":
       return (
-        <span className={floating ? `inline-block ${FLOAT_SHADOW}` : undefined}>
-          <OutfitItemSilhouette shape={asset.shape} color={asset.color} size={size} />
+        <span className={`${fill ? `block h-full w-full ${svgFill}` : "inline-block"} ${shadow}`}>
+          <OutfitItemSilhouette shape={asset.shape} color={asset.color} size={size ?? 64} />
           <span className="sr-only">{itemA11yText(asset.label, asset.category)}</span>
         </span>
       );
@@ -148,8 +153,8 @@ export function OutfitItemView({
     case "missing":
     default:
       return (
-        <span className={floating ? `inline-block ${FLOAT_SHADOW}` : undefined}>
-          <MissingTile size={size} />
+        <span className={`${fill ? `block h-full w-full ${svgFill}` : "inline-block"} ${shadow}`}>
+          <MissingTile size={size ?? 64} />
           <span className="sr-only">{itemA11yText(asset.label, asset.category)}（画像準備中）</span>
         </span>
       );

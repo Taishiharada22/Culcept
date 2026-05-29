@@ -1,10 +1,15 @@
 /**
- * Outfit Card Visual Redesign V1 — styling board（presentational pure）
+ * Outfit Card Visual Redesign V1.5 — styling board（presentational pure）
  *
  * 役割:
  *   - コーデアイテムを「横並び商品列」ではなく、 少し重なって組まれた 1 枚のコーデ
  *     （styling board）として描く。 配置は outfitCollagePlacement の純関数に委譲。
  *   - 各アイテムは absolute 配置 + z-index + 軽い回転 + drop-shadow（OutfitItemView floating）。
+ *
+ * レイアウト:
+ *   - board は **縦長（portrait）**。 幅は親（カード内パネル）に追従し、 高さは aspect-ratio で決まる。
+ *   - アイテムは **board 幅に対する %** で寸法・配置（正方ボックス＋object-contain）。
+ *     → 幅が変わっても外接箱の収まり（横:左右1/9・縦:上下1/5 余白目安）が崩れない。
  *
  * 不変原則:
  *   - presentational pure。 副作用 / 現在時刻 / network / DB なし。
@@ -15,8 +20,8 @@ import type { CalendarOutfitItemVM } from "./types";
 import { OutfitItemView, toOutfitItemAsset } from "./OutfitItemView";
 import { collagePlacements } from "./outfitCollagePlacement";
 
-/** board の高さ（px）。 理想画像のようにコーデがカードの主役になるよう、 active を大きめに取る。 */
-const BOARD_HEIGHT = { active: 224, inactive: 148 } as const;
+/** board のアスペクト比（縦長）。 active は主役なので少し縦長、 非 active は控えめ。 */
+const BOARD_ASPECT = { active: "4 / 5", inactive: "3 / 4" } as const;
 
 export function OutfitCollage({
   items,
@@ -26,19 +31,17 @@ export function OutfitCollage({
   active: boolean;
 }) {
   if (items.length === 0) return null;
-  const boardHeight = active ? BOARD_HEIGHT.active : BOARD_HEIGHT.inactive;
   const placements = collagePlacements(items);
 
   return (
     <div
       className="relative mx-auto w-full overflow-visible"
-      style={{ height: boardHeight }}
+      style={{ aspectRatio: active ? BOARD_ASPECT.active : BOARD_ASPECT.inactive }}
       data-testid="plan-calendar-outfit-collage"
     >
       {items.map((item, i) => {
         const p = placements[i];
         if (!p) return null;
-        const size = Math.round(boardHeight * p.scale);
         return (
           <div
             key={item.id}
@@ -46,11 +49,13 @@ export function OutfitCollage({
             style={{
               left: `${p.leftPct}%`,
               top: `${p.topPct}%`,
+              width: `${p.scale * 100}%`,
+              aspectRatio: "1 / 1",
               zIndex: p.z,
               transform: `translate(-50%, -50%) rotate(${p.rotateDeg}deg)`,
             }}
           >
-            <OutfitItemView asset={toOutfitItemAsset(item)} size={size} floating />
+            <OutfitItemView asset={toOutfitItemAsset(item)} fill floating />
           </div>
         );
       })}
