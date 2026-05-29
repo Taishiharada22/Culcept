@@ -28,13 +28,14 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { WardrobeItem } from "@/lib/shared/wardrobe";
 
 import { MOCK_CALENDAR_OUTFIT_VM } from "./mockCalendarOutfit";
-import type { CalendarOutfitVM, CalendarOutfitWeatherVM } from "./types";
+import type { CalendarOutfitSyncVM, CalendarOutfitVM, CalendarOutfitWeatherVM } from "./types";
 import { loadWardrobeImagesFromMyStyleIDB } from "./wardrobeAssets";
 import { hydrateOutfitVM } from "./wardrobeToOutfit";
 import { fetchOutfitWeather } from "./weatherSource";
 import { anchorsToOutfitEvents } from "./anchorsToOutfitEvents";
-import { projectCalendarEvents } from "./outfitEventProjection";
+import { projectCalendarEvents, buildOutfitDayContext } from "./outfitEventProjection";
 import { generateCalendarOutfitProposal } from "./outfitEngineAdapter";
+import { buildOutfitReasonVM } from "./outfitReasonFactors";
 
 interface OutfitMaterials {
   wardrobe: WardrobeItem[];
@@ -77,29 +78,37 @@ export function useCalendarOutfit({
       // B-2: 天気レイヤ
       if (weather) next = { ...next, weather };
 
-      if (wardrobe.length > 0) {
-        // B-3/B-4A: 選択日の予定 → engine events
-        const dayObj = new Date(`${dayIso}T00:00:00.000Z`);
-        const events = projectCalendarEvents(anchorsToOutfitEvents(anchors, dayObj));
+      // B-3/B-4A: 選択日の予定 → コーデ文脈 events + 1 日集約（wardrobe 有無に関わらず作る）
+      const dayObj = new Date(`${dayIso}T00:00:00.000Z`);
+      const events = anchorsToOutfitEvents(anchors, dayObj);
+      const dayContext = buildOutfitDayContext(events);
 
-        // B-4B: engine 接続（失敗時 null）
+      // B-4B: engine 接続（wardrobe があるときだけ。 失敗時 null）
+      let engineSync: CalendarOutfitSyncVM | null = null;
+      if (wardrobe.length > 0) {
         const patch = await generateCalendarOutfitProposal({
           wardrobe,
           weather,
-          events,
+          events: projectCalendarEvents(events),
           date: dayIso,
         });
         if (!active) return;
 
         if (patch) {
-          // engine 提案で proposals + SYNC を差し替え（理由・分析は mock のまま）
+          // engine 提案で proposals + SYNC を差し替え（ワードローブ分析は mock のまま）
           next = { ...next, proposals: patch.proposals, sync: patch.sync };
+          engineSync = patch.sync;
         } else {
           // B-1 fallback: mock proposals を実画像でハイドレート（退化ゼロ）
           const hydrated = hydrateOutfitVM(next, wardrobe);
           if (hydrated !== next) next = hydrated;
         }
       }
+
+      // B-5A: 理由カードを weather × dayContext × engine SYNC から生成
+      // (材料が無ければ null → mock 理由を維持。 機微情報は出さない)
+      const reasonVM = buildOutfitReasonVM({ weather, dayContext, sync: engineSync });
+      if (reasonVM) next = { ...next, reason: reasonVM };
 
       if (active) setVm(next);
     })();
