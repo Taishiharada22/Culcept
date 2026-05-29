@@ -130,6 +130,11 @@ interface ExternalAnchorRow {
   valid_until: string | null;
   recurrence_rule: string | null;
   exception_dates: string[] | null;
+  /**
+   * P3 W3 (= 2026-05-26): .ics VEVENT UID（NULL 許容）
+   * source_type='ics' の anchor のみ持つ。
+   */
+  external_uid: string | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -183,6 +188,8 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
     if (row.sensitive_category !== null) {
       oneOff.sensitiveCategory = row.sensitive_category as OneOffExternalAnchor["sensitiveCategory"];
     }
+    // P3 W3 (= 2026-05-26): externalUid mapping (= .ics VEVENT UID)
+    if (row.external_uid !== null) oneOff.externalUid = row.external_uid;
     return oneOff;
   }
 
@@ -209,6 +216,8 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
   if (row.sensitive_category !== null) {
     recurring.sensitiveCategory = row.sensitive_category as RecurringExternalAnchor["sensitiveCategory"];
   }
+  // P3 W3 (= 2026-05-26): externalUid mapping (= .ics VEVENT UID)
+  if (row.external_uid !== null) recurring.externalUid = row.external_uid;
   return recurring;
 }
 
@@ -266,6 +275,8 @@ function anchorInsertPayload(
     valid_until: isOneOff ? null : (input.validUntil ?? null),
     recurrence_rule: isOneOff ? null : input.recurrenceRule,
     exception_dates: isOneOff ? null : (input.exceptionDates ?? null),
+    // P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType='ics' のみ設定、 他は NULL)
+    external_uid: input.externalUid ?? null,
   };
 }
 
@@ -319,6 +330,8 @@ function anchorInsertPayloadForRpc(
     valid_until: isOneOff ? null : (input.validUntil ?? null),
     recurrence_rule: isOneOff ? null : input.recurrenceRule,
     exception_dates: isOneOff ? null : (input.exceptionDates ?? null),
+    // P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType='ics' のみ設定、 他は NULL)
+    external_uid: input.externalUid ?? null,
   };
 }
 
@@ -405,6 +418,29 @@ export function createSupabaseExternalAnchorRepository(
       const rpcAnchorsPayload = validInputs.map((a) =>
         anchorInsertPayloadForRpc(a)
       );
+
+      // P3 Phase A debug (= 2026-05-28 payload mismatch 解析、 NODE_ENV !== production で active)
+      // CEO 指示: 「本当に何を RPC に渡しているか」 を確定する
+      if (process.env.NODE_ENV !== "production") {
+        const sourceTypeRaw = rpcSourcePayload.source_type;
+        const sourceTypeJson = JSON.stringify(sourceTypeRaw);
+        console.info("[external-anchor-repo] RPC payload (snake_case before send)", {
+          userId,
+          rpcSourcePayload,
+          source_type_value: sourceTypeRaw,
+          source_type_typeof: typeof sourceTypeRaw,
+          source_type_json: sourceTypeJson,
+          source_type_length:
+            typeof sourceTypeRaw === "string" ? sourceTypeRaw.length : null,
+          source_type_charCodes:
+            typeof sourceTypeRaw === "string"
+              ? Array.from(sourceTypeRaw).map((c) => c.charCodeAt(0))
+              : null,
+          original_filename: rpcSourcePayload.original_filename,
+          anchors_length: rpcAnchorsPayload.length,
+          first_anchor: rpcAnchorsPayload[0] ?? null,
+        });
+      }
 
       const { data: rpcData, error: rpcError } = await client.rpc(
         "create_external_anchor_bundle",

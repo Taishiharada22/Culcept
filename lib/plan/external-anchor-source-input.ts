@@ -14,7 +14,8 @@
  *
  * Anchor input (W1-4pre-1) との sourceType 制約の差:
  *   - Anchor input: "manual" | "template" のみ許可（W1-4-pre 範囲）
- *   - Source input: "manual" | "template" | "pdf" | "image" | "chat" 全 5 種許可
+ *   - Source input: "manual" | "template" | "pdf" | "image" | "chat" に
+ *     "ics"(P3 W3) / "google_calendar"(P3 Phase B) を加えた全 7 種許可
  *     （migration external_anchor_sources.source_type CHECK と一致）
  *   この差は意図的。Source は将来 Document Import で pdf/image/chat も使う。
  */
@@ -49,6 +50,8 @@ const ALLOWED_SOURCE_TYPES: readonly ExternalAnchorSourceType[] = [
   "pdf",
   "image",
   "chat",
+  "ics", // P3 W3 (= 2026-05-26): .ics / iCalendar 取り込み経路
+  "google_calendar", // P3 Phase B (= 2026-05-29 β 恒久化): Google Calendar 連携取り込み
 ];
 
 const ALLOWED_RAW_RETENTION: readonly RawRetention[] = ["discarded", "stored"];
@@ -108,7 +111,7 @@ export function validateCreateExternalAnchorSourceInput(
       message: `rawRetention must be one of: ${ALLOWED_RAW_RETENTION.join(", ")}`,
     });
     // retention 不明なら raw_*_payload の整合検査は skip
-    return errors.length > 0 ? { valid: false, errors } : { valid: true, input: obj as CreateExternalAnchorSourceInput };
+    return errors.length > 0 ? { valid: false, errors } : { valid: true, input: obj as unknown as CreateExternalAnchorSourceInput };
   }
 
   // raw retention 整合
@@ -148,7 +151,7 @@ export function validateCreateExternalAnchorSourceInput(
   if (errors.length > 0) {
     return { valid: false, errors };
   }
-  return { valid: true, input: obj as CreateExternalAnchorSourceInput };
+  return { valid: true, input: obj as unknown as CreateExternalAnchorSourceInput };
 }
 
 /**

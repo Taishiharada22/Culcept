@@ -14609,3 +14609,193 @@ Map impl readiness v1 (= commit `d9dea93e`) を CEO + GPT 確認。 「採用、
 - **ステータス**: Map impl readiness v2 **採用確定**。 9a-pre 着手 → 完了後 報告と停止。
 
 ---
+
+## 2026-05-29 [Build] P3 Phase B B-4 — Google OAuth smoke account 確定 + testing-mode test-user 教訓 [承認: CEO]
+
+### 背景
+
+B-3 (= Google import trigger 結線) 完了後、 staging dev server で B-4 end-to-end smoke を再開しようとしたが、 2 段階で block。
+
+1. **env 未設定 block** (= 解消済): connect が `not_configured` で degrade (`hasClientId/hasRedirectUri/hasStateSecret = false`)。 原因 = `.env.local` に Google OAuth 5 変数が全て未設定。 **コード不具合ではなく環境設定** (CEO + GPT 判断一致)。 解消 = `.env.local` scaffold (= Claude が REDIRECT_URI / 生成 2 secret 書込、 CLIENT_ID/SECRET は CEO が Console 値を貼付) → dev server 再起動 → connect が Google OAuth に正しく redirect。
+2. **testing-mode test-user block** (= 現在): connect 後の OAuth flow で `403 access_denied` ("審査プロセスを完了していません")。 原因 = publish 前の app は "testing" 状態のため、 OAuth consent screen の **Test users** に登録した account のみ認可可能。 ログイン account `th200122aish@icloud.com` が未登録。
+
+### CEO 確定 2 点
+
+- **Google OAuth smoke account = `th200122aish@icloud.com`** (= 現ログイン・最短)。 ⚠️ これは OAuth 連携する Google アカウントで、 app login user (= `aneurasync@outlook.com`、 anchor 作成先) とは**別 account**。 この区別は completion-readiness Phase C の "実 user (= aneurasync@outlook.com)" を変えない根拠。
+- **env 整備の `.env.local` 書込は Claude 代行** (= 生成 secret + config のみ。 CLIENT_ID/SECRET は CEO。 secret 値は commit / docs / chat に出さない)。
+
+### testing-mode 教訓 (= 恒久メモ)
+
+- staging smoke に **Google full verification は不要**。 OAuth consent screen "Test users" (最大 100) に authorizing account を追加するだけで OK。
+- Console の Test users 追加は **即時反映** (= dev server 再起動不要)。
+- production publish 時のみ full verification が必要。
+
+### docs 更新 (= 本 commit)
+
+改変:
+- `docs/alter-plan-p3-phase-b-readiness.md` (= §3 B-4 checklist の smoke account を `th200122aish@icloud.com` に補正 + testing-mode test-user 必須 note 追記、 §7.3 を別 account 明示に補正)
+
+### 次 (= CEO 専管の最終 unblock)
+
+- CEO が Google Cloud Console → OAuth consent screen → Test users に `th200122aish@icloud.com` を追加 → Save → OAuth flow を retry (= 再起動不要)。
+- 認可成功後、 B-4 smoke 再開 (= CEO がブラウザで OAuth flow を driving。 Claude は smoke 自体を実行しない)。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「B-4 GO、 ただし env 整備後に再開」「smoke account = th200122aish@icloud.com」「.env.local 書込は Claude 代行」)
+- **ステータス**: env block **解消済**。 testing-mode test-user block は **CEO の Console 作業待ち** (= Claude touch 禁止領域)。 doc 同期完了。
+
+---
+
+## 2026-05-29 [Build] P3 Phase B B-4 — Google end-to-end smoke PASS + 実データ限定バグ 2 件修正 + Phase B closeout [承認: CEO]
+
+### B-4 smoke 結果 (= CEO pass 確定)
+
+CEO 主導の staging smoke で **connect → fetch → save → UI 反映** が通過:
+- Google 接続成功
+- ログ `import_success / imported: 3 / skipped: 0`
+- 取り込んだ予定が 5/29・5/30 の Plan UI に実表示
+
+→ Phase B scope 6 条件 (connect / fetch / mapping / save / UI 反映 / disconnect) 全達成。 CEO 「B-4 は合格でよい」。
+
+### B-4 smoke で発見・修正した実データ限定バグ 2 件
+
+いずれも mock ベース unit test を pass していた (= 実 Supabase / 実 OAuth でしか踏まない経路)。
+
+1. **Path B (= commit `703dc89b`)**: 部分接続 (events.readonly のみ許可) で subscriptions 0 件 → import 空振り。 `runGoogleAnchorImport` step 4 に primary fallback (空なら `['primary']`、 `db_error` 時は fallback せず error)。 33 test pass。
+2. **decrypt bytea (= commit `a683e4fb`、 本 phase 最重要)**: `upsertConnection` が暗号化済み生 Buffer を supabase-js upsert payload へ直渡し → JSON 直列化で `Buffer.toJSON()` (`{"type":"Buffer",...}`) に化け、 別バイト列が bytea へ保存 (= upsert は成功)。 読み戻し後の AES-256-GCM auth-tag 検証が必ず失敗 → `decrypt_failed: authentication` → UI「再接続が必要」。 修正 = 書込時に `\x${buf.toString("hex")}` (= PostgreSQL bytea hex 入力形式)。 読み戻し側 `findConnection` は既に `\x`-hex decode 済で対称。 schema / migration / 鍵 変更なし。 test 補強 = payload が生 Buffer でなく `\x...` 文字列 + write⇄read round-trip ガード。
+
+### methodology 教訓 (= 恒久メモ)
+
+- **mock ベース unit test は「実 wire の直列化」 を踏まない**。 bytea / OAuth scope 等の実インフラ依存経路は **staging smoke が唯一の検出手段**。 外部連携 (DB serialization / OAuth scope / network) を持つ機能は unit green を「実装完了」 とせず、 staging smoke gate まで通して初めて closeout する。
+
+### 検証
+
+- oauth 該当 44/44 pass (= round-trip ガード含む)、 full suite **661 files / 15509 pass** (1 skipped)、 source tsc **1114 不変** (新規 error 0)
+- production への書き込み 0 (= 全 smoke staging runtime、 §4-X 厳守)
+
+### docs (= 本 commit)
+
+新規:
+- `docs/alter-plan-p3-phase-b-result.md` (= Phase B result 固定 + closeout、 Phase A result の型)
+- `docs/alter-plan-p3-phase-c-readiness.md` (= 次フェーズ readiness、 ICS + Google 共存確認 → P3 完成判定)
+
+### 次 (= Phase C)
+
+- **Phase C は薄い**: Phase A (ICS) / Phase B (Google) は独立に end-to-end pass 済。 残るは両系統が同一 Plan UI で共存する確認 + 正式な P3 完成判定のみ。
+- CEO 確認 stop point 3 点 (= Phase C 着手 GO / 共存 smoke の版 / main merge タイミング)。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「B-4 は合格でよい」「Phase B は B-4 まで PASS として閉じてよい」「Phase B result 固定 + closeout + 次フェーズ readiness に進め」)
+- **ステータス**: **Phase B closeout 完了**。 Phase C 着手は CEO GO 待ち。
+
+---
+
+## 2026-05-29 [Build] P3 Phase C — GO / 強い版 / 別 fixture / merge は pass 後 (= CEO + GPT 合議) [承認: CEO]
+
+### 決定 (= CEO + GPT 合議)
+
+| 論点 | 判断 |
+|------|------|
+| Phase C 着手 | **GO** |
+| 共存 smoke の版 | **強い版** (= 同日に ICS event と Google event を並べる) |
+| fixture | **別途新規作成** (= 既存 Phase A fixture `/tmp/p3-smoke.ics` は書き換えない) |
+| main merge | **Phase C pass 後** (= 中間 merge しない。 ICS pass + Google pass + 共存未確認の中途半端を main に入れない) |
+
+### 理由 (= GPT)
+
+- 強い版: 弱い版 (= 別日) だと「たまたま両方通って見えるだけ」 になりやすい。 ゴールは「同じ `/plan` の同じ文脈で共存して壊れない」 ことなので強い版が正しい。
+- 別 fixture: 既存 fixture を書き換えると Phase A 再現資産を汚す。 一時 fixture を別で作る。
+- merge 後: 中間 merge は中途半端な状態を main に持ち込むため、 P3 完成判定後にまとめて merge。
+
+### Phase C pass 条件 (= CEO 確定 5 点)
+
+1. staging で Google import 済の状態を維持
+2. Phase C 用 ICS fixture を追加 import
+3. 同一 UI 上で Google 由来予定と ICS 由来予定が共存表示される
+4. 既存予定を壊さない
+5. 意図しない重複や消失がない
+
+補足: SourceListModal 等 周辺確認は任意 / Phase C は薄く保ち新機能追加なし / fail したら即 stop。
+
+### Claude 側準備 (= 本 commit、 ①〜⑤ 原則適用)
+
+- **fixture 新規作成**: `/tmp/p3-phase-c-smoke.ics` (= 3 OneOff timed: 5/29 13:00 / 5/29 16:00 / 5/30 11:00)。 既存 fixture 不変。
+- **fixture を実 parser + mapper で検証** (= 一時 test で `parseIcsString` → `mapIcsEventsToDrafts` を通し date/startTime/uid 期待通りを確認 → temp test 削除)。 CEO smoke が fixture バグで空振りしないことを担保。
+- **TZ 意味論の精査**: ICS / Google 両 mapper は ISO の UTC components を literal 抽出 (= timezone-naive)。 Google は `+09:00` の HH:MM を JST wall-clock として表示。 ICS parser は UTC `Z` を返すため、 fixture を `...T130000Z` で書けば "13:00" 表示となり Google と揃う。
+- UID `p3c-ics-000N@aneurasync.smoke` で既存 anchor と衝突なし (= 誤 dedup / 破壊なし)。
+
+### docs (= 本 commit)
+
+改変:
+- `docs/alter-plan-p3-phase-c-readiness.md` (= §header/§2.1/§3/§5/§7 を CEO 確定値に更新 + §8 関連 doc + §9 fixture 仕様/検証/再生成 追記)
+
+### 次 (= CEO-driven 共存 smoke)
+
+- CEO が staging dev server (= `.env.local` staging 確認後) で Google import 済 user のまま `/tmp/p3-phase-c-smoke.ics` を追加 import → 5/29・5/30 に ICS + Google が共存表示されることを視覚確認 → P3 完成判定。 Claude は smoke 自体を実行しない。
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT (= 2026-05-29、 「Phase C GO / 強い版 / 別 fixture / merge は Phase C pass 後」)
+- **ステータス**: Phase C **Claude 側準備完了** (= fixture 作成 + 検証 + readiness 確定)。 CEO-driven 共存 smoke 待ち。
+
+---
+
+## 2026-05-29 [Build] P3 Phase C 共存 smoke PASS + overlap 描画 deferred + P3 完成判定 (案) [承認: CEO 待ち]
+
+### Phase C smoke 結果 (= CEO 視覚確認)
+
+staging で Google import 済 user のまま `/tmp/p3-phase-c-smoke.ics` を追加 import。 5/29・5/30 の Plan UI で ICS 由来予定と既存予定 (= Google import 含む) が**共存表示**。 Phase C pass 5 条件すべて達成 (= CEO「共存できているように思います」):
+
+1. Google import 済維持 ✅ / 2. ICS 追加 import (3 件) ✅ / 3. 同一 UI 共存表示 ✅ / 4. 既存非破壊 ✅ / 5. 重複・消失なし ✅
+
+### overlap 描画事項 → P3 範囲外で deferred (= CEO 認識と一致)
+
+- **観察 (CEO)**: 5/30「仕事」09:00-17:00 と ICS「コーヒーチャット」11:00-11:30 が時間重複。 望ましい表示は「仕事」を 09:00-11:00 / 11:30-17:00 に分割し間にコーヒーチャットを置くこと。 現状は両 block 独立表示。
+- **scope 判断 (= 範囲外)**: ①import は正常 (= 両者正しい時刻、 データ破損でない) ②source 非依存 (= 任意の重複予定で起きるタイムライン描画全般) ③プロダクト設計論点を含む (= 割る/重ねる/入れ子、「仕事中の小休止」 の意味論)。 → カレンダータブ再設計 / Plan UI トラック。
+- **対応**: task #206 でバックログ化。 CEO「今回の修正範囲外で、 以降に行う予定だったら、 それでいい」 → **deferred 確定**。
+
+### P3 完成判定 (案)
+
+completion-readiness §0 の 4 条件すべて達成: ICS end-to-end (Phase A) ✅ / Google end-to-end (Phase B) ✅ / 共存 (Phase C) ✅ / production 副作用 0 ✅。 → **P3 完成 = PASS (案)**。 CEO の完成宣言 + main merge GO 待ち (= 中間 merge せず Phase C pass 後にまとめて、 既定方針)。
+
+### docs (= 本 commit)
+
+新規:
+- `docs/alter-plan-p3-phase-c-result.md` (= Phase C smoke 結果 + overlap deferred + P3 完成判定案)
+
+### 次 (= CEO 判断)
+
+- CEO が「P3 完成」 を宣言 → main merge GO。 merge は branch 確認 + full suite green + closeout 固定の上で実行。
+
+### 承認 + ステータス
+
+- **承認**: CEO 待ち (= 完成宣言 + merge GO)
+- **ステータス**: Phase C smoke **PASS**。 overlap **deferred (#206)**。 P3 完成判定は **CEO 宣言待ち**。
+
+---
+
+## 2026-05-29 [Build] P3 完成宣言 + local main merge (= full suite 1 fail は flake 扱い) [承認: CEO]
+
+### P3 完成宣言 (= CEO、 2026-05-29)
+
+ICS (Phase A) / Google (Phase B) / 共存 (Phase C) / production 副作用 0 の 4 条件すべて達成 → CEO「P3 完成」宣言。 `alter-plan-p3-phase-c-result.md` を (案) → 確定 (= commit `f361c690`)。
+
+### full suite flake の扱い (= merge 前記録、 CEO 指示 1)
+
+merge 前の最終 gate full suite で **1 fail**。 内訳 = `tests/unit/plan/proposalPlanClientHelpers.test.ts > PlanClient default export が関数として import 可` が `Error: Test timed out in 5000ms`。
+
+- **flake と判断 (= 負荷タイムアウト)**: ①失敗は assertion でなく timeout ②**単独実行で 36/36 PASS (4.87s)** ③重い動的 `import("@/app/(culcept)/plan/PlanClient")` が 661 files 並行 transform 下 (= transform 157-226s) で 5000ms 上限超過 ④コードは 15509-green run (本セッション前半) から不変 (= 以後 docs のみ)。
+- → merge する main 上のコードは**実体 green**。 timeout 見直しは **別タスク #207** (= 後で、 CEO 指示 5)。
+
+### merge (= CEO 補正: local まで、 push / PR / remote は別承認)
+
+`feat/p3-completion` → `main` を `--no-ff` で **local merge**。 main は feat の strict ancestor (= コンフリクトなし)。 `supabase/.temp/*` は commit 済内容が両 branch 同一で merge commit に含まれない。 **push / PR / remote 反映は実施せず (= 別承認待ち)**。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「A で進める / flake 扱い / local merge 実行 / push は別承認 / flake は別タスク」)
+- **ステータス**: P3 完成。 local main merge 実行 (= merge hash は報告に記載)。 push/PR/remote は別承認待ち。 flake #207 deferred。
+
+---

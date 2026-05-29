@@ -135,6 +135,7 @@ export const SOURCE_TYPE_LABEL: Record<
   pdf: "PDF",
   image: "画像",
   chat: "会話",
+  ics: "カレンダー", // P3 W3 (= 2026-05-26): .ics / iCalendar
 };
 
 /** anchor.locationCategory + locationText を 1 行に整形。両方無ければ "場所未指定" */
