@@ -38,11 +38,13 @@ export function CalendarOutfitDashboard({
   /** section ③ の「タイムラインで確認」リンク → 既存タイムライン (退避済み) を開く */
   onOpenTimeline?: () => void;
 }) {
-  const vm = useCalendarOutfit();
-
   const todayIso = isoDate(utcMidnight(now));
   const [selectedIso, setSelectedIso] = useState<string>(todayIso);
   const selectedDayObj = new Date(selectedIso + "T00:00:00.000Z");
+
+  // B-4B: 選択日の予定 + wardrobe + weather を engine へ渡し実コーデ提案を得る。
+  // 失敗時は mock / B-1 画像ハイドレートへ自動フォールバック (hook 内で完結、 退化ゼロ)。
+  const vm = useCalendarOutfit({ anchors, dayIso: selectedIso });
 
   return (
     <div
