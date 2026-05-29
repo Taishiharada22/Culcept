@@ -20,6 +20,7 @@ export function OutfitCard({
   onMarkWorn,
   satisfaction,
   onRate,
+  onUndoWorn,
 }: {
   proposal: CalendarOutfitProposalVM;
   active?: boolean;
@@ -33,6 +34,8 @@ export function OutfitCard({
   satisfaction?: number;
   /** 「よかった / 微妙」評価 (着用済みカードにのみ表示)。 学習には流さない (隔離 store のみ) */
   onRate?: (value: "good" | "bad") => void;
+  /** 「着用済み」の取り消し (worn + rating をまとめて解除) — Undo Polish */
+  onUndoWorn?: () => void;
 }) {
   const band = SYNC_BAND_VM[proposal.syncBandKey];
 
@@ -117,9 +120,10 @@ export function OutfitCard({
       </div>
 
       {/* B-5E: 選択済みカードに diary 状態（着用→感触）を 1 行に控えめにまとめる。
-          薄い区切り線で SYNC/CTA と分け、 着用→評価の流れを自然に見せる（隔離 store のみ・学習なし）。 */}
+          着用→評価の流れを自然に見せ、 誤操作は「取り消す」で戻せる（隔離 store のみ・学習なし）。
+          感触は 2 ボタンのトグルで、 選択中を塗りで示す＝表示と再評価を兼ねる。 */}
       {active && selected && (
-        <div className="mt-2.5 flex items-center justify-end gap-1.5 border-t border-violet-100/60 pt-2 text-[11px]">
+        <div className="mt-2.5 flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 border-t border-violet-100/60 pt-2 text-[11px]">
           {!worn ? (
             <button
               type="button"
@@ -138,30 +142,44 @@ export function OutfitCard({
                 </svg>
               </span>
               <span className="text-slate-300" aria-hidden="true">·</span>
-              {satisfaction != null ? (
-                <span className={satisfaction >= 4 ? "font-medium text-violet-600" : "text-slate-500"}>
-                  感触: {satisfaction >= 4 ? "よかった" : "微妙"}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onRate?.("good")}
-                    data-testid={`plan-calendar-outfit-rate-good-${proposal.id}`}
-                    className="rounded-full border border-violet-200 px-2 py-0.5 font-medium text-violet-600 transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                  >
-                    よかった
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onRate?.("bad")}
-                    data-testid={`plan-calendar-outfit-rate-bad-${proposal.id}`}
-                    className="rounded-full border border-slate-200 px-2 py-0.5 font-medium text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                  >
-                    微妙
-                  </button>
-                </span>
-              )}
+              {/* 感触トグル（選択中は塗り。 もう一方を押せば再評価＝rating 修正） */}
+              <button
+                type="button"
+                onClick={() => onRate?.("good")}
+                aria-pressed={satisfaction != null && satisfaction >= 4}
+                data-testid={`plan-calendar-outfit-rate-good-${proposal.id}`}
+                className={
+                  "rounded-full border px-2 py-0.5 font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 " +
+                  (satisfaction != null && satisfaction >= 4
+                    ? "border-violet-300 bg-violet-100 text-violet-700"
+                    : "border-violet-200 text-violet-600 hover:bg-violet-50")
+                }
+              >
+                よかった
+              </button>
+              <button
+                type="button"
+                onClick={() => onRate?.("bad")}
+                aria-pressed={satisfaction != null && satisfaction <= 2}
+                data-testid={`plan-calendar-outfit-rate-bad-${proposal.id}`}
+                className={
+                  "rounded-full border px-2 py-0.5 font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 " +
+                  (satisfaction != null && satisfaction <= 2
+                    ? "border-slate-300 bg-slate-100 text-slate-600"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50")
+                }
+              >
+                微妙
+              </button>
+              <span className="text-slate-300" aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={onUndoWorn}
+                data-testid={`plan-calendar-outfit-worn-undo-${proposal.id}`}
+                className="rounded text-slate-400 transition hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              >
+                取り消す
+              </button>
             </>
           )}
         </div>

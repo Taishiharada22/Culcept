@@ -166,4 +166,12 @@ describe("wornStore", () => {
     delete g.localStorage;
     expect(() => rateWornForDate("2026-05-29", 5, "t")).not.toThrow();
   });
+
+  it("undo: clearWornForDate は着用＋評価をまとめて消す", () => {
+    saveWorn(worn("2026-05-29"));
+    rateWornForDate("2026-05-29", 5, "2026-05-29T21:00:00.000Z");
+    expect(getWornForDate("2026-05-29")?.satisfaction).toBe(5);
+    clearWornForDate("2026-05-29");
+    expect(getWornForDate("2026-05-29")).toBeNull(); // 着用も評価も消える
+  });
 });

@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 
 import type { CalendarOutfitProposalSource, CalendarOutfitProposalVM } from "./types";
 import { getSelectionForDate, saveSelection, toSelectionRecord } from "./outfitSelectionStore";
-import { getWornForDate, saveWorn, rateWornForDate, toWornRecord } from "./wornStore";
+import { getWornForDate, saveWorn, rateWornForDate, clearWornForDate, toWornRecord } from "./wornStore";
 import { OutfitCard } from "./OutfitCard";
 import { CarouselDots } from "./CarouselDots";
 
@@ -92,6 +92,13 @@ export function OutfitCarousel({
     rateWornForDate(dayIso, satisfaction, new Date().toISOString());
   };
 
+  // Undo Polish: 「着用済み」を取り消す（worn + rating をまとめて解除）。 選択(selectedId)は維持。
+  const handleUndoWorn = () => {
+    setWornId(null);
+    setWornSatisfaction(null);
+    clearWornForDate(dayIso);
+  };
+
   const trackTransform = `translateX(calc(10% - ${activeIndex * 80}%))`;
 
   return (
@@ -114,6 +121,7 @@ export function OutfitCarousel({
                   onMarkWorn={() => handleMarkWorn(proposal)}
                   satisfaction={proposal.id === wornId && wornSatisfaction != null ? wornSatisfaction : undefined}
                   onRate={handleRate}
+                  onUndoWorn={handleUndoWorn}
                 />
               </div>
             ))}
