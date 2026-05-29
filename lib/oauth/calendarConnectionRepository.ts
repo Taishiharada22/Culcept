@@ -49,7 +49,12 @@ export async function upsertConnection(
   const payload = {
     user_id: input.userId,
     provider: input.provider,
-    refresh_token_encrypted: input.refreshTokenEncrypted,
+    // bytea カラムへは PostgreSQL hex 入力形式 (`\x` + hex) の文字列で渡す。
+    // 生 Buffer を直接渡すと supabase-js が JSON 直列化時に Buffer.toJSON()
+    // (= {"type":"Buffer","data":[...]}) へ化け、別バイト列として bytea に保存される
+    // (= upsert 自体は成功する)。結果、読み戻し後の復号で auth-tag 検証が必ず失敗する。
+    // 読み戻し側 (findConnection) は既に `\x`-hex を decode するので、書き⇄読みが対称になる。
+    refresh_token_encrypted: `\\x${input.refreshTokenEncrypted.toString("hex")}`,
     access_token_expires_at: input.accessTokenExpiresAt.toISOString(),
     scopes: [...input.scopes],
     status: "active",

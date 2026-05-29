@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildSubscriptionRows,
   bulkUpsertSubscriptions,
+  findConnection,
   normalizeAccessRole,
   shouldEnableByDefault,
   upsertConnection,
@@ -206,7 +207,11 @@ describe("upsertConnection", () => {
       access_token_expires_at: "2026-12-31T23:59:59.000Z",
       scopes: baseInput.scopes,
     });
-    expect(Buffer.isBuffer(payload.refresh_token_encrypted)).toBe(true);
+    // bytea は \x hex 文字列で書き込む (= 生 Buffer 直渡しは supabase-js JSON 化で破損)
+    // baseInput.refreshTokenEncrypted = Buffer.from([1,2,3,4]) → hex "01020304"
+    expect(typeof payload.refresh_token_encrypted).toBe("string");
+    expect(Buffer.isBuffer(payload.refresh_token_encrypted)).toBe(false);
+    expect(payload.refresh_token_encrypted).toBe("\\x01020304");
     expect(options).toEqual({ onConflict: "user_id,provider" });
   });
 
@@ -237,6 +242,67 @@ describe("upsertConnection", () => {
     if (!r.ok) {
       expect(r.reason).toBe("db_error");
       expect(r.detail).toContain("schema mismatch");
+    }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// write ⇄ read round-trip (= bytea \x hex 形式 対称性、 decrypt_failed 再発防止)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** findConnection 用の最小 mock (= refresh_token_encrypted の返却値だけ可変) */
+function makeFindClientReturning(refreshTokenEncrypted: unknown) {
+  const maybeSingleSpy = vi.fn(async () => ({
+    data: {
+      id: "conn-rt",
+      status: "active",
+      last_synced_at: null,
+      scopes: [],
+      refresh_token_encrypted: refreshTokenEncrypted,
+    },
+    error: null,
+  }));
+  const eqSpy2 = vi.fn(() => ({ maybeSingle: maybeSingleSpy }));
+  const eqSpy1 = vi.fn(() => ({ eq: eqSpy2 }));
+  const selectSpy = vi.fn(() => ({ eq: eqSpy1 }));
+  return { from: vi.fn(() => ({ select: selectSpy })) };
+}
+
+describe("write ⇄ read round-trip (= bytea \\x hex 形式 対称性)", () => {
+  it("upsert が出力する \\x hex 文字列を findConnection が同一 Buffer に復元する", async () => {
+    // 暗号バイト列を模す (= 0x00 / 0xff 端値を含め hex 変換の取りこぼしを検出)
+    const original = Buffer.from([0x00, 0x1a, 0xff, 0x42, 0x7e, 0x00, 0x99]);
+
+    // --- write 側: payload.refresh_token_encrypted を捕捉 ---
+    const writeMock = makeMockConnectionClient({ returnData: { id: "conn-rt" } });
+    await upsertConnection(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      writeMock.client as any,
+      {
+        userId: "user-rt",
+        provider: "google",
+        refreshTokenEncrypted: original,
+        accessTokenExpiresAt: new Date("2026-12-31T23:59:59Z"),
+        scopes: ["s"],
+      },
+    );
+    const writePayload = (
+      writeMock.upsertSpy.mock.calls[0] as unknown as [Record<string, unknown>, unknown]
+    )[0];
+    const stored = writePayload.refresh_token_encrypted;
+    // 生 Buffer ではなく \x hex 文字列で渡っていること (= 破損経路を塞いだ証跡)
+    expect(typeof stored).toBe("string");
+    expect(Buffer.isBuffer(stored)).toBe(false);
+    expect((stored as string).startsWith("\\x")).toBe(true);
+
+    // --- read 側: Supabase が同じ \x hex を返す状況を模して decode ---
+    const readClient = makeFindClientReturning(stored);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await findConnection(readClient as any, "user-rt", "google");
+    expect(r.ok).toBe(true);
+    if (r.ok && r.connection) {
+      // 書き⇄読みが対称 → 元の暗号バイト列が忠実に復元される
+      expect(r.connection.refreshTokenEncrypted.equals(original)).toBe(true);
     }
   });
 });
