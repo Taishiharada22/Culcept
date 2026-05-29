@@ -470,7 +470,7 @@ describe("importIcsFromUrl", () => {
       expect(r.drafts[0]!.title).toBe("Test Event");
       expect(r.drafts[0]!.date).toBe("2026-05-29");
       expect(r.drafts[0]!.startTime).toBe("13:00");
-      expect(r.skipped).toBe(0);
+      expect(r.skipped).toHaveLength(0);
       expect(r.host).toBe("cal.example.com");
     }
   });

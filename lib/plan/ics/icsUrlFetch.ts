@@ -382,7 +382,8 @@ export type IcsUrlImportResult =
       readonly ok: true;
       readonly drafts: IcsAnchorDraft[];
       readonly warnings: string[];
-      readonly skipped: number;
+      /** map で skip された event (= file flow の preview と同形状で再利用) */
+      readonly skipped: ReadonlyArray<{ readonly sourceUid: string; readonly reason: string }>;
       readonly host: string;
     }
   | { readonly ok: false; readonly reason: IcsUrlFetchReason; readonly detail?: string };
@@ -419,7 +420,7 @@ export async function importIcsFromUrl(
     ok: true,
     drafts: [...mapped.drafts],
     warnings: [...parsed.warnings],
-    skipped: mapped.skipped.length,
+    skipped: [...mapped.skipped],
     host: fetched.finalHost,
   };
 }

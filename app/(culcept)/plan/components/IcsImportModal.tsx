@@ -46,6 +46,8 @@ import type { ExternalAnchor, AnchorRigidity } from "@/lib/plan/external-anchor"
 import { importIcsAnchorsAction } from "../_actions/importIcsAnchors";
 // P3 Phase B B-3: Google Calendar 取り込み trigger (= connect 後の本流 import)
 import { importGoogleAnchorsAction } from "../_actions/importGoogleAnchors";
+// ICS URL Import (Track A): URL から .ics を server SSRF-guarded fetch (= 副導線)
+import { fetchIcsFromUrlAction } from "../_actions/fetchIcsFromUrl";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // State 型
@@ -90,6 +92,8 @@ export function IcsImportModal({
 }) {
   const [state, setState] = useState<ImportState>({ kind: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // ICS URL Import (Track A): URL 副導線の入力値
+  const [urlInput, setUrlInput] = useState("");
 
   // P3-A-1-1-f: Google 接続状態 (= status route から取得)
   const [googleStatus, setGoogleStatus] = useState<
@@ -103,6 +107,7 @@ export function IcsImportModal({
       setState({ kind: "idle" });
       if (fileInputRef.current) fileInputRef.current.value = "";
       setGoogleError(null);
+      setUrlInput("");
     }
   }, [isOpen]);
 
@@ -226,6 +231,42 @@ export function IcsImportModal({
       setState({
         kind: "parse_error",
         error: err instanceof Error ? err.message : "ファイル読み込みに失敗しました",
+      });
+    }
+  }
+
+  // ICS URL Import (Track A): URL から取得 → 既存 preview に流す (= file flow と同形状)
+  //   - fetch/parse/map は server (= SSRF-guarded、 fetchIcsFromUrlAction)
+  //   - 承認以降は file flow と完全共通 (= handleApprove → importIcsAnchorsAction、 dedup 既存)
+  async function handleUrlFetch() {
+    const url = urlInput.trim();
+    if (url.length === 0) return;
+
+    setState({ kind: "parsing" });
+    try {
+      const result = await fetchIcsFromUrlAction(url);
+      if (!result.ok) {
+        setState({ kind: "parse_error", error: result.error });
+        return;
+      }
+      const previews = buildIcsPreview(result.drafts, existingAnchors);
+      const selectedUids = new Set(previews.map((p) => p.draft.sourceUid));
+      const rigidityByUid = new Map<string, AnchorRigidity>();
+      for (const p of previews) {
+        rigidityByUid.set(p.draft.sourceUid, p.draft.rigidity);
+      }
+      setState({
+        kind: "preview",
+        previews,
+        selectedUids,
+        rigidityByUid,
+        skipped: result.skipped,
+        warnings: result.warnings,
+      });
+    } catch (err) {
+      setState({
+        kind: "parse_error",
+        error: err instanceof Error ? err.message : "URL からの取り込みに失敗しました",
       });
     }
   }
@@ -392,6 +433,33 @@ export function IcsImportModal({
                 data-testid="ics-file-input"
                 className="block mx-auto text-xs text-slate-500"
               />
+
+              {/* ICS URL Import (Track A): URL 副導線 (= file が主、 URL は従) */}
+              <div className="mt-4 pt-3 border-t border-slate-100 text-left">
+                <p className="text-[10px] text-slate-400 mb-1.5 text-center">
+                  または公開カレンダーの URL から（Outlook / Apple / Google 等）
+                </p>
+                <div className="flex gap-1.5">
+                  <input
+                    type="url"
+                    inputMode="url"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://… / webcal://…"
+                    data-testid="ics-url-input"
+                    className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:border-indigo-300 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleUrlFetch}
+                    disabled={urlInput.trim().length === 0}
+                    data-testid="ics-url-fetch-btn"
+                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    取り込む
+                  </button>
+                </div>
+              </div>
 
               {/* CEO 補正: .ics がない user の代替経路 */}
               {onSwitchToManualInput && (

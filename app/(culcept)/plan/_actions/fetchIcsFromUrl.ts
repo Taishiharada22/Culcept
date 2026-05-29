@@ -35,7 +35,8 @@ export type FetchIcsFromUrlResult =
       readonly ok: true;
       readonly drafts: IcsAnchorDraft[];
       readonly warnings: string[];
-      readonly skipped: number;
+      /** map で skip された event (= 既存 preview と同形状、 importIcsAnchorsAction へは渡さない) */
+      readonly skipped: ReadonlyArray<{ readonly sourceUid: string; readonly reason: string }>;
       readonly host: string;
     }
   | { readonly ok: false; readonly error: string };
@@ -88,7 +89,7 @@ export async function fetchIcsFromUrlAction(
     console.info("[plan/ics-url] fetch ok", {
       host: result.host,
       drafts: result.drafts.length,
-      skipped: result.skipped,
+      skipped: result.skipped.length,
     });
   }
 
