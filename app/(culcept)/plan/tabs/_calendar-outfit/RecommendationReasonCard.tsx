@@ -21,14 +21,14 @@ export function RecommendationReasonCard({ reason }: { reason: CalendarOutfitRea
   return (
     <section data-testid="plan-calendar-outfit-reason-section">
       <SectionHeader title="このコーデが似合う理由" />
-      <div className={`${CAL_OUTFIT_PALETTE.card} p-5`}>
-        <p className={`text-[15px] font-semibold leading-relaxed ${CAL_OUTFIT_PALETTE.heading}`}>
+      <div className={`${CAL_OUTFIT_PALETTE.card} p-3.5`}>
+        <p className={`text-[14px] font-semibold leading-snug ${CAL_OUTFIT_PALETTE.heading}`}>
           {reason.headline}
         </p>
 
         {/* 主要 5 因子 */}
         {reason.factors.length > 0 && (
-          <div className="mt-4 grid grid-cols-5 gap-2">
+          <div className="mt-2.5 grid grid-cols-5 gap-2">
             {reason.factors.map((f) => {
               const tone = f.tone ?? "neutral";
               return (

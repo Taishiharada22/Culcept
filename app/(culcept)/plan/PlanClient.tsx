@@ -697,11 +697,13 @@ export default function PlanClient({
             </div>
           )}
         </div>
-        {!isPane && (
+        {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
+            固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}
+        {!isPane && activeTab !== "calendar" && (
           <p className={useNewShell ? "mt-0.5 text-xs text-slate-500" : "mt-2 text-sm text-slate-500"}>
             {/* 8b-7-B / 8b-10 / 9a-impl Step α: subtitle 小さく + tab-aware
              *   - map: 「場所を地図で確認して、流れをつかみましょう。」 (= mock 整合)
-             *   - calendar / flow: 「時間の流れを把握して、心地よい1日に。」 (= 8b-7-B 既存)
+             *   - flow: 「時間の流れを把握して、心地よい1日に。」 (= 8b-7-B 既存)
              */}
             {useNewShell
               ? activeTab === "map"

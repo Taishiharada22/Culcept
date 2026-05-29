@@ -48,7 +48,7 @@ export function CalendarOutfitDashboard({
 
   return (
     <div
-      className={`${CAL_OUTFIT_PALETTE.pageGradient} rounded-3xl p-3 ${CAL_OUTFIT_PALETTE.sectionGap}`}
+      className={`px-1 py-1 ${CAL_OUTFIT_PALETTE.sectionGap}`}
       data-testid="plan-calendar-outfit-dashboard"
     >
       {/* ① イントロ */}

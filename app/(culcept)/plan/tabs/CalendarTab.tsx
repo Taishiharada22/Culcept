@@ -267,7 +267,10 @@ export function CalendarTab({
     : { type: "tween" as const, duration: 0.2, ease: "easeOut" as const };
 
   return (
-    <div data-testid="plan-calendar-tab" className="relative pb-24">
+    <div
+      data-testid="plan-calendar-tab"
+      className="relative min-h-full bg-gradient-to-b from-violet-50/80 via-violet-50/40 to-violet-50/20 pb-24"
+    >
       {/* ── Slice 1: スケジュール連動 コーデ提案 dashboard (= 新しい主役、 mock UI) ── */}
       {/* section ③ のみ実 anchors。 ②④⑤⑥ は mock。 engine / DB / weather 実取得は未配線。 */}
       <CalendarOutfitDashboard

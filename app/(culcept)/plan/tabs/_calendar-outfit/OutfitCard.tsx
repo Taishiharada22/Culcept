@@ -87,11 +87,11 @@ export function OutfitCard({
         )}
       </div>
 
-      {/* styling board: アイテムを少し重ねて 1 枚のコーデとして見せる（OutfitCollage）。
-          外枠は縦長（mx-auto + maxWidth で portrait に寄せる）。 実画像 / SVG / 欠損も同じ board 上。 */}
+      {/* styling board = カードそのもの。 内側の紫ボックスは置かず、 アイテムを白カード上に直接浮かせる
+          （frame-in-frame・中途半端な内側ボード感を解消）。 mx-auto + maxWidth で大きさだけ整える。 */}
       <div
-        className="mt-2 mx-auto overflow-visible rounded-2xl bg-gradient-to-br from-violet-50/80 via-white to-white p-1.5"
-        style={{ maxWidth: active ? 232 : 172 }}
+        className="mt-1.5 mx-auto overflow-visible"
+        style={{ maxWidth: active ? 220 : 164 }}
       >
         <OutfitCollage items={proposal.items} active={active} />
       </div>
