@@ -46,6 +46,8 @@ import type { ExternalAnchor, AnchorRigidity } from "@/lib/plan/external-anchor"
 import { importIcsAnchorsAction } from "../_actions/importIcsAnchors";
 // P3 Phase B B-3: Google Calendar 取り込み trigger (= connect 後の本流 import)
 import { importGoogleAnchorsAction } from "../_actions/importGoogleAnchors";
+// Track B TB-4: Microsoft (Outlook) Calendar 取り込み trigger (= connect 後の本流 import)
+import { importMicrosoftAnchorsAction } from "../_actions/importMicrosoftAnchors";
 // ICS URL Import (Track A): URL から .ics を server SSRF-guarded fetch (= 副導線)
 import { fetchIcsFromUrlAction } from "../_actions/fetchIcsFromUrl";
 
@@ -68,6 +70,8 @@ type ImportState =
   | { kind: "submitting" }
   // P3 Phase B B-3: Google import 進捗 (= ICS submitting と別 copy、 fetch+save の体感数秒に対応)
   | { kind: "importing_google" }
+  // Track B TB-4: Microsoft import 進捗 (= Google と別 copy、 fetch+save の体感数秒に対応)
+  | { kind: "importing_microsoft" }
   | { kind: "submitted"; imported: number; skipped: number }
   | { kind: "submit_error"; error: string };
 
@@ -101,12 +105,19 @@ export function IcsImportModal({
   >("unknown");
   const [googleError, setGoogleError] = useState<string | null>(null);
 
+  // Track B TB-4: Microsoft (Outlook) 接続状態 (= Google と対称、 status route から取得)
+  const [microsoftStatus, setMicrosoftStatus] = useState<
+    "unknown" | "loading" | "connected" | "disconnected"
+  >("unknown");
+  const [microsoftError, setMicrosoftError] = useState<string | null>(null);
+
   // reset on close
   useEffect(() => {
     if (!isOpen) {
       setState({ kind: "idle" });
       if (fileInputRef.current) fileInputRef.current.value = "";
       setGoogleError(null);
+      setMicrosoftError(null);
       setUrlInput("");
     }
   }, [isOpen]);
@@ -129,6 +140,30 @@ export function IcsImportModal({
       .catch(() => {
         if (aborted) return;
         setGoogleStatus("disconnected");
+      });
+    return () => {
+      aborted = true;
+    };
+  }, [isOpen]);
+
+  // Track B TB-4: mount on open で Microsoft 接続状態取得 (= Google と対称、 独立 effect)
+  useEffect(() => {
+    if (!isOpen) return;
+    let aborted = false;
+    setMicrosoftStatus("loading");
+    fetch("/api/calendar/microsoft/status", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+    })
+      .then((r) => r.json() as Promise<{ connected: boolean }>)
+      .then((j) => {
+        if (aborted) return;
+        setMicrosoftStatus(j.connected ? "connected" : "disconnected");
+      })
+      .catch(() => {
+        if (aborted) return;
+        setMicrosoftStatus("disconnected");
       });
     return () => {
       aborted = true;
@@ -173,6 +208,61 @@ export function IcsImportModal({
     setState({ kind: "importing_google" });
     try {
       const result = await importGoogleAnchorsAction();
+      if (result.ok) {
+        setState({
+          kind: "submitted",
+          imported: result.imported,
+          skipped: result.skipped,
+        });
+        onSuccess();
+      } else {
+        setState({ kind: "submit_error", error: result.error });
+      }
+    } catch (err) {
+      setState({
+        kind: "submit_error",
+        error: err instanceof Error ? err.message : "取り込みに失敗しました",
+      });
+    }
+  }
+
+  // Track B TB-4: Microsoft (Outlook) 接続 toggle (= Google と対称)
+  //   - connected → disconnect route (= DELETE only、 MS は revoke endpoint なし)
+  //   - disconnected/unknown → connect route に redirect
+  async function handleMicrosoftToggle() {
+    setMicrosoftError(null);
+    if (microsoftStatus === "connected") {
+      setMicrosoftStatus("loading");
+      try {
+        const res = await fetch("/api/calendar/microsoft/disconnect", {
+          method: "POST",
+          credentials: "same-origin",
+        });
+        const json = (await res.json()) as { ok: boolean; error?: string };
+        if (json.ok) {
+          setMicrosoftStatus("disconnected");
+        } else {
+          setMicrosoftStatus("connected"); // revert
+          setMicrosoftError(json.error ?? "解除に失敗しました");
+        }
+      } catch {
+        setMicrosoftStatus("connected");
+        setMicrosoftError("解除に失敗しました");
+      }
+      return;
+    }
+    if (microsoftStatus === "disconnected" || microsoftStatus === "unknown") {
+      window.location.href = "/api/calendar/microsoft/connect?intent=initial";
+    }
+  }
+
+  // Track B TB-4: connect 済 Outlook Calendar を取り込む (= handleGoogleImport と対称)
+  //   - importMicrosoftAnchorsAction は引数なし (= server 側で OAuth connection を使い自前 fetch)
+  //   - ok → submitted + onSuccess() で plan 全 refetch (= 二重表示防止: data 層 externalUid dedup)
+  async function handleMicrosoftImport() {
+    setState({ kind: "importing_microsoft" });
+    try {
+      const result = await importMicrosoftAnchorsAction();
       if (result.ok) {
         setState({
           kind: "submitted",
@@ -411,6 +501,84 @@ export function IcsImportModal({
               )}
             </div>
 
+            {/* Track B TB-4: Microsoft (Outlook) カレンダー toggle (= Google と対称の主導線) */}
+            <div className="px-1 mb-5">
+              <p className="text-[11px] text-slate-500 mb-2 text-center">
+                Outlook カレンダーから自動で取り込む
+              </p>
+              <button
+                type="button"
+                onClick={handleMicrosoftToggle}
+                disabled={microsoftStatus === "loading" || microsoftStatus === "unknown"}
+                data-testid="microsoft-connect-toggle"
+                aria-pressed={microsoftStatus === "connected"}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all border ${
+                  microsoftStatus === "connected"
+                    ? "bg-gradient-to-r from-sky-500 to-blue-600 text-white border-blue-500 shadow-md hover:from-sky-600 hover:to-blue-700"
+                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                } ${microsoftStatus === "loading" || microsoftStatus === "unknown" ? "opacity-60 cursor-wait" : ""}`}
+              >
+                {/* Outlook icon (= 4 分割 windows mark、 connected 時は白抜き) */}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="2" y="2" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} />
+                  <rect x="13" y="2" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} opacity="0.85" />
+                  <rect x="2" y="13" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} opacity="0.85" />
+                  <rect x="13" y="13" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} opacity="0.7" />
+                </svg>
+                <span>
+                  {microsoftStatus === "loading"
+                    ? "処理中…"
+                    : microsoftStatus === "connected"
+                      ? "Outlook カレンダーに接続中"
+                      : "Outlook カレンダーを接続"}
+                </span>
+              </button>
+              {microsoftStatus === "connected" && (
+                <p
+                  className="mt-2 text-[10px] text-slate-400 text-center"
+                  data-testid="microsoft-connect-toggle-hint"
+                >
+                  もう一度押すと接続を解除します
+                </p>
+              )}
+              {microsoftError && (
+                <p
+                  className="mt-2 text-[11px] text-rose-600 text-center"
+                  data-testid="microsoft-connect-error"
+                  role="alert"
+                >
+                  {microsoftError}
+                </p>
+              )}
+
+              {/* connected 時のみ表示する import trigger (= connect→import 本流) */}
+              {microsoftStatus === "connected" && (
+                <button
+                  type="button"
+                  onClick={handleMicrosoftImport}
+                  data-testid="microsoft-import-trigger"
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all bg-emerald-500 text-white border border-emerald-500 shadow-md hover:bg-emerald-600 hover:border-emerald-600"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 3v12" />
+                    <path d="M7 12l5 5 5-5" />
+                    <path d="M5 21h14" />
+                  </svg>
+                  <span>Outlook の予定を取り込む</span>
+                </button>
+              )}
+            </div>
+
             {/* divider */}
             <div className="my-4 flex items-center gap-3 text-[10px] text-slate-400">
               <div className="flex-1 h-px bg-slate-200" />
@@ -526,6 +694,16 @@ export function IcsImportModal({
             data-testid="google-importing"
           >
             Google カレンダーから取り込んでいます…
+          </div>
+        )}
+
+        {/* Track B TB-4: Microsoft import 進捗 (= Google と対称、 専用 copy) */}
+        {state.kind === "importing_microsoft" && (
+          <div
+            className="text-center py-8 text-sm text-slate-500"
+            data-testid="microsoft-importing"
+          >
+            Outlook カレンダーから取り込んでいます…
           </div>
         )}
 
