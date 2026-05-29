@@ -116,28 +116,30 @@ export function OutfitCard({
         )}
       </div>
 
-      {/* B-5E: 選択済みカードにのみ「今日これを着た」＋着用後の軽い評価を小さく出す（隔離 store のみ・学習なし） */}
+      {/* B-5E: 選択済みカードに diary 状態（着用→感触）を 1 行に控えめにまとめる。
+          薄い区切り線で SYNC/CTA と分け、 着用→評価の流れを自然に見せる（隔離 store のみ・学習なし）。 */}
       {active && selected && (
-        <div className="mt-2 flex items-center justify-end gap-2">
+        <div className="mt-2.5 flex items-center justify-end gap-1.5 border-t border-violet-100/60 pt-2 text-[11px]">
           {!worn ? (
             <button
               type="button"
               onClick={onMarkWorn}
               data-testid={`plan-calendar-outfit-worn-${proposal.id}`}
-              className="rounded text-[11px] font-medium text-slate-500 transition hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+              className="rounded font-medium text-slate-500 transition hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
             >
               今日これを着た
             </button>
           ) : (
             <>
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-600">
+              <span className="inline-flex items-center gap-0.5 font-medium text-violet-600">
                 着用済み
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
+              <span className="text-slate-300" aria-hidden="true">·</span>
               {satisfaction != null ? (
-                <span className="text-[11px] text-slate-500">
+                <span className={satisfaction >= 4 ? "font-medium text-violet-600" : "text-slate-500"}>
                   感触: {satisfaction >= 4 ? "よかった" : "微妙"}
                 </span>
               ) : (
@@ -146,7 +148,7 @@ export function OutfitCard({
                     type="button"
                     onClick={() => onRate?.("good")}
                     data-testid={`plan-calendar-outfit-rate-good-${proposal.id}`}
-                    className="rounded-full border border-violet-200 px-2 py-0.5 text-[11px] font-medium text-violet-600 transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                    className="rounded-full border border-violet-200 px-2 py-0.5 font-medium text-violet-600 transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
                   >
                     よかった
                   </button>
@@ -154,7 +156,7 @@ export function OutfitCard({
                     type="button"
                     onClick={() => onRate?.("bad")}
                     data-testid={`plan-calendar-outfit-rate-bad-${proposal.id}`}
-                    className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                    className="rounded-full border border-slate-200 px-2 py-0.5 font-medium text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
                   >
                     微妙
                   </button>
