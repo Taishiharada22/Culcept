@@ -60,14 +60,19 @@ export function shapeToSlot(shape: CalendarOutfitItemShape): OutfitSlot {
  *   - bottom = 中央下〜右寄り（top に少し重なる）
  *   - shoes = 右下・小、 bag = 左下・小、 accessory = 右上・極小
  */
+// 理想画像（中央カード）の配置文法に寄せる（V1.5）。
+//   - top/outer = 主役（中央〜中央左・上寄り・最大・ほぼ無回転）
+//   - bottom = 右側に縦長・top と軽く重ねる
+//   - shoes = 下中央〜右下（足元）、 bag = 左下、 accessory = 右上・極小
+//   - 回転は最大 ±3°（主役はほぼ 0）。 “静か・編集的” に寄せ、 スクラップブック感を避ける。
 const SLOT_LAYOUT: Record<OutfitSlot, Omit<CollagePlacement, "id" | "slot">> = {
-  outer: { leftPct: 32, topPct: 43, scale: 0.86, rotateDeg: -7, z: 1 },
-  top: { leftPct: 46, topPct: 38, scale: 0.74, rotateDeg: -3, z: 3 },
-  bottom: { leftPct: 57, topPct: 67, scale: 0.7, rotateDeg: 4, z: 2 },
-  shoes: { leftPct: 78, topPct: 85, scale: 0.4, rotateDeg: 9, z: 4 },
-  bag: { leftPct: 19, topPct: 79, scale: 0.46, rotateDeg: -9, z: 4 },
-  accessory: { leftPct: 84, topPct: 18, scale: 0.28, rotateDeg: 7, z: 5 },
-  extra: { leftPct: 50, topPct: 52, scale: 0.55, rotateDeg: 2, z: 2 },
+  outer: { leftPct: 33, topPct: 41, scale: 0.78, rotateDeg: -3, z: 1 },
+  top: { leftPct: 44, topPct: 37, scale: 0.74, rotateDeg: 0, z: 3 },
+  bottom: { leftPct: 66, topPct: 46, scale: 0.7, rotateDeg: 2, z: 2 },
+  shoes: { leftPct: 60, topPct: 76, scale: 0.4, rotateDeg: 2, z: 4 },
+  bag: { leftPct: 34, topPct: 65, scale: 0.4, rotateDeg: -3, z: 4 },
+  accessory: { leftPct: 79, topPct: 29, scale: 0.25, rotateDeg: 0, z: 5 },
+  extra: { leftPct: 50, topPct: 52, scale: 0.5, rotateDeg: 1, z: 2 },
 };
 
 const clampPct = (v: number): number => Math.min(100, Math.max(0, v));
@@ -95,7 +100,7 @@ export function collagePlacements(
       leftPct: clampPct(base.leftPct + offLeft),
       topPct: clampPct(base.topPct + offTop),
       scale: base.scale * (k === 0 ? 1 : Math.pow(0.88, k)),
-      rotateDeg: base.rotateDeg + (k === 0 ? 0 : (k % 2 === 0 ? 5 : -5)),
+      rotateDeg: base.rotateDeg + (k === 0 ? 0 : k % 2 === 0 ? 3 : -3),
       z: Math.max(0, base.z - k),
     };
   });

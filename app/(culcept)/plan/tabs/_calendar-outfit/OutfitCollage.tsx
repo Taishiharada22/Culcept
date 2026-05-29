@@ -15,8 +15,8 @@ import type { CalendarOutfitItemVM } from "./types";
 import { OutfitItemView, toOutfitItemAsset } from "./OutfitItemView";
 import { collagePlacements } from "./outfitCollagePlacement";
 
-/** board の高さ（px）。 active は主役なので大きめ、 非 active は控えめ。 */
-const BOARD_HEIGHT = { active: 200, inactive: 132 } as const;
+/** board の高さ（px）。 理想画像のようにコーデがカードの主役になるよう、 active を大きめに取る。 */
+const BOARD_HEIGHT = { active: 224, inactive: 148 } as const;
 
 export function OutfitCollage({
   items,

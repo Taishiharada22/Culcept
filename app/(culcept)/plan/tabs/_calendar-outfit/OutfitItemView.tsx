@@ -95,8 +95,11 @@ function MissingTile({ size }: { size: number }) {
   );
 }
 
-/** floating（styling board 上）の柔らかい影。 背景つき写真でも「置かれている」感を出す。 */
-const FLOAT_SHADOW = "[filter:drop-shadow(0_8px_16px_rgba(76,29,149,0.22))]";
+/**
+ * floating（styling board 上）の影。 理想画像は「ふわっと浮く」静かな影。
+ * 浅く・広く・淡く（強いドロップシャドウは写真カード感を強めるため避ける）。
+ */
+const FLOAT_SHADOW = "[filter:drop-shadow(0_3px_8px_rgba(60,50,90,0.13))]";
 
 export function OutfitItemView({
   asset,
@@ -127,7 +130,8 @@ export function OutfitItemView({
           decoding="async"
           draggable={false}
           className={
-            floating ? `rounded-xl object-contain ${FLOAT_SHADOW}` : "rounded-2xl object-contain"
+            // floating は枠を弱める（角丸控えめ）。 背景つき写真の「紙を貼った」感を抑える。
+            floating ? `rounded-md object-contain ${FLOAT_SHADOW}` : "rounded-2xl object-contain"
           }
           style={{ width: size, height: size }}
         />

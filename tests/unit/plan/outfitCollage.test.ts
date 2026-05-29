@@ -82,3 +82,36 @@ describe("collagePlacements", () => {
     expect(out[0].slot).toBe("extra");
   });
 });
+
+describe("collagePlacements — 理想画像の配置文法（V1.5）", () => {
+  const item = (id: string, shape: CalendarOutfitItemShape) => ({ id, shape });
+  const full = collagePlacements([
+    item("top", "blouse"),
+    item("bottom", "bottom"),
+    item("shoes", "shoes"),
+    item("bag", "bag"),
+    item("acc", "watch"),
+  ]);
+  const byId = Object.fromEntries(full.map((p) => [p.id, p]));
+
+  it("主役トップスはほぼ無回転（|rotate| <= 1）", () => {
+    expect(Math.abs(byId.top.rotateDeg)).toBeLessThanOrEqual(1);
+  });
+  it("全アイテムの回転は静か（|rotate| <= 3）", () => {
+    for (const p of full) expect(Math.abs(p.rotateDeg)).toBeLessThanOrEqual(3);
+  });
+  it("ボトムスは top の右に置く", () => {
+    expect(byId.bottom.leftPct).toBeGreaterThan(byId.top.leftPct);
+  });
+  it("靴は top の下（足元）に置く", () => {
+    expect(byId.shoes.topPct).toBeGreaterThan(byId.top.topPct);
+  });
+  it("バッグは左下（bottom より左・top より下）", () => {
+    expect(byId.bag.leftPct).toBeLessThan(byId.bottom.leftPct);
+    expect(byId.bag.topPct).toBeGreaterThan(byId.top.topPct);
+  });
+  it("時計/小物は右上（右寄り・上寄り）", () => {
+    expect(byId.acc.leftPct).toBeGreaterThan(byId.top.leftPct);
+    expect(byId.acc.topPct).toBeLessThan(byId.bottom.topPct);
+  });
+});
