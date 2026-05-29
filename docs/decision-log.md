@@ -14691,3 +14691,53 @@ CEO 主導の staging smoke で **connect → fetch → save → UI 反映** が
 - **ステータス**: **Phase B closeout 完了**。 Phase C 着手は CEO GO 待ち。
 
 ---
+
+## 2026-05-29 [Build] P3 Phase C — GO / 強い版 / 別 fixture / merge は pass 後 (= CEO + GPT 合議) [承認: CEO]
+
+### 決定 (= CEO + GPT 合議)
+
+| 論点 | 判断 |
+|------|------|
+| Phase C 着手 | **GO** |
+| 共存 smoke の版 | **強い版** (= 同日に ICS event と Google event を並べる) |
+| fixture | **別途新規作成** (= 既存 Phase A fixture `/tmp/p3-smoke.ics` は書き換えない) |
+| main merge | **Phase C pass 後** (= 中間 merge しない。 ICS pass + Google pass + 共存未確認の中途半端を main に入れない) |
+
+### 理由 (= GPT)
+
+- 強い版: 弱い版 (= 別日) だと「たまたま両方通って見えるだけ」 になりやすい。 ゴールは「同じ `/plan` の同じ文脈で共存して壊れない」 ことなので強い版が正しい。
+- 別 fixture: 既存 fixture を書き換えると Phase A 再現資産を汚す。 一時 fixture を別で作る。
+- merge 後: 中間 merge は中途半端な状態を main に持ち込むため、 P3 完成判定後にまとめて merge。
+
+### Phase C pass 条件 (= CEO 確定 5 点)
+
+1. staging で Google import 済の状態を維持
+2. Phase C 用 ICS fixture を追加 import
+3. 同一 UI 上で Google 由来予定と ICS 由来予定が共存表示される
+4. 既存予定を壊さない
+5. 意図しない重複や消失がない
+
+補足: SourceListModal 等 周辺確認は任意 / Phase C は薄く保ち新機能追加なし / fail したら即 stop。
+
+### Claude 側準備 (= 本 commit、 ①〜⑤ 原則適用)
+
+- **fixture 新規作成**: `/tmp/p3-phase-c-smoke.ics` (= 3 OneOff timed: 5/29 13:00 / 5/29 16:00 / 5/30 11:00)。 既存 fixture 不変。
+- **fixture を実 parser + mapper で検証** (= 一時 test で `parseIcsString` → `mapIcsEventsToDrafts` を通し date/startTime/uid 期待通りを確認 → temp test 削除)。 CEO smoke が fixture バグで空振りしないことを担保。
+- **TZ 意味論の精査**: ICS / Google 両 mapper は ISO の UTC components を literal 抽出 (= timezone-naive)。 Google は `+09:00` の HH:MM を JST wall-clock として表示。 ICS parser は UTC `Z` を返すため、 fixture を `...T130000Z` で書けば "13:00" 表示となり Google と揃う。
+- UID `p3c-ics-000N@aneurasync.smoke` で既存 anchor と衝突なし (= 誤 dedup / 破壊なし)。
+
+### docs (= 本 commit)
+
+改変:
+- `docs/alter-plan-p3-phase-c-readiness.md` (= §header/§2.1/§3/§5/§7 を CEO 確定値に更新 + §8 関連 doc + §9 fixture 仕様/検証/再生成 追記)
+
+### 次 (= CEO-driven 共存 smoke)
+
+- CEO が staging dev server (= `.env.local` staging 確認後) で Google import 済 user のまま `/tmp/p3-phase-c-smoke.ics` を追加 import → 5/29・5/30 に ICS + Google が共存表示されることを視覚確認 → P3 完成判定。 Claude は smoke 自体を実行しない。
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT (= 2026-05-29、 「Phase C GO / 強い版 / 別 fixture / merge は Phase C pass 後」)
+- **ステータス**: Phase C **Claude 側準備完了** (= fixture 作成 + 検証 + readiness 確定)。 CEO-driven 共存 smoke 待ち。
+
+---
