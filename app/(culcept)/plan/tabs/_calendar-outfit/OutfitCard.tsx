@@ -9,7 +9,7 @@
 
 import type { CalendarOutfitProposalVM } from "./types";
 import { BADGE_TONE, CAL_OUTFIT_PALETTE, SYNC_BAND_VM } from "./_palette";
-import { OutfitItemView, toOutfitItemAsset } from "./OutfitItemView";
+import { OutfitCollage } from "./OutfitCollage";
 
 export function OutfitCard({
   proposal,
@@ -47,7 +47,7 @@ export function OutfitCard({
         "relative rounded-3xl border bg-white/90 backdrop-blur-sm transition-all duration-300 " +
         (active
           ? "border-violet-300 p-5 shadow-md ring-2 ring-violet-400/80"
-          : "border-violet-100/60 p-4 opacity-60 shadow-sm")
+          : "scale-[0.97] border-violet-100/60 p-4 opacity-60 shadow-sm")
       }
     >
       {/* 非 active でも「選択中」が分かる極小マーカー（active は CTA で表示するため出さない） */}
@@ -87,16 +87,10 @@ export function OutfitCard({
         )}
       </div>
 
-      {/* flat-lay: アイテム表示器 (OutfitItemView が 画像 / シルエット / 欠損 を吸収)。
-          現行 mock は画像なし → 全て placeholder (= 既存 SVG シルエット) に落ちるため見た目は不変。 */}
-      <div className="mt-3 rounded-2xl bg-gradient-to-br from-violet-50/80 via-white to-white p-4">
-        <div className="flex min-h-[120px] flex-wrap items-end justify-center gap-x-3 gap-y-3">
-          {proposal.items.map((item) => (
-            <div key={item.id} className="flex items-end justify-center">
-              <OutfitItemView asset={toOutfitItemAsset(item)} size={active ? 72 : 48} />
-            </div>
-          ))}
-        </div>
+      {/* styling board: アイテムを少し重ねて 1 枚のコーデとして見せる（OutfitCollage）。
+          実画像 / SVG シルエット / 欠損いずれも同じ board 上に配置（OutfitItemView が吸収）。 */}
+      <div className="mt-3 overflow-visible rounded-2xl bg-gradient-to-br from-violet-50/80 via-white to-white px-2 py-3">
+        <OutfitCollage items={proposal.items} active={active} />
       </div>
 
       {/* SYNC スコア + CTA */}

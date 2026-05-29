@@ -95,12 +95,22 @@ function MissingTile({ size }: { size: number }) {
   );
 }
 
+/** floating（styling board 上）の柔らかい影。 背景つき写真でも「置かれている」感を出す。 */
+const FLOAT_SHADOW = "[filter:drop-shadow(0_8px_16px_rgba(76,29,149,0.22))]";
+
 export function OutfitItemView({
   asset,
   size,
+  floating = false,
 }: {
   asset: CalendarOutfitItemAsset;
   size: number;
+  /**
+   * styling board 上の floating 表示（V1）。
+   *   - 枠を弱め（frameless 寄り）、 柔らかい drop-shadow を付け、 コラージュとして「置かれた」感を出す。
+   *   - 背景つき写真を CSS で無理に切り抜かない（mix-blend は使わない）。 配置と影で「組まれた」感を出す。
+   */
+  floating?: boolean;
 }) {
   switch (asset.kind) {
     case "withImage":
@@ -116,26 +126,28 @@ export function OutfitItemView({
           loading="lazy"
           decoding="async"
           draggable={false}
-          className="rounded-2xl object-contain"
+          className={
+            floating ? `rounded-xl object-contain ${FLOAT_SHADOW}` : "rounded-2xl object-contain"
+          }
           style={{ width: size, height: size }}
         />
       );
 
     case "placeholder":
       return (
-        <>
+        <span className={floating ? `inline-block ${FLOAT_SHADOW}` : undefined}>
           <OutfitItemSilhouette shape={asset.shape} color={asset.color} size={size} />
           <span className="sr-only">{itemA11yText(asset.label, asset.category)}</span>
-        </>
+        </span>
       );
 
     case "missing":
     default:
       return (
-        <>
+        <span className={floating ? `inline-block ${FLOAT_SHADOW}` : undefined}>
           <MissingTile size={size} />
           <span className="sr-only">{itemA11yText(asset.label, asset.category)}（画像準備中）</span>
-        </>
+        </span>
       );
   }
 }

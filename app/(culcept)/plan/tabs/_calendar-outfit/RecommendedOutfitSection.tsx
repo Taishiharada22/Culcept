@@ -19,7 +19,8 @@ export function RecommendedOutfitSection({
 }) {
   return (
     <section data-testid="plan-calendar-outfit-recommended-section">
-      <SectionHeader title="おすすめコーデ" hint="左右でめくる" />
+      {/* 候補が 2 件以上ある時だけ「左右でめくる」を出す（1 件の時に存在しない候補を匂わせない）。 */}
+      <SectionHeader title="おすすめコーデ" hint={proposals.length >= 2 ? "左右でめくる" : undefined} />
       <OutfitCarousel proposals={proposals} dayIso={dayIso} source={source} />
     </section>
   );
