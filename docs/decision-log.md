@@ -14799,3 +14799,41 @@ merge 前の最終 gate full suite で **1 fail**。 内訳 = `tests/unit/plan/p
 - **ステータス**: P3 完成。 local main merge 実行 (= merge hash は報告に記載)。 push/PR/remote は別承認待ち。 flake #207 deferred。
 
 ---
+
+## 2026-05-29 [Build] マルチ provider カレンダー取り込み = A→B、 Track A (= universal ICS URL) 先行 [承認: CEO]
+
+### 方針 (= CEO、 ①前提を疑った結果)
+
+P3 完成後の次作業 = Outlook / Apple / その他カレンダー取り込み。 ①前提検証で「ICS pipeline は provider 非依存 → Outlook/Apple の .ics は file upload で既に取り込める。 不足は URL 取得経路のみ」 が判明。 → **A→B 採用**:
+
+- **Track A 先行 (= universal ICS URL)**: server が ICS 購読 URL を fetch → 既存 ICS pipeline 再利用。 Outlook 公開 / Apple iCloud 公開(webcal) / Google 秘密 iCal / Yahoo 等を **1 機能で横断カバー**。 既存資産最大再利用・native より速い・外部 API 依存少。
+- **Track B 後段 (= provider native)**: Outlook = Microsoft Graph OAuth / Apple = CalDAV。 非公開カレンダー / 常時同期が必要な provider が明確化したら個別検討。
+
+### CEO 条件 (= Track A)
+
+1. 実装前に readiness を出す（= 本 commit で起草）。
+2. readiness で **SSRF 対策を最優先明記**: https 限定 / webcal→https / localhost・private IP・metadata endpoint 遮断 / timeout・size 制限 / content-type・body 妥当性。
+3. **source_type はまず `'ics'` 再利用**（= migration 増やさない）。
+4. **sync は後回し**（= 初回は手動 import / 手動再取り込みで十分）。
+
+### Claude 側設計 (= readiness、 本 commit)
+
+- 新規 = 3 点のみ（SSRF-guarded fetch + `fetchIcsFromUrlAction` + IcsImportModal の URL 入力）。 preview/dedup/save は既存丸ごと再利用。
+- URL は **v1 で永続化しない**（= 再取り込み = URL 再入力、 dedup で冪等）→ migration 不要を担保。
+- SSRF は fail-closed（§3 に 10 項目: scheme / webcal / userinfo / IP range / redirect 再検証 / timeout / size / body / auth gate / log 衛生）。 DNS rebinding 完全 pin は limitation として後段明記。
+
+### docs (= 本 commit)
+
+新規:
+- `docs/alter-plan-ics-url-import-readiness.md`（= Track A readiness、 §0-8）
+
+### 次
+
+- 本 readiness を CEO 承認 → A-1（`icsUrlFetch` + SSRF 単体 test）着手 → 完了で停止・報告。 staging smoke は CEO gate。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「A→B / Track A 先行 / SSRF 最優先 / source_type='ics' 再利用 / sync 後回し」)
+- **ステータス**: branch `feat/ics-url-import`（main 派生）作成。 Track A readiness 起草完了。 **実装着手は CEO 承認待ち**（= readiness §8 の 4 点）。
+
+---
