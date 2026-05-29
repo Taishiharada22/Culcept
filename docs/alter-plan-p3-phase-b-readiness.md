@@ -159,6 +159,25 @@ glue 以上に抽出すべき pure core が無い)。 検証 = tsc 0 new error +
 4. payload log (= 既存 `[external-anchor-repo] RPC payload`) で sourceType="google_calendar" 確認
 5. Phase B 完了判定
 
+**B-4 前提: Google OAuth env チェックリスト (= 2026-05-29 全 5 変数 未設定を確認)**
+
+B-3 完了後の dev server smoke で connect が `not_configured` で degrade
+(`[calendar/google/connect] not configured { hasClientId: false, hasRedirectUri: false, hasStateSecret: false }`)。
+**コード不具合ではない** (= B-2 save / B-3 trigger は健全)。 原因 = `.env.local` に Google OAuth
+5 変数が全て未設定。 SoT = `.env.example` L76-96。
+
+| env 変数 | 区分 | 取得元 / 形式 | connect の boolean |
+|----------|------|--------------|--------------------|
+| `GOOGLE_CALENDAR_CLIENT_ID` | secret (= CEO) | Google Cloud Console OAuth client | `hasClientId` |
+| `GOOGLE_CALENDAR_CLIENT_SECRET` | secret (= CEO) | 同上 (= callback token 交換 + import refresh で必要) | — |
+| `GOOGLE_CALENDAR_REDIRECT_URI` | config | Console 登録値と**完全一致**。 local = `http://localhost:3000/api/calendar/google/callback` | `hasRedirectUri` |
+| `OAUTH_STATE_SECRET` | secret (= 生成) | `openssl rand -base64 32` (= 32 bytes base64) | `hasStateSecret` |
+| `OAUTH_TOKEN_ENCRYPTION_KEY` | secret (= 生成) | `openssl rand -base64 32` (= **厳密 32 bytes = 44 文字 base64**、 AES-256-GCM、 `tokenCrypto.ts` が長さ検証) | — |
+
+- 手順: ①`.env.local` に 5 変数設定 (= secret 値は commit / docs / chat 載せず) → ②**dev server 再起動**
+  (= Next.js は起動時に `.env.local` 読込、 既存 process は古い env のまま) → ③再 connect で 3 boolean = true 確認 → ④B-4 smoke 再開。
+- smoke 用 account = `aneurasync@outlook.com` (= §7.3)。
+
 ---
 
 ## §4. 環境方針 (= Phase A §4 と同等、 教訓継承)
@@ -201,7 +220,7 @@ glue 以上に抽出すべき pure core が無い)。 検証 = tsc 0 new error +
 
 1. **Phase B 着手 GO** か (= 本 readiness 確定後、 Step B-1 cherry-pick 着手)
 2. **Google OAuth 用 staging 環境**: Google Cloud Console で staging 用 OAuth client / redirect URI が設定済か
-3. **smoke 用 Google account**: CEO 用意の test account (= ICS の aneurasync@outloo.com と同 user 想定)
+3. **smoke 用 Google account**: CEO 用意の test account (= ICS の aneurasync@outlook.com と同 user 想定)
 4. **cherry-pick file list** = freeze branch の Google 系 全件 + PlanClient 手動移植 でよいか
 
 → 4 点 CEO 確認後、 Step B-1 着手。

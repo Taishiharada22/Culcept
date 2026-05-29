@@ -92,7 +92,7 @@ CEO 確定: 2026-05-27 (= migration-debt closeout 後の本流復帰、 4 点固
 
 ### Phase C: end-to-end smoke (= staging 上で実 user 視点)
 
-1. linked ref を staging で実 user (= aneurasync@outloo.com) でログイン
+1. linked ref を staging で実 user (= aneurasync@outlook.com) でログイン
 2. ICS file upload smoke
 3. Google Calendar connect smoke
 4. 双方とも Plan UI で正しく表示確認
