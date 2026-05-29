@@ -18,6 +18,7 @@ import { useEffect, useState } from "react";
 
 import type { CalendarOutfitProposalSource, CalendarOutfitProposalVM } from "./types";
 import { getSelectionForDate, saveSelection, toSelectionRecord } from "./outfitSelectionStore";
+import { getWornForDate, saveWorn, toWornRecord } from "./wornStore";
 import { OutfitCard } from "./OutfitCard";
 import { CarouselDots } from "./CarouselDots";
 
@@ -38,8 +39,10 @@ export function OutfitCarousel({
   // 初期は未選択。 中央カードの CTA を誘いの「このコーデにする」(主役) として見せ、
   // 「選択中」は user が選んだ後の状態にする。
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // B-5E: この日に「着た」記録があるか（proposalId 一致時のみ「着用済み」表示）。
+  const [wornId, setWornId] = useState<string | null>(null);
 
-  // B-5D: 同日の保存済み選択を復元（現在の proposals に同 id がある時だけ。 無ければ force しない）。
+  // B-5D/B-5E: 同日の保存済み選択・着用を復元（現在の proposals に同 id がある時だけ。 無ければ force しない）。
   // proposals / 日付が変わるたびに再評価し、 activeIndex も範囲内に収める。
   useEffect(() => {
     const saved = getSelectionForDate(dayIso);
@@ -51,6 +54,9 @@ export function OutfitCarousel({
       setSelectedId(null);
       setActiveIndex((prev) => Math.min(prev, Math.max(0, proposals.length - 1)));
     }
+    // 着用記録の復元（選択とは独立。 現在の proposals に同 id がある時だけ）。
+    const wornRec = getWornForDate(dayIso);
+    setWornId(wornRec && proposals.some((p) => p.id === wornRec.proposalId) ? wornRec.proposalId : null);
   }, [dayIso, proposals]);
 
   if (count === 0) return null;
@@ -62,6 +68,12 @@ export function OutfitCarousel({
   const handleSelect = (proposal: CalendarOutfitProposalVM) => {
     setSelectedId(proposal.id);
     saveSelection(toSelectionRecord(proposal, dayIso, source, new Date().toISOString()));
+  };
+
+  // B-5E: 「今日これを着た」→ /plan 隔離 store に保存（saveWornRecord / 学習 / server-sync には書かない）。
+  const handleMarkWorn = (proposal: CalendarOutfitProposalVM) => {
+    setWornId(proposal.id);
+    saveWorn(toWornRecord(proposal, dayIso, source, new Date().toISOString()));
   };
 
   const trackTransform = `translateX(calc(10% - ${activeIndex * 80}%))`;
@@ -82,6 +94,8 @@ export function OutfitCarousel({
                   active={i === activeIndex}
                   selected={proposal.id === selectedId}
                   onSelect={() => handleSelect(proposal)}
+                  worn={proposal.id === wornId}
+                  onMarkWorn={() => handleMarkWorn(proposal)}
                 />
               </div>
             ))}

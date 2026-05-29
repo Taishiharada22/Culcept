@@ -16,11 +16,17 @@ export function OutfitCard({
   active = true,
   selected = false,
   onSelect,
+  worn = false,
+  onMarkWorn,
 }: {
   proposal: CalendarOutfitProposalVM;
   active?: boolean;
   selected?: boolean;
   onSelect?: () => void;
+  /** この日に「実際に着た」記録があるか (B-5E) */
+  worn?: boolean;
+  /** 「今日これを着た」確認 (選択済みカードにのみ表示) */
+  onMarkWorn?: () => void;
 }) {
   const band = SYNC_BAND_VM[proposal.syncBandKey];
 
@@ -103,6 +109,29 @@ export function OutfitCard({
           </button>
         )}
       </div>
+
+      {/* B-5E: 選択済みカードにのみ「今日これを着た」確認を小さく出す（rating はまだ無し・隔離記録のみ） */}
+      {active && selected && (
+        <div className="mt-2 flex justify-end">
+          {worn ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-600">
+              着用済み
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onMarkWorn}
+              data-testid={`plan-calendar-outfit-worn-${proposal.id}`}
+              className="rounded text-[11px] font-medium text-slate-500 transition hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+            >
+              今日これを着た
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
