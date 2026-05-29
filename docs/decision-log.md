@@ -14609,3 +14609,40 @@ Map impl readiness v1 (= commit `d9dea93e`) を CEO + GPT 確認。 「採用、
 - **ステータス**: Map impl readiness v2 **採用確定**。 9a-pre 着手 → 完了後 報告と停止。
 
 ---
+
+## 2026-05-29 [Build] P3 Phase B B-4 — Google OAuth smoke account 確定 + testing-mode test-user 教訓 [承認: CEO]
+
+### 背景
+
+B-3 (= Google import trigger 結線) 完了後、 staging dev server で B-4 end-to-end smoke を再開しようとしたが、 2 段階で block。
+
+1. **env 未設定 block** (= 解消済): connect が `not_configured` で degrade (`hasClientId/hasRedirectUri/hasStateSecret = false`)。 原因 = `.env.local` に Google OAuth 5 変数が全て未設定。 **コード不具合ではなく環境設定** (CEO + GPT 判断一致)。 解消 = `.env.local` scaffold (= Claude が REDIRECT_URI / 生成 2 secret 書込、 CLIENT_ID/SECRET は CEO が Console 値を貼付) → dev server 再起動 → connect が Google OAuth に正しく redirect。
+2. **testing-mode test-user block** (= 現在): connect 後の OAuth flow で `403 access_denied` ("審査プロセスを完了していません")。 原因 = publish 前の app は "testing" 状態のため、 OAuth consent screen の **Test users** に登録した account のみ認可可能。 ログイン account `th200122aish@icloud.com` が未登録。
+
+### CEO 確定 2 点
+
+- **Google OAuth smoke account = `th200122aish@icloud.com`** (= 現ログイン・最短)。 ⚠️ これは OAuth 連携する Google アカウントで、 app login user (= `aneurasync@outlook.com`、 anchor 作成先) とは**別 account**。 この区別は completion-readiness Phase C の "実 user (= aneurasync@outlook.com)" を変えない根拠。
+- **env 整備の `.env.local` 書込は Claude 代行** (= 生成 secret + config のみ。 CLIENT_ID/SECRET は CEO。 secret 値は commit / docs / chat に出さない)。
+
+### testing-mode 教訓 (= 恒久メモ)
+
+- staging smoke に **Google full verification は不要**。 OAuth consent screen "Test users" (最大 100) に authorizing account を追加するだけで OK。
+- Console の Test users 追加は **即時反映** (= dev server 再起動不要)。
+- production publish 時のみ full verification が必要。
+
+### docs 更新 (= 本 commit)
+
+改変:
+- `docs/alter-plan-p3-phase-b-readiness.md` (= §3 B-4 checklist の smoke account を `th200122aish@icloud.com` に補正 + testing-mode test-user 必須 note 追記、 §7.3 を別 account 明示に補正)
+
+### 次 (= CEO 専管の最終 unblock)
+
+- CEO が Google Cloud Console → OAuth consent screen → Test users に `th200122aish@icloud.com` を追加 → Save → OAuth flow を retry (= 再起動不要)。
+- 認可成功後、 B-4 smoke 再開 (= CEO がブラウザで OAuth flow を driving。 Claude は smoke 自体を実行しない)。
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-29、 「B-4 GO、 ただし env 整備後に再開」「smoke account = th200122aish@icloud.com」「.env.local 書込は Claude 代行」)
+- **ステータス**: env block **解消済**。 testing-mode test-user block は **CEO の Console 作業待ち** (= Claude touch 禁止領域)。 doc 同期完了。
+
+---

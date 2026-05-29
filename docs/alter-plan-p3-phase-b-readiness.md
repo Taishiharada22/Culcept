@@ -176,7 +176,8 @@ B-3 完了後の dev server smoke で connect が `not_configured` で degrade
 
 - 手順: ①`.env.local` に 5 変数設定 (= secret 値は commit / docs / chat 載せず) → ②**dev server 再起動**
   (= Next.js は起動時に `.env.local` 読込、 既存 process は古い env のまま) → ③再 connect で 3 boolean = true 確認 → ④B-4 smoke 再開。
-- smoke 用 account = `aneurasync@outlook.com` (= §7.3)。
+- smoke 用 Google OAuth account = `th200122aish@icloud.com` (= CEO 確定 2026-05-29、 現ログイン・最短)。 ⚠️ これは連携する Google アカウントであり、 app login user (= `aneurasync@outlook.com`、 anchor 作成先) とは**別 account**。
+- **testing-mode の test-user 登録が必須** (= 2026-05-29 教訓): env 設定後 connect は Google OAuth に正しく redirect するが、 publish 前の app は "testing" 状態のため OAuth consent screen の **Test users** に登録した account のみ認可可能。 未登録だと `403 access_denied` (= "審査プロセスを完了していません")。 解消 = Console → OAuth consent screen → Test users に `th200122aish@icloud.com` を追加 → Save (= 即時反映、 dev server 再起動不要)。 **production publish / full verification は staging smoke には不要**。
 
 ---
 
@@ -220,7 +221,7 @@ B-3 完了後の dev server smoke で connect が `not_configured` で degrade
 
 1. **Phase B 着手 GO** か (= 本 readiness 確定後、 Step B-1 cherry-pick 着手)
 2. **Google OAuth 用 staging 環境**: Google Cloud Console で staging 用 OAuth client / redirect URI が設定済か
-3. **smoke 用 Google account**: CEO 用意の test account (= ICS の aneurasync@outlook.com と同 user 想定)
+3. **smoke 用 Google account**: `th200122aish@icloud.com` (= CEO 確定 2026-05-29、 現ログイン・最短)。 ⚠️ これは OAuth 連携する Google アカウントで、 app login user (= `aneurasync@outlook.com`、 anchor 作成先) とは**別 account**。 testing-mode のため Console Test users への登録必須 (= §3 B-4 checklist 参照)
 4. **cherry-pick file list** = freeze branch の Google 系 全件 + PlanClient 手動移植 でよいか
 
 → 4 点 CEO 確認後、 Step B-1 着手。
