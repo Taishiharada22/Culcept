@@ -14,16 +14,23 @@
  *   - 外側 overflow-hidden により左右に約 10% ずつ隣カードが覗く。
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { CalendarOutfitProposalVM } from "./types";
+import type { CalendarOutfitProposalSource, CalendarOutfitProposalVM } from "./types";
+import { getSelectionForDate, saveSelection, toSelectionRecord } from "./outfitSelectionStore";
 import { OutfitCard } from "./OutfitCard";
 import { CarouselDots } from "./CarouselDots";
 
 export function OutfitCarousel({
   proposals,
+  dayIso,
+  source,
 }: {
   proposals: ReadonlyArray<CalendarOutfitProposalVM>;
+  /** 選択保存・復元の対象日 (YYYY-MM-DD) */
+  dayIso: string;
+  /** 提案の出所 (保存 source 用) */
+  source: CalendarOutfitProposalSource;
 }) {
   const count = proposals.length;
   const initialIndex = count > 0 ? Math.floor((count - 1) / 2) : 0;
@@ -32,10 +39,30 @@ export function OutfitCarousel({
   // 「選択中」は user が選んだ後の状態にする。
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // B-5D: 同日の保存済み選択を復元（現在の proposals に同 id がある時だけ。 無ければ force しない）。
+  // proposals / 日付が変わるたびに再評価し、 activeIndex も範囲内に収める。
+  useEffect(() => {
+    const saved = getSelectionForDate(dayIso);
+    const matchIdx = saved ? proposals.findIndex((p) => p.id === saved.proposalId) : -1;
+    if (saved && matchIdx >= 0) {
+      setSelectedId(saved.proposalId);
+      setActiveIndex(matchIdx);
+    } else {
+      setSelectedId(null);
+      setActiveIndex((prev) => Math.min(prev, Math.max(0, proposals.length - 1)));
+    }
+  }, [dayIso, proposals]);
+
   if (count === 0) return null;
 
   const clamp = (i: number) => Math.min(Math.max(0, i), count - 1);
   const go = (i: number) => setActiveIndex(clamp(i));
+
+  // B-5D: 「このコーデにする」→ 選択を独立 localStorage に保存（学習系・着用記録には書かない）。
+  const handleSelect = (proposal: CalendarOutfitProposalVM) => {
+    setSelectedId(proposal.id);
+    saveSelection(toSelectionRecord(proposal, dayIso, source, new Date().toISOString()));
+  };
 
   const trackTransform = `translateX(calc(10% - ${activeIndex * 80}%))`;
 
@@ -54,7 +81,7 @@ export function OutfitCarousel({
                   proposal={proposal}
                   active={i === activeIndex}
                   selected={proposal.id === selectedId}
-                  onSelect={() => setSelectedId(proposal.id)}
+                  onSelect={() => handleSelect(proposal)}
                 />
               </div>
             ))}

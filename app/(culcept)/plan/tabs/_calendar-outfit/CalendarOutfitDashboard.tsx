@@ -72,7 +72,11 @@ export function CalendarOutfitDashboard({
       />
 
       {/* ④ おすすめコーデ */}
-      <RecommendedOutfitSection proposals={vm.proposals} />
+      <RecommendedOutfitSection
+        proposals={vm.proposals}
+        dayIso={selectedIso}
+        source={vm.proposalsSource ?? "mock"}
+      />
 
       {/* ⑤ 提案理由 */}
       <RecommendationReasonCard reason={vm.reason} />

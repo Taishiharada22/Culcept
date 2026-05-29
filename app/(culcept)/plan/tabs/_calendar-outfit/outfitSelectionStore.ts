@@ -18,7 +18,11 @@
  *   - 機微情報は保存しない（呼び出し側が shape を組み立てる。 store は受け取った値をそのまま永続化）。
  */
 
-import type { SyncBandKey } from "./types";
+import type {
+  CalendarOutfitProposalSource,
+  CalendarOutfitProposalVM,
+  SyncBandKey,
+} from "./types";
 
 /** /plan カレンダータブ専用・選択記録 key（独立、 学習系とは別） */
 const SELECTION_KEY = "culcept_plan_outfit_selection_v1";
@@ -38,7 +42,7 @@ export interface CalendarOutfitSelection {
   syncScore?: number;
   syncBand?: SyncBandKey;
   /** 提案の出所（engine 実推薦 / 素 mock / 画像ハイドレート mock） */
-  source: "engine" | "mock" | "hydrated_mock";
+  source: CalendarOutfitProposalSource;
   /** B-3 でサニタイズ済の人間可読タグのみ（機微なし） */
   dayContextTags?: string[];
 }
@@ -113,4 +117,29 @@ export function clearSelectionForDate(date: string): void {
   } catch {
     // no-op
   }
+}
+
+/**
+ * proposal VM → 保存レコード（pure・privacy-safe）。
+ *   - 保存するのは id / 表示名 / item id・label / sync / source のみ。
+ *   - anchor title / 機微 / 画像 / wardrobe 全体は **含めない**。
+ *   - selectedAt は副作用を避けるため呼び出し側で生成して渡す。
+ */
+export function toSelectionRecord(
+  proposal: CalendarOutfitProposalVM,
+  dayIso: string,
+  source: CalendarOutfitProposalSource,
+  selectedAt: string,
+): CalendarOutfitSelection {
+  return {
+    date: dayIso,
+    selectedAt,
+    proposalId: proposal.id,
+    proposalTitle: proposal.title,
+    itemIds: proposal.items.map((i) => i.id),
+    itemLabels: proposal.items.map((i) => i.label),
+    ...(typeof proposal.syncScore === "number" ? { syncScore: proposal.syncScore } : {}),
+    syncBand: proposal.syncBandKey,
+    source,
+  };
 }

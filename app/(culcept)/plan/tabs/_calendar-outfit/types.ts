@@ -188,6 +188,9 @@ export interface CalendarOutfitStatVM {
   tone?: CalendarOutfitStatusTone;
 }
 
+/** 提案の出所 (選択保存の source 判定に使用)。 engine 実推薦 / 素 mock / 画像ハイドレート mock。 */
+export type CalendarOutfitProposalSource = "engine" | "mock" | "hydrated_mock";
+
 /** Calendar Outfit Dashboard 全体の VM (mock) */
 export interface CalendarOutfitVM {
   /** section ① intro 文 */
@@ -202,6 +205,8 @@ export interface CalendarOutfitVM {
   reason: CalendarOutfitReasonVM;
   /** section ⑥ ワードローブ分析 (5 枚) */
   wardrobeStats: ReadonlyArray<CalendarOutfitStatVM>;
+  /** proposals の出所 (選択保存の source。 未設定は mock 扱い) */
+  proposalsSource?: CalendarOutfitProposalSource;
 }
 
 /**

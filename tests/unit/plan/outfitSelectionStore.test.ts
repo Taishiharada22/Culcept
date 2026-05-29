@@ -4,8 +4,10 @@ import {
   getSelectionForDate,
   saveSelection,
   clearSelectionForDate,
+  toSelectionRecord,
   type CalendarOutfitSelection,
 } from "@/app/(culcept)/plan/tabs/_calendar-outfit/outfitSelectionStore";
+import type { CalendarOutfitProposalVM } from "@/app/(culcept)/plan/tabs/_calendar-outfit/types";
 
 const KEY = "culcept_plan_outfit_selection_v1";
 const g = globalThis as unknown as { localStorage?: Storage };
@@ -117,5 +119,48 @@ describe("outfitSelectionStore", () => {
     ls.setItem = original;
     expect(getSelectionForDate("2026-05-29")?.proposalId).toBe("keep");
     expect(getSelectionForDate("2026-05-30")).toBeNull();
+  });
+
+  // ── toSelectionRecord (proposal → privacy-safe レコード) ──
+  const proposal: CalendarOutfitProposalVM = {
+    id: "p-office",
+    title: "きれいめオフィス",
+    items: [
+      { id: "w1", category: "トップス", label: "オフホワイト ブラウス", shape: "blouse", color: "#f1ede6" },
+      { id: "w2", category: "ボトムス", label: "ネイビー スラックス", shape: "bottom", color: "#3b4a63" },
+    ],
+    syncScore: 79,
+    syncBandKey: "good",
+  };
+
+  it("toSelectionRecord → 安全な最小レコード", () => {
+    const rec = toSelectionRecord(proposal, "2026-05-29", "engine", "2026-05-29T10:00:00.000Z");
+    expect(rec).toEqual({
+      date: "2026-05-29",
+      selectedAt: "2026-05-29T10:00:00.000Z",
+      proposalId: "p-office",
+      proposalTitle: "きれいめオフィス",
+      itemIds: ["w1", "w2"],
+      itemLabels: ["オフホワイト ブラウス", "ネイビー スラックス"],
+      syncScore: 79,
+      syncBand: "good",
+      source: "engine",
+    });
+  });
+
+  it("toSelectionRecord は保存禁止情報を含まない（color/shape/imageUrl/items 全体）", () => {
+    const rec = toSelectionRecord(proposal, "2026-05-29", "mock", "t");
+    const blob = JSON.stringify(rec);
+    expect(blob).not.toContain("#f1ede6"); // color
+    expect(blob).not.toContain("blouse"); // shape
+    expect(Object.keys(rec).sort()).toEqual(
+      ["date", "itemIds", "itemLabels", "proposalId", "proposalTitle", "selectedAt", "source", "syncBand", "syncScore"].sort(),
+    );
+  });
+
+  it("toSelectionRecord → saveSelection → getSelectionForDate の round-trip", () => {
+    saveSelection(toSelectionRecord(proposal, "2026-05-29", "engine", "t"));
+    expect(getSelectionForDate("2026-05-29")?.proposalTitle).toBe("きれいめオフィス");
+    expect(getSelectionForDate("2026-05-29")?.source).toBe("engine");
   });
 });

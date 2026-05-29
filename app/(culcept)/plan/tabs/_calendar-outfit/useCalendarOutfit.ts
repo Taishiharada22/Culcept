@@ -98,12 +98,12 @@ export function useCalendarOutfit({
 
         if (patch) {
           // engine 提案で proposals + SYNC を差し替え（ワードローブ分析は mock のまま）
-          next = { ...next, proposals: patch.proposals, sync: patch.sync };
+          next = { ...next, proposals: patch.proposals, sync: patch.sync, proposalsSource: "engine" };
           engineSync = patch.sync;
         } else {
           // B-1 fallback: mock proposals を実画像でハイドレート（退化ゼロ）
           const hydrated = hydrateOutfitVM(next, wardrobe);
-          if (hydrated !== next) next = hydrated;
+          if (hydrated !== next) next = { ...hydrated, proposalsSource: "hydrated_mock" };
         }
       }
 
