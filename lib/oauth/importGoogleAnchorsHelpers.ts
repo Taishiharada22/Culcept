@@ -123,7 +123,7 @@ export type GoogleImportLogEvent =
   | { readonly kind: "decrypt_failed"; readonly reason: string }
   | { readonly kind: "refresh_failed"; readonly reason: string }
   | { readonly kind: "list_calendars_failed"; readonly detail?: string }
-  | { readonly kind: "no_enabled_calendars" }
+  | { readonly kind: "primary_fallback" }
   | {
       readonly kind: "fetch_failed";
       readonly calendarId: string;
@@ -190,13 +190,20 @@ export type GoogleImportDeps = {
 const SOURCE_NOTES = "Google カレンダーから取り込み";
 
 /**
+ * 購読列挙が無い時の fallback 対象 (= Google primary calendar の alias)。
+ * events.readonly だけで events.list 可能なため、 calendarList 列挙 (= calendarlist scope) が
+ * partial/失敗で subscription が未作成でも primary は取り込める。
+ */
+const PRIMARY_CALENDAR_ID = "primary";
+
+/**
  * Google Calendar import の本流 orchestration (= B-2 本実装の核)。
  *
  * 手順 (= B-2 readiness §1):
  *   1. findConnection → 不在/inactive は user 向け error
  *   2. decryptToken(refresh_token)
  *   3. refreshAccessToken → invalid_grant=再接続要 / invalid_client=設定不備 / 他=通信失敗
- *   4. listEnabledCalendarIds → 0 件は ok:true imported:0 (= source 作らず)
+ *   4. listEnabledCalendarIds → 0 件は primary fallback (= 部分接続でも本流を通す)
  *   5. 各 calendar を fetchAllEvents (= 部分失敗は partialEvents 採用 + 継続)
  *   6. mapGoogleEventsToAnchorDrafts (= cancelled/invalid を skip)
  *   7. listExistingAnchors → dedup base
@@ -254,16 +261,23 @@ export async function runGoogleAnchorImport(
   // ── 4. 取り込み対象 calendar ──
   const calsResult = await deps.listEnabledCalendarIds(connection.id);
   if (!calsResult.ok) {
+    // DB error は fallback しない (= 本物の失敗を隠さない)
     log({
       kind: "list_calendars_failed",
       ...(calsResult.detail !== undefined ? { detail: calsResult.detail } : {}),
     });
     return { ok: false, error: "取り込み対象カレンダーの取得に失敗しました。" };
   }
+  // 購読が空 (= connect 時の calendarList 列挙が partial/失敗で subscription 未作成) でも
+  // primary だけは直接取り込む (= 部分接続でも本流を通す、 設計ギャップを閉じる)。
+  // NOTE: per-calendar toggle が実書込パスになった時点で「購読ゼロ(列挙未了)」と
+  //       「全 OFF(user 明示)」の区別が要る (= 現状 toggle は shell なので無害)。
+  const calendarIds =
+    calsResult.calendarIds.length > 0
+      ? calsResult.calendarIds
+      : [PRIMARY_CALENDAR_ID];
   if (calsResult.calendarIds.length === 0) {
-    // 有効カレンダーなし → source 作らず正常終了 (= ICS の empty-drafts と同思想)
-    log({ kind: "no_enabled_calendars" });
-    return { ok: true, imported: 0, skipped: 0 };
+    log({ kind: "primary_fallback" });
   }
 
   // ── 5. events 取得 (= 各 calendar、 部分失敗は partial 採用 + 継続) ──
@@ -271,7 +285,7 @@ export async function runGoogleAnchorImport(
   const allEvents: GoogleCalendarEventRaw[] = [];
   let anyFetchSucceeded = false;
   let anyFetchFailed = false;
-  for (const calendarId of calsResult.calendarIds) {
+  for (const calendarId of calendarIds) {
     const fetched = await deps.fetchAllEvents({
       calendarId,
       accessToken,

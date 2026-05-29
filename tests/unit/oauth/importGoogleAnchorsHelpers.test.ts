@@ -368,49 +368,74 @@ describe("runGoogleAnchorImport — connection / auth 分岐", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("runGoogleAnchorImport — calendars + fetch 分岐", () => {
-  it("listEnabledCalendarIds 失敗 → 取り込み対象カレンダーの取得に失敗 (+ detail log)", async () => {
-    const logs: GoogleImportLogEvent[] = [];
-    const deps = makeBaseDeps({
-      listEnabledCalendarIds: async () => ({ ok: false, detail: "db down" }),
-      log: (e) => logs.push(e),
-    });
-    expect(await runGoogleAnchorImport(deps)).toEqual({
-      ok: false,
-      error: "取り込み対象カレンダーの取得に失敗しました。",
-    });
-    expect(logs.find((e) => e.kind === "list_calendars_failed")).toMatchObject({
-      kind: "list_calendars_failed",
-      detail: "db down",
-    });
-  });
-
-  it("有効カレンダー 0 件 → fetch せず source 作らず ok:true imported:0", async () => {
+  // CEO 指定 case 2: listEnabledCalendarIds { ok:false } → fallback せず従来どおり error
+  it("listEnabledCalendarIds 失敗 → fallback せず error (= fetch/persist 不発火 + detail log)", async () => {
     const fetchSpy = vi.fn(
       async (_a: {
         calendarId: string;
         accessToken: string;
         timeMin: string;
         timeMax: string;
-      }) => fetchOk([]),
+      }) => fetchOk([makeTimedEvent()]),
     );
     const createSpy = vi.fn(async () => {
       throw new Error("must not persist");
     });
     const logs: GoogleImportLogEvent[] = [];
     const deps = makeBaseDeps({
-      listEnabledCalendarIds: async () => ({ ok: true, calendarIds: [] }),
+      listEnabledCalendarIds: async () => ({ ok: false, detail: "db down" }),
       fetchAllEvents: fetchSpy,
       createSourceWithAnchors: createSpy,
       log: (e) => logs.push(e),
     });
     expect(await runGoogleAnchorImport(deps)).toEqual({
-      ok: true,
-      imported: 0,
-      skipped: 0,
+      ok: false,
+      error: "取り込み対象カレンダーの取得に失敗しました。",
     });
+    // DB error は primary fallback しない (= 本物の失敗を隠さない)
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(createSpy).not.toHaveBeenCalled();
-    expect(logs.some((e) => e.kind === "no_enabled_calendars")).toBe(true);
+    expect(logs.find((e) => e.kind === "list_calendars_failed")).toMatchObject({
+      kind: "list_calendars_failed",
+      detail: "db down",
+    });
+  });
+
+  // CEO 指定 case 1: 購読が空 (= connect の calendarList 列挙が partial/失敗) でも
+  // primary を直接取り込む (= 部分接続でも本流を通す、 設計ギャップを閉じる)
+  it("有効カレンダー 0 件 → primary fallback で import 成功 (+ primary_fallback log)", async () => {
+    const repo = createMemoryExternalAnchorRepository();
+    const fetchSpy = vi.fn(
+      async (_a: {
+        calendarId: string;
+        accessToken: string;
+        timeMin: string;
+        timeMax: string;
+      }) => fetchOk([makeTimedEvent()]),
+    );
+    const createSpy = vi.fn((b: CreateSourceWithAnchorsInput) =>
+      repo.createSourceWithAnchors(USER_ID, b),
+    );
+    const logs: GoogleImportLogEvent[] = [];
+    const deps = makeBaseDeps(
+      {
+        listEnabledCalendarIds: async () => ({ ok: true, calendarIds: [] }),
+        fetchAllEvents: fetchSpy,
+        createSourceWithAnchors: createSpy,
+        log: (e) => logs.push(e),
+      },
+      repo,
+    );
+    expect(await runGoogleAnchorImport(deps)).toEqual({
+      ok: true,
+      imported: 1,
+      skipped: 0,
+    });
+    // 'primary' を直接取りに行く (= calendarList 列挙不要の本流)
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]![0].calendarId).toBe("primary");
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(logs.some((e) => e.kind === "primary_fallback")).toBe(true);
   });
 
   it("fetchAllEvents に buildGoogleImportWindow(now) と calendarId / accessToken を渡す", async () => {
