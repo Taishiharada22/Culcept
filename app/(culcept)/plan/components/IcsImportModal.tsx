@@ -44,6 +44,8 @@ import {
 } from "@/lib/plan/ics/icsPreviewBuilder";
 import type { ExternalAnchor, AnchorRigidity } from "@/lib/plan/external-anchor";
 import { importIcsAnchorsAction } from "../_actions/importIcsAnchors";
+// P3 Phase B B-3: Google Calendar 取り込み trigger (= connect 後の本流 import)
+import { importGoogleAnchorsAction } from "../_actions/importGoogleAnchors";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // State 型
@@ -62,6 +64,8 @@ type ImportState =
       warnings: ReadonlyArray<string>;
     }
   | { kind: "submitting" }
+  // P3 Phase B B-3: Google import 進捗 (= ICS submitting と別 copy、 fetch+save の体感数秒に対応)
+  | { kind: "importing_google" }
   | { kind: "submitted"; imported: number; skipped: number }
   | { kind: "submit_error"; error: string };
 
@@ -152,6 +156,33 @@ export function IcsImportModal({
     if (googleStatus === "disconnected" || googleStatus === "unknown") {
       // connect → server route に redirect
       window.location.href = "/api/calendar/google/connect?intent=initial";
+    }
+  }
+
+  // P3 Phase B B-3: connect 済 Google Calendar を取り込む (= connect→import→reflect 本流 trigger)
+  //   - importGoogleAnchorsAction は引数なし (= server 側で OAuth connection を使い自前 fetch)
+  //   - ok → ICS と同 submitted 状態 + onSuccess() で plan 全 refetch
+  //     (= 二重表示防止: data 層 externalUid dedup [B-2] + UI 層 全 refetch、 client merge なし)
+  //   - !ok → submit_error (= modal 維持、 error 表示)
+  async function handleGoogleImport() {
+    setState({ kind: "importing_google" });
+    try {
+      const result = await importGoogleAnchorsAction();
+      if (result.ok) {
+        setState({
+          kind: "submitted",
+          imported: result.imported,
+          skipped: result.skipped,
+        });
+        onSuccess();
+      } else {
+        setState({ kind: "submit_error", error: result.error });
+      }
+    } catch (err) {
+      setState({
+        kind: "submit_error",
+        error: err instanceof Error ? err.message : "取り込みに失敗しました",
+      });
     }
   }
 
@@ -310,6 +341,33 @@ export function IcsImportModal({
                   {googleError}
                 </p>
               )}
+
+              {/* P3 Phase B B-3: connected 時のみ表示する import trigger (= connect→import 本流) */}
+              {googleStatus === "connected" && (
+                <button
+                  type="button"
+                  onClick={handleGoogleImport}
+                  data-testid="google-import-trigger"
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all bg-emerald-500 text-white border border-emerald-500 shadow-md hover:bg-emerald-600 hover:border-emerald-600"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 3v12" />
+                    <path d="M7 12l5 5 5-5" />
+                    <path d="M5 21h14" />
+                  </svg>
+                  <span>Google の予定を取り込む</span>
+                </button>
+              )}
             </div>
 
             {/* divider */}
@@ -390,6 +448,16 @@ export function IcsImportModal({
         {state.kind === "submitting" && (
           <div className="text-center py-8 text-sm text-slate-500">
             保存しています…
+          </div>
+        )}
+
+        {/* P3 Phase B B-3: Google import 進捗 (= fetch+save 体感数秒、 専用 copy) */}
+        {state.kind === "importing_google" && (
+          <div
+            className="text-center py-8 text-sm text-slate-500"
+            data-testid="google-importing"
+          >
+            Google カレンダーから取り込んでいます…
           </div>
         )}
 
