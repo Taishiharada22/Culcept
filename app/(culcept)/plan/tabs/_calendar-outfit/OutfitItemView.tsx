@@ -19,6 +19,7 @@
 
 import type { CalendarOutfitItemAsset, OutfitItemAssetSource } from "./types";
 import { OutfitItemSilhouette } from "./OutfitItemSilhouette";
+import { OutfitItemImage } from "./OutfitItemImage";
 
 /**
  * 緩い入力 (`OutfitItemAssetSource`) → 3 状態アセットへの **純粋写像**。
@@ -124,23 +125,20 @@ export function OutfitItemView({
   const svgFill = "[&_svg]:h-full [&_svg]:w-full";
 
   switch (asset.kind) {
-    case "withImage":
+    case "withImage": {
+      // 実アイテム画像は描画時 cutout（背景除去）を試す client component に委譲（失敗時は元画像）。
+      // 非 fill（px 指定）の旧 path は未使用のため、 fill 前提の class を渡す。
+      const imgClass = `object-contain ${floating ? "rounded-md" : "rounded-2xl"} ${shadow} ${
+        fill ? "h-full w-full" : ""
+      }`;
       return (
-        // 実アイテム画像は localStorage / IndexedDB 由来の data URL になり得るため、
-        // next/image ではなく素の <img> を使う (リポジトリ既定の慣習)。
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <OutfitItemImage
           src={asset.imageUrl}
           alt={itemA11yText(asset.label, asset.category)}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-          className={`object-contain ${floating ? "rounded-md" : "rounded-2xl"} ${shadow} ${
-            fill ? "h-full w-full" : ""
-          }`}
-          {...(fill ? {} : { width: size, height: size, style: { width: size, height: size } })}
+          className={imgClass}
         />
       );
+    }
 
     case "placeholder":
       return (
