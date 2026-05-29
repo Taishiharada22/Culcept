@@ -308,3 +308,55 @@ export async function bulkUpsertSubscriptions(
     };
   }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// listEnabledCalendarIds (= P3 Phase B B-2: import 対象 calendar 取得)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type ListEnabledCalendarIdsResult =
+  | { readonly ok: true; readonly calendarIds: ReadonlyArray<string> }
+  | { readonly ok: false; readonly reason: "db_error"; readonly detail: string };
+
+/**
+ * connection の is_enabled=true subscription の external_calendar_id 一覧を取得。
+ *
+ * - importGoogleAnchors action が 「どの calendar から events を取るか」 の決定に使う
+ * - connect 時 (= callback route) に bulkUpsertSubscriptions で自動判定・保存済の値を読む
+ * - 二重防御: RLS + 明示 .eq('user_id', userId)（既存 repo 方針と一致）
+ * - 空 (= 有効カレンダーなし) は ok:true + 空配列 (= caller が imported:0 で正常終了)
+ * - schema 不一致 / DB error は fail-safe で reason='db_error'（throw しない）
+ */
+export async function listEnabledCalendarIds(
+  client: SupabaseClient,
+  userId: string,
+  connectionId: string,
+): Promise<ListEnabledCalendarIdsResult> {
+  try {
+    const { data, error } = await client
+      .from("user_calendar_subscriptions")
+      .select("external_calendar_id")
+      .eq("user_id", userId)
+      .eq("connection_id", connectionId)
+      .eq("is_enabled", true);
+
+    if (error) {
+      return { ok: false, reason: "db_error", detail: error.message };
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const calendarIds: string[] = [];
+    for (const r of rows) {
+      const id = (r as { external_calendar_id?: unknown }).external_calendar_id;
+      if (typeof id === "string" && id.length > 0) {
+        calendarIds.push(id);
+      }
+    }
+    return { ok: true, calendarIds };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "db_error",
+      detail: e instanceof Error ? e.message : "unknown_exception",
+    };
+  }
+}
