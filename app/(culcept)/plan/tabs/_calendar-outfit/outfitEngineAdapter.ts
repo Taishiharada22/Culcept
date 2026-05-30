@@ -21,6 +21,11 @@
 
 import type { OutfitProposal, WeatherDaily } from "@/lib/shared/outfitEngine";
 import type { WardrobeItem } from "@/lib/shared/wardrobe";
+import {
+  WORN_HISTORY_FLAGS,
+  buildWornHistoryEngineInput,
+  type WornHistoryEngineInput,
+} from "@/lib/shared/wornHistory";
 
 import type {
   CalendarOutfitItemVM,
@@ -141,11 +146,24 @@ export async function generateCalendarOutfitProposal(
 
     // facade のみを dynamic import（/calendar/_lib を直接触らない / static bundle に載せない）
     const mod = await import("@/lib/shared/outfitEngine");
+
+    // Phase 5-C2: flag on のときだけ shared WornHistory 由来 input を構築して facade へ渡す（A 側）。
+    //   - flag off（既定）→ builder を呼ばず、 現行 loadWornHistory path（挙動完全維持）。
+    //   - builder が null（read 失敗 / known 空 / 両空）→ wornHistoryInput 無しで現行 path へ fallback。
+    //   - activation はまだ禁止（A/B 不一致回避。 5-C3 + 5-D まで flag は off 運用）。
+    let wornHistoryInput: WornHistoryEngineInput | undefined;
+    if (WORN_HISTORY_FLAGS.engineReadsCorpus()) {
+      const knownWardrobeIds = input.wardrobe.map((w) => w.id);
+      const bundle = await buildWornHistoryEngineInput({ knownWardrobeIds });
+      if (bundle) wornHistoryInput = bundle;
+    }
+
     const result = mod.generateTodayProposal({
       wardrobe: input.wardrobe,
       date: input.date,
       weather: weatherVmToDaily(input.weather),
       events: input.events,
+      ...(wornHistoryInput ? { wornHistoryInput } : {}),
     });
 
     if (!result || !result.main) return null;

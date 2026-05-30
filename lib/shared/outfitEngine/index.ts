@@ -16,6 +16,7 @@ import { getRecentlyWornItemIds } from "@/app/(culcept)/calendar/_lib/rotationTr
 import { buildComboGraph } from "@/app/(culcept)/calendar/_lib/comboGraph";
 import { buildExtendedWeatherContext } from "@/app/(culcept)/calendar/_lib/materialWeather";
 import { loadWornHistory } from "@/app/(culcept)/calendar/_lib/rotationTracker";
+import { getRecentlyWornItemIdsFromRecencyRecords } from "@/lib/shared/wornHistory/engineInput";
 
 import type { TodayProposal, TodayProposalParams, MoodShift } from "./types";
 
@@ -121,20 +122,31 @@ export function generateTodayProposal(
 ): TodayProposal | null {
   if (!FF_USE_SHARED_ENGINE) return null;
 
-  const { wardrobe, date, weather, events = [], mood, persona } = params;
+  const { wardrobe, date, weather, events = [], mood, persona, wornHistoryInput } = params;
 
   if (wardrobe.length === 0) return null;
 
-  // 着用履歴から学習プロファイルを構築
-  const wornHistory = loadWornHistory();
-  const recentlyWornIds = getRecentlyWornItemIds(7);
-  const satisfactionProfile = wornHistory.length >= 3
-    ? buildSatisfactionProfile(wornHistory)
+  // 着用履歴から学習プロファイルを構築。
+  // Phase 5-C2: wornHistoryInput（shared corpus 由来）が渡された場合のみ A 側に注入する。
+  //   - 満足度 / コンボ学習 ← learningRecords（空なら loadWornHistory へ per-field fallback）
+  //   - recentlyWorn / rotation(A) ← recencyRecords（空なら getRecentlyWornItemIds へ per-field fallback）
+  // wornHistoryInput 無し / 空 record は現行 path と完全一致（注入の有無は呼出側が flag で決める）。
+  // B 側（outfitEngine.getScoringCache の rotation）は 5-C3 まで未接続。
+  const learningSource =
+    wornHistoryInput && wornHistoryInput.learningRecords.length > 0
+      ? wornHistoryInput.learningRecords
+      : loadWornHistory();
+  const recentlyWornIds =
+    wornHistoryInput && wornHistoryInput.recencyRecords.length > 0
+      ? getRecentlyWornItemIdsFromRecencyRecords(wornHistoryInput.recencyRecords, { days: 7 })
+      : getRecentlyWornItemIds(7);
+  const satisfactionProfile = learningSource.length >= 3
+    ? buildSatisfactionProfile(learningSource)
     : undefined;
 
   // コンボグラフ（ペア親和性）
-  const comboGraph = wornHistory.length >= 5
-    ? buildComboGraph(wornHistory)
+  const comboGraph = learningSource.length >= 5
+    ? buildComboGraph(learningSource)
     : undefined;
 
   // 拡張天気コンテキスト
@@ -173,7 +185,7 @@ export function generateTodayProposal(
     syncScore: proposal.main.sync.total,
     confidence: computeConfidence(
       wardrobe.length,
-      wornHistory.length,
+      learningSource.length,
       weather != null,
       proposal.main.sync.total,
     ),

@@ -8,6 +8,16 @@ vi.mock("@/lib/shared/outfitEngine", () => ({
   generateTodayProposal: vi.fn(),
 }));
 
+// 5-C2: flag + builder を mock（既定 flag off → 既存テストは現行 path のまま）。
+const { flagFn, builderFn } = vi.hoisted(() => ({
+  flagFn: vi.fn((): boolean => false),
+  builderFn: vi.fn(),
+}));
+vi.mock("@/lib/shared/wornHistory", () => ({
+  WORN_HISTORY_FLAGS: { engineReadsCorpus: flagFn },
+  buildWornHistoryEngineInput: builderFn,
+}));
+
 import { generateTodayProposal } from "@/lib/shared/outfitEngine";
 import {
   generateCalendarOutfitProposal,
@@ -16,6 +26,14 @@ import {
 } from "@/app/(culcept)/plan/tabs/_calendar-outfit/outfitEngineAdapter";
 
 const mockEngine = vi.mocked(generateTodayProposal);
+
+// 全テスト共通: flag 既定 off・builder 既定 null（既存テストは現行 path を維持）。
+beforeEach(() => {
+  flagFn.mockReset();
+  flagFn.mockReturnValue(false);
+  builderFn.mockReset();
+  builderFn.mockResolvedValue(null);
+});
 
 function wItem(p: Partial<WardrobeItem> & { id: string }): WardrobeItem {
   return { name: "アイテム", category: "tops", color: "#cccccc", ...p } as WardrobeItem;
@@ -144,5 +162,43 @@ describe("pure helpers", () => {
     expect(vm.title).toBe("リラックス");
     expect(vm.syncBandKey).toBe("good");
     expect(vm.syncScore).toBe(84);
+  });
+});
+
+describe("generateCalendarOutfitProposal — 5-C2 gated injection（flag 既定 off）", () => {
+  beforeEach(() => {
+    mockEngine.mockReset();
+    mockEngine.mockReturnValue(makeToday());
+  });
+
+  it("flag false → builder を呼ばず、 facade に wornHistoryInput を渡さない", async () => {
+    flagFn.mockReturnValue(false);
+    await generateCalendarOutfitProposal(INPUT);
+    expect(builderFn).not.toHaveBeenCalled();
+    expect(mockEngine).toHaveBeenCalledWith(
+      expect.not.objectContaining({ wornHistoryInput: expect.anything() }),
+    );
+  });
+
+  it("flag true → knownWardrobeIds から builder を呼び、 bundle を facade へ渡す", async () => {
+    flagFn.mockReturnValue(true);
+    const bundle = {
+      learningRecords: [{ date: "2026-05-29", itemIds: ["i1"], satisfaction: 5 as const }],
+      recencyRecords: [],
+    };
+    builderFn.mockResolvedValue(bundle);
+    await generateCalendarOutfitProposal(INPUT);
+    expect(builderFn).toHaveBeenCalledWith({ knownWardrobeIds: ["i1"] });
+    expect(mockEngine).toHaveBeenCalledWith(expect.objectContaining({ wornHistoryInput: bundle }));
+  });
+
+  it("flag true + builder null → old path fallback（wornHistoryInput 無し）", async () => {
+    flagFn.mockReturnValue(true);
+    builderFn.mockResolvedValue(null);
+    await generateCalendarOutfitProposal(INPUT);
+    expect(builderFn).toHaveBeenCalled();
+    expect(mockEngine).toHaveBeenCalledWith(
+      expect.not.objectContaining({ wornHistoryInput: expect.anything() }),
+    );
   });
 });

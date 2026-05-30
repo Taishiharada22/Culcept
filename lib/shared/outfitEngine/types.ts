@@ -39,6 +39,13 @@ export interface TodayProposalParams {
   events?: Array<{ event_type: string; event_name: string }>;
   mood?: string;
   persona?: import("@/app/(culcept)/calendar/_lib/personaBoost").CalendarPersonaProfile | null;
+  /**
+   * Phase 5-C2: shared WornHistory 由来の engine 入力（任意・完全 optional）。
+   *   - 渡された場合のみ A 側（satisfaction/combo ← learningRecords / recentlyWorn ← recencyRecords）を差し替える。
+   *   - 未指定・空 record は現行 loadWornHistory path に per-field fallback。
+   *   - 注入有無は呼出側（outfitEngineAdapter）が flag で決める。 B 側（getScoringCache rotation）は未接続。
+   */
+  wornHistoryInput?: import("@/lib/shared/wornHistory/engineInput").WornHistoryEngineInput;
 }
 
 export interface TodayProposal {
