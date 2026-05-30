@@ -11,7 +11,7 @@
 ## 0. TL;DR（現在地）
 - `/plan` の Calendar タブ（`app/(culcept)/plan/tabs/_calendar-outfit/`）を、コーデ体験の **今後の正本 UI** とする。
 - 旧 `/calendar` ルートは将来の**縮退/削除候補**。ただし **engine IP・learning source・server-sync はまだ `/calendar` 側に生きている**（§3）。
-- shared WornHistory は **ドメイン土台（Phase 3-A）** + **read-view（Phase 3-B-B）** + **canonical write（Phase 4-1: shadow mirror, commit `5c961f7e`）** を実装済み。**engine runtime 接続・read-view flip・learned 昇格はしていない**（§7-8）。
+- shared WornHistory は **ドメイン土台（Phase 3-A）** + **read-view（Phase 3-B-B）** + **canonical write（Phase 4-1: shadow mirror, `5c961f7e`）** + **read-view canonical union merge（Phase 4-2, `af53e7b4`）** を実装済み。**engine runtime 接続・learned 昇格はしていない**（§7-8）。
 - **learned 昇格は HOLD（初解禁は Phase 5）**（§7）。
 
 ---
@@ -75,7 +75,7 @@
 
 ## 8. まだ未接続（触れていない）
 - `saveWornRecord`（calendar 学習 write）／`culcept_calendar_worn_v1` への write
-- shared store **write**：`/plan`→`culcept_worn_history_v1` の **shadow mirror は Phase 4-1 で実装済**。calendar→canonical mirror（4-3）・read-view の canonical flip（4-2）は未
+- shared store **write**：`/plan`→`culcept_worn_history_v1` の **shadow mirror は Phase 4-1 で実装済**。calendar→canonical mirror（4-3）は未（read-view は 4-2 で canonical を読むが、これは read であり write 未接続）
 - server-sync（`/api/calendar/day`）／Supabase／DB／migration
 - engine runtime からの `getLearningCorpus` 読み取り（Phase 5）
 - API route 新設／server action 新設／UI 接続（read-view を消費する UI はまだ無い）
@@ -93,11 +93,11 @@
 - **local diary UI 実機**：選択→着用→評価→取り消し→日付ドット→非 active マーカーの一連。
 - **read-view facade 実読み**：`loadWornHistoryView({includeCalendar:true})` が client 実環境で calendar 履歴を facade 経由で正しく読むか（unit は facade mock で固定済み、実読みは未確認）。
 
-## 11. Future roadmap（Phase 4-2 以降・すべて HOLD）
+## 11. Future roadmap（Phase 4-3 以降・すべて HOLD）
 | Phase | 内容 | 主なゲート |
 |---|---|---|
 | **4-1** | **canonical shadow mirror（実装済 commit `5c961f7e`）**：新 key `culcept_worn_history_v1` を新設し、`/plan` の着用 diary を mirror。旧 key 温存・read-view は旧 key のまま＝UX 不変・**learned 解禁しない**。 | write 設計ゲート（通過） |
-| **4-2** | **read-view canonical merge / flip**：read-view を canonical 優先へ。過去日欠落を防ぐため `canonical ∪ 旧 key` の後方互換 merge（または backfill）。 | read flip ゲート |
+| **4-2** | **read-view canonical union merge（実装済 commit `af53e7b4`）**：read-view が `canonical ∪ old plan ∪ old calendar` を union merge。同 (date, origin) は canonical 優先・**canonical-only ではない**・**backfill しない**・`includeCanonical` kill switch あり・**learned は Phase 5 まで HOLD**。 | read flip ゲート（通過）|
 | **4-3** | **calendar source mirror / backfill**：`/calendar` 着用保存も canonical へ mirror（＋既存履歴 backfill）。 | calendar write ゲート |
 | **5** | **engine reads shared WornHistory + learned 解禁**：engine の `loadWornHistory` を `getLearningCorpus` に差し替え。`/calendar` 直読み廃止。server-sync を shared に一本化。**learned 昇格はここで初解禁**（`②plan key in-place 変形は禁止`＝rollback 喪失のため）。 | engine read / learned ゲート |
 | **6** | `/calendar` redirect or hide（consumer 付け替え完了後）。 | `/calendar` 撤退ゲート |
