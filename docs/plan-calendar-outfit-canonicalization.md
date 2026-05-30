@@ -129,7 +129,7 @@ shared WornHistory を engine 学習入力へ接続する段階。**いきなり
 | **5-B** | **learning / recency adapter + shadow comparator（pure・runtime 非接続）** | **完了 commit `0f8b0809`** |
 | 5-C（設計） | gated engine read switch 設計ゲート（2 読取点 × 用途 2 系統・activation 遅延）| 完了（設計） |
 | **5-C1** | **flag + engine input bundle builder + recentlyWorn helper（pure・engine 非接続）** | **完了 commit `2165ba41`** |
-| 5-C2 | facade（A）gated injection（satisfaction/combo/recency を bundle 注入）| 未・flag off 維持 |
+| **5-C2** | **facade（A）gated injection（実装済 commit `81859b31`）**：`TodayProposalParams.wornHistoryInput?` 追加。flag on 時のみ `outfitEngineAdapter` が bundle 構築→facade 注入（satisfaction/combo ← learningRecords / recentlyWorn ← recencyRecords・per-field fallback）。**flag default off ＝挙動不変**。B 側 getScoringCache は未接続。 | 未・**flag off 維持**（activation 禁止）|
 | 5-C3 | getScoringCache（B）rotation 注入（engine IP・最危険）| 未・flag off 維持 |
 | 5-D | flag を canary で初 on（A+B 配線後）→ 提案変化検証 | 未 |
 | 5-E | server-sync 一本化設計 | 未 |
