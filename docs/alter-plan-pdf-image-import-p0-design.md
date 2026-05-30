@@ -3,8 +3,86 @@
 - **対象**: PDF/画像取り込み実装に入る前の **「測れる品質」設計**。GPT 補正 #7「実装前に P0-1 を完全具体化」を受けた本命作業。
 - **状態**: 設計のみ（実装未着手）。CEO 承認後に P0 実行に入る。
 - **branch**: `feat/plan-pdf-image-import` 継続。
-- **前提**: readiness v2 + v2.1 補正パッチ採用済。Phase 1 対象は **表形式の勤務表 / 時間割 / 当番表**に限定。
+- **前提**: readiness v2 + v2.1 補正パッチ採用済。**Phase 1 対象は §0.5 で `shift roster` 最特化に再補正**。
 - **日付**: 2026-05-30。CEO 方針 ①〜⑧。
+
+---
+
+## §0.5. P0-1 v1.1 補正（GPT 4 点補正の精査 + 私の深掘り 3 点）★ 最新・優先
+
+> 本セクションは初版 P0-1（§1 以降）に対する **上書き補正**。矛盾する場合は本セクションが優先。初版本文は履歴として残置。
+
+### GPT 4 点補正 → 全採用 + 深化
+
+| # | GPT 補正 | 採用形 |
+|---|---|---|
+| 1 | golden は **real 70%+ / synthetic 30%-** | ✅ **重大補正**。初版「CEO 11 + 合成 14（synthetic 56%）」は逆転していた。→ **real 18 件 + synthetic 7 件（real 72%）に是正**（§0.5.1） |
+| 2 | Phase 1 を **shift roster（人の行 × 日付列）に最特化** | ✅ 採用 + 深化。**評価/目標 = shift roster 特化**、ただし**アーキは表形式汎用**に作る（時間割で作り直さない、§0.5.2） |
+| 3 | **row selection / legend extraction を独立 KPI** | ✅ 採用。初版 8 軸は event-level に閉じていた。**カスケード KPI（row→legend→event）に再構成**（§0.5.3） |
+| 4 | sourceType 命名は **provisional のまま fix しない** | ✅ 採用。`document_extracted` + `source_medium` は **docs 上 provisional**、P0 後に確定 |
+
+### §0.5.1 Golden dataset 再構成（real 中心）
+
+- **real 18 件（72%）**:
+  - CEO 提供 勤務表/シフト表: デジタル PDF 3 + スキャン PDF 3 + スマホ撮影 4 = **10 件**
+  - 公開 shift roster（SNS / 企業サンプル / テンプレート配布サイト）: **5 件**
+  - CEO 提供 追加（業種違い）: **3 件**
+- **synthetic 7 件（28%）= edge case 補完専用**:
+  - 月またぎ連勤 / 年またぎ / 略号衝突（同記号別意味）/ 全休月 / セル内 3 名以上 / 凡例なし / 極端な回転
+  - **「汚さ」は合成しない**（汚さは real に任せる ← この課題の本質）
+- **重要原則**: 「現実の汚さ（かすれ / 斜め撮影 / 色のにじみ / 表線の欠け / 注記混在）」は **real でしか得られない** → synthetic で精度を過大評価しない
+
+### §0.5.2 Phase 1 対象を shift roster に最特化（評価は特化・アーキは汎用）
+
+- **評価 / 目標 / golden / KPI = `shift roster`（人の行 × 日付列の月次/週次勤務表）に限定**
+- 時間割 / 当番表 / 保育園予定表は **Phase 1 の評価対象から外す**（KPI が散るのを防ぐ・GPT 正しい）
+- **ただし私の深掘り**: コードを roster 専用に作り込みすぎない。`extractPlanFromVision` は **「表形式ドキュメント」汎用 IF** にし、roster 固有ロジック（本人行 / 略号辞書 / 日跨ぎ）を **プラグイン的レイヤー**にする。→ Phase 3 で時間割を乗せる時に**作り直しゼロ**
+- = 「測るものは狭く、作るものは拡張可能に」（⑤目標駆動 + ④外科的）
+
+### §0.5.3 カスケード KPI（独立計測・私の深掘り）
+
+GPT「row selection / legend extraction を独立 KPI に」を**直列依存の構造**として精緻化:
+
+```
+[A] row selection ──→ [B] legend extraction ──→ [C] event extraction
+   (本人行特定)         (略号辞書取得)            (日付×略号→予定)
+```
+
+上流が落ちると下流が無意味（カスケード故障）。よって **3 段を独立計測 + conditional 計測**:
+
+| KPI | 定義 | 目標 |
+|---|---|---|
+| **K1 row_selection_accuracy** | 本人行を正しく特定した file 率 | ≥ **98%** |
+| **K2 legend_extraction_accuracy** | 凡例の各略号→時間/休の正解率 | ≥ **95%**（時間記載分） |
+| **K3a event_F1 (unconditional)** | 全 file での event-level F1 | ≥ 92% |
+| **K3b event_F1 (row-conditional)** | row 正解 file に限った event F1 | ≥ **95%** |
+| **K4 startTime_exact** | 開始時刻 ±0 分一致 | ≥ **97%** |
+| **K5 endTime_exact** | 終了時刻 ±0 分一致 | ≥ **97%** |
+| **K6 endsNextDay_correct** | 日跨ぎ判定一致 | ≥ **99%** |
+| **K7 abbreviation_expansion** | 略号→予定展開の正解率 | ≥ **97%** |
+| **K8 source_match (bbox IoU≥0.5)** | 原稿対応 bbox 精度 | ≥ 90% |
+
+→ **K1（本人行）が最重要 gate**。ここが落ちると K3-K7 が無意味。「event F1 高くても本人行外したら全部終わり」（GPT 指摘）を**構造で防ぐ**。
+
+### §0.5.4 real sample の「汚さラベル」（私の深掘り）
+
+各 real golden に品質タグを付与し、**どの汚さで arch が落ちるか**を分析可能に:
+
+```
+quality_tags: ["faded" | "skewed" | "color_bleed" | "line_missing" |
+               "handwritten_note" | "low_res" | "rotated_90" | "multi_name_cell"]
+```
+
+→ P0 結果で「arch C は skewed に弱い」等が見え、採用判断 + Phase 3 ロバスト化の指針になる。GPT は「汚さが難所」と指摘 → 私は**汚さを測定軸にする**。
+
+### §0.5.5 初版からの数値・命名の更新サマリ
+
+- golden 25 件は維持、ただし内訳を real 18 / synthetic 7 に是正
+- §1.1 の表（区分別件数）は §0.5.1 で**上書き**
+- §2.1 の 8 軸は §0.5.3 のカスケード K1-K8 で**上書き**（row/legend を独立 KPI に昇格）
+- §2.3 の目標数値は §0.5.3 の K1-K8 目標で**上書き**
+- §3.2 の評価対象は shift roster 限定で**上書き**（時間割/当番表を除外）
+- sourceType 命名は **provisional**（fix しない）
 
 ---
 
