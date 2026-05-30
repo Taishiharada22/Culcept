@@ -18,11 +18,32 @@
  *   - date 単位で 1 件（上書き）、 新しい順 60 件まで。 機微・anchor title・画像・wardrobe 全体は保存しない。
  */
 
+import { planWornRecordToEntry } from "@/lib/shared/wornHistory/converters";
+import {
+  clearCanonicalWornHistoryEntryForDate,
+  upsertCanonicalWornHistoryEntry,
+} from "@/lib/shared/wornHistory/writeStore";
+
 import type { CalendarOutfitProposalSource, CalendarOutfitProposalVM } from "./types";
 
 /** /plan 専用・着用記録 key（学習・server とは別、 隔離） */
 const WORN_KEY = "culcept_plan_worn_v1";
 const MAX_ENTRIES = 60;
+
+/**
+ * Phase 4-1 shadow mirror: /plan の着用「結果」を canonical 正本（culcept_worn_history_v1）へ複製する。
+ *   - 旧 diary（WORN_KEY）の write は別に完了済み。 ここは追加の影 write のみ。
+ *   - converter が source から learningEligible を決める（engine+評価→true / mock・hydrated_mock→false）。
+ *     昇格はしない（engine はこの canonical を読まない＝Phase 5）。
+ *   - best-effort。 失敗しても旧 diary を壊さない（throw しない）。
+ */
+function mirrorWornToCanonical(record: PlanWornRecord): void {
+  try {
+    upsertCanonicalWornHistoryEntry(planWornRecordToEntry(record));
+  } catch {
+    // mirror は補助。 canonical 失敗は無視（旧 diary は既に保存済み）。
+  }
+}
 
 /** 「実際に着た」記録（最小・privacy-safe）。 satisfaction/ratedAt は B-5E-C 用の任意枠。 */
 export interface PlanWornRecord {
@@ -94,6 +115,8 @@ export function saveWorn(record: PlanWornRecord): void {
   } catch {
     // quota / serialize → no-op
   }
+  // Phase 4-1: 旧 diary を保ったまま canonical へ shadow mirror（read-view はまだ旧 key を読む）。
+  mirrorWornToCanonical(record);
 }
 
 /**
@@ -114,6 +137,8 @@ export function rateWornForDate(date: string, satisfaction: number, ratedAt: str
     if (idx < 0) return; // worn record が無い → 評価しない
     all[idx] = { ...all[idx], satisfaction: clamped, ratedAt };
     ls.setItem(WORN_KEY, JSON.stringify(all));
+    // Phase 4-1: 更新後の record を canonical へ mirror（satisfaction / learningEligible を反映）。
+    mirrorWornToCanonical(all[idx]);
   } catch {
     // no-op
   }
@@ -129,6 +154,8 @@ export function clearWornForDate(date: string): void {
   } catch {
     // no-op
   }
+  // Phase 4-1: canonical からも該当日の plan origin を削除（rollback / undo の対称性）。
+  clearCanonicalWornHistoryEntryForDate(date, "plan");
 }
 
 /**

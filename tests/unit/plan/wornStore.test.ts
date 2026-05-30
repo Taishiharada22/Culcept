@@ -8,6 +8,8 @@ import {
   toWornRecord,
   type PlanWornRecord,
 } from "@/app/(culcept)/plan/tabs/_calendar-outfit/wornStore";
+import { saveSelection, toSelectionRecord } from "@/app/(culcept)/plan/tabs/_calendar-outfit/outfitSelectionStore";
+import { getCanonicalWornHistoryEntries } from "@/lib/shared/wornHistory/writeStore";
 import type { CalendarOutfitProposalVM } from "@/app/(culcept)/plan/tabs/_calendar-outfit/types";
 
 const KEY = "culcept_plan_worn_v1";
@@ -173,5 +175,64 @@ describe("wornStore", () => {
     expect(getWornForDate("2026-05-29")?.satisfaction).toBe(5);
     clearWornForDate("2026-05-29");
     expect(getWornForDate("2026-05-29")).toBeNull(); // 着用も評価も消える
+  });
+
+  // ── Phase 4-1: canonical shadow mirror（旧 diary を保ったまま正本へ複製） ──
+  it("mirror: saveWorn は旧 diary と canonical 両方に保存（origin=plan）", () => {
+    saveWorn(worn("2026-05-29"));
+    expect(getWornForDate("2026-05-29")?.proposalId).toBe("p1"); // 旧 diary は不変
+    const canon = getCanonicalWornHistoryEntries();
+    expect(canon).toHaveLength(1);
+    expect(canon[0].date).toBe("2026-05-29");
+    expect(canon[0].origin).toBe("plan");
+    expect(canon[0].itemIds).toEqual(["w1", "w2"]);
+    expect(canon[0].source).toBe("engine");
+    // 未評価 → learningEligible false（昇格は将来）
+    expect(canon[0].learningEligible).toBe(false);
+  });
+
+  it("mirror: 同日 saveWorn を繰り返しても canonical は重複しない", () => {
+    saveWorn(worn("2026-05-29", { proposalId: "p1" }));
+    saveWorn(worn("2026-05-29", { proposalId: "p2" }));
+    expect(getCanonicalWornHistoryEntries()).toHaveLength(1);
+  });
+
+  it("mirror: rateWornForDate は canonical の satisfaction / learningEligible も更新", () => {
+    saveWorn(worn("2026-05-29")); // source engine
+    rateWornForDate("2026-05-29", 5, "2026-05-29T21:00:00.000Z");
+    expect(getWornForDate("2026-05-29")?.satisfaction).toBe(5); // 旧 diary
+    const canon = getCanonicalWornHistoryEntries();
+    expect(canon).toHaveLength(1); // 重複なし
+    expect(canon[0].satisfaction).toBe(5);
+    // engine + 評価 + itemIds → 判定値 true を保存（engine はまだ読まない）
+    expect(canon[0].learningEligible).toBe(true);
+  });
+
+  it("mirror: clearWornForDate は旧 diary と canonical 両方から消す", () => {
+    saveWorn(worn("2026-05-29"));
+    rateWornForDate("2026-05-29", 5, "t");
+    clearWornForDate("2026-05-29");
+    expect(getWornForDate("2026-05-29")).toBeNull(); // 旧 diary
+    expect(getCanonicalWornHistoryEntries()).toHaveLength(0); // canonical
+  });
+
+  it("mirror: mock 着用は canonical に入るが learningEligible=false（mock 学習禁止を保持）", () => {
+    saveWorn(worn("2026-05-29", { source: "mock" }));
+    rateWornForDate("2026-05-29", 5, "t");
+    const canon = getCanonicalWornHistoryEntries();
+    expect(canon[0].source).toBe("mock");
+    expect(canon[0].learningEligible).toBe(false); // 評価済でも mock は false
+  });
+
+  it("mirror: saveSelection は canonical に書かない（選択意図は WornHistory 対象外）", () => {
+    const proposal: CalendarOutfitProposalVM = {
+      id: "p1",
+      title: "t",
+      items: [{ id: "w1", category: "c", label: "l", shape: "top", color: "#000" }],
+      syncScore: 70,
+      syncBandKey: "good",
+    };
+    saveSelection(toSelectionRecord(proposal, "2026-05-29", "engine", "t"));
+    expect(getCanonicalWornHistoryEntries()).toHaveLength(0);
   });
 });
