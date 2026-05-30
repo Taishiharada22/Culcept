@@ -8,6 +8,7 @@
  */
 
 import type { CalendarOutfitScheduleItemVM } from "./types";
+import { CalIcon, SCHEDULE_EMOJI_ICON } from "./icons";
 
 export function TodayScheduleCard({
   item,
@@ -15,16 +16,18 @@ export function TodayScheduleCard({
   item: CalendarOutfitScheduleItemVM;
 }) {
   // 理想画像準拠: アイコン左 + 右に「時刻 / 予定名 / 要約(場所)」を縦に詰める（横並び・低い高さ）。
+  // アイコンは場所カテゴリ別の統一 SVG（未対応カテゴリは calendar にフォールバック）。
+  const icon = SCHEDULE_EMOJI_ICON[item.icon] ?? "calendar";
   return (
     <div
       className="flex w-full items-center gap-1.5"
       data-testid={`plan-calendar-outfit-schedule-${item.id}`}
     >
       <span
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-violet-50 text-sm"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-violet-100 bg-violet-50 text-violet-500"
         aria-hidden="true"
       >
-        {item.icon}
+        <CalIcon name={icon} size={16} />
       </span>
       <div className="min-w-0">
         <p className="font-mono text-[10px] font-medium leading-tight text-violet-600">{item.time}</p>

@@ -17,7 +17,12 @@ export type CalIconName =
   | "bottoms"
   | "umbrella"
   | "shoes"
-  | "palette";
+  | "palette"
+  | "work"
+  | "home"
+  | "school"
+  | "meal"
+  | "calendar";
 
 /** reason factor VM id → アイコン名 */
 export const REASON_ICON: Record<string, CalIconName> = {
@@ -35,6 +40,14 @@ export const WARDROBE_ICON: Record<string, CalIconName> = {
   "stat-rain": "umbrella",
   "stat-walk": "shoes",
   "stat-color": "palette",
+};
+
+/** schedule の場所カテゴリ emoji（CATEGORY_META）→ アイコン名。 未対応は呼び出し側で "calendar" にフォールバック。 */
+export const SCHEDULE_EMOJI_ICON: Record<string, CalIconName> = {
+  "🏢": "work",
+  "🏠": "home",
+  "🎓": "school",
+  "☕": "cafe",
 };
 
 function paths(name: CalIconName) {
@@ -91,6 +104,42 @@ function paths(name: CalIconName) {
           <circle cx="8" cy="11" r="1" />
           <circle cx="12" cy="8" r="1" />
           <circle cx="16" cy="11" r="1" />
+        </>
+      );
+    case "work":
+      return (
+        <>
+          <rect x="3.5" y="7.5" width="17" height="12" rx="2" />
+          <path d="M8.5 7.5V6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v1.5" />
+          <path d="M3.5 12.5h17" />
+        </>
+      );
+    case "home":
+      return (
+        <>
+          <path d="M4 11l8-6.5 8 6.5" />
+          <path d="M6 10v9.5h12V10" />
+        </>
+      );
+    case "school":
+      return (
+        <>
+          <path d="M12 4l9 4-9 4-9-4 9-4z" />
+          <path d="M7 10.2v4.3c0 1.4 10 1.4 10 0v-4.3" />
+        </>
+      );
+    case "meal":
+      return (
+        <>
+          <path d="M7 3.5v8M5 3.5v4a2 2 0 0 0 4 0v-4M7 11.5v9" />
+          <path d="M16.5 3.5c-1.5 0-2.5 1.8-2.5 4.5s1 4 2.5 4 2.5-1.3 2.5-4-1-4.5-2.5-4.5zM16.5 12v8.5" />
+        </>
+      );
+    case "calendar":
+      return (
+        <>
+          <rect x="4" y="5" width="16" height="15" rx="2" />
+          <path d="M8 3.2v3.6M16 3.2v3.6M4 10h16" />
         </>
       );
     default:

@@ -35,20 +35,29 @@ export function RecommendationReasonCard({ reason }: { reason: CalendarOutfitRea
               const tone = f.tone ?? "neutral";
               const svgIcon = REASON_ICON[f.id];
               return (
-                <div key={f.id} className="flex items-center gap-1.5">
-                  {svgIcon ? (
-                    <CalIcon name={svgIcon} size={18} className={`shrink-0 ${STATUS_TONE_TEXT[tone]}`} />
-                  ) : (
-                    <span className="shrink-0 text-base leading-none" aria-hidden="true">
-                      {f.icon}
-                    </span>
-                  )}
+                <div
+                  key={f.id}
+                  tabIndex={0}
+                  className="group relative flex cursor-default items-center gap-1.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+                >
+                  <span className="shrink-0 transition-transform duration-150 group-hover:scale-110 group-focus-within:scale-110">
+                    {svgIcon ? (
+                      <CalIcon name={svgIcon} size={18} className={STATUS_TONE_TEXT[tone]} />
+                    ) : (
+                      <span className="text-base leading-none" aria-hidden="true">
+                        {f.icon}
+                      </span>
+                    )}
+                  </span>
                   <div className="min-w-0 leading-tight">
                     <p className="truncate text-[10px] text-slate-400">{f.label}</p>
                     <p className={`truncate text-[11px] font-semibold ${STATUS_TONE_TEXT[tone]}`}>
                       {f.value}
                     </p>
                   </div>
+                  <span className="pointer-events-none absolute -top-8 left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-[10px] font-medium text-white shadow-md group-hover:block group-focus-within:block">
+                    {f.label} {f.value}
+                  </span>
                 </div>
               );
             })}

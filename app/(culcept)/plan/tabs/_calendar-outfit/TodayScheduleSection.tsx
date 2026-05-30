@@ -9,6 +9,8 @@
  *   - 右肩リンク「タイムラインで確認」で既存タイムライン (退避済み) を開く。
  */
 
+import { Fragment } from "react";
+
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 
@@ -100,18 +102,22 @@ export function TodayScheduleSection({
           </p>
         </div>
       ) : (
-        <div className={`${CAL_OUTFIT_PALETTE.card} p-3`}>
-          {/* 前 / 今 / 次 を 1 枠に固定（中央 = 現在進行中、 左右は控えめ）。 横スクロールしない。 */}
-          <div className="grid grid-cols-3 items-center gap-1">
-            {slots.map((item, i) =>
-              item ? (
-                <div key={item.id} className={i === 1 ? "" : "opacity-55"}>
-                  <TodayScheduleCard item={item} />
+        // 角張った枠（rounded-xl）。 前 / 今 / 次 を均等幅で固定し、 間に「・ー」連結を入れる（横スクロール無し）。
+        <div className="rounded-xl border border-violet-100/70 bg-white/85 p-3 shadow-[0_4px_20px_-8px_rgba(91,33,182,0.15)]">
+          <div className="flex items-center">
+            {slots.map((item, i) => (
+              <Fragment key={item?.id ?? `empty-${i}`}>
+                {i > 0 && (
+                  <span className="flex shrink-0 items-center gap-0.5 px-1" aria-hidden="true">
+                    <span className="h-1 w-1 rounded-full bg-violet-200" />
+                    <span className="h-px w-4 bg-violet-200" />
+                  </span>
+                )}
+                <div className={`min-w-0 flex-1 ${i === 1 ? "" : "opacity-60"}`}>
+                  {item ? <TodayScheduleCard item={item} /> : <div className="h-10" aria-hidden="true" />}
                 </div>
-              ) : (
-                <div key={`empty-${i}`} className="h-10" aria-hidden="true" />
-              ),
-            )}
+              </Fragment>
+            ))}
           </div>
         </div>
       )}
