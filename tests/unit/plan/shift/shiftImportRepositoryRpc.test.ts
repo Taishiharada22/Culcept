@@ -166,4 +166,77 @@ describe("RPC ShiftImportRepository — conflict-safe replace contract", () => {
     expect(r.errors[0].kind).toBe("persistence_failed");
     expect(calls).toHaveLength(0);
   });
+
+  it("範囲外 date の anchor → out_of_range で reject、RPC 未呼出（hardening①）", async () => {
+    const { client, calls } = fakeRpc(() => ({
+      status: "ok",
+      summary: {
+        sourceId: "x",
+        insertedAnchors: 0,
+        deletedAnchors: 0,
+        insertedIndicators: 0,
+        deletedIndicators: 0,
+        conflicts: [],
+      },
+    }));
+    const repo = createRpcShiftImportRepository(client, deps());
+    const oob: ShiftImportBundleInput = {
+      ...BUNDLE,
+      anchors: [{ ...ANCHORS[0], date: "2025-08-05" } as CreateExternalAnchorInput], // July 範囲外
+    };
+    const r = await repo.saveShiftImportBundle("user-1", oob);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const e = r.errors.find((x) => x.kind === "anchor_invalid");
+    expect(e?.kind === "anchor_invalid" && e.errors[0].code).toBe("out_of_range");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("範囲外 date の indicator → reject、RPC 未呼出（hardening①）", async () => {
+    const { client, calls } = fakeRpc(() => ({
+      status: "ok",
+      summary: {
+        sourceId: "x",
+        insertedAnchors: 0,
+        deletedAnchors: 0,
+        insertedIndicators: 0,
+        deletedIndicators: 0,
+        conflicts: [],
+      },
+    }));
+    const repo = createRpcShiftImportRepository(client, deps());
+    const oob: ShiftImportBundleInput = {
+      ...BUNDLE,
+      dayIndicators: [{ ...INDICATORS[0], date: "2025-06-30" }], // July 範囲外
+    };
+    const r = await repo.saveShiftImportBundle("user-1", oob);
+    expect(r.ok).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("同日が anchor と indicator 両方 → duplicate_import_date で reject、RPC 未呼出（hardening⑤）", async () => {
+    const { client, calls } = fakeRpc(() => ({
+      status: "ok",
+      summary: {
+        sourceId: "x",
+        insertedAnchors: 0,
+        deletedAnchors: 0,
+        insertedIndicators: 0,
+        deletedIndicators: 0,
+        conflicts: [],
+      },
+    }));
+    const repo = createRpcShiftImportRepository(client, deps());
+    const dup: ShiftImportBundleInput = {
+      ...BUNDLE,
+      anchors: [{ ...ANCHORS[0], date: "2025-07-06" } as CreateExternalAnchorInput],
+      dayIndicators: [{ ...INDICATORS[0], date: "2025-07-06" }], // 同日
+    };
+    const r = await repo.saveShiftImportBundle("user-1", dup);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const e = r.errors.find((x) => x.kind === "duplicate_import_date");
+    expect(e?.kind === "duplicate_import_date" && e.dates).toEqual(["2025-07-06"]);
+    expect(calls).toHaveLength(0);
+  });
 });

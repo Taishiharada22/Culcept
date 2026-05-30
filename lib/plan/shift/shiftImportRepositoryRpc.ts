@@ -56,8 +56,13 @@ export function createRpcShiftImportRepository(
           ],
         };
       }
+      const range = input.importRange; // const に束ね closure 内でも narrow 保持
 
       // ── 1. validate（無駄な RPC 呼び出しを避ける）──
+      // hardening①: 全 date が importRange[start, endExclusive) 内（範囲外は孤児化するため reject）。
+      //   ISO 文字列（YYYY-MM-DD）は辞書順比較で日付順に一致。
+      const inRange = (date: string): boolean =>
+        date >= range.start && date < range.endExclusive;
       const errors: ShiftImportSaveError[] = [];
       const rpcAnchors: ShiftImportRpcAnchor[] = [];
       input.anchors.forEach((a, index) => {
@@ -80,6 +85,20 @@ export function createRpcShiftImportRepository(
           });
           return;
         }
+        if (!inRange(a.date)) {
+          errors.push({
+            kind: "anchor_invalid",
+            index,
+            errors: [
+              {
+                field: "date",
+                code: "out_of_range",
+                message: `date must be within importRange [${range.start}, ${range.endExclusive})`,
+              },
+            ],
+          });
+          return;
+        }
         rpcAnchors.push({
           date: a.date,
           title: a.title,
@@ -96,6 +115,20 @@ export function createRpcShiftImportRepository(
           errors.push({ kind: "indicator_invalid", index, errors: indErrors });
           return;
         }
+        if (!inRange(ind.date)) {
+          errors.push({
+            kind: "indicator_invalid",
+            index,
+            errors: [
+              {
+                field: "date",
+                code: "out_of_range",
+                message: `date must be within importRange [${range.start}, ${range.endExclusive})`,
+              },
+            ],
+          });
+          return;
+        }
         rpcIndicators.push({
           date: ind.date,
           kind: ind.kind,
@@ -105,6 +138,23 @@ export function createRpcShiftImportRepository(
           semanticType: ind.semanticType,
         });
       });
+
+      // hardening⑤: 同日重複防御（1 日 = 勤務 anchor か day_indicator のどちらか一方）。
+      // anchors 内 / indicators 内 / anchors∩indicators の重複を一括検出（全 date を数えて >1）。
+      const dateCount = new Map<string, number>();
+      for (const d of [
+        ...rpcAnchors.map((a) => a.date),
+        ...rpcIndicators.map((i) => i.date),
+      ]) {
+        dateCount.set(d, (dateCount.get(d) ?? 0) + 1);
+      }
+      const dupDates = [...dateCount.entries()]
+        .filter(([, c]) => c > 1)
+        .map(([d]) => d)
+        .sort();
+      if (dupDates.length > 0) {
+        errors.push({ kind: "duplicate_import_date", dates: dupDates });
+      }
 
       if (errors.length > 0) {
         return { ok: false, errors };

@@ -123,6 +123,11 @@ export type ShiftImportSaveError =
    * dates = 衝突した日（将来 UI で明示承認させる材料）。
    */
   | { kind: "manual_indicator_conflict"; dates: string[] }
+  /**
+   * 同日重複（1 日 = 勤務 anchor か day_indicator のどちらか一方であるべき）。
+   * anchors 内 / indicators 内 / anchors∩indicators の重複日（6B-FIX hardening⑤）。
+   */
+  | { kind: "duplicate_import_date"; dates: string[] }
   /** 永続化途中の失敗（DB error 等）。全体を rollback したことを表す。 */
   | { kind: "persistence_failed"; message: string };
 

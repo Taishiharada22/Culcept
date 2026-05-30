@@ -27,6 +27,15 @@
 --   - 夜勤の翌日跨ぎは anchor.date(=勤務開始日) が range 内かで判定（end_time<start_time は同一 anchor）。
 --   - SECURITY INVOKER + RLS で user-scoped を強制。
 --
+-- v2 hardening（Step 6B-FIX, CEO 2026-05-31）:
+--   ① INSERT も importRange[start,end) で縛る（範囲外 date は書込前に RAISE。孤児化防止）
+--   ② null 配列防御（v_anchors/v_indicators = coalesce(p_*, '[]')）
+--   ③ pg_advisory_xact_lock(user × importStart) で同月二重 submit を直列化（anchor 重複防止）
+--   ④ source cleanup は anchors と day_indicators の両方を子として見る（既存どおり、明示化）
+--   ⑤ duplicate 防御: anchors 内 / indicators 内 / anchors∩indicators の同日重複を RAISE
+--      （1 日 = 勤務 anchor か day_indicator のどちらか一方）
+--   ※ ①⑤ は app 側（shiftImportRepositoryRpc）にもミラーし unit test で検証（SQL は apply 時検証）。
+--
 -- ★ 本 migration は **draft 状態**。`supabase db push` / apply は **CEO 別承認**。
 --   ※ 関数の挙動は DB なしの unit test では検証不能 → fake RPC client で contract を検証済
 --     （tests/unit/plan/shift/shiftImportRepositoryRpc.test.ts）。実 SQL は apply / staging smoke で検証（6B-apply）。
@@ -45,6 +54,9 @@ SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
+  -- 強化②: null 配列防御（p_* が null でも '[]' として扱う）
+  v_anchors    jsonb := coalesce(p_anchors, '[]'::jsonb);
+  v_indicators jsonb := coalesce(p_indicators, '[]'::jsonb);
   v_conflicts text[];
   v_source_id uuid;
   v_deleted_anchors integer := 0;
@@ -57,10 +69,47 @@ BEGIN
     RAISE EXCEPTION 'forbidden: p_user_id must equal auth.uid()';
   END IF;
 
+  -- 強化③: 同一ユーザー × 同一月の取り込みを直列化（二重 submit による anchor 重複防止）
+  -- transaction-scoped。indicator の UNIQUE だけに頼らない。
+  PERFORM pg_advisory_xact_lock(hashtext(p_user_id::text || ':shift_import:' || p_range_start::text));
+
+  -- 強化①: INSERT も importRange で縛る。範囲外 date が 1 件でもあれば書込前に reject。
+  -- （範囲外データは次回 range replace で消えず孤児化するため）
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_anchors) e
+    WHERE (e->>'date')::date < p_range_start OR (e->>'date')::date >= p_range_end
+  ) OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_indicators) e
+    WHERE (e->>'date')::date < p_range_start OR (e->>'date')::date >= p_range_end
+  ) THEN
+    RAISE EXCEPTION 'shift import: all dates must be within importRange [%, %)', p_range_start, p_range_end;
+  END IF;
+
+  -- 強化⑤: duplicate input 防御（1 日 = 勤務 anchor か day_indicator のどちらか一方）
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_anchors) e
+    GROUP BY (e->>'date') HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'shift import: duplicate anchor date';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_indicators) e
+    GROUP BY (e->>'date') HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'shift import: duplicate indicator date';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(v_anchors) a
+    JOIN jsonb_array_elements(v_indicators) i ON (a->>'date') = (i->>'date')
+  ) THEN
+    RAISE EXCEPTION 'shift import: a date appears in both anchors and indicators';
+  END IF;
+
   -- 1. conflict 検出（新 indicator の日に手動印がある）→ 書込前に early return
   SELECT array_agg(DISTINCT to_char((e->>'date')::date, 'YYYY-MM-DD') ORDER BY to_char((e->>'date')::date, 'YYYY-MM-DD'))
     INTO v_conflicts
-  FROM jsonb_array_elements(p_indicators) AS e
+  FROM jsonb_array_elements(v_indicators) AS e
   WHERE EXISTS (
     SELECT 1 FROM plan_day_indicators pdi
     WHERE pdi.user_id = p_user_id
@@ -91,6 +140,8 @@ BEGIN
   GET DIAGNOSTICS v_deleted_anchors = ROW_COUNT;
 
   -- 3. source cleanup（子を失った shift_image source を削除）
+  -- 強化④: anchors **と** day_indicators の両方を子として見る。
+  -- anchor が無くても indicator が残る source は消さない（逆も同様）。
   DELETE FROM external_anchor_sources s
   WHERE s.user_id = p_user_id
     AND s.source_type = 'shift_image'
@@ -110,7 +161,7 @@ BEGIN
     (e->>'startTime')::time,
     NULLIF(e->>'endTime', '')::time,
     e->>'rigidity', now(), 'one_off', (e->>'date')::date
-  FROM jsonb_array_elements(p_anchors) AS e;
+  FROM jsonb_array_elements(v_anchors) AS e;
   GET DIAGNOSTICS v_inserted_anchors = ROW_COUNT;
 
   -- 6. indicators（shift_image 由来）
@@ -119,7 +170,7 @@ BEGIN
   SELECT
     p_user_id, v_source_id, (e->>'date')::date, e->>'kind', e->>'label',
     (e->>'countsAsPublicHoliday')::boolean, e->>'rawCode', e->>'semanticType', 'shift_image'
-  FROM jsonb_array_elements(p_indicators) AS e;
+  FROM jsonb_array_elements(v_indicators) AS e;
   GET DIAGNOSTICS v_inserted_indicators = ROW_COUNT;
 
   RETURN jsonb_build_object(
