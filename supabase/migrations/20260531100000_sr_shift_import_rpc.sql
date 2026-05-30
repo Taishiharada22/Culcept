@@ -64,9 +64,11 @@ DECLARE
   v_inserted_anchors integer := 0;
   v_inserted_indicators integer := 0;
 BEGIN
-  -- 0. owner guard（RLS と二重防御）
-  IF p_user_id IS DISTINCT FROM auth.uid() THEN
-    RAISE EXCEPTION 'forbidden: p_user_id must equal auth.uid()';
+  -- 0. owner guard（RLS と二重防御）。
+  -- ERRCODE 42501 (insufficient_privilege) で既存 mapPostgrestError → forbidden に透過
+  -- （sibling create_external_anchor_bundle と同規約）。
+  IF auth.uid() IS NULL OR auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'unauthorized' USING ERRCODE = '42501';
   END IF;
 
   -- 強化③: 同一ユーザー × 同一月の取り込みを直列化（二重 submit による anchor 重複防止）
@@ -189,3 +191,14 @@ $$;
 
 COMMENT ON FUNCTION import_shift_roster(uuid, date, date, jsonb, jsonb, jsonb) IS
   'SR 2026-05-31. シフト取り込み本保存（all-or-nothing）。conflict-safe range-scoped replace: 手動印は上書きせず conflict 返却、shift_image 由来のみ importRange[start,end) で置換。SECURITY INVOKER + RLS。';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- Function permission（6B-APPLY-PREP, CEO 2026-05-31）
+--   sibling create_external_anchor_bundle と同規約 + explicit anon revoke（CEO 補正）:
+--   PUBLIC から全権限を剥奪し、さらに anon への直接 grant も明示剥奪（防御一段）、
+--   authenticated のみ EXECUTE 可能にする。auth.uid() 前提の関数境界を明確化（anon は呼べない）。
+--   ※ signature は CREATE FUNCTION 定義（uuid, date, date, jsonb, jsonb, jsonb）と完全一致・unqualified（search_path=public）。
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REVOKE ALL ON FUNCTION import_shift_roster(uuid, date, date, jsonb, jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION import_shift_roster(uuid, date, date, jsonb, jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION import_shift_roster(uuid, date, date, jsonb, jsonb, jsonb) TO authenticated;
