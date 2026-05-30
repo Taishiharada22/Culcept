@@ -3,7 +3,8 @@
 - **対象**: P0-2 golden dataset の **正解 JSON を作る際のルール**。これが揺れると評価がブレ、arch 比較が無意味化する。
 - **状態**: ルール定義（実装・dataset 構築の前段ゲート）。**CEO 確認後に golden 構築へ**。
 - **branch**: `feat/plan-pdf-image-import`。
-- **根拠**: GPT 補正 3「golden JSON の注釈ルールを先に固定」 + GPT 補正「抽出 truth と calendar projection policy を分離」（P0-2 GO の条件）。
+- **根拠**: GPT 補正 3「golden JSON の注釈ルールを先に固定」 + GPT 補正「抽出 truth と calendar projection policy を分離」 + **CEO 訂正 2026-05-30（公休=H のみ / 休み≠公休 / BD=休み / 休みは枠でなく表示）**（P0-2 GO の条件）。
+- **関連**: コード→意味の正本は `alter-plan-shift-code-dictionary-design.md`（辞書設計書）。
 - **日付**: 2026-05-30。CEO 方針 ①〜⑧。
 
 ---
@@ -23,10 +24,10 @@
 │                ambiguous), startTime, endTime, endsNextDay   │
 │  評価 KPI: K7(略号展開) / K4,K5(時刻) / K6(日跨ぎ)           │
 ├─ 層3: calendar projection policy ─────────────────┤
-│  カレンダーへどう書くか。golden に持たせない（可変・UI 設定）  │
-│  policy: project_shift / project_leave / project_holiday_req │
-│          / project_notes（各 true/false）                    │
-│  評価: projection 適用後の最終 calendar 一致（UX 評価のみ）   │
+│  /plan へどう出すか。golden に持たせない（可変・UI 設定）     │
+│  projectMode: timed_event(work) / day_indicator(off=休み表示)│
+│               / candidate(HREQ) / none                       │
+│  評価: projection 適用後の最終 /plan 一致（UX 評価のみ）      │
 └──────────────────────────────────────────────┘
 ```
 
@@ -37,51 +38,56 @@
    - **truth 精度**（層1+2、projection 非依存）= **arch 比較の本命**。P0 はこれで決める。
    - **projection 適用後の calendar 一致**（層3 依存）= Phase 1 リリース UX 判定。
    = arch の優劣が「カレンダー表示設定」に汚染されない（GPT の指摘どおり）。
-3. **type を意味レベルで固定**（GPT 提案）: `shift` / `leave` / `holiday_request` / `note_event` / `ambiguous_note` / `statutory_off`。projection はこの type を入力に取る純関数。
+3. **意味を semanticType + 2軸（isOff / countsAsPublicHoliday）で固定**（CEO 訂正 + GPT 提案）: work系（day_work/night_shift…）/ holiday(H=公休) / holiday_request(HREQ) / blank_day(BD) / paid_leave(AL) / note_event / unknown。projection（projectMode）はこの意味を入力に取る純関数。正本は辞書設計書。
 
 ### §-1.1 type 語彙（層2 で固定・projection 非依存）
 
-| type | 意味 | 例 |
-|---|---|---|
-| `shift` | 勤務 | G(日勤) / N(夜勤) / E-18 |
-| `leave` | 取得済休暇 | AL(有給) |
-| `holiday_request` | 希望段階の休 | HREQ(希望休) |
-| `statutory_off` | 法定休/公休 | 公休 |
-| `note_event` | 注記欄の日時明確な予定 | 「18日 MTG 14-15」 |
-| `ambiguous_note` | 注記欄の日時不明 | 内容のみメモ |
-| `unknown` | 読めたが意味不明 | 辞書にない略号 / 色のみ |
+> **コード→意味の正本は `alter-plan-shift-code-dictionary-design.md`（辞書設計書）**。本表は golden 注釈で使う semanticType の一覧。
+
+| semanticType | category | 例 | isOff | countsAsPublicHoliday |
+|---|---|---|:--:|:--:|
+| `day_work`/`night_shift`/`early_work`/`early_long`/`late_work` | work | G/N/E/E-18/L | ✗ | ✗ |
+| `holiday` | off | **H（公休）** | ✓ | **✓** |
+| `holiday_request` | off_request | HREQ（希望休） | ✓ | ✗ |
+| `blank_day` | off | **BD（休み・公休でない）** | ✓ | ✗ |
+| `paid_leave` | off | AL（有給・本テンプレ非在） | ✓ | ✗ |
+| `note_event` | note | 「18日 MTG 14-15」 | ✗ | ✗ |
+| `unknown` | undetermined | 辞書にない略号 / 色のみ | – | – |
+
+**CEO 訂正（最重要）**: **「休み(isOff)」と「公休(countsAsPublicHoliday)」は別の2軸**。休み系（H/HREQ/BD/AL）はすべて isOff=true だが、**公休は H のみ**。型名に公休性を埋め込まず、2つの直交ブールで表現する。
 
 ### §-1.2 projection policy（層3・golden 外・将来の UI 設定）
 
-純関数 `project(truthEvents, policy) → calendarDrafts`:
+純関数 `project(truthEvents, dictionary) → planItems`。各コードの **`projectMode`（辞書設計書 §1）** で分岐:
 
-```typescript
-type ProjectionPolicy = {
-  project_shift: boolean;          // default true
-  project_leave: boolean;          // default true（休みもカレンダー化）
-  project_holiday_request: boolean; // default false（希望段階は候補止まり）
-  project_statutory_off: boolean;   // default true
-  project_notes: boolean;          // default true（日時明確なもの）
-};
-```
+| projectMode | 対象 | /plan での扱い |
+|---|---|---|
+| `timed_event` | work（E/E-18/N/L/G） | タイムラインに時間付きイベント（既存 import 経路）。ユーザー編集可 |
+| `day_indicator` | off（H/BD/AL） | **時間枠を作らない**。その日に「休み」と分かる**日レベル表示** |
+| `candidate` | HREQ | 候補表示（控えめ）。v1 非表示も可 |
+| `none` | unknown 等 | 出さない（要ユーザー確認フラグ） |
 
-→ **default を annotation には焼き込まない**（GPT 指摘）。projection module の default として別管理。評価は default + 主要バリエーションで取る。
+→ **CEO 訂正（2026-05-30）で旧 `project_leave: true`（休みをカレンダー化）を撤回**。休みは枠でなく `day_indicator`。projectMode は**辞書（層2 隣接・不変）に属し、ユーザー上書き可**。default を golden（truth）に焼き込まない（GPT 指摘）。
 
 ---
 
 ## §1. 曖昧項目の確定ルール
 
-### 1.1 休み系略号（`AL`, `HREQ`, 公休, 振休 等）
+### 1.1 休み系略号（`H`, `HREQ`, `BD`, `AL` 等）
 
-**golden（truth）は「読んだ意味＝type」を必ず固定**する。カレンダーに出すか否か（projection）は golden に持たせない（§-1）。
+**golden（truth）は「読んだ意味＝semanticType + isOff + countsAsPublicHoliday」を固定**する。カレンダーへどう出すか（projectMode）は golden に持たせない（§-1）。コード→意味の正本は**辞書設計書**（`alter-plan-shift-code-dictionary-design.md`）。
 
-| 項目 | golden の type（層2・truth・**常に固定**） | カレンダー反映（層3・projection・golden 外） |
-|---|---|---|
-| `AL`（有給） | **`type: "leave"`**（終日、`isOff: true`、time null） | `project_leave` policy（default true） |
-| `HREQ`（希望休） | **`type: "holiday_request"`**（希望段階） | `project_holiday_request` policy（default false＝候補止まり） |
-| 公休 / 法定休 | **`type: "statutory_off"`** | `project_statutory_off`（default true） |
+| 項目 | semanticType（層2・truth） | isOff | 公休 | projectMode（層3・golden 外） |
+|---|---|:--:|:--:|---|
+| `H`（休・公休） | `holiday` | ✓ | **✓** | **day_indicator**（「休み」表示・枠なし） |
+| `HREQ`（希望休） | `holiday_request` | ✓ | ✗ | candidate（候補・控えめ） |
+| `BD`（休み blank day） | `blank_day` | ✓ | ✗ | **day_indicator**（「休み」表示・枠なし） |
+| `AL`（有給・本テンプレ非在） | `paid_leave` | ✓ | ✗ | day_indicator |
 
-→ **GPT 補正反映**: golden は「`AL` は有給休暇である」を不変の真実として固定。「カレンダーに休みを出すか」は projection policy（§-1.2）で後から切替。**golden を policy で両面化する v1.0 方針は撤回**（truth は 1 つ、projection で吸収）。
+→ **CEO 訂正反映（2026-05-30）**:
+1. **公休 = H のみ**。HREQ/BD/AL は休み（isOff）だが公休ではない（countsAsPublicHoliday=false）。**「休み」と「公休」を 2 つの直交ブールで分離**。
+2. **休みは /plan に時間枠を作らない**。projectMode=`day_indicator`（その日に「休み」と分かる日レベル表示）。work 系のみ timed_event。→ golden（truth）は BD=blank_day=isOff を記録するだけ。「枠でなく表示」は projection が決める。
+3. **画像 5 枚は CEO の2月実データ由来の realistic synthetic**。画像内の公休表示はGPT推論ズレ→無効。checksum は訂正値（3=9/4=8/5=9/6=8/7=8、= H 個数）で取る。
 
 ### 1.2 セル内複数名（代務: 「松田/田口」「香田/松田」）
 
@@ -130,27 +136,28 @@ type ProjectionPolicy = {
 {
   "fileId": "uuid",
   // ★ projection policy は golden に持たない（§-1.2、層3 は別管理）
-  "personRow": { "displayName": "石原 陽太郎", "rowIndexFromTop": 1, "bbox": [...] },
-  "abbreviationDictionary": { /* §1.6、 凡例から + 手動補完 */ },
+  "personRow": { "displayName": "原田 大志", "rowIndexFromTop": 7, "bbox": [...] },
+  "abbreviationDictionary": { /* §1.6、 凡例から + 辞書設計書 §2 */ },
   "events": [
     {
       "id": "ev-001",
-      "date": "2025-02-01",
+      "date": "2025-07-08",
       // 層1: 読み取り truth
       "rawText": "G",               // §1.6 原稿の表記そのまま
       "rawColor": "green",          // §1.5
       "sourceRegion": { "page": 1, "bbox": [...] },
-      // 層2: 意味解釈 truth
-      "type": "shift",              // §-1.1 (shift/leave/holiday_request/statutory_off/note_event/ambiguous_note/unknown)
+      // 層2: 意味解釈 truth（正本は辞書設計書）
+      "semanticType": "day_work",   // §-1.1 (day_work/night_shift/.../holiday/holiday_request/blank_day/paid_leave/note_event/unknown)
       "title": "日勤",
       "startTime": "09:00",         // 凡例/辞書で展開、不明なら null
       "endTime": "17:45",
       "endsNextDay": false,         // §1.7
-      "isOff": false,
+      "isOff": false,               // 休みか（H/HREQ/BD/AL=true）
+      "countsAsPublicHoliday": false, // 公休か（H のみ true）★checksum
       "coWorkers": [],              // §1.2
       "source": "cell" | "notes_field",  // §1.3
       "confidence": 1.0             // golden は人間確定なので 1.0
-      // ★ 層3 projection は golden に書かない（project module が type → calendar 変換）
+      // ★ 層3 projectMode は golden に書かない（project module が意味 → /plan 変換）
     }
   ],
   "ambiguities": [ /* §1.3 日付不明注記, §1.5 unknown_color 等 */ ]
@@ -181,11 +188,13 @@ type ProjectionPolicy = {
 
 ## §5. CEO 判断仰ぐ点
 
+> コード辞書・収集設計・公休 checksum の判断点は**辞書設計書 §6**に集約。本書は golden 注釈側のみ。
+
 1. **3 層分離（§-1）**: golden は truth（層1+2）のみ、projection（層3）は別管理 ← GPT 補正の核。これに同意か
-2. **type 語彙（§-1.1）**: shift / leave / holiday_request / statutory_off / note_event / ambiguous_note / unknown で良いか
-3. **§1 の確定ルール**（休み系=type 固定 / 複数名 / 注記欄 / 空セル / 色 / 派生略号 / 日跨ぎ）に同意か
-4. **projection default（§-1.2）**: project_shift=true / project_leave=true / project_holiday_request=**false** / project_statutory_off=true / project_notes=true で良いか（※これは golden ではなく projection module の default）
-5. このルール確定後に **P0-2（golden 構築）着手**で良いか
+2. **2軸分離（§-1.1）**: 「休み(isOff)」と「公休(countsAsPublicHoliday)」を別ブールで持ち、公休=H のみ、で良いか ← CEO 訂正の核
+3. **§1 の確定ルール**（休み系=isOff/公休 固定 / 複数名 / 注記欄 / 空セル / 色 / 派生略号 / 日跨ぎ）に同意か
+4. **projectMode（§-1.2）**: off=day_indicator（休みは枠でなく表示）/ work=timed_event で良いか ← CEO UX 指示
+5. このルール + 辞書確定後に **P0-2（golden 構築）着手**で良いか
 
 ---
 
