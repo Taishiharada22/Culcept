@@ -14,6 +14,7 @@
 import { useRef, useEffect } from "react";
 import {
   cellCropRegion,
+  sourceColumnForDay,
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
 
@@ -22,6 +23,8 @@ interface SourceImageHighlightProps {
   geometry: ShiftGridGeometry;
   /** ハイライトする日（null なら強調なし） */
   highlightDay: number | null;
+  /** 空の日（原画像で詰められた日）。枠の列算出で空をスキップし、空の日は直前列に stay */
+  blankDays?: readonly number[];
   /** 表示幅(px)。画像はこの幅に縮尺。モバイルではコンテナ幅を超え横スクロール */
   displayWidth?: number;
 }
@@ -30,6 +33,7 @@ export function SourceImageHighlight({
   imageSrc,
   geometry,
   highlightDay,
+  blankDays = [],
   displayWidth = 600,
 }: SourceImageHighlightProps) {
   const scale = displayWidth / geometry.imageWidth;
@@ -39,7 +43,10 @@ export function SourceImageHighlight({
   const box =
     highlightDay != null
       ? (() => {
-          const r = cellCropRegion(geometry, highlightDay);
+          const r = cellCropRegion(
+            geometry,
+            sourceColumnForDay(highlightDay, blankDays)
+          );
           return {
             left: r.x * scale,
             top: r.y * scale,

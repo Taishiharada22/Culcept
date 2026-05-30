@@ -29,6 +29,7 @@ import {
 } from "@/lib/plan/shift/shiftRosterProjection";
 import {
   cellCropRegion,
+  sourceColumnForDay,
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
 import { SourceCellCrop } from "./SourceCellCrop";
@@ -126,6 +127,15 @@ export function ShiftReviewGrid({
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const highlightDay = hoveredDay ?? selectedDay;
+
+  // 空の日（コード無し）= 原画像で詰められた日。highlight/crop の列写像で空をスキップ
+  const blankDays = useMemo(
+    () =>
+      cells
+        .filter((c) => normalizeRawCode(c.rawCode) === "")
+        .map((c) => c.day),
+    [cells]
+  );
 
   const projection = useMemo(() => {
     const readings: ShiftCellReading[] = cells.map((c) => ({
@@ -266,6 +276,7 @@ export function ShiftReviewGrid({
           imageSrc={imageSrc}
           geometry={geometry}
           highlightDay={highlightDay}
+          blankDays={blankDays}
         />
       )}
 
@@ -331,12 +342,22 @@ export function ShiftReviewGrid({
                   {/* 原稿セル crop（calibrated grid geometry から該当セルを切り出し） */}
                   <div className="mb-3 flex items-center gap-3">
                     {imageSrc && geometry ? (
-                      <SourceCellCrop
-                        imageSrc={imageSrc}
-                        imageWidth={geometry.imageWidth}
-                        imageHeight={geometry.imageHeight}
-                        region={cellCropRegion(geometry, selectedCell.day)}
-                      />
+                      isEmpty ? (
+                        <div className="flex h-12 w-20 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center text-[10px] leading-tight text-slate-400">
+                          <span>空欄</span>
+                          <span>該当セルなし</span>
+                        </div>
+                      ) : (
+                        <SourceCellCrop
+                          imageSrc={imageSrc}
+                          imageWidth={geometry.imageWidth}
+                          imageHeight={geometry.imageHeight}
+                          region={cellCropRegion(
+                            geometry,
+                            sourceColumnForDay(selectedCell.day, blankDays)
+                          )}
+                        />
+                      )
                     ) : (
                       <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-[10px] text-gray-400">
                         原稿セル

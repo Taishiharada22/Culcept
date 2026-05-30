@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   cellCropRegion,
+  sourceColumnForDay,
   HARADA_SPRIX_JULY_GEOMETRY,
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
@@ -36,6 +37,34 @@ describe("cellCropRegion", () => {
   it("cropTop が画像下端を超えても clamp される", () => {
     const tall: ShiftGridGeometry = { ...GEO, cropTop: 380, cropHeight: 60 };
     expect(cellCropRegion(tall, 1).y).toBe(400 - 60); // 340
+  });
+});
+
+describe("sourceColumnForDay（詰め描画の空スキップ列写像）", () => {
+  it("blankDays が空なら恒等（col=day）", () => {
+    expect(sourceColumnForDay(1)).toBe(1);
+    expect(sourceColumnForDay(25)).toBe(25);
+    expect(sourceColumnForDay(31)).toBe(31);
+  });
+
+  it("day25 が空: 24まで一致 / 25は24にstay / 26以降は -1（+1ずれ解消）", () => {
+    const blanks = [25];
+    expect(sourceColumnForDay(24, blanks)).toBe(24); // 完璧域
+    expect(sourceColumnForDay(25, blanks)).toBe(24); // 空 → 直前列に stay
+    expect(sourceColumnForDay(26, blanks)).toBe(25); // 26 のデータは 25 列目
+    expect(sourceColumnForDay(31, blanks)).toBe(30); // 末尾も 1 詰まる
+  });
+
+  it("複数の空日を累積でスキップ", () => {
+    const blanks = [5, 25];
+    expect(sourceColumnForDay(4, blanks)).toBe(4);
+    expect(sourceColumnForDay(6, blanks)).toBe(5); // 5 を1つスキップ
+    expect(sourceColumnForDay(26, blanks)).toBe(24); // 5 と 25 の 2 つスキップ
+  });
+
+  it("day1 が空でも 1 未満にならない（max 1）", () => {
+    expect(sourceColumnForDay(1, [1])).toBe(1);
+    expect(sourceColumnForDay(2, [1])).toBe(1); // 1空 → 2が直前(1)にstay
   });
 });
 

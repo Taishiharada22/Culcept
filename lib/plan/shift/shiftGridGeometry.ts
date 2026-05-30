@@ -53,6 +53,29 @@ export function cellCropRegion(
 }
 
 /**
+ * 「詰め描画」原画像のカレンダー日 → 物理データ列(1-based) を算出する。
+ *
+ * 背景（2026-05-30 CEO 観測 + 実測）: 原画像のデータ行は「空の日（コード無し）」に
+ * セルを持たず、後続の日が左へ詰まる（例: 25日が空なら 26日のデータが 25列目に来る）。
+ * 一方ヘッダーの日番号は 1..31 規則正しく並ぶため、日番号位置に枠を置くと空以降が +1 ずれる。
+ *
+ * ルール（CEO 指定）: 空の日は数えず、空の日自身は直前の非空列に stay させる。
+ *   col(D) = [1..D] の非空日数。空の D では [1..D-1] の非空数 = 直前列に一致。
+ *   blankDays が空なら恒等（col(D)=D）。
+ */
+export function sourceColumnForDay(
+  day: number,
+  blankDays: readonly number[] = []
+): number {
+  const blanks = new Set(blankDays);
+  let col = 0;
+  for (let d = 1; d <= day; d += 1) {
+    if (!blanks.has(d)) col += 1;
+  }
+  return Math.max(1, col);
+}
+
+/**
  * July 原田 SPRIX の calibration（1860×846）。
  *
  * ground-truth 校正（2026-05-30, Playwright + canvas でヘッダー日番号の列中心を実測）:
