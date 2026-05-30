@@ -210,3 +210,26 @@ export async function processImageCutout(
     return failedResult(e instanceof Error ? e.message : "cutout-failed");
   }
 }
+
+/** WardrobeItem に保存する cutout メタ（pure）。 originalUrl は C1L-4b では設定しない（imageUrl が原画を兼ねる）。 */
+export interface CutoutItemFields {
+  cutoutUrl?: string;
+  cutoutStatus: CutoutStatus;
+  cutoutConfidence: number;
+  cutoutMethod: "heuristic_v1" | "none";
+}
+
+/**
+ * processImageCutout の結果を、 WardrobeItem へ保存する cutout フィールドへ写像する（pure・テスト用に分離）。
+ * 採用ポリシー: success / needs_review → cutoutUrl 保存 + method=heuristic_v1。
+ *               failed / skipped → cutoutUrl なし + method=none。 ※needs_review は保存するが自動採用しない（C1L-4c で確認）。
+ */
+export function cutoutResultToItemFields(result: CutoutBrowserResult): CutoutItemFields {
+  const adopted = result.status === "success" || result.status === "needs_review";
+  return {
+    ...(adopted && result.dataUrl ? { cutoutUrl: result.dataUrl } : {}),
+    cutoutStatus: result.status,
+    cutoutConfidence: result.confidence,
+    cutoutMethod: adopted ? "heuristic_v1" : "none",
+  };
+}

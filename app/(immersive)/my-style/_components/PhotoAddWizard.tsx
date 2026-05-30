@@ -18,6 +18,7 @@ import { extractDominantColors, hexToColorName } from "../_lib/imageColorExtract
 import type { DominantColor } from "../_lib/imageColorExtract";
 import BackgroundRemover from "./BackgroundRemover";
 import { getCaptureGuide } from "../_lib/captureGuides";
+import { processImageCutout, cutoutResultToItemFields, type CutoutItemFields } from "../_lib/cutoutBrowser";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,6 +103,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
     // Step 5 – post-save
     const [saved, setSaved] = useState(false);
     const [savedCount, setSavedCount] = useState(0);
+    const [processing, setProcessing] = useState(false); // C1L-4b: cutout 処理中（保存ボタン loading）
 
     // Derived
     const subcategoryOptions = useMemo(
@@ -220,6 +222,24 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             }
         }
 
+        // C1L-4b: local cutout (background removal v1) を save 時に実行し cutout メタを付与する。
+        // category frame を segmentation prior として渡す（crop ではない）。 失敗しても登録は止めない。
+        let cutoutFields: CutoutItemFields | null = null;
+        if (imageFile) {
+            setProcessing(true);
+            try {
+                const result = await processImageCutout(imageFile, {
+                    frame: getCaptureGuide(categoryMain).frame,
+                    maxDimension: 768,
+                });
+                cutoutFields = cutoutResultToItemFields(result);
+            } catch {
+                cutoutFields = null; // decode/canvas/compute 失敗 → imageUrl のみで登録継続
+            } finally {
+                setProcessing(false);
+            }
+        }
+
         const quality = calcWardrobeQuality({
             imageUrl: imageUrl ?? null,
             categoryMain,
@@ -246,6 +266,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             addedAt: new Date().toISOString(),
             qualityScore: quality.score,
             missingBadges: quality.badges,
+            ...(cutoutFields ?? {}),
         };
 
         onSave(item);
@@ -775,8 +796,8 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
                         </div>
                     </GlassCard>
 
-                    <GlassButton variant="primary" fullWidth onClick={handleSave}>
-                        保存する
+                    <GlassButton variant="primary" fullWidth onClick={handleSave} disabled={processing}>
+                        {processing ? "背景を整えています…" : "保存する"}
                     </GlassButton>
                 </>
             ) : (
