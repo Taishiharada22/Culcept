@@ -14961,3 +14961,39 @@ PDF/画像からのシフト表取り込み（"元原稿どおりに正確に反
 - **ステータス**: P1-2 **完了（保守対象へ移行）**。次は製品化 Step 3-6（DB gate あり）または B1b。
 
 ---
+
+## 2026-05-31 [Build] SR Step 6B-apply — シフト取り込み保存パス staging apply + RPC behavioral smoke PASS [承認: CEO/GPT「staging smoke は PASS として受理」]
+
+### 到達点
+
+**DB/RPC レイヤーは staging で PASS。ただし Server Action / UI保存ボタン / 本番反映は未接続。**
+
+確認画面で承認したセル → /plan への保存パスのうち、**DB schema + RPC（Postgres 関数）レイヤー**を staging 実 DB で behavioral に検証し全 PASS。勤務=external_anchors（時間枠）/ 休み・希望休=plan_day_indicators（anchor でない）の分離原則を実 DB で確認。
+
+### staging apply（migration 2 本）
+
+- `20260530100000_sr_shift_import_source_type_and_day_indicators.sql`: external_anchor_sources.source_type CHECK に `'shift_image'` 追加 + UNIQUE(id,user_id) + **plan_day_indicators 新設**（composite FK (source_id,user_id)→(id,user_id) ON DELETE CASCADE で owner 整合 / UNIQUE(user_id,date) / kind∈{off,off_request} / RLS 4 policy / source_type='manual' OR source_id NOT NULL）。
+- `20260531100000_sr_shift_import_rpc.sql`: `import_shift_roster()` = 1 トランザクション atomic。owner guard 42501 / advisory lock / range guard① / duplicate guard⑤ / **手動印 conflict early-return（無書込）** / shift_image 由来のみ importRange[start,end) で range-scoped replace / source GC / REVOKE PUBLIC+anon・GRANT authenticated。
+- apply 先: **staging（hjcrvndumgiovyfdacwc）のみ**。production（aljavfujeqcwnqryjmhl）不接触。`supabase migration list` で remote 反映確認。
+
+### smoke matrix（32 assertions / FAIL 0）
+
+gitignored runner（`private-eval/shift/staging-smoke.ts`・非 commit・synthetic fixture・2099 年・三重 staging ガード + self env-loader・creds は .env.local の SHIFT_SMOKE_*）で 8 シナリオを実 DB assert:
+
+1. 初回取り込み / 2. 同月再取り込み（**range-scoped replace 成立**・旧 work anchor 削除=1） / 3. 手動印 conflict（**黙って上書きせず保存ブロック**・shift_image 無書込） / 4. 多月非干渉（August 取込で July 不変） / 5. user 不一致（owner guard **42501→forbidden→safe**） / 6. 範囲外 date（app guard + SQL range guard RAISE） / 7. 同日 anchor∩indicator（app guard + SQL dup guard RAISE） / 8. anon 呼出不可（REVOKE/GRANT）。
+
+- **raw DB error 非漏洩を behavioral 確認**: 42501 raw（'unauthorized'）は server-side logDetail のみ、user-facing result は safe message（"シフトの保存に失敗しました"）。unit test の `not.toContain(raw)` を実環境で裏付け。
+- **cleanup 成功**: staging に残骸なし（anchors=0 / indicators=0 / sources=0）。
+
+### 衛生
+
+- tsc baseline **1112 不変**（runner も tsc 対象だが型エラー 0）。
+- runner / smoke creds は非 commit（runner gitignore 済、creds は .env.local・gitignore 済）。
+- throwaway demo（`app/shift-review-demo/page.tsx`）は purpose 完了につき**削除**。`supabase/.temp/*` は CLI 状態のため**非 commit**。
+
+### 承認 + ステータス
+
+- **承認**: CEO/GPT（2026-05-31、「staging smoke は PASS として受理。DB/RPC レイヤーは staging 実 DB で behavioral に成立」）。
+- **ステータス**: 保存パス **DB/RPC レイヤー staging PASS（保守対象）**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **6B-apply-C**（types regen 判断 + Server Action 本接続 + 単体 test）。UI 保存ボタン有効化・B1b・本番 apply はさらに次 gate。
+
+---
