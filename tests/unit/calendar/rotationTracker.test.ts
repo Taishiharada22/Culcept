@@ -115,10 +115,14 @@ describe("rotationTracker — canonical shadow mirror（Phase 4-3）", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("wearEvents.saveWearEvent は canonical mirror 対象外（My-Style/Home は別経路）", () => {
+  it("wearEvents.saveWearEvent は saveWornRecord(calendar_form) 経路では mirror されない（4-4c で style として別途 mirror）", () => {
     install(makeFakeStorage());
     saveWearEvent({ date: "2026-05-29", itemIds: ["m1"], source: "my-style" });
-    expect(getCanonicalWornHistoryEntries()).toHaveLength(0); // canonical に入らない
-    expect(g.localStorage!.getItem(WORN_KEY)).toBeTruthy(); // 旧 calendar key には書かれる（既存挙動）
+    const canon = getCanonicalWornHistoryEntries();
+    // 4-4c: wearEvents は origin=style / source=my_style で mirror される（calendar_form ではない）。
+    expect(canon).toHaveLength(1);
+    expect(canon[0].origin).toBe("style");
+    expect(canon[0].source).toBe("my_style");
+    expect(g.localStorage!.getItem(WORN_KEY)).toBeTruthy(); // 旧 calendar key にも書かれる（既存挙動）
   });
 });
