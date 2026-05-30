@@ -107,4 +107,22 @@ export const PLAN_FLAGS = {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   })() as readonly string[],
+
+  /**
+   * SR Step 6: 画像/PDF シフト表取り込みの **本保存**（確認→/plan 反映）を有効化するか。
+   *   true  : import action が confirmed cells を external_anchors + plan_day_indicators に保存
+   *   false : 保存経路は dormant（本番デフォルト）。確認画面の「反映」は無効のまま。
+   *
+   * env: PLAN_SHIFT_IMPORT_SAVE=true で有効化（server-side のみ評価、NEXT_PUBLIC_ なし）
+   *
+   * 設計: SR Step 6A transactional save plan foundation（CEO + GPT 合議 2026-05-31）
+   *
+   * 制約（6A 時点）:
+   *   - 本保存 = all-or-nothing（source + anchors + day_indicators を atomic に。部分保存禁止）
+   *   - 6A は契約 + memory repository + transaction/rollback test まで。実 DB 保存は **6B**（migration apply 後の Supabase/RPC）
+   *   - 実 DB 保存 / production path は migration apply（CEO 別承認）後にのみ有効化
+   *
+   * 本番 ON は別 patch（= CEO 判断経由、default false で merge）。
+   */
+  shiftImportSave: process.env.PLAN_SHIFT_IMPORT_SAVE === "true",
 } as const;
