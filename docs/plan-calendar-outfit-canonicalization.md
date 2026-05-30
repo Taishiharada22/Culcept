@@ -121,6 +121,29 @@
 
 ---
 
+## 13. Phase 5 — engine read / learned 解禁（設計・段階）
+shared WornHistory を engine 学習入力へ接続する段階。**いきなり切替えず段階化**（5-A 設計済）:
+| Phase | 内容 | 状態 |
+|---|---|---|
+| 5-A | engine read / learned 解禁 設計ゲート | 完了（設計） |
+| **5-B** | **learning / recency adapter + shadow comparator（pure・runtime 非接続）** | **完了 commit `0f8b0809`** |
+| 5-C | gated engine read switch（flag 既定 off。 学習=corpus / recency=entries を 2 読取点に配線）| 未 |
+| 5-D | learned signal verification（flag on canary で提案変化を検証）| 未 |
+| 5-E | server-sync 一本化設計 | 未 |
+
+**用途分離（5-A 確定・5-B 実装）**：
+- 満足度 / コンボ学習 ← `learningCorpus`（source ∈ {engine, calendar_form}・satisfaction 必須）→ `learningCorpusToWornRecords()`
+- recency / rotation（着た事実）← `entries`（engine / calendar_form / my_style。 mock / hydrated_mock 除外）→ `wornHistoryEntriesToRecencyWornRecords()`
+- shadow 比較 ← `compareWornHistoryLearningInputs()`（counts / boolean summary のみ・log / analytics 非接続）
+
+**engine の worn history 読取は 2 箇所**（5-C で両方を flag 配下に配線）:
+1. facade `generateTodayProposal`（satisfaction / combo / recency を引数注入）
+2. `outfitEngine.getScoringCache`（rotation profiles を自己 load）
+
+5-B は **pure 基盤のみ**。engine runtime / `loadWornHistory` 差替 / learned / server-sync / backfill には未接続。
+
+---
+
 ## Appendix A — store inventory（現状）
 | key | 役割 | shape | 学習接続 | 区分 |
 |---|---|---|---|---|
