@@ -3,17 +3,69 @@
 - **対象**: P0-2 golden dataset の **正解 JSON を作る際のルール**。これが揺れると評価がブレ、arch 比較が無意味化する。
 - **状態**: ルール定義（実装・dataset 構築の前段ゲート）。**CEO 確認後に golden 構築へ**。
 - **branch**: `feat/plan-pdf-image-import`。
-- **根拠**: GPT 補正 3「golden JSON の注釈ルールを先に固定」（P0-2 GO の条件）。
+- **根拠**: GPT 補正 3「golden JSON の注釈ルールを先に固定」 + GPT 補正「抽出 truth と calendar projection policy を分離」（P0-2 GO の条件）。
 - **日付**: 2026-05-30。CEO 方針 ①〜⑧。
 
 ---
 
-## §0. 原則
+## §-1. 最重要原則: 3 層分離（GPT 補正「truth と projection を分ける」を精緻化）★★★
 
-1. **「原稿に書いてある通り」が最上位**。解釈を足さない。書いてあるものを書いてある通り。
-2. **曖昧な項目は `policy` で両面 golden 化**（休み系/注記）。ユーザー設定に対応し、評価も policy 別に取る。
-3. **本人行のみが対象**。他人の行・他人の予定は golden に含めない（プライバシー + scope）。
-4. **凡例で時間が読めるものは時間付き、読めないものは時間 null + ラベルのみ**。推測で時間を埋めない。
+> GPT「抽出 truth と calendar projection policy を分けよ」を採用 + **3 層に精緻化**。golden は**層1+層2（truth）のみ**を正解化し、**層3（projection）は golden に持たせない**。これで golden は「不変の真実」になり、ユーザー設定が変わっても**再アノテーション不要**。
+
+```
+┌─ 層1: 読み取り truth ─────────────────────────────┐
+│  原稿の文字・記号・色をそのまま。「AL という文字を読んだ」     │
+│  golden field: rawText, rawColor, sourceRegion(bbox)        │
+│  評価 KPI: K1(row) / K2(legend OCR) / OCR 精度              │
+├─ 層2: 意味解釈 truth ─────────────────────────────┤
+│  略号辞書を適用した意味。「AL = 有給 = type:leave」          │
+│  golden field: type(shift/leave/holiday_request/note_event/ │
+│                ambiguous), startTime, endTime, endsNextDay   │
+│  評価 KPI: K7(略号展開) / K4,K5(時刻) / K6(日跨ぎ)           │
+├─ 層3: calendar projection policy ─────────────────┤
+│  カレンダーへどう書くか。golden に持たせない（可変・UI 設定）  │
+│  policy: project_shift / project_leave / project_holiday_req │
+│          / project_notes（各 true/false）                    │
+│  評価: projection 適用後の最終 calendar 一致（UX 評価のみ）   │
+└──────────────────────────────────────────────┘
+```
+
+### 分離の効果（私の深掘り・⑦）
+
+1. **golden の永続性**: 層3 を剥がすと golden は原稿の事実だけ → ユーザー設定が変わっても golden は不変。再アノテ不要。
+2. **評価の 2 層化**:
+   - **truth 精度**（層1+2、projection 非依存）= **arch 比較の本命**。P0 はこれで決める。
+   - **projection 適用後の calendar 一致**（層3 依存）= Phase 1 リリース UX 判定。
+   = arch の優劣が「カレンダー表示設定」に汚染されない（GPT の指摘どおり）。
+3. **type を意味レベルで固定**（GPT 提案）: `shift` / `leave` / `holiday_request` / `note_event` / `ambiguous_note` / `statutory_off`。projection はこの type を入力に取る純関数。
+
+### §-1.1 type 語彙（層2 で固定・projection 非依存）
+
+| type | 意味 | 例 |
+|---|---|---|
+| `shift` | 勤務 | G(日勤) / N(夜勤) / E-18 |
+| `leave` | 取得済休暇 | AL(有給) |
+| `holiday_request` | 希望段階の休 | HREQ(希望休) |
+| `statutory_off` | 法定休/公休 | 公休 |
+| `note_event` | 注記欄の日時明確な予定 | 「18日 MTG 14-15」 |
+| `ambiguous_note` | 注記欄の日時不明 | 内容のみメモ |
+| `unknown` | 読めたが意味不明 | 辞書にない略号 / 色のみ |
+
+### §-1.2 projection policy（層3・golden 外・将来の UI 設定）
+
+純関数 `project(truthEvents, policy) → calendarDrafts`:
+
+```typescript
+type ProjectionPolicy = {
+  project_shift: boolean;          // default true
+  project_leave: boolean;          // default true（休みもカレンダー化）
+  project_holiday_request: boolean; // default false（希望段階は候補止まり）
+  project_statutory_off: boolean;   // default true
+  project_notes: boolean;          // default true（日時明確なもの）
+};
+```
+
+→ **default を annotation には焼き込まない**（GPT 指摘）。projection module の default として別管理。評価は default + 主要バリエーションで取る。
 
 ---
 
@@ -21,14 +73,15 @@
 
 ### 1.1 休み系略号（`AL`, `HREQ`, 公休, 振休 等）
 
-| 項目 | golden ルール |
-|---|---|
-| `AL`（有給） | **policy 依存**。`off_as_event=true` → 終日 isOff イベント / `off_as_event=false` → イベント化しない（その日は空） |
-| `HREQ`（希望休） | **同上 policy 依存**。ただし `kind="off_request"` を付与（確定休でなく希望段階） |
-| 公休 / 法定休 | policy 依存、`kind="statutory_off"` |
-| **default policy** | **`off_as_event=true`**（休みも「その日は休み」とカレンダーに出すのが第二の自己として自然）。ただし両面 golden を持ち、評価は両方で取る |
+**golden（truth）は「読んだ意味＝type」を必ず固定**する。カレンダーに出すか否か（projection）は golden に持たせない（§-1）。
 
-→ **理由**: 「休みを見たい人」と「勤務だけ見たい人」両方いる。golden を 1 つに固定すると片方で誤判定になる。policy で吸収。
+| 項目 | golden の type（層2・truth・**常に固定**） | カレンダー反映（層3・projection・golden 外） |
+|---|---|---|
+| `AL`（有給） | **`type: "leave"`**（終日、`isOff: true`、time null） | `project_leave` policy（default true） |
+| `HREQ`（希望休） | **`type: "holiday_request"`**（希望段階） | `project_holiday_request` policy（default false＝候補止まり） |
+| 公休 / 法定休 | **`type: "statutory_off"`** | `project_statutory_off`（default true） |
+
+→ **GPT 補正反映**: golden は「`AL` は有給休暇である」を不変の真実として固定。「カレンダーに休みを出すか」は projection policy（§-1.2）で後から切替。**golden を policy で両面化する v1.0 方針は撤回**（truth は 1 つ、projection で吸収）。
 
 ### 1.2 セル内複数名（代務: 「松田/田口」「香田/松田」）
 
@@ -76,28 +129,28 @@
 ```typescript
 {
   "fileId": "uuid",
-  "annotationPolicy": {
-    "off_as_event": true,        // §1.1
-    "notes_as_event": true,      // §1.3
-    "include_coworker_in_title": true  // §1.2
-  },
+  // ★ projection policy は golden に持たない（§-1.2、層3 は別管理）
   "personRow": { "displayName": "石原 陽太郎", "rowIndexFromTop": 1, "bbox": [...] },
   "abbreviationDictionary": { /* §1.6、 凡例から + 手動補完 */ },
   "events": [
     {
       "id": "ev-001",
       "date": "2025-02-01",
+      // 層1: 読み取り truth
+      "rawText": "G",               // §1.6 原稿の表記そのまま
+      "rawColor": "green",          // §1.5
+      "sourceRegion": { "page": 1, "bbox": [...] },
+      // 層2: 意味解釈 truth
+      "type": "shift",              // §-1.1 (shift/leave/holiday_request/statutory_off/note_event/ambiguous_note/unknown)
       "title": "日勤",
-      "abbreviation": "G",          // §1.6 (読めた略号、辞書展開前)
       "startTime": "09:00",         // 凡例/辞書で展開、不明なら null
       "endTime": "17:45",
       "endsNextDay": false,         // §1.7
-      "kind": "work" | "off" | "off_request" | "statutory_off" | "note_event",  // §1.1, §1.3
       "isOff": false,
       "coWorkers": [],              // §1.2
       "source": "cell" | "notes_field",  // §1.3
-      "confidence": 1.0,            // golden は人間確定なので 1.0
-      "sourceRegion": { "page": 1, "bbox": [...] }
+      "confidence": 1.0             // golden は人間確定なので 1.0
+      // ★ 層3 projection は golden に書かない（project module が type → calendar 変換）
     }
   ],
   "ambiguities": [ /* §1.3 日付不明注記, §1.5 unknown_color 等 */ ]
@@ -106,11 +159,11 @@
 
 ---
 
-## §3. 評価時の policy 適用
+## §3. 評価の 2 層化（truth / projection 分離・§-1 反映）
 
-- **両面評価**: `off_as_event` を true/false の両方で評価実施
-- arch 出力も policy を尊重（プロンプトに「休みをイベント化するか」を渡す）
-- K3b（event F1）は **policy=default(true)** で主評価、参考で false も取る
+- **truth 精度評価（arch 比較の本命・projection 非依存）**: golden の層1+2（type / 時刻 / 日跨ぎ / row / legend）と arch 出力を直接比較。K1-K8 はすべてここ。**arch の優劣はここで決める**。
+- **projection 適用後の calendar 一致（UX 評価・layer3）**: `project(truth, policy)` を default policy（§-1.2）で適用した calendar draft が、期待 calendar と一致するか。**Phase 1 リリース UX 判定**にのみ使用。
+- → arch 比較が「カレンダー表示設定」に汚染されない（GPT 補正の核心）。
 
 ---
 
@@ -128,10 +181,10 @@
 
 ## §5. CEO 判断仰ぐ点
 
-1. **§1 の確定ルール**（休み系/複数名/注記欄/空セル/色/派生略号/日跨ぎ）に同意か
-2. **default policy**: `off_as_event=true`（休みもカレンダー化）で良いか
-3. **注記欄イベント化**: 日付明確時のみ true で良いか
-4. **両面 golden（policy 切替）**の方針に同意か
+1. **3 層分離（§-1）**: golden は truth（層1+2）のみ、projection（層3）は別管理 ← GPT 補正の核。これに同意か
+2. **type 語彙（§-1.1）**: shift / leave / holiday_request / statutory_off / note_event / ambiguous_note / unknown で良いか
+3. **§1 の確定ルール**（休み系=type 固定 / 複数名 / 注記欄 / 空セル / 色 / 派生略号 / 日跨ぎ）に同意か
+4. **projection default（§-1.2）**: project_shift=true / project_leave=true / project_holiday_request=**false** / project_statutory_off=true / project_notes=true で良いか（※これは golden ではなく projection module の default）
 5. このルール確定後に **P0-2（golden 構築）着手**で良いか
 
 ---
