@@ -452,7 +452,9 @@ export function reasonToMessage(reason: IcsUrlFetchReason): string {
     case "too_large":
       return "カレンダーのデータが大きすぎます。";
     case "not_calendar_body":
-      return "指定された URL は iCalendar 形式ではありませんでした。";
+      // CEO 補正 (2026-05-30 U3): ログインが必要な普通の Web ページを貼った時の典型例を
+      // 文言に含めて、ユーザーが原因を推測しやすくする。
+      return "指定された URL は iCalendar 形式ではありませんでした。ログインが必要なページや通常の Web ページかもしれません。公開カレンダーの URL かご確認ください。";
     case "http_error":
       return "取得に失敗しました（サーバー応答エラー）。";
     case "fetch_failed":

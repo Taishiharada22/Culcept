@@ -26,7 +26,7 @@
  *   - app/(culcept)/plan/components/AddAnchorModal.tsx (= pattern 参考、 不触)
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 
 import {
   GlassButton,
@@ -50,6 +50,12 @@ import { importGoogleAnchorsAction } from "../_actions/importGoogleAnchors";
 import { importMicrosoftAnchorsAction } from "../_actions/importMicrosoftAnchors";
 // ICS URL Import (Track A): URL から .ics を server SSRF-guarded fetch (= 副導線)
 import { fetchIcsFromUrlAction } from "../_actions/fetchIcsFromUrl";
+// URL Import Productization U3 (2026-05-30): 貼付内容の即時分類 (advisory) + サービス別ガイド
+import { classifyUrlInput } from "@/lib/plan/ics/urlInputClassify";
+import {
+  CALENDAR_URL_GUIDES,
+  type CalendarProviderKey,
+} from "@/lib/plan/ics/urlImportGuide";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // State 型
@@ -111,6 +117,12 @@ export function IcsImportModal({
   >("unknown");
   const [microsoftError, setMicrosoftError] = useState<string | null>(null);
 
+  // U3: ガイド accordion 開閉 + 展開中の provider (= URL 取得ガイド)
+  const [urlGuideOpen, setUrlGuideOpen] = useState(false);
+  const [expandedGuideKey, setExpandedGuideKey] = useState<CalendarProviderKey | null>(null);
+  // U3: URL input の即時分類 (advisory)
+  const urlClassification = useMemo(() => classifyUrlInput(urlInput), [urlInput]);
+
   // reset on close
   useEffect(() => {
     if (!isOpen) {
@@ -119,6 +131,9 @@ export function IcsImportModal({
       setGoogleError(null);
       setMicrosoftError(null);
       setUrlInput("");
+      // U3: ガイド state も close でリセット (= 次回 fresh)
+      setUrlGuideOpen(false);
+      setExpandedGuideKey(null);
     }
   }, [isOpen]);
 
@@ -281,6 +296,11 @@ export function IcsImportModal({
     }
   }
 
+  // U3: .ics 本文貼付時に呼ばれる CTA = OS のファイルピッカーを開く
+  function openFilePicker() {
+    fileInputRef.current?.click();
+  }
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file === undefined) return;
@@ -331,6 +351,8 @@ export function IcsImportModal({
   async function handleUrlFetch() {
     const url = urlInput.trim();
     if (url.length === 0) return;
+    // U3: advisory ガード (.ics 本文を URL として送らない、 他は server に精密判定させる)
+    if (urlClassification.kind === "ics_body") return;
 
     setState({ kind: "parsing" });
     try {
@@ -422,230 +444,276 @@ export function IcsImportModal({
         data-testid="ics-import-modal"
       >
         {state.kind === "idle" && (
-          <div className="py-2">
-            {/* P3-A-1-1-f: Google カレンダー toggle button (= 主導線) */}
-            <div className="px-1 mb-5">
-              <p className="text-[11px] text-slate-500 mb-2 text-center">
-                Google カレンダーから自動で取り込む
-              </p>
-              <button
-                type="button"
-                onClick={handleGoogleToggle}
-                disabled={googleStatus === "loading" || googleStatus === "unknown"}
-                data-testid="google-connect-toggle"
-                aria-pressed={googleStatus === "connected"}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all border ${
-                  googleStatus === "connected"
-                    ? "bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-500 shadow-md hover:from-indigo-600 hover:to-purple-700"
-                    : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50"
-                } ${googleStatus === "loading" || googleStatus === "unknown" ? "opacity-60 cursor-wait" : ""}`}
-              >
-                {/* G icon */}
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill={googleStatus === "connected" ? "#fff" : "#4285F4"} />
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill={googleStatus === "connected" ? "#fff" : "#34A853"} />
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09 0-.73.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill={googleStatus === "connected" ? "#fff" : "#FBBC05"} />
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill={googleStatus === "connected" ? "#fff" : "#EA4335"} />
-                </svg>
-                <span>
-                  {googleStatus === "loading"
-                    ? "処理中…"
-                    : googleStatus === "connected"
-                      ? "Google カレンダーに接続中"
-                      : "Google カレンダーを接続"}
-                </span>
-              </button>
-              {googleStatus === "connected" && (
-                <p
-                  className="mt-2 text-[10px] text-slate-400 text-center"
-                  data-testid="google-connect-toggle-hint"
-                >
-                  もう一度押すと接続を解除します
-                </p>
-              )}
-              {googleError && (
-                <p
-                  className="mt-2 text-[11px] text-rose-600 text-center"
-                  data-testid="google-connect-error"
-                  role="alert"
-                >
-                  {googleError}
-                </p>
-              )}
-
-              {/* P3 Phase B B-3: connected 時のみ表示する import trigger (= connect→import 本流) */}
-              {googleStatus === "connected" && (
-                <button
-                  type="button"
-                  onClick={handleGoogleImport}
-                  data-testid="google-import-trigger"
-                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all bg-emerald-500 text-white border border-emerald-500 shadow-md hover:bg-emerald-600 hover:border-emerald-600"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+          <div className="space-y-4">
+            {/* §1. 接続済みカレンダー (= OAuth 主導線、 CEO 整理案 2026-05-30 §2.1-2.2) */}
+            <section>
+              <h3 className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1.5">
+                接続済みカレンダーから取り込む
+              </h3>
+              <div className="space-y-2">
+                {/* Google provider card (CEO §2.1 gradient 廃止 + status chip + 主従ボタン) */}
+                <ProviderCard
+                  testId="google-connect-toggle"
+                  status={googleStatus}
+                  ariaPressed={googleStatus === "connected"}
+                  onToggle={handleGoogleToggle}
+                  onImport={handleGoogleImport}
+                  importTestId="google-import-trigger"
+                  importLabel="予定を取り込む"
+                  brandTone="indigo"
+                  brandIcon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09 0-.73.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+                    </svg>
+                  }
+                  providerName="Google"
+                  connectLabel="Google カレンダーを接続"
+                />
+                {googleError && (
+                  <p
+                    className="text-[11px] text-rose-600 px-2.5"
+                    data-testid="google-connect-error"
+                    role="alert"
                   >
-                    <path d="M12 3v12" />
-                    <path d="M7 12l5 5 5-5" />
-                    <path d="M5 21h14" />
-                  </svg>
-                  <span>Google の予定を取り込む</span>
-                </button>
-              )}
-            </div>
+                    {googleError}
+                  </p>
+                )}
 
-            {/* Track B TB-4: Microsoft (Outlook) カレンダー toggle (= Google と対称の主導線) */}
-            <div className="px-1 mb-5">
-              <p className="text-[11px] text-slate-500 mb-2 text-center">
-                Outlook カレンダーから自動で取り込む
-              </p>
-              <button
-                type="button"
-                onClick={handleMicrosoftToggle}
-                disabled={microsoftStatus === "loading" || microsoftStatus === "unknown"}
-                data-testid="microsoft-connect-toggle"
-                aria-pressed={microsoftStatus === "connected"}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all border ${
-                  microsoftStatus === "connected"
-                    ? "bg-gradient-to-r from-sky-500 to-blue-600 text-white border-blue-500 shadow-md hover:from-sky-600 hover:to-blue-700"
-                    : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
-                } ${microsoftStatus === "loading" || microsoftStatus === "unknown" ? "opacity-60 cursor-wait" : ""}`}
-              >
-                {/* Outlook icon (= 4 分割 windows mark、 connected 時は白抜き) */}
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect x="2" y="2" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} />
-                  <rect x="13" y="2" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} opacity="0.85" />
-                  <rect x="2" y="13" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} opacity="0.85" />
-                  <rect x="13" y="13" width="9" height="9" rx="1" fill={microsoftStatus === "connected" ? "#fff" : "#0078D4"} opacity="0.7" />
-                </svg>
-                <span>
-                  {microsoftStatus === "loading"
-                    ? "処理中…"
-                    : microsoftStatus === "connected"
-                      ? "Outlook カレンダーに接続中"
-                      : "Outlook カレンダーを接続"}
-                </span>
-              </button>
-              {microsoftStatus === "connected" && (
-                <p
-                  className="mt-2 text-[10px] text-slate-400 text-center"
-                  data-testid="microsoft-connect-toggle-hint"
-                >
-                  もう一度押すと接続を解除します
-                </p>
-              )}
-              {microsoftError && (
-                <p
-                  className="mt-2 text-[11px] text-rose-600 text-center"
-                  data-testid="microsoft-connect-error"
-                  role="alert"
-                >
-                  {microsoftError}
-                </p>
-              )}
-
-              {/* connected 時のみ表示する import trigger (= connect→import 本流) */}
-              {microsoftStatus === "connected" && (
-                <button
-                  type="button"
-                  onClick={handleMicrosoftImport}
-                  data-testid="microsoft-import-trigger"
-                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all bg-emerald-500 text-white border border-emerald-500 shadow-md hover:bg-emerald-600 hover:border-emerald-600"
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+                {/* Outlook provider card (= Google と対称) */}
+                <ProviderCard
+                  testId="microsoft-connect-toggle"
+                  status={microsoftStatus}
+                  ariaPressed={microsoftStatus === "connected"}
+                  onToggle={handleMicrosoftToggle}
+                  onImport={handleMicrosoftImport}
+                  importTestId="microsoft-import-trigger"
+                  importLabel="予定を取り込む"
+                  brandTone="sky"
+                  brandIcon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <rect x="2" y="2" width="9" height="9" rx="1" fill="#0078D4" />
+                      <rect x="13" y="2" width="9" height="9" rx="1" fill="#0078D4" opacity="0.85" />
+                      <rect x="2" y="13" width="9" height="9" rx="1" fill="#0078D4" opacity="0.85" />
+                      <rect x="13" y="13" width="9" height="9" rx="1" fill="#0078D4" opacity="0.7" />
+                    </svg>
+                  }
+                  providerName="Outlook"
+                  connectLabel="Outlook カレンダーを接続"
+                />
+                {microsoftError && (
+                  <p
+                    className="text-[11px] text-rose-600 px-2.5"
+                    data-testid="microsoft-connect-error"
+                    role="alert"
                   >
-                    <path d="M12 3v12" />
-                    <path d="M7 12l5 5 5-5" />
-                    <path d="M5 21h14" />
-                  </svg>
-                  <span>Outlook の予定を取り込む</span>
-                </button>
-              )}
-            </div>
+                    {microsoftError}
+                  </p>
+                )}
+              </div>
+            </section>
 
-            {/* divider */}
-            <div className="my-4 flex items-center gap-3 text-[10px] text-slate-400">
-              <div className="flex-1 h-px bg-slate-200" />
-              <span>または</span>
-              <div className="flex-1 h-px bg-slate-200" />
-            </div>
-
-            {/* .ics fallback (= 既存) */}
-            <div className="text-center pt-1">
-              <p className="text-[11px] text-slate-500 mb-2">
-                <code className="text-[10px] bg-slate-100 px-1 py-0.5 rounded">.ics</code>{" "}
-                ファイルから取り込む
-              </p>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".ics,text/calendar"
-                onChange={handleFileChange}
-                data-testid="ics-file-input"
-                className="block mx-auto text-xs text-slate-500"
-              />
-
-              {/* ICS URL Import (Track A): URL 副導線 (= file が主、 URL は従) */}
-              <div className="mt-4 pt-3 border-t border-slate-100 text-left">
-                <p className="text-[10px] text-slate-400 mb-1.5 text-center">
-                  または公開カレンダーの URL から（Outlook / Apple / Google 等）
-                </p>
-                <div className="flex gap-1.5">
+            {/* §2. 手動取り込み (= file + URL を 1 subtle セクションに統合、 CEO §2.3-2.6) */}
+            <section>
+              <h3 className="text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1.5">
+                手動で取り込む
+              </h3>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/40 p-2.5 space-y-2.5">
+                {/* .ics ファイル row */}
+                <div>
+                  <p className="text-[10px] text-slate-500 mb-1">
+                    <code className="text-[9px] bg-slate-100 px-1 py-0.5 rounded">.ics</code>{" "}
+                    ファイルから取り込む
+                  </p>
                   <input
-                    type="url"
-                    inputMode="url"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://… / webcal://…"
-                    data-testid="ics-url-input"
-                    className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:border-indigo-300 focus:outline-none"
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".ics,text/calendar"
+                    onChange={handleFileChange}
+                    data-testid="ics-file-input"
+                    className="block text-[11px] text-slate-500"
                   />
-                  <button
-                    type="button"
-                    onClick={handleUrlFetch}
-                    disabled={urlInput.trim().length === 0}
-                    data-testid="ics-url-fetch-btn"
-                    className="shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    取り込む
-                  </button>
+                </div>
+
+                {/* 薄い分割線 */}
+                <div className="border-t border-slate-200/60" />
+
+                {/* ICS URL Import (Track A): URL 副導線 */}
+                <div>
+                  <p className="text-[10px] text-slate-500 mb-1">
+                    公開カレンダーの URL から
+                  </p>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="url"
+                      inputMode="url"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://… / webcal://…"
+                      data-testid="ics-url-input"
+                      className="flex-1 min-w-0 px-2 py-1 text-xs border border-slate-200 rounded-md bg-white focus:border-indigo-300 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleUrlFetch}
+                      disabled={urlInput.trim().length === 0 || urlClassification.kind === "ics_body"}
+                      data-testid="ics-url-fetch-btn"
+                      className="shrink-0 px-2.5 py-1 text-xs font-medium rounded-md bg-white text-slate-600 border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      取り込む
+                    </button>
+                  </div>
+
+                  {/* U3 classifier feedback (CEO §2.6 薄く・邪魔しない)
+                      - ics_body: 薄い rose カード + インライン CTA
+                      - webcal / https_calendar_like: 緑 ✓
+                      - https_page_guess: 黄 soft warn
+                      - invalid(not_a_url): グレー hint */}
+                  {urlInput.trim().length > 0 && urlClassification.kind === "ics_body" && (
+                    <div
+                      className="mt-1.5 rounded-md border border-rose-200/70 bg-rose-50/40 px-2 py-1.5"
+                      data-testid="url-classify-ics-body"
+                      role="alert"
+                    >
+                      <p className="text-[11px] text-rose-700 leading-snug">
+                        これは URL ではなくカレンダーファイル（.ics）の中身です。
+                        下の「ファイルを選ぶ」から取り込んでください。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openFilePicker}
+                        data-testid="url-classify-ics-body-cta"
+                        className="mt-1 text-[11px] font-medium text-rose-700 underline-offset-2 hover:underline"
+                      >
+                        ファイルから取り込む →
+                      </button>
+                    </div>
+                  )}
+                  {urlInput.trim().length > 0 &&
+                    (urlClassification.kind === "webcal" ||
+                      urlClassification.kind === "https_calendar_like") && (
+                      <p
+                        className="mt-1 text-[10px] text-emerald-600"
+                        data-testid="url-classify-ok"
+                      >
+                        ✓ カレンダー URL のようです
+                      </p>
+                    )}
+                  {urlInput.trim().length > 0 && urlClassification.kind === "https_page_guess" && (
+                    <p
+                      className="mt-1 text-[10px] text-amber-600"
+                      data-testid="url-classify-page-guess"
+                    >
+                      公開カレンダーの URL ではないかもしれません。試してみることはできます。
+                    </p>
+                  )}
+                  {urlInput.trim().length > 0 &&
+                    urlClassification.kind === "invalid" &&
+                    urlClassification.invalidReason === "not_a_url" && (
+                      <p
+                        className="mt-1 text-[10px] text-slate-400"
+                        data-testid="url-classify-not-a-url"
+                      >
+                        <code className="text-[9px] bg-slate-100 px-1 rounded">https://</code>{" "}
+                        または <code className="text-[9px] bg-slate-100 px-1 rounded">webcal://</code>{" "}
+                        の URL を貼ってください。
+                      </p>
+                    )}
                 </div>
               </div>
+            </section>
 
-              {/* CEO 補正: .ics がない user の代替経路 */}
-              {onSwitchToManualInput && (
-                <div className="mt-5 pt-4 border-t border-slate-100">
-                  <p className="text-xs text-slate-500 mb-2">
-                    どちらも使わない場合は…
-                  </p>
-                  <button
-                    type="button"
-                    onClick={onSwitchToManualInput}
-                    className="text-xs text-indigo-600 hover:text-purple-700 font-medium underline-offset-2 hover:underline"
-                    data-testid="ics-switch-to-manual"
-                  >
-                    手入力で 1 件ずつ追加する →
-                  </button>
+            {/* §3. URL の取り方ガイド (= 補助の補助、 CEO §2.7 目立たせない) */}
+            <section>
+              <button
+                type="button"
+                onClick={() => setUrlGuideOpen((v) => !v)}
+                aria-expanded={urlGuideOpen}
+                data-testid="url-guide-toggle"
+                className="text-[10px] text-slate-500 hover:text-indigo-600 underline-offset-2 hover:underline"
+              >
+                <span className="text-slate-300 mr-1">{urlGuideOpen ? "▾" : "▸"}</span>
+                {urlGuideOpen ? "URL の取り方を閉じる" : "URL の取り方がわからない"}
+              </button>
+              {urlGuideOpen && (
+                <div
+                  className="mt-1.5 space-y-1"
+                  data-testid="url-guide-content"
+                >
+                  {CALENDAR_URL_GUIDES.map((guide) => {
+                    const isExpanded = expandedGuideKey === guide.key;
+                    return (
+                      <div
+                        key={guide.key}
+                        className="rounded-md border border-slate-200/80 bg-white"
+                        data-testid={`url-guide-${guide.key}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedGuideKey(isExpanded ? null : guide.key)
+                          }
+                          aria-expanded={isExpanded}
+                          data-testid={`url-guide-${guide.key}-toggle`}
+                          className="w-full flex items-center justify-between px-2 py-1 text-left"
+                        >
+                          <span className="text-[11px] text-slate-600">
+                            {guide.title}
+                          </span>
+                          <span className="text-[10px] text-slate-300">
+                            {isExpanded ? "−" : "+"}
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div
+                            className="border-t border-slate-100 px-2 py-1.5"
+                            data-testid={`url-guide-${guide.key}-body`}
+                          >
+                            <p className="text-[11px] text-slate-600 leading-snug">
+                              {guide.lead}
+                            </p>
+                            <ol className="mt-1 list-decimal pl-3.5 space-y-0.5">
+                              {guide.steps.map((step, i) => (
+                                <li
+                                  key={i}
+                                  className="text-[10px] text-slate-500 leading-snug"
+                                >
+                                  {step}
+                                </li>
+                              ))}
+                            </ol>
+                            {guide.note && (
+                              <p className="mt-1 text-[9px] text-slate-400 leading-snug">
+                                {guide.note}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </div>
+            </section>
+
+            {/* CEO 補正: .ics がない user の代替経路 (= 据え置き、 位置・文言不変) */}
+            {onSwitchToManualInput && (
+              <div className="pt-3 border-t border-slate-100 text-center">
+                <p className="text-xs text-slate-500 mb-1.5">
+                  どちらも使わない場合は…
+                </p>
+                <button
+                  type="button"
+                  onClick={onSwitchToManualInput}
+                  className="text-xs text-indigo-600 hover:text-purple-700 font-medium underline-offset-2 hover:underline"
+                  data-testid="ics-switch-to-manual"
+                >
+                  手入力で 1 件ずつ追加する →
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -737,6 +805,118 @@ export function IcsImportModal({
         )}
       </div>
     </GlassModal>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ProviderCard 内部 component (CEO 整理案 2026-05-30 §2.1)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// gradient 全廃、 status chip + 主従ボタンの subtle card 構造。
+// ロジックは触らず、 親の handler を呼ぶだけ。 testid / handler / aria は親が決定。
+
+type ProviderStatus = "unknown" | "loading" | "connected" | "disconnected";
+type BrandTone = "indigo" | "sky";
+
+const BRAND_TONES: Record<BrandTone, { chipBg: string; chipText: string; cta: string }> = {
+  indigo: {
+    chipBg: "bg-indigo-50",
+    chipText: "text-indigo-700",
+    cta: "border-indigo-200 text-indigo-700 bg-indigo-50/60 hover:bg-indigo-50",
+  },
+  sky: {
+    chipBg: "bg-sky-50",
+    chipText: "text-sky-700",
+    cta: "border-sky-200 text-sky-700 bg-sky-50/60 hover:bg-sky-50",
+  },
+};
+
+function ProviderCard({
+  testId,
+  status,
+  ariaPressed,
+  onToggle,
+  onImport,
+  importTestId,
+  importLabel,
+  brandTone,
+  brandIcon,
+  providerName,
+  connectLabel,
+}: {
+  testId: string;
+  status: ProviderStatus;
+  ariaPressed: boolean;
+  onToggle: () => void;
+  onImport: () => void;
+  importTestId: string;
+  importLabel: string;
+  brandTone: BrandTone;
+  brandIcon: React.ReactNode;
+  providerName: string;
+  connectLabel: string;
+}) {
+  const tone = BRAND_TONES[brandTone];
+  const isBusy = status === "loading" || status === "unknown";
+  const isConnected = status === "connected";
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+      {/* 上段: provider 識別 + status chip */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          {brandIcon}
+          <span className="text-xs font-medium text-slate-700">{providerName}</span>
+        </div>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+            isConnected
+              ? `${tone.chipBg} ${tone.chipText}`
+              : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {isBusy ? "確認中" : isConnected ? "接続中" : "未接続"}
+        </span>
+      </div>
+
+      {/* 下段: 主従ボタン (connected = 主「予定を取り込む」+ 副「接続を解除」、 未接続 = 中サイズ「接続」) */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        {isConnected ? (
+          <>
+            <button
+              type="button"
+              onClick={onImport}
+              data-testid={importTestId}
+              className={`shrink-0 px-2.5 py-1 text-xs font-medium rounded-md border ${tone.cta}`}
+            >
+              {importLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onToggle}
+              disabled={isBusy}
+              data-testid={testId}
+              aria-pressed={ariaPressed}
+              className="text-[10px] text-slate-400 hover:text-slate-600 underline-offset-2 hover:underline disabled:opacity-60 disabled:cursor-wait"
+            >
+              接続を解除
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={onToggle}
+            disabled={isBusy}
+            data-testid={testId}
+            aria-pressed={ariaPressed}
+            className={`w-full px-2.5 py-1 text-xs font-medium rounded-md bg-white text-slate-700 border border-slate-200 hover:border-slate-300 disabled:opacity-60 disabled:cursor-wait ${
+              isBusy ? "" : "hover:bg-slate-50"
+            }`}
+          >
+            {isBusy ? "処理中…" : connectLabel}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
