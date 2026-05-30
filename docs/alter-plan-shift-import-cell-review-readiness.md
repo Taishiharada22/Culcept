@@ -39,24 +39,24 @@ grid の上部に**元画像（行 strip）を並べて表示** → 抽出 grid 
 
 ---
 
-## §2. 「元画像の該当セル」表示 — grid geometry crop（⑦）
+## §2. 「元画像の該当セル」表示 — calibrated grid geometry crop（⑦・GPT 補正反映）
 
-**GPT が項目に挙げonly、私の解**:
+**VLM bbox に頼らず、表の格子構造から切り出す。ただし固定座標決め打ちは禁止**（月/画像サイズ/撮影角度で格子は変わる）。**calibrated grid geometry** として扱う:
 
-- **VLM の bbox は使わない**（不正確 + day-keyed では未取得）。
-- シフト表は**規則的な格子**。日付列は等間隔。→ **セル位置を決定論的に算出**:
-  `cellX(day) = gridLeft + (day-1) * colWidth` / `cellRect = (cellX, rowY, colWidth, rowH)`
-- `gridLeft / colWidth / rowY / rowH` は **1 回キャリブレーション**（初回ユーザーが表の左端・右端・本人行をクリック、or 自動検出）→ 以降は決定論的に全セル crop。
+- 保持する幾何パラメータ（**自動推定 + ユーザー手動補正**）:
+  - 日付ヘッダ位置 / 本人行位置 / 1列あたりの幅 / セル境界 / 凡例位置
+- これらから `cellRect(day) = (gridLeft + (day-1)*colWidth, rowY, colWidth, rowH)` を算出。
+- **固定座標は持たない**。初回は自動推定 → ユーザーが「表の左端・右端・本人行」をドラッグ補正 → 確定値を per-template 保存（同テンプレ再利用）。
 - **v1 最小**: 行 strip 全体を表示し、選択中の日の**列をハイライト**（crop なしで「どこを見ればいいか」だけ示す）。
-- **v2**: 各セルの crop サムネイルを review 行に表示。
+- **v2**: calibrated geometry で各セルの crop サムネイルを review 行に表示。
 
-→ VLM の弱点（bbox）に依存せず、表の規則性という**強い事前知識**を使う。
+→ VLM の弱点（bbox）に依存せず、表の規則性 + ユーザー補正で**ロバストな cell crop**。
 
 ---
 
-## §3. blank-risk — 自動検出は不可能（honest design・⑦）
+## §3. blank-risk — 完全自動検出は保証できない（honest design・⑦・GPT 補正反映）
 
-> **GPT「blank-risk をどう検出・表示するか」を精査した結論: 完全な自動検出は原理的に不可能**。
+> **正確な表現（GPT 補正）: blank-risk の「完全な自動検出」は保証できない。ただし heuristic で怪しい箇所を強調することはできる。最終保証は全格子レビュー。**
 
 理由（B1a データ）:
 - **confidence は効かない**: blank-skip セルは高 confidence のまま誤る（モデルは「G を読んだ」と確信）。
