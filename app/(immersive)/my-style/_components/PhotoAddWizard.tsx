@@ -17,6 +17,7 @@ import { COLOR_OPTIONS, uid, resizeImage } from "../_lib/constants";
 import { extractDominantColors, hexToColorName } from "../_lib/imageColorExtract";
 import type { DominantColor } from "../_lib/imageColorExtract";
 import BackgroundRemover from "./BackgroundRemover";
+import { getCaptureGuide } from "../_lib/captureGuides";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -120,6 +121,10 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
         if (savedCount === 5) return "5着達成！全機能が解放されました";
         return `${savedCount}着目を登録！`;
     }, [savedCount]);
+
+    // C1L-3: カテゴリ別撮影ガイド（Step1 では categoryMain 未確定 → general にフォールバック）。
+    // 枠は撮影補助 / segmentation prior であり crop ではない。 ここでは computeCutoutV1 に接続しない。
+    const captureGuide = useMemo(() => getCaptureGuide(categoryMain), [categoryMain]);
 
     // Navigation helpers
     const goTo = useCallback((target: Step, dir: number) => {
@@ -332,7 +337,36 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             className="flex flex-col items-center w-full max-w-sm"
         >
             <h2 className="text-xl font-bold text-slate-900 mb-1">写真を追加</h2>
-            <p className="text-sm text-slate-500 mb-6">服の写真を撮影またはアップロード</p>
+            <p className="text-sm text-slate-500 mb-4">服の写真を撮影またはアップロード</p>
+
+            {/* C1L-3: 撮影ガイド（点線枠は撮影補助 / segmentation prior。 crop ではない） */}
+            <div className="w-full mb-5">
+                <div
+                    className="relative mx-auto mb-3 rounded-2xl bg-slate-50 border border-slate-100"
+                    style={{ width: 128, height: 150 }}
+                    aria-hidden
+                >
+                    <div
+                        className="absolute rounded-xl border-2 border-dashed border-violet-300 flex items-center justify-center"
+                        style={{
+                            left: `${captureGuide.frame.x * 100}%`,
+                            top: `${captureGuide.frame.y * 100}%`,
+                            width: `${captureGuide.frame.width * 100}%`,
+                            height: `${captureGuide.frame.height * 100}%`,
+                        }}
+                    >
+                        <span className="text-2xl opacity-30 select-none">👕</span>
+                    </div>
+                </div>
+                <ul className="space-y-1 max-w-xs mx-auto">
+                    {captureGuide.instructions.map((t, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug text-slate-500">
+                            <span className="text-violet-400 mt-px">•</span>
+                            <span>{t}</span>
+                        </li>
+                    ))}
+                </ul>
+            </div>
 
             {/* Hidden inputs */}
             <input
