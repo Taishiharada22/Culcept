@@ -12,7 +12,7 @@
 import { useState } from "react";
 
 import type { CalendarOutfitReasonVM } from "./types";
-import { CAL_OUTFIT_PALETTE, STATUS_TONE_SOFT, STATUS_TONE_TEXT } from "./_palette";
+import { CAL_OUTFIT_PALETTE, STATUS_TONE_TEXT } from "./_palette";
 import { SectionHeader } from "./SectionHeader";
 import { CalIcon, REASON_ICON } from "./icons";
 
@@ -27,29 +27,29 @@ export function RecommendationReasonCard({ reason }: { reason: CalendarOutfitRea
           {reason.headline}
         </p>
 
-        {/* 主要因子: アイコン + ラベル + 値を「横並び」で（理想の見せ方を保ちつつ小さく・1 行に）。 */}
+        {/* 理想画像準拠: 1 枚のカード内に 5 項目を横並び。 各項目は「アイコン左 + 右に ラベル/値 の 2 段縦積み」
+            （アイコンの下に文字を置かない・個別の囲みチップにしない）。 */}
         {reason.factors.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <div className="mt-2.5 grid grid-cols-5 gap-x-2 gap-y-2">
             {reason.factors.map((f) => {
               const tone = f.tone ?? "neutral";
               const svgIcon = REASON_ICON[f.id];
               return (
-                <span
-                  key={f.id}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${STATUS_TONE_SOFT[tone]}`}
-                >
+                <div key={f.id} className="flex items-center gap-1.5">
                   {svgIcon ? (
-                    <CalIcon name={svgIcon} size={14} className={STATUS_TONE_TEXT[tone]} />
+                    <CalIcon name={svgIcon} size={18} className={`shrink-0 ${STATUS_TONE_TEXT[tone]}`} />
                   ) : (
-                    <span className="text-sm leading-none" aria-hidden="true">
+                    <span className="shrink-0 text-base leading-none" aria-hidden="true">
                       {f.icon}
                     </span>
                   )}
-                  <span className="text-[10px] leading-none text-slate-500">{f.label}</span>
-                  <span className={`text-[11px] font-semibold leading-none ${STATUS_TONE_TEXT[tone]}`}>
-                    {f.value}
-                  </span>
-                </span>
+                  <div className="min-w-0 leading-tight">
+                    <p className="truncate text-[10px] text-slate-400">{f.label}</p>
+                    <p className={`truncate text-[11px] font-semibold ${STATUS_TONE_TEXT[tone]}`}>
+                      {f.value}
+                    </p>
+                  </div>
+                </div>
               );
             })}
           </div>

@@ -17,7 +17,7 @@ export function TodayScheduleCard({
   // 理想画像準拠: アイコン左 + 右に「時刻 / 予定名 / 要約(場所)」を縦に詰める（横並び・低い高さ）。
   return (
     <div
-      className="flex min-w-[132px] shrink-0 items-center gap-2 pr-3"
+      className="flex w-full items-center gap-1.5"
       data-testid={`plan-calendar-outfit-schedule-${item.id}`}
     >
       <span

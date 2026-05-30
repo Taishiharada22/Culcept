@@ -68,6 +68,7 @@ export function CalendarOutfitDashboard({
       <TodayScheduleSection
         anchors={anchors}
         dayObj={selectedDayObj}
+        now={now}
         {...(onOpenTimeline ? { onOpenTimeline } : {})}
       />
 

@@ -618,10 +618,13 @@ export default function PlanClient({
   // route mode: min-h-screen + 上品な白背景 (= 8b-7-B 以降)
   // pane mode : h-full overflow-y-auto + 薄紫 gradient + 簡素 chrome (= 既存維持)
   // 8b-10: py-8 → py-4 (= 余白縮小、 CEO 「上に詰める」)
+  // calendar タブは画面全面を淡いラベンダーに（ヘッダー・タブ・上下左右端まで）。 白カードがその上に浮く。
+  // 他タブ（list/map）は従来の白系を維持（CEO 承認の calendar 限定変更）。
+  const calBg = "bg-gradient-to-b from-violet-50 via-violet-50/70 to-violet-50/40";
   const containerClass = isPane
-    ? "h-full overflow-y-auto bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30 px-4 py-6"
+    ? `h-full overflow-y-auto px-4 py-6 ${activeTab === "calendar" ? calBg : "bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30"}`
     : useNewShell
-      ? "min-h-screen bg-white px-4 py-4" // 8b-10: 余白縮小、 9a-impl Step α: useNewShell に統一
+      ? `min-h-screen px-4 py-4 ${activeTab === "calendar" ? calBg : "bg-white"}`
       : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
 
   return (

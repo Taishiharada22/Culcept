@@ -12,22 +12,20 @@ import { CalIcon, WARDROBE_ICON } from "./icons";
 export function WardrobeStatCard({ stat }: { stat: CalendarOutfitStatVM }) {
   const tone = stat.tone ?? "neutral";
   const svgIcon = WARDROBE_ICON[stat.id];
+  // 理由カードと同一構造: アイコン左 + 右に「カテゴリ名 / 状態」の 2 段縦積み（囲み無し）。
   return (
-    <div
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-100/60 bg-white/80 px-3 py-2"
-      data-testid={`plan-calendar-outfit-stat-${stat.id}`}
-    >
+    <div className="flex items-center gap-1.5" data-testid={`plan-calendar-outfit-stat-${stat.id}`}>
       {svgIcon ? (
-        <CalIcon name={svgIcon} size={15} className={STATUS_TONE_TEXT[tone]} />
+        <CalIcon name={svgIcon} size={18} className={`shrink-0 ${STATUS_TONE_TEXT[tone]}`} />
       ) : stat.icon ? (
-        <span className="text-base leading-none" aria-hidden="true">
+        <span className="shrink-0 text-base leading-none" aria-hidden="true">
           {stat.icon}
         </span>
       ) : null}
-      <span className="text-xs leading-tight text-slate-500">{stat.label}</span>
-      <span className={`text-xs font-semibold leading-tight ${STATUS_TONE_TEXT[tone]}`}>
-        {stat.value}
-      </span>
+      <div className="min-w-0 leading-tight">
+        <p className="truncate text-[10px] text-slate-400">{stat.label}</p>
+        <p className={`truncate text-[11px] font-semibold ${STATUS_TONE_TEXT[tone]}`}>{stat.value}</p>
+      </div>
     </div>
   );
 }

@@ -12,7 +12,7 @@
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 
-import { anchorsForDay, categoryOf, CATEGORY_META, formatTime } from "../_helpers";
+import { anchorsForDay, categoryOf, CATEGORY_META, formatTime, isoDate, utcMidnight } from "../_helpers";
 import type { CalendarOutfitScheduleItemVM } from "./types";
 import { CAL_OUTFIT_PALETTE } from "./_palette";
 import { SectionHeader } from "./SectionHeader";
@@ -36,17 +36,40 @@ function toScheduleItems(
   });
 }
 
+/** 「前 / 今 / 次」の中央 index を決める（当日は直近に開始した予定を中央、 当日以外は先頭付近）。 */
+function centerIndex(items: CalendarOutfitScheduleItemVM[], now: Date, isToday: boolean): number {
+  if (items.length === 0) return 0;
+  if (!isToday) return Math.min(1, items.length - 1);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const startMin = (t: string): number => {
+    const m = /(\d{1,2}):(\d{2})/.exec(t);
+    return m ? Number(m[1]) * 60 + Number(m[2]) : 0;
+  };
+  const started = items.filter((it) => startMin(it.time) <= nowMin).length;
+  return started === 0 ? 0 : Math.min(started - 1, items.length - 1);
+}
+
 export function TodayScheduleSection({
   anchors,
   dayObj,
+  now,
   onOpenTimeline,
 }: {
   anchors: ExternalAnchor[];
   dayObj: Date;
+  now: Date;
   onOpenTimeline?: () => void;
 }) {
   const items = toScheduleItems(anchors, dayObj);
   const showTimelineLink = items.length > 0 && onOpenTimeline !== undefined;
+  const isToday = isoDate(utcMidnight(now)) === isoDate(dayObj);
+  const center = centerIndex(items, now, isToday);
+  // 前 / 今 / 次 の 3 スロット（横スクロールではなく 1 枠に固定）。 不在は空スロット。
+  const slots: Array<CalendarOutfitScheduleItemVM | null> = [
+    items[center - 1] ?? null,
+    items[center] ?? null,
+    items[center + 1] ?? null,
+  ];
 
   return (
     <section data-testid="plan-calendar-outfit-schedule-section">
@@ -78,10 +101,17 @@ export function TodayScheduleSection({
         </div>
       ) : (
         <div className={`${CAL_OUTFIT_PALETTE.card} p-3`}>
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
-            {items.map((item) => (
-              <TodayScheduleCard key={item.id} item={item} />
-            ))}
+          {/* 前 / 今 / 次 を 1 枠に固定（中央 = 現在進行中、 左右は控えめ）。 横スクロールしない。 */}
+          <div className="grid grid-cols-3 items-center gap-1">
+            {slots.map((item, i) =>
+              item ? (
+                <div key={item.id} className={i === 1 ? "" : "opacity-55"}>
+                  <TodayScheduleCard item={item} />
+                </div>
+              ) : (
+                <div key={`empty-${i}`} className="h-10" aria-hidden="true" />
+              ),
+            )}
           </div>
         </div>
       )}
