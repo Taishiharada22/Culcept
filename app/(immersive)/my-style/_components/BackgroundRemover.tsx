@@ -14,9 +14,9 @@ import {
     removeBackground,
     applyCleanBackground,
     cropToSubject,
-    eraseRegion,
     type RemovalResult,
 } from "../_lib/backgroundRemoval";
+import { interpolateStrokePoints } from "../_lib/brushStroke";
 
 /* ── Types ── */
 
@@ -69,6 +69,7 @@ export default function BackgroundRemover({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const isDrawingRef = useRef(false);
+    const prevPointRef = useRef<{ x: number; y: number } | null>(null); // C1L-4c-a: 直前の塗り点（線分補間用）
 
     /* ── Load original image ── */
     useEffect(() => {
@@ -158,60 +159,97 @@ export default function BackgroundRemover({
         processImage();
     }, [processImage]);
 
-    /* ── Eraser drawing ── */
-    const handleEraserStart = useCallback(
-        (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-            if (!eraserMode || !processedUrl) return;
-            isDrawingRef.current = true;
+    /* ── Eraser drawing (pointer-based, interpolated, canvas-direct) ── */
+    // 1 ダブ分を canvas に直接消す（transparent=destination-out / 単色=その色で塗り）。
+    const eraseDab = useCallback(
+        (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            if (selectedBg === "transparent") {
+                ctx.globalCompositeOperation = "destination-out";
+                ctx.fill();
+            } else {
+                ctx.globalCompositeOperation = "source-over";
+                ctx.fillStyle = selectedBg === "white" ? "#ffffff" : "#e5e7eb";
+                ctx.fill();
+            }
+            ctx.restore();
         },
-        [eraserMode, processedUrl]
+        [selectedBg]
     );
 
-    const handleEraserMove = useCallback(
-        async (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-            if (!isDrawingRef.current || !eraserMode || !processedUrl) return;
-
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-
+    // pointer の clientXY → canvas 座標 + ブラシ半径（canvas スケール）。
+    const canvasPointFromEvent = useCallback(
+        (e: React.PointerEvent<HTMLCanvasElement>) => {
+            const canvas = canvasRef.current!;
             const rect = canvas.getBoundingClientRect();
-            let clientX: number;
-            let clientY: number;
-
-            if ("touches" in e) {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
-            } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
-            }
-
-            // Scale coordinates to actual canvas size
             const scaleX = canvas.width / rect.width;
             const scaleY = canvas.height / rect.height;
-            const x = (clientX - rect.left) * scaleX;
-            const y = (clientY - rect.top) * scaleY;
-
-            const bgColorMap: Record<BgOption, string | undefined> = {
-                white: "#ffffff",
-                gray: "#e5e7eb",
-                transparent: undefined,
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY,
+                radius: eraserSize * scaleX,
             };
-
-            const newUrl = await eraseRegion(
-                processedUrl,
-                x,
-                y,
-                eraserSize * scaleX,
-                bgColorMap[selectedBg]
-            );
-            setProcessedUrl(newUrl);
         },
-        [eraserMode, processedUrl, eraserSize, selectedBg]
+        [eraserSize]
     );
 
-    const handleEraserEnd = useCallback(() => {
+    const handleEraserPointerDown = useCallback(
+        (e: React.PointerEvent<HTMLCanvasElement>) => {
+            if (!eraserMode || !processedUrl) return;
+            const canvas = canvasRef.current;
+            const ctx = canvas?.getContext("2d");
+            if (!canvas || !ctx) return;
+            try {
+                canvas.setPointerCapture(e.pointerId);
+            } catch {
+                /* noop */
+            }
+            isDrawingRef.current = true;
+            const { x, y, radius } = canvasPointFromEvent(e);
+            eraseDab(ctx, x, y, radius);
+            prevPointRef.current = { x, y };
+        },
+        [eraserMode, processedUrl, canvasPointFromEvent, eraseDab]
+    );
+
+    const handleEraserPointerMove = useCallback(
+        (e: React.PointerEvent<HTMLCanvasElement>) => {
+            if (!isDrawingRef.current || !eraserMode) return;
+            const canvas = canvasRef.current;
+            const ctx = canvas?.getContext("2d");
+            if (!canvas || !ctx) return;
+            const { x, y, radius } = canvasPointFromEvent(e);
+            const from = prevPointRef.current ?? { x, y };
+            // 前回点 → 今回点を線分補間して連続的に消す（点々防止）。
+            for (const p of interpolateStrokePoints(from, { x, y }, radius)) {
+                eraseDab(ctx, p.x, p.y, radius);
+            }
+            prevPointRef.current = { x, y };
+        },
+        [eraserMode, canvasPointFromEvent, eraseDab]
+    );
+
+    // ストローク確定時に 1 回だけ dataURL へコミット（per-point の重い往復を避ける）。
+    const handleEraserPointerEnd = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+        const canvas = canvasRef.current;
+        if (canvas?.hasPointerCapture?.(e.pointerId)) {
+            try {
+                canvas.releasePointerCapture(e.pointerId);
+            } catch {
+                /* noop */
+            }
+        }
+        if (!isDrawingRef.current) return;
         isDrawingRef.current = false;
+        prevPointRef.current = null;
+        if (!canvas) return;
+        try {
+            setProcessedUrl(canvas.toDataURL("image/png"));
+        } catch {
+            /* keep canvas */
+        }
     }, []);
 
     /* ── Comparison slider ── */
@@ -245,21 +283,9 @@ export default function BackgroundRemover({
         img.onload = () => {
             canvas.width = img.width;
             canvas.height = img.height;
-
-            // Checkerboard for transparent bg
-            if (selectedBg === "transparent") {
-                const size = 10;
-                for (let y = 0; y < img.height; y += size) {
-                    for (let x = 0; x < img.width; x += size) {
-                        ctx.fillStyle =
-                            (Math.floor(x / size) + Math.floor(y / size)) % 2 === 0
-                                ? "#ffffff"
-                                : "#e5e7eb";
-                        ctx.fillRect(x, y, size, size);
-                    }
-                }
-            }
-
+            // 画像のみ描画（transparent の市松模様は canvas 要素の CSS 背景で表示）。
+            // destination-out 消去で市松まで消えないよう、 canvas には画像だけ載せる。
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
         };
         img.src = processedUrl;
@@ -422,17 +448,21 @@ export default function BackgroundRemover({
                                 </div>
                             </div>
                         ) : eraserMode && processedUrl ? (
-                            /* Eraser canvas mode */
+                            /* Eraser canvas mode (pointer events + touch-action none) */
                             <canvas
                                 ref={canvasRef}
                                 className="w-full h-full object-contain cursor-crosshair"
-                                onMouseDown={handleEraserStart}
-                                onMouseMove={handleEraserMove}
-                                onMouseUp={handleEraserEnd}
-                                onMouseLeave={handleEraserEnd}
-                                onTouchStart={handleEraserStart}
-                                onTouchMove={handleEraserMove}
-                                onTouchEnd={handleEraserEnd}
+                                style={{
+                                    touchAction: "none",
+                                    backgroundImage:
+                                        selectedBg === "transparent"
+                                            ? "repeating-conic-gradient(#e5e7eb 0% 25%, #fff 0% 50%) 50% / 16px 16px"
+                                            : undefined,
+                                }}
+                                onPointerDown={handleEraserPointerDown}
+                                onPointerMove={handleEraserPointerMove}
+                                onPointerUp={handleEraserPointerEnd}
+                                onPointerCancel={handleEraserPointerEnd}
                             />
                         ) : displayUrl ? (
                             /* Normal preview */
