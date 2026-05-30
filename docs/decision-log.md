@@ -14931,3 +14931,33 @@ PDF/画像からのシフト表取り込み（"元原稿どおりに正確に反
 - **ステータス**: 画像取り込み feasibility **実証完了**。branch `feat/plan-pdf-image-import`、harness commit 群（5224a3b5 / ff761ff7 等）、**未 merge / 未 push**。次候補: 他月 golden 適正 / B1b（全表→本人行）/ 製品化（Step 3-6: 本人行選択・day_indicator 保存・anchor adapter・確認画面）。
 
 ---
+
+## 2026-05-30 [Build] P1-2 取り込み確認画面（Source Image Highlight Review）PASS [承認: CEO「完璧です。文句なしの結果。pass判定」]
+
+### 成果
+
+カレンダー型 source-of-truth 確認画面の下に**原画像全体**を表示し、日を hover/tap で**該当セルを枠強調**（CEO 案）。セル単独 crop より周囲文脈ごと確認でき検証負担を低減。元画像は 340→600px に拡大（モバイル横スクロール+自動センタリング）。
+
+### 校正の経緯（3 巡・全て CEO 実機観測で収束）
+
+1. **ground-truth 校正**: Playwright+canvas でヘッダー日番号の列中心を実測（301,353,…均一 51.5px）。GPT の「mapping bug」説を数学で否定し、線形 calibration 誤差と特定。
+2. **off-by-one 補正**: CEO 構造観測「day1 が左隣の公休列を指す」で 301=day1 を確定 → gridLeft=275（box中心=数字中心、全日 <0.5px）。
+3. **詰め描画（blank-skip）対応 ← 重要構造的洞察**: 原画像のデータ行は**空の日（コード無し）にセルを持たず後続が左へ詰まる**（canvas 実測: 25日列に26日データ、31列目は空）。ヘッダー数字は規則正しく1..31並ぶため数字位置に枠を置くと空以降が +1。`sourceColumnForDay(day, blankDays)`（空をスキップ、空の日は直前列に stay = CEO 指定ロジック）で解消。
+
+### 検証 / 衛生
+
+- geometry/highlight/grid render **20 tests PASS**、tsc baseline **1112 不変**。
+- 実機検証（Playwright+canvas, delta 数値）: day1→301 / day25(空)→24にstay / day26→26実データ列 / 全て delta≈0。
+- commit: e898f7de / ae813c30 / 42bb9a13 / 87f5e3b0（branch `feat/plan-pdf-image-import`、未 merge / 未 push）。raw 画像・demo page・screenshot は**非 commit**（gitignore / 削除）。
+
+### 教訓 / 申し送り（productization）
+
+- **構造的洞察**: 原画像は空を詰める。本番では highlight を blankDays 再導出でなく**抽出（VLM）が記録した実セル位置に直接ひも付ける**設計にすれば、詰め/非詰めどちらの原稿でも頑健。Step 5-6 で反映。
+- 確認画面 = 品質の最終保証（どのモデルも 100% blank 検出は不可 → human-in-loop が正本）の方針は不変。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-30、「完璧です。文句なしの結果。pass判定です。次に進みましょう」）
+- **ステータス**: P1-2 **完了（保守対象へ移行）**。次は製品化 Step 3-6（DB gate あり）または B1b。
+
+---
