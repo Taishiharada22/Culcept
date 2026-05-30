@@ -32,6 +32,7 @@ import {
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
 import { SourceCellCrop } from "./SourceCellCrop";
+import { SourceImageHighlight } from "./SourceImageHighlight";
 
 export interface ShiftReviewCell {
   day: number;
@@ -123,6 +124,8 @@ export function ShiftReviewGrid({
 }: ShiftReviewGridProps) {
   const [cells, setCells] = useState<ShiftReviewCell[]>(initialCells);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [hoveredDay, setHoveredDay] = useState<number | null>(null);
+  const highlightDay = hoveredDay ?? selectedDay;
 
   const projection = useMemo(() => {
     const readings: ShiftCellReading[] = cells.map((c) => ({
@@ -229,6 +232,9 @@ export function ShiftReviewGrid({
               data-kind={kind}
               data-blank-risk={risk ? "true" : "false"}
               onClick={() => setSelectedDay(cell.day)}
+              onMouseEnter={() => setHoveredDay(cell.day)}
+              onMouseLeave={() => setHoveredDay(null)}
+              onFocus={() => setHoveredDay(cell.day)}
               className={`relative flex aspect-square flex-col items-center justify-center rounded-xl border transition ${KIND_TINT[kind]} ${
                 selected ? "ring-2 ring-sky-400 ring-offset-1" : ""
               }`}
@@ -253,6 +259,15 @@ export function ShiftReviewGrid({
           );
         })}
       </div>
+
+      {/* 原稿画像 + 該当日ハイライト（hover/tap で光る） */}
+      {imageSrc && geometry && (
+        <SourceImageHighlight
+          imageSrc={imageSrc}
+          geometry={geometry}
+          highlightDay={highlightDay}
+        />
+      )}
 
       {/* 下部 sticky preview */}
       <div

@@ -44,7 +44,19 @@ describe("HARADA_SPRIX_JULY_GEOMETRY", () => {
     expect(HARADA_SPRIX_JULY_GEOMETRY.imageWidth).toBe(1860);
     expect(HARADA_SPRIX_JULY_GEOMETRY.imageHeight).toBe(846);
     const r = cellCropRegion(HARADA_SPRIX_JULY_GEOMETRY, 1);
-    expect(r.x).toBe(400);
-    expect(r.width).toBeCloseTo(45.4, 1);
+    expect(r.x).toBe(298);
+    expect(r.width).toBeCloseTo(51.1, 1);
+  });
+
+  it("day→column mapping は線形・単調（CEO 観測のドリフト再発防止）", () => {
+    // 旧 gridLeft=400/colWidth=45.4 では day1→day3 のドリフトが出た。
+    // 正しい geometry では day N の x は単調増加し、隣接日は colWidth 分だけ離れる。
+    // ※ 末尾 day31 は画像右端で clamp されるため、未 clamp 区間(1〜30)で検証。
+    const g = HARADA_SPRIX_JULY_GEOMETRY;
+    for (let d = 1; d < 30; d += 1) {
+      const a = cellCropRegion(g, d).x;
+      const b = cellCropRegion(g, d + 1).x;
+      expect(b - a).toBeCloseTo(g.colWidth, 5);
+    }
   });
 });

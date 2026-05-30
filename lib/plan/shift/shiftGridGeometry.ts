@@ -53,14 +53,18 @@ export function cellCropRegion(
 }
 
 /**
- * July 原田 SPRIX crop の calibration（1860×846）。
- * ※ prototype の概算値。実機 calibration（ユーザー補正）の置き換え対象。
+ * July 原田 SPRIX の calibration（1860×846）。
+ *
+ * CEO 実機観測（2026-05-30）から逆算: 旧 gridLeft=400/colWidth=45.4 で
+ * day1→day3・day8→day9・day19→day19 のズレ（= 線形ドリフトの整数丸め）。
+ * myX(1)=trueX(3), myX(19)=trueX(19) を解いて gridLeft=298, colWidth=51.1。
+ * ※ bucket 境界に僅かな非線形残差。実機 calibration UI で per-column 補正の対象。
  */
 export const HARADA_SPRIX_JULY_GEOMETRY: ShiftGridGeometry = {
   imageWidth: 1860,
   imageHeight: 846,
-  gridLeft: 400,
-  colWidth: 45.4,
+  gridLeft: 298,
+  colWidth: 51.1,
   cropTop: 298,
   cropHeight: 52,
 };
