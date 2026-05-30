@@ -16,18 +16,26 @@
 --     anchor 化すると /plan のタイムラインに枠ができてしまうため、専用テーブルに分離。
 --   - lib/plan/shift/shiftImportAdapter.ts（Step 5a）の ShiftDayImportIndicator と 1:1 対応。
 --
--- 不変原則（既存 migration と同パターン、最小 alter）:
---   - source_type は DROP/ADD CHECK のみ（既存 row は全て新 CHECK を満たす → 影響なし、idempotent）
---   - plan_day_indicators は CREATE IF NOT EXISTS + RLS user-scoped 完全分離
---   - source_id FK ON DELETE CASCADE（= 取り込み source 削除で派生 day_indicator も原子的に削除、anchor と同じ）
---   - UNIQUE(user_id, date) で 1 日 1 印（再取り込みは upsert）
+-- 不変原則 + hardening（GPT 指摘 5 点採用 + Claude 独自判断、CEO 2026-05-30/31）:
+--   - source_type は DROP/ADD CHECK のみ（既存 row は全て新 CHECK を満たす → 影響なし）
+--   - 【強化① owner 整合】plan_day_indicators(source_id, user_id) → external_anchor_sources(id, user_id)
+--       の composite FK。source の owner と day_indicator の owner が同一であることを DB レベルで強制
+--       （RLS だけに依存しない。プライバシー第一原則の物理層強制）。
+--       前提として external_anchor_sources に UNIQUE(id, user_id) を追加。
+--       ※ 既存 external_anchors.source_id は単純 FK で同じ gap あり → 本 migration 範囲外として別途記録。
+--   - 【強化⑤ provenance】shift_image 由来は source_id 必須（CHECK: source_type='manual' OR source_id IS NOT NULL）。
+--   - 【強化④ データ衛生】label 空文字/空白のみ禁止（CHECK: btrim(label) <> ''）。
+--   - 【強化③ idempotent】policy は DROP IF EXISTS → CREATE。外部 UNIQUE/CHECK も DROP/ADD。
+--       ※ plan_day_indicators 自体は CREATE TABLE IF NOT EXISTS（初回 apply 前提）。policy/外部制約まで再実行に耐える。
+--   - UNIQUE(user_id, date) で 1 日 1 印。再取り込みは Step 6 repository で upsert=last-wins（将来「同日複数印」は要拡張）。
+--   - 【強化② updated_at trigger は不採用】project に updated_at 用 trigger helper が無く、sibling external_anchors も
+--       app 層で updated_at を管理。一貫性のため本テーブルも DEFAULT now() + Step 6 repository が UPDATE 時に更新
+--       （本テーブルだけ一回限りの trigger 関数を導入する不整合を避ける）。
 --
 -- ★ 本 migration は **draft 状態**。`supabase db push` / apply は **CEO 別承認**。
 --   staging 適用順: 既存 source_type migration（20260529120000 microsoft）の後に本 migration。
 --
--- ☆ CEO 確認ポイント（apply 前）:
---   - source_type 値 'shift_image' で確定可か（汎用 'image' 流用でなく専用値を採用）
---   - day_indicator テーブル名 / kind 値（'off' / 'off_request'） / UNIQUE 粒度
+-- ☆ CEO 承認済（2026-05-31）: source_type='shift_image' 確定 / plan_day_indicators 別テーブル / kind off,off_request。
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -50,6 +58,13 @@ ALTER TABLE external_anchor_sources
 COMMENT ON COLUMN external_anchor_sources.source_type IS
   'manual / template / pdf / image / chat / ics / google_calendar / microsoft_calendar / shift_image (= SR 2026-05-30 追加、画像/PDF シフト表取り込み)';
 
+-- composite FK の前提（強化①）: (id, user_id) UNIQUE。
+-- id は PK なので (id, user_id) は自明に一意 → 既存 row 影響なし、composite FK が参照する index を付与するだけ。
+ALTER TABLE external_anchor_sources
+  DROP CONSTRAINT IF EXISTS external_anchor_sources_id_user_unique;
+ALTER TABLE external_anchor_sources
+  ADD CONSTRAINT external_anchor_sources_id_user_unique UNIQUE (id, user_id);
+
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- 2. plan_day_indicators — 休み / 希望休 の日レベル印（anchor でない）
 --
@@ -62,9 +77,9 @@ CREATE TABLE IF NOT EXISTS plan_day_indicators (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
 
   -- 取り込み source trace（任意）。shift_image 由来は external_anchor_sources を指す。
-  -- ON DELETE CASCADE: 取り込み source 削除で派生 day_indicator も原子的に削除（anchor と同じ）。
-  -- manual 由来など source が無い場合は NULL。
-  source_id UUID REFERENCES external_anchor_sources(id) ON DELETE CASCADE,
+  -- owner 整合 + ON DELETE CASCADE は下の composite FK（強化①）で担保。
+  -- manual 由来など source が無い場合は NULL（MATCH SIMPLE で FK 検査スキップ）。
+  source_id UUID,
 
   -- 対象日
   date DATE NOT NULL,
@@ -73,8 +88,9 @@ CREATE TABLE IF NOT EXISTS plan_day_indicators (
   kind TEXT NOT NULL
     CHECK (kind IN ('off', 'off_request')),
 
-  -- 表示ラベル（例「公休」「休み」「希望休」）
-  label TEXT NOT NULL,
+  -- 表示ラベル（例「公休」「休み」「希望休」）。空文字/空白のみ禁止（強化④）。
+  label TEXT NOT NULL
+    CHECK (btrim(label) <> ''),
 
   -- 公休カウント対象か（off のみ意味を持つ。off_request は常に false）。月の公休数監査に使う。
   counts_as_public_holiday BOOLEAN NOT NULL DEFAULT FALSE,
@@ -90,13 +106,26 @@ CREATE TABLE IF NOT EXISTS plan_day_indicators (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-  -- 1 日 1 印（再取り込みは upsert で last-wins）
+  -- 1 日 1 印（再取り込みは Step 6 repository で upsert=last-wins）
   CONSTRAINT plan_day_indicators_user_date_unique UNIQUE (user_id, date),
 
   -- off_request は公休にしない（整合）
   CONSTRAINT plan_day_indicators_request_not_public CHECK (
     kind <> 'off_request' OR counts_as_public_holiday = FALSE
-  )
+  ),
+
+  -- 【強化⑤】取り込み由来（shift_image）は source trace を失わない。manual のみ source_id 省略可。
+  CONSTRAINT plan_day_indicators_source_required CHECK (
+    source_type = 'manual' OR source_id IS NOT NULL
+  ),
+
+  -- 【強化①】owner 整合: source_id が指す source は同一 user のもの（DB レベル強制、RLS に依存しない）。
+  -- source_id NULL（manual）時は MATCH SIMPLE により FK 検査をスキップ。
+  -- ON DELETE CASCADE: 取り込み source 削除で派生 day_indicator も原子的に削除（anchor と同じ）。
+  CONSTRAINT plan_day_indicators_source_owner_fk
+    FOREIGN KEY (source_id, user_id)
+    REFERENCES external_anchor_sources (id, user_id)
+    ON DELETE CASCADE
 );
 
 -- Indexes（UNIQUE(user_id, date) が Calendar 表示の主検索 index を兼ねる）
@@ -106,19 +135,24 @@ CREATE INDEX IF NOT EXISTS idx_plan_day_indicators_source
 -- RLS（user-scoped 完全分離）
 ALTER TABLE plan_day_indicators ENABLE ROW LEVEL SECURITY;
 
+-- 強化③: policy は DROP IF EXISTS → CREATE（途中 apply 失敗後の再実行に耐える）
+DROP POLICY IF EXISTS "plan_day_indicators_owner_select" ON plan_day_indicators;
 CREATE POLICY "plan_day_indicators_owner_select"
   ON plan_day_indicators FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "plan_day_indicators_owner_insert" ON plan_day_indicators;
 CREATE POLICY "plan_day_indicators_owner_insert"
   ON plan_day_indicators FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "plan_day_indicators_owner_update" ON plan_day_indicators;
 CREATE POLICY "plan_day_indicators_owner_update"
   ON plan_day_indicators FOR UPDATE
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "plan_day_indicators_owner_delete" ON plan_day_indicators;
 CREATE POLICY "plan_day_indicators_owner_delete"
   ON plan_day_indicators FOR DELETE
   USING (auth.uid() = user_id);
