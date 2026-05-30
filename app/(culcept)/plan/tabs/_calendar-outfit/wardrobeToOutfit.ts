@@ -119,9 +119,26 @@ export function slotOfWardrobe(item: WardrobeItem): OutfitSlot | undefined {
   }
 }
 
-/** 使える画像 (空文字でない文字列) を持つか */
+/**
+ * C1L-5: /plan の表示画像を選ぶ。 **確定 cutout（cutoutStatus==="success"）を最優先**、
+ * それ以外（needs_review / failed / skipped / cutout 無し）は原画 imageUrl にフォールバック。
+ * manual は status=success なので採用対象。 needs_review の甘い cutout は /plan に出さない。
+ */
+export function getWardrobeDisplayImageUrl(item: WardrobeItem): string | undefined {
+  if (
+    item.cutoutStatus === "success" &&
+    typeof item.cutoutUrl === "string" &&
+    item.cutoutUrl.trim().length > 0
+  ) {
+    return item.cutoutUrl;
+  }
+  return item.imageUrl;
+}
+
+/** 使える表示画像 (cutout success or imageUrl) を持つか */
 export function hasUsableImage(item: WardrobeItem): boolean {
-  return typeof item.imageUrl === "string" && item.imageUrl.trim().length > 0;
+  const url = getWardrobeDisplayImageUrl(item);
+  return typeof url === "string" && url.trim().length > 0;
 }
 
 function firstNonEmpty(...vals: Array<string | undefined>): string | undefined {
@@ -147,7 +164,7 @@ function wardrobeItemToSlotVM(
     label: firstNonEmpty(item.name) ?? slotMock.label,
     shape: shapeOfWardrobe(item) ?? slotMock.shape,
     color: firstNonEmpty(item.colorHex, item.color) ?? slotMock.color,
-    imageUrl: item.imageUrl,
+    imageUrl: getWardrobeDisplayImageUrl(item),
   };
 }
 

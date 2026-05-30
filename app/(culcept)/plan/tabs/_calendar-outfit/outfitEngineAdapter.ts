@@ -34,7 +34,7 @@ import type {
   CalendarOutfitWeatherVM,
 } from "./types";
 import { SYNC_BAND_VM } from "./_palette";
-import { shapeOfWardrobe } from "./wardrobeToOutfit";
+import { shapeOfWardrobe, getWardrobeDisplayImageUrl } from "./wardrobeToOutfit";
 import type { ProjectedCalendarEvent } from "./outfitEventProjection";
 
 export interface OutfitEngineInput {
@@ -118,7 +118,10 @@ function wardrobeItemToVM(item: WardrobeItem): CalendarOutfitItemVM {
       (item.colorHex && item.colorHex.trim()) ||
       (item.color && item.color.trim()) ||
       "#cbd5e1",
-    ...(item.imageUrl && item.imageUrl.trim().length > 0 ? { imageUrl: item.imageUrl } : {}),
+    ...(() => {
+      const url = getWardrobeDisplayImageUrl(item); // C1L-5: 確定 cutout(success) を優先、 他は imageUrl
+      return url && url.trim().length > 0 ? { imageUrl: url } : {};
+    })(),
   };
 }
 
