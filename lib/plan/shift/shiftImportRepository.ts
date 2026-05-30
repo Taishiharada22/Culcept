@@ -42,6 +42,19 @@ export interface ShiftImportSourceInput {
   extractedAt?: string;
 }
 
+/**
+ * 取り込み対象の月範囲（半開区間 [start, endExclusive)）。
+ * 例: 2025年7月 → { start: "2025-07-01", endExclusive: "2025-08-01" }。
+ * 6B の range-scoped replace（その月の shift_image 由来のみ置換）の境界。
+ * 夜勤の翌日跨ぎは「勤務開始日 date が範囲内か」で判定（anchor.date = 開始日のみ）。
+ */
+export interface ShiftImportRange {
+  /** YYYY-MM-DD（含む） */
+  start: string;
+  /** YYYY-MM-DD（含まない、＝翌月1日） */
+  endExclusive: string;
+}
+
 /** source + anchors + day_indicators の不可分な保存単位。 */
 export interface ShiftImportBundleInput {
   source: ShiftImportSourceInput;
@@ -49,6 +62,11 @@ export interface ShiftImportBundleInput {
   anchors: CreateExternalAnchorInput[];
   /** 休み / 希望休 → 日レベル印（anchor でない） */
   dayIndicators: ShiftDayImportIndicator[];
+  /**
+   * 取り込み月範囲。6B の range-scoped replace に必須。
+   * 6A（in-memory, first-import）では無くても動く（replace しない）ため optional。
+   */
+  importRange?: ShiftImportRange;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -98,8 +116,29 @@ export interface SavedShiftDayIndicator {
 export type ShiftImportSaveError =
   | { kind: "anchor_invalid"; index: number; errors: AnchorInputValidationError[] }
   | { kind: "indicator_invalid"; index: number; errors: AnchorInputValidationError[] }
+  /**
+   * その月に **手動（manual）の day_indicator** が既にある日に、shift_image の印を
+   * 入れようとした衝突。range-scoped replace は shift_image 由来のみ置換するため、
+   * manual を黙って上書きせず conflict として **保存全体をブロック**する（CEO 補正 2026-05-31）。
+   * dates = 衝突した日（将来 UI で明示承認させる材料）。
+   */
+  | { kind: "manual_indicator_conflict"; dates: string[] }
   /** 永続化途中の失敗（DB error 等）。全体を rollback したことを表す。 */
   | { kind: "persistence_failed"; message: string };
+
+/**
+ * 保存の要約（count ベース）。差分プレビュー / 報告 / 再取り込み監査に使う。
+ * 6A（first-import, replace なし）では deleted* = 0。
+ */
+export interface ShiftImportSummary {
+  sourceId: string;
+  insertedAnchors: number;
+  deletedAnchors: number;
+  insertedIndicators: number;
+  deletedIndicators: number;
+  /** 手動印との衝突日（衝突時は ok:false 側で返るため通常 []） */
+  conflicts: string[];
+}
 
 export type ShiftImportSaveResult =
   | {
@@ -107,6 +146,7 @@ export type ShiftImportSaveResult =
       source: SavedShiftImportSource;
       anchors: SavedShiftAnchor[];
       dayIndicators: SavedShiftDayIndicator[];
+      summary: ShiftImportSummary;
     }
   | { ok: false; errors: ShiftImportSaveError[] };
 

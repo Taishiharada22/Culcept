@@ -173,6 +173,14 @@ export function createInMemoryShiftImportRepository(
         source: stagedSource,
         anchors: stagedAnchors,
         dayIndicators: stagedIndicators,
+        summary: {
+          sourceId,
+          insertedAnchors: stagedAnchors.length,
+          deletedAnchors: 0, // 6A in-memory は first-import（replace しない）
+          insertedIndicators: stagedIndicators.length,
+          deletedIndicators: 0,
+          conflicts: [],
+        },
       };
     },
 
