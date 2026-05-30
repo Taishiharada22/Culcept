@@ -1297,19 +1297,24 @@ export function deriveSyncSignals(state: SavedState) {
 }
 
 /**
- * Strip base64 data: URLs from wardrobe imageUrl fields.
+ * Strip base64 data: URLs from wardrobe image fields.
  * Keeps external URLs (https:// etc.) under 2048 chars; drops everything else.
+ *
+ * C1L-1: imageUrl と同一ポリシーを originalUrl / cutoutUrl にも適用する
+ * （base64 data: の重い cutout / original を server snapshot に載せない）。
+ * cutoutStatus / cutoutConfidence / cutoutMethod は軽量メタなので `...item` で保持する。
+ * imageUrl の既存挙動は変えない（同じ述語を共有）。 export はテスト用（挙動は不変）。
  */
-function stripHeavyImageUrls(wardrobe: WardrobeItem[]): WardrobeItem[] {
+export function stripHeavyImageUrls(wardrobe: WardrobeItem[]): WardrobeItem[] {
+    const keepLight = (url: string | undefined): string | undefined =>
+        typeof url === "string" && url.trim() !== "" && !url.startsWith("data:") && url.length < 2048
+            ? url
+            : undefined;
     return wardrobe.map((item) => ({
         ...item,
-        imageUrl:
-            typeof item.imageUrl === "string" &&
-            item.imageUrl.trim() &&
-            !item.imageUrl.startsWith("data:") &&
-            item.imageUrl.length < 2048
-                ? item.imageUrl
-                : undefined,
+        imageUrl: keepLight(item.imageUrl),
+        originalUrl: keepLight(item.originalUrl),
+        cutoutUrl: keepLight(item.cutoutUrl),
     }));
 }
 
