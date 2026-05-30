@@ -46,3 +46,14 @@ export {
   type WornHistoryView,
   type WornHistoryConflictNote,
 } from "./readView";
+
+export {
+  learningCorpusToWornRecords,
+  wornHistoryEntriesToRecencyWornRecords,
+  compareWornHistoryLearningInputs,
+  type LearningWornRecord,
+  type RecencyWornRecord,
+  type AdapterOptions,
+  type CompareInput,
+  type WornHistoryShadowSummary,
+} from "./learningAdapter";
