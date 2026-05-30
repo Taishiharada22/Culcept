@@ -57,3 +57,12 @@ export {
   type CompareInput,
   type WornHistoryShadowSummary,
 } from "./learningAdapter";
+
+export { WORN_HISTORY_FLAGS } from "./flags";
+
+export {
+  buildWornHistoryEngineInput,
+  getRecentlyWornItemIdsFromRecencyRecords,
+  type WornHistoryEngineInput,
+  type BuildWornHistoryEngineInputOptions,
+} from "./engineInput";
