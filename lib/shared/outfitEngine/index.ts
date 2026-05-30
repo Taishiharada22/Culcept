@@ -171,6 +171,11 @@ export function generateTodayProposal(
       extWeather: extWeather ?? null,
       comboGraph: comboGraph ?? null,
       adaptation: null,
+      // Phase 5-C3: B 側 rotation/seasonal も shared learningRecords（satisfaction 必須）で prime する。
+      // 非空時のみ渡す。 flag 既定 off では wornHistoryInput 自体が無いので渡らない（現行 path）。
+      ...(wornHistoryInput && wornHistoryInput.learningRecords.length > 0
+        ? { rotationRecords: wornHistoryInput.learningRecords }
+        : {}),
     },
   );
 

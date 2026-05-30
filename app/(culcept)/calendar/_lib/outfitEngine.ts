@@ -42,11 +42,39 @@ export function clearScoringCache(): void {
   _scoringCache = null;
 }
 
+/**
+ * Phase 5-C3: shared 由来の rotationRecords（satisfaction 必須 = learningRecords）で scoring cache を
+ * **per-run prime** する。 getScoringCache 本体は無改変で、 同 allWardrobe 参照
+ * （generateDayProposal の wardrobe = buildCombo の allWardrobe）により primed cache を再利用させる。
+ *   - rejections は現行どおり localStorage 由来（rotationRecords は worn 履歴のみ差し替え）。
+ *   - 失敗時は cache を null に戻し、 getScoringCache が loadWornHistory に lazy fallback（退化ゼロ）。
+ */
+function primeScoringCacheFromRecords(
+  allWardrobe: WardrobeItem[],
+  rotationRecords: import("./types").WornRecord[],
+): void {
+  try {
+    const rejections = loadRejections();
+    const profiles = rotationRecords.length >= 3
+      ? computeRotationProfiles(rotationRecords, allWardrobe)
+      : [];
+    const rotationMap = new Map(profiles.map((p) => [p.itemId, p]));
+    _scoringCache = { rejections, rotationMap, wornHistory: rotationRecords, allWardrobe };
+  } catch {
+    _scoringCache = null;
+  }
+}
+
 /* ── 拡張オプション型 ── */
 export interface OutfitExtendedOptions {
   extWeather?: ExtendedWeatherContext | null;
   comboGraph?: ComboGraph | null;
   adaptation?: OutfitAdaptation | null;
+  /**
+   * Phase 5-C3: shared WornHistory 由来の rotation/seasonal 学習レコード（satisfaction 必須）。
+   * 渡された場合のみ scoring cache を prime（loadWornHistory を読まない）。 完全 optional・flag 既定 off で渡らない。
+   */
+  rotationRecords?: import("./types").WornRecord[];
 }
 
 /* ── シード生成（日付ベースで決定的） ── */
@@ -330,6 +358,13 @@ export function generateDayProposal(
 ): DayProposal | null {
   if (wardrobe.length === 0) return null;
 
+  // Phase 5-C3: shared learningRecords が渡されたら scoring cache を per-run prime（flag 既定 off では渡らない）。
+  // prime の allWardrobe = この wardrobe 参照。 buildCombo が同参照を allWardrobe として getScoringCache に渡すため、
+  // per-item は primed cache を再利用する。 渡されなければ現行 loadWornHistory path（退化ゼロ）。
+  if (extendedOptions?.rotationRecords && extendedOptions.rotationRecords.length > 0) {
+    primeScoringCacheFromRecords(wardrobe, extendedOptions.rotationRecords);
+  }
+
   const month = parseInt(date.split("-")[1], 10);
   const seed = buildSeed(date, events);
   const { needsOuter } = getRecommendedThickness(weather?.temp_max ?? null);
@@ -351,7 +386,10 @@ export function generateDayProposal(
 
   // メイン提案
   const main = buildCombo(pools, needsOuter, seed, weather, events, month, recentlyWornIds, "main", moodShift, persona, satisfactionProfile, extendedOptions, wardrobe);
-  if (!main) return null;
+  if (!main) {
+    clearScoringCache(); // 早期 return でも per-run cache を残さない（primed cache の次 run 漏れ防止）
+    return null;
+  }
 
   // 代替提案（バリアント）
   const alternatives: OutfitProposal[] = [];

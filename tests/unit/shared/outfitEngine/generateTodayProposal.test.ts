@@ -101,4 +101,24 @@ describe("generateTodayProposal — 5-C2 facade gated injection", () => {
     expect(r).not.toBeNull();
     expect(r!.syncScore).toBe(80);
   });
+
+  // ── 5-C3: B側 rotation へ learningRecords を rotationRecords として渡す ──
+  it("learningRecords 非空 → extendedOptions.rotationRecords = learningRecords", () => {
+    const learning = fiveLearning("shared");
+    generateTodayProposal({ ...BASE, wornHistoryInput: { learningRecords: learning, recencyRecords: [] } });
+    expect((cap.gdp![8] as { rotationRecords?: unknown }).rotationRecords).toBe(learning);
+  });
+
+  it("learningRecords 空 → rotationRecords は渡されない", () => {
+    generateTodayProposal({
+      ...BASE,
+      wornHistoryInput: { learningRecords: [], recencyRecords: [{ date: "2099-12-31", itemIds: ["r1"] }] },
+    });
+    expect((cap.gdp![8] as { rotationRecords?: unknown }).rotationRecords).toBeUndefined();
+  });
+
+  it("wornHistoryInput 無し → rotationRecords は渡されない（現行 path）", () => {
+    generateTodayProposal({ ...BASE });
+    expect((cap.gdp![8] as { rotationRecords?: unknown }).rotationRecords).toBeUndefined();
+  });
 });
