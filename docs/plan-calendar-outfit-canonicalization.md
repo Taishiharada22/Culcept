@@ -237,6 +237,45 @@ canonical / localStorage data は消さない（canary は read-only・write 無
 5-D4: production canary（14.4 の A/B 判断後）
 ```
 
+### 14.10 local dev smoke checklist（5-D2・docs のみ・未実行）
+**前提**：
+- local dev 限定。 production / preview ではまだ ON にしない。 Vercel env は触らない。
+- `.env.local` 変更は**次の実行ゲートまでしない**。 flag ON は 5-D2 docs 完了後、 **CEO 承認を受けて別ステップ**で実施。
+
+**手順案（書くだけ・5-D2 では実行しない）**：
+```
+1.  working tree clean を確認
+2.  baseline（flag off）で /plan を開く
+3.  baseline の summary（提案数・コーデ構成の件数・SYNC・confidence）を控える
+4.  .env.local に NEXT_PUBLIC_WORN_HISTORY_ENGINE_READS_CORPUS=true を一時追加
+5.  dev server を再起動（NEXT_PUBLIC_ は build-time baked のため必須）
+6.  /plan を開く
+7.  提案が空にならないか確認
+8.  fallback / runtime error の有無を確認
+9.  flag を false / unset に戻す
+10. dev server を再起動
+11. baseline 挙動に戻るか確認
+```
+
+**観測項目**：
+- /plan が compile error なく開く
+- 提案が空にならない
+- おすすめコーデが表示される
+- SYNC score が極端に崩れない
+- confidence が極端に崩れない
+- fallback / runtime error が出ない
+- flag OFF に戻したら旧 path に戻る
+- mock / hydrated_mock / my_style が learning に入らない（5-B `compareWornHistoryLearningInputs` summary で確認）
+- my_style は recency にのみ効く
+
+**before / after 比較方針（ON/OFF）**：提案数 / コーデのアイテム構成 / SYNC score / confidence / fallback 有無 / runtime error 有無 を比較。**raw item IDs は出さない**（「差分あり/なし」「重なり率」「件数」のみ）。
+
+**failure 時の rollback**：
+- `.env.local` から flag を消す → dev server 再起動。
+- **canonical / localStorage data は消さない**（rollback でデータ削除は不要・read-only canary）。
+
+**5-D2 の境界**：本節は checklist を docs 固定するのみ。 **flag ON / `.env.local` 変更 / dev smoke 実行は別ゲート（CEO 承認後）**。
+
 ---
 
 ## Appendix A — store inventory（現状）
