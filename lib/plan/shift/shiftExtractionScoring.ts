@@ -41,6 +41,13 @@ export interface ExtractionScore {
     falsePositive: number; // golden が E-18 でないのに E-18 と読んだ数
     ok: boolean;
   };
+  /** 空セル誤読（密表 VLM の典型失敗。GPT B1a 指標） */
+  emptyCell: {
+    expectedEmpty: number;
+    falseContent: number; // golden 空なのに何か読んだ（幻覚）
+    missedContent: number; // golden に記号があるのに空と読んだ
+    ok: boolean;
+  };
 }
 
 function indexByDate(
@@ -119,6 +126,21 @@ export function scoreExtraction(
     if (code === E18 && goldenByDate.get(date) !== E18) e18FalsePositive += 1;
   }
 
+  // 空セル誤読: golden 空なのに何か読んだ（幻覚）/ golden に記号があるのに空と読んだ
+  let expectedEmpty = 0;
+  let falseContent = 0;
+  let missedContent = 0;
+  for (const [date, expected] of goldenByDate) {
+    const got = extractedByDate.get(date);
+    const goldenEmpty = expected === "";
+    if (goldenEmpty) {
+      expectedEmpty += 1;
+      if (got !== undefined && got !== "") falseContent += 1;
+    } else if (got === "") {
+      missedContent += 1;
+    }
+  }
+
   return {
     totalGoldenCells: total,
     matchedCells: matched,
@@ -136,6 +158,12 @@ export function scoreExtraction(
       correct: e18Correct,
       falsePositive: e18FalsePositive,
       ok: e18Correct === e18Dates.length && e18FalsePositive === 0,
+    },
+    emptyCell: {
+      expectedEmpty,
+      falseContent,
+      missedContent,
+      ok: falseContent === 0 && missedContent === 0,
     },
   };
 }

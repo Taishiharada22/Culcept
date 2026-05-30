@@ -88,3 +88,38 @@ describe("scoreExtraction — セル欠落", () => {
     expect(miss?.got).toBeNull();
   });
 });
+
+describe("scoreExtraction — 空セル誤読（GPT B1a 指標）", () => {
+  it("July golden は空セルなし（expectedEmpty=0・ok）", () => {
+    const s = scoreExtraction(golden, golden);
+    expect(s.emptyCell).toEqual({
+      expectedEmpty: 0,
+      falseContent: 0,
+      missedContent: 0,
+      ok: true,
+    });
+  });
+
+  // 空セルを含む合成 golden（3日 / 5日 が空）
+  const emptyGolden = buildCells(["G", "", "N", "", "L"]);
+
+  it("空セルを正しく空と読めば ok", () => {
+    const s = scoreExtraction(emptyGolden, emptyGolden);
+    expect(s.emptyCell.expectedEmpty).toBe(2);
+    expect(s.emptyCell.ok).toBe(true);
+  });
+
+  it("空セルに何か読む幻覚を検出（falseContent）", () => {
+    const halluc = buildCells(["G", "H", "N", "", "L"]); // 2日目: 空→H
+    const s = scoreExtraction(halluc, emptyGolden);
+    expect(s.emptyCell.falseContent).toBe(1);
+    expect(s.emptyCell.ok).toBe(false);
+  });
+
+  it("記号セルを空と読む取りこぼしを検出（missedContent）", () => {
+    const dropped = buildCells(["G", "", "", "", "L"]); // 3日目: N→空
+    const s = scoreExtraction(dropped, emptyGolden);
+    expect(s.emptyCell.missedContent).toBe(1);
+    expect(s.emptyCell.ok).toBe(false);
+  });
+});
