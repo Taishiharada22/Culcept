@@ -5,6 +5,7 @@ import {
   type ShiftCellReading,
 } from "@/lib/plan/shift/shiftRosterProjection";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
+import { JULY_HARADA_CODES } from "./julyHaradaGolden";
 
 const dict = HARADA_SPRIX_DICTIONARY;
 
@@ -81,27 +82,21 @@ describe("projectShiftRoster — code 別振り分け", () => {
   });
 });
 
-describe("July 原田行 fixture（bootstrap・要 CEO 視覚検証）", () => {
-  // CEO 提供画像からの私の読み取り草案（synthetic・bootstrap ground truth）
-  const julyCodes = [
-    "BD", "HREQ", "H", "E-18", "L", "N", "L", "G", "H", "H", // 1-10
-    "L", "L", "E", "N", "BD", "H", "H", "E-18", "L", "N", // 11-20
-    "L", "G", "H", "H", "L", "L", "E", "N", "BD", "H", // 21-30
-    "E-18", // 31
-  ];
-  const julyCells: ShiftCellReading[] = julyCodes.map((rawCode, i) =>
+describe("July 原田行 fixture（CEO 原本確認済・day25 空欄）", () => {
+  // 単一正本（day25 は CEO 原本確認で空欄）
+  const julyCells: ShiftCellReading[] = JULY_HARADA_CODES.map((rawCode, i) =>
     cell(`2025-07-${String(i + 1).padStart(2, "0")}`, rawCode)
   );
 
-  it("31 セル・unresolved なし（全コードが辞書に存在）", () => {
+  it("31 セル・unresolved なし（全コードが辞書に存在 or 空セル）", () => {
     expect(julyCells).toHaveLength(31);
     const out = projectShiftRoster(julyCells, dict);
     expect(out.unresolved).toHaveLength(0);
   });
 
-  it("振り分け内訳: 勤務19 / 休み11 / 候補1", () => {
+  it("振り分け内訳: 勤務18 / 休み11 / 候補1（day25 空欄はスキップ）", () => {
     const out = projectShiftRoster(julyCells, dict);
-    expect(out.timedEvents).toHaveLength(19); // E/E-18/N/L/G
+    expect(out.timedEvents).toHaveLength(18); // E/E-18/N/L/G（day25 L→空欄で 19→18）
     expect(out.dayIndicators).toHaveLength(11); // H(8) + BD(3)
     expect(out.candidates).toHaveLength(1); // HREQ
   });

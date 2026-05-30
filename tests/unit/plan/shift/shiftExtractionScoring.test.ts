@@ -1,14 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { scoreExtraction } from "@/lib/plan/shift/shiftExtractionScoring";
 import type { ExtractedShiftCell } from "@/lib/plan/shift/shiftExtractionContract";
+import { JULY_HARADA_CODES } from "./julyHaradaGolden";
 
-// July 原田行 golden（bootstrap・私の読み取り草案）
-const JULY_CODES = [
-  "BD", "HREQ", "H", "E-18", "L", "N", "L", "G", "H", "H",
-  "L", "L", "E", "N", "BD", "H", "H", "E-18", "L", "N",
-  "L", "G", "H", "H", "L", "L", "E", "N", "BD", "H",
-  "E-18",
-];
+// July 原田行 golden（単一正本・CEO 原本確認済、day25 空欄）
+const JULY_CODES = [...JULY_HARADA_CODES];
 
 function buildCells(codes: string[]): ExtractedShiftCell[] {
   return codes.map((rawCode, i) => ({
@@ -90,10 +86,10 @@ describe("scoreExtraction — セル欠落", () => {
 });
 
 describe("scoreExtraction — 空セル誤読（GPT B1a 指標）", () => {
-  it("July golden は空セルなし（expectedEmpty=0・ok）", () => {
+  it("July golden は day25 が空欄（expectedEmpty=1・ok）", () => {
     const s = scoreExtraction(golden, golden);
     expect(s.emptyCell).toEqual({
-      expectedEmpty: 0,
+      expectedEmpty: 1, // CEO 原本確認: day25 は空欄
       falseContent: 0,
       missedContent: 0,
       ok: true,
