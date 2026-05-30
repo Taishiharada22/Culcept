@@ -155,6 +155,90 @@ shared WornHistory を engine 学習入力へ接続する段階。**いきなり
 
 ---
 
+## 14. Phase 5-D — engine read canary plan（5-D1 docs・flag は未 ON）
+shared WornHistory 由来の学習入力を engine が読む（`engineReadsCorpus`）を**初めて ON にする前**の canary 計画。 **5-D1 は docs のみ。 flag ON / env 変更 / runtime override 実装はしない。**
+
+### 14.1 Phase 5-C 完了状態
+- 5-C1: flag + engine input builder（`buildWornHistoryEngineInput` / `WornHistoryEngineInput`）。
+- 5-C2: A側 facade injection（learningRecords→satisfaction/combo、recencyRecords→recentlyWornIds）。
+- 5-C3: B側 rotation/scoring cache injection（learningRecords を per-run prime）。
+- **`flag default off` / `activation not started`**。配線は全て **/plan の `outfitEngineAdapter`（flag reader 1 箇所）**経由。`/calendar` は flag/bundle を経由せず**無影響**。
+
+### 14.2 canary 対象の順番（固定）
+```
+5-D2: local dev smoke
+5-D3: preview smoke
+5-D4: production canary
+```
+- **production global flip は禁止**。
+- **production allowlist には runtime override / remote flag / user-scoped gate が必要**（現状の global build-time flag 単体では不可）。
+
+### 14.3 flag 運用の現実
+`NEXT_PUBLIC_WORN_HISTORY_ENGINE_READS_CORPUS` は **client build に baked される**ため：
+- env 変更には **rebuild / redeploy が必要**。
+- **即時 rollback ではない**（redeploy 待ち）。
+- **production per-user allowlist はこのままでは不可**（全 client が同じ baked 値）。
+
+### 14.4 production canary 前の追加ゲート（5-D4 前の必須判断）
+production canary（5-D4）の前に、以下のどちらかを選ぶ：
+- **A. runtime override / user-scoped flag を先に作る（推奨）** — blast radius が小さい・即時 kill 可・user-scoped canary 可。既存 `engineReadsCorpus(override?)` の override 口を client runtime toggle（localStorage / URL / remote）に配線する別スライス。
+- **B. production global flip を明示承認する** — blast radius 大・rollback に redeploy・engine 提案結果に影響。
+- **5-D1 では A を実装しない**（本判断は「5-D4 前の必須判断」として記録のみ）。
+
+### 14.5 観測指標（privacy-safe summary のみ）
+**入力層**（5-B `compareWornHistoryLearningInputs` で取得可）：
+```
+legacyCount / sharedLearningCount / sharedRecencyCount /
+learningDelta / recencyDelta /
+sharedAddsPlanFeedback / sharedAddsStyleRecency /
+excludedMockCount / excludedMyStyleFromLearningCount
+```
+**出力層**：
+```
+proposal count / item overlap ratio / SYNC score delta /
+confidence delta / fallback count / runtime error presence / empty proposal occurrence
+```
+- **raw item IDs / note / moodTag / personal text は出さない**（counts / boolean / rounded delta のみ）。
+
+### 14.6 shadow compare 方針
+```
+local/dev only: runtime compare may be allowed（console summary・手動観測）
+production: no compare logging by default
+analytics / log persistence: separate gate
+```
+5-D1 は設計のみ・実装しない。
+
+### 14.7 fallback / rollback
+fallback（5-C 実装済）：
+```
+shared read fail   → old path
+bundle null        → old path
+learningRecords empty → old learning path
+recencyRecords empty  → old recency path
+rotation prime fail   → old B path
+flag off           → full old path
+```
+rollback：
+```
+flag を false に戻す → env を戻す → redeploy する
+canonical / localStorage data は消さない（canary は read-only・write 無し）
+```
+※ runtime override が無い限り **即時 kill ではない**（redeploy 必要）。
+
+### 14.8 GO / NO-GO 基準
+**GO**：compile error なし / runtime error なし / fallback 機能 / proposal が空にならない / mock・hydrated_mock・my_style が learning に入らない / my_style は recency にのみ入る / SYNC・confidence が極端に崩れない / flag off で旧 path に戻る。
+**NO-GO（即 flag false + redeploy）**：proposal が空 / 同じ服ばかり / mock が learning 混入 / my_style が learning 混入 / runtime error / flag off でも戻らない / fallback 不発。
+
+### 14.9 分割
+```
+5-D1: canary 設計 docs（本節）← docs-only
+5-D2: local/dev smoke checklist（env も触らず手動 + dev-only console compare 可）
+5-D3: preview deploy 全体 ON smoke（CEO 検証）
+5-D4: production canary（14.4 の A/B 判断後）
+```
+
+---
+
 ## Appendix A — store inventory（現状）
 | key | 役割 | shape | 学習接続 | 区分 |
 |---|---|---|---|---|
