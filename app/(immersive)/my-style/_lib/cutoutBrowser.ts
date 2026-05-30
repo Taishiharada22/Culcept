@@ -216,7 +216,7 @@ export interface CutoutItemFields {
   cutoutUrl?: string;
   cutoutStatus: CutoutStatus;
   cutoutConfidence: number;
-  cutoutMethod: "heuristic_v1" | "none";
+  cutoutMethod: "heuristic_v1" | "manual" | "none";
 }
 
 /**
@@ -231,5 +231,60 @@ export function cutoutResultToItemFields(result: CutoutBrowserResult): CutoutIte
     cutoutStatus: result.status,
     cutoutConfidence: result.confidence,
     cutoutMethod: adopted ? "heuristic_v1" : "none",
+  };
+}
+
+/* ── C1L-4c-b1: BackgroundRemover の「適用」結果（draft）と保存写像 ── */
+
+/** ユーザーが overlay で確認/編集して保存対象に確定した cutout の下書き。 */
+export interface CutoutDraft {
+  dataUrl?: string;
+  status: CutoutStatus;
+  method: "heuristic_v1" | "manual" | "none";
+  confidence?: number;
+}
+
+/**
+ * BackgroundRemover の「適用」押下時に、 cutout draft を決める（pure）。
+ * - 手動編集あり（消しゴム使用）→ status=success / method=manual / dataUrl=編集結果。
+ * - 編集なし & V1 が cutout を出していた（success/needs_review）→ success / heuristic_v1 / dataUrl=V1 結果。
+ *   （**ユーザーが明示適用 → needs_review のまま残さず success に昇格**）
+ * - 編集なし & V1 が cutout を出せなかった（failed/skipped）→ cutout なし（dataUrl 無し・method=none）。
+ *   原画をそのまま「cutout」として保存しない。
+ */
+export function resolveApplyDraft(input: {
+  edited: boolean;
+  v1Status: CutoutStatus;
+  currentDataUrl: string | null;
+  confidence: number;
+}): CutoutDraft {
+  const hadCutout = input.v1Status === "success" || input.v1Status === "needs_review";
+  if (input.edited && input.currentDataUrl) {
+    return { dataUrl: input.currentDataUrl, status: "success", method: "manual", confidence: input.confidence };
+  }
+  if (hadCutout && input.currentDataUrl) {
+    return { dataUrl: input.currentDataUrl, status: "success", method: "heuristic_v1", confidence: input.confidence };
+  }
+  // V1 が cutout を出せず、 手動編集も無い → cutout なし（failed/skipped を踏襲）。
+  return {
+    status: input.v1Status === "failed" ? "failed" : "skipped",
+    method: "none",
+    confidence: input.confidence,
+  };
+}
+
+/** スキップ時の draft。 */
+export function skippedDraft(): CutoutDraft {
+  return { status: "skipped", method: "none" };
+}
+
+/** cutout draft を WardrobeItem 保存フィールドへ写像する（pure）。 manual も保持する点が cutoutResultToItemFields と異なる。 */
+export function cutoutDraftToItemFields(draft: CutoutDraft): CutoutItemFields {
+  const adopted = draft.status === "success" || draft.status === "needs_review";
+  return {
+    ...(adopted && draft.dataUrl ? { cutoutUrl: draft.dataUrl } : {}),
+    cutoutStatus: draft.status,
+    cutoutConfidence: draft.confidence ?? 0,
+    cutoutMethod: draft.method,
   };
 }

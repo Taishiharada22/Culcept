@@ -10,13 +10,10 @@ import {
     FadeInView,
 } from "@/components/ui/glassmorphism-design";
 import { cn } from "@/lib/utils";
-import {
-    removeBackground,
-    applyCleanBackground,
-    cropToSubject,
-    type RemovalResult,
-} from "../_lib/backgroundRemoval";
+import { applyCleanBackground, cropToSubject } from "../_lib/backgroundRemoval";
 import { interpolateStrokePoints } from "../_lib/brushStroke";
+import { processImageCutout, resolveApplyDraft, type CutoutDraft } from "../_lib/cutoutBrowser";
+import type { CutoutStatus } from "../_lib/backgroundRemovalV1";
 
 /* ── Types ── */
 
@@ -27,8 +24,8 @@ interface BackgroundRemoverProps {
     imageFile?: File;
     /** If provided instead of imageFile, use this data URL directly */
     imageUrl?: string;
-    /** Called when user confirms the processed image */
-    onApply: (processedDataUrl: string) => void;
+    /** Called when user confirms — cutout draft（dataUrl/status/method/confidence）を返す */
+    onApply: (draft: CutoutDraft) => void;
     /** Called when user skips background removal */
     onSkip: () => void;
     /** Called when user cancels entirely */
@@ -58,6 +55,8 @@ export default function BackgroundRemover({
     const [originalUrl, setOriginalUrl] = useState<string | null>(null);
     const [processedUrl, setProcessedUrl] = useState<string | null>(null);
     const [confidence, setConfidence] = useState(0);
+    const [v1Status, setV1Status] = useState<CutoutStatus>("skipped"); // V1 初期処理の判定
+    const [edited, setEdited] = useState(false); // 消しゴム等で手動編集したか
     const [selectedBg, setSelectedBg] = useState<BgOption>("white");
     const [autoCrop, setAutoCrop] = useState(true);
     const [showComparison, setShowComparison] = useState(false);
@@ -82,67 +81,45 @@ export default function BackgroundRemover({
         }
     }, [imageFile, externalImageUrl]);
 
-    /* ── Process image ── */
+    /* ── Process image (C1L-4c-b1: V1 cutout 経路。 出力は透過 PNG) ── */
     const processImage = useCallback(async () => {
-        if (!imageFile && !originalUrl) return;
+        const input: Blob | string | undefined = imageFile ?? externalImageUrl ?? originalUrl ?? undefined;
+        if (!input) return;
 
         setProcessing(true);
-        setProgress(10);
+        setProgress(30);
         setError(null);
 
         try {
-            let result: RemovalResult;
-
-            // Determine background color
-            const bgColorMap: Record<BgOption, string | undefined> = {
-                white: "#ffffff",
-                gray: "#e5e7eb",
-                transparent: undefined,
-            };
-            const bgColor = bgColorMap[selectedBg];
-
-            setProgress(30);
-
-            if (imageFile) {
-                result = await removeBackground(imageFile, {
-                    tolerance: 50,
-                    bgColor,
-                });
-            } else if (originalUrl) {
-                // Reconstruct a File from data URL for the removeBackground API
-                const resp = await fetch(originalUrl);
-                const blob = await resp.blob();
-                const file = new File([blob], "image.png", {
-                    type: blob.type,
-                });
-                result = await removeBackground(file, {
-                    tolerance: 50,
-                    bgColor,
-                });
-            } else {
-                throw new Error("No image provided");
-            }
-
+            const result = await processImageCutout(input, { maxDimension: 768 });
             setProgress(70);
-
-            let finalUrl = result.processedUrl;
-
-            // Auto crop if enabled
-            if (autoCrop) {
-                finalUrl = await cropToSubject(finalUrl, 0.08);
-            }
-
-            setProgress(100);
-            setProcessedUrl(finalUrl);
-            setOriginalUrl(result.originalUrl);
+            setV1Status(result.status);
             setConfidence(result.confidence);
+            setEdited(false);
+
+            if (result.dataUrl && (result.status === "success" || result.status === "needs_review")) {
+                let finalUrl = result.dataUrl;
+                if (autoCrop) {
+                    try {
+                        finalUrl = await cropToSubject(finalUrl, 0.08);
+                    } catch {
+                        /* keep finalUrl */
+                    }
+                }
+                setProcessedUrl(finalUrl);
+            } else {
+                // failed / skipped → 自動 cutout なし。 原画表示（displayUrl が originalUrl にフォールバック）。
+                setProcessedUrl(null);
+            }
+            setProgress(100);
         } catch (err) {
-            console.error("Background removal failed:", err);
-            setError("背景除去に失敗しました。別の画像をお試しください。");
+            console.error("Background cutout failed:", err);
+            setV1Status("failed");
+            setError("背景除去に失敗しました。スキップして登録を続けられます。");
         } finally {
             setProcessing(false);
         }
-    }, [imageFile, originalUrl, selectedBg, autoCrop]);
+    }, [imageFile, externalImageUrl, originalUrl, autoCrop]);
 
     /* ── Auto-process on mount ── */
     useEffect(() => {
@@ -161,23 +138,15 @@ export default function BackgroundRemover({
 
     /* ── Eraser drawing (pointer-based, interpolated, canvas-direct) ── */
     // 1 ダブ分を canvas に直接消す（transparent=destination-out / 単色=その色で塗り）。
-    const eraseDab = useCallback(
-        (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) => {
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
-            if (selectedBg === "transparent") {
-                ctx.globalCompositeOperation = "destination-out";
-                ctx.fill();
-            } else {
-                ctx.globalCompositeOperation = "source-over";
-                ctx.fillStyle = selectedBg === "white" ? "#ffffff" : "#e5e7eb";
-                ctx.fill();
-            }
-            ctx.restore();
-        },
-        [selectedBg]
-    );
+    const eraseDab = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, radius: number) => {
+        // cutout の正本は透過 PNG なので、 消去は常に透過化（destination-out）。 背景色はプレビュー表示のみ。
+        ctx.save();
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }, []);
 
     // pointer の clientXY → canvas 座標 + ブラシ半径（canvas スケール）。
     const canvasPointFromEvent = useCallback(
@@ -244,6 +213,7 @@ export default function BackgroundRemover({
         if (!isDrawingRef.current) return;
         isDrawingRef.current = false;
         prevPointRef.current = null;
+        setEdited(true); // 一度でも消したら manual 扱い
         if (!canvas) return;
         try {
             setProcessedUrl(canvas.toDataURL("image/png"));
@@ -644,7 +614,17 @@ export default function BackgroundRemover({
                             variant="primary"
                             size="sm"
                             disabled={!processedUrl || processing}
-                            onClick={() => processedUrl && onApply(processedUrl)}
+                            onClick={() => {
+                                if (!processedUrl) return;
+                                onApply(
+                                    resolveApplyDraft({
+                                        edited,
+                                        v1Status,
+                                        currentDataUrl: processedUrl,
+                                        confidence,
+                                    }),
+                                );
+                            }}
                             className="flex-1"
                         >
                             適用
@@ -654,9 +634,10 @@ export default function BackgroundRemover({
                             size="sm"
                             disabled={!processedUrl || processing}
                             onClick={() => {
-                                setProcessedUrl(null);
                                 setEraserMode(false);
                                 setShowComparison(false);
+                                setEdited(false);
+                                handleReprocess(); // V1 を再実行して初期状態へ
                             }}
                             className="flex-1"
                         >

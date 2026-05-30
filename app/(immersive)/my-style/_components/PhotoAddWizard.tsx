@@ -18,7 +18,14 @@ import { extractDominantColors, hexToColorName } from "../_lib/imageColorExtract
 import type { DominantColor } from "../_lib/imageColorExtract";
 import BackgroundRemover from "./BackgroundRemover";
 import { getCaptureGuide } from "../_lib/captureGuides";
-import { processImageCutout, cutoutResultToItemFields, type CutoutItemFields } from "../_lib/cutoutBrowser";
+import {
+    processImageCutout,
+    cutoutResultToItemFields,
+    cutoutDraftToItemFields,
+    skippedDraft,
+    type CutoutItemFields,
+    type CutoutDraft,
+} from "../_lib/cutoutBrowser";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,6 +111,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
     const [saved, setSaved] = useState(false);
     const [savedCount, setSavedCount] = useState(0);
     const [processing, setProcessing] = useState(false); // C1L-4b: cutout 処理中（保存ボタン loading）
+    const [cutoutDraft, setCutoutDraft] = useState<CutoutDraft | null>(null); // C1L-4c-b1: overlay で適用した cutout
 
     // Derived
     const subcategoryOptions = useMemo(
@@ -222,10 +230,13 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             }
         }
 
-        // C1L-4b: local cutout (background removal v1) を save 時に実行し cutout メタを付与する。
-        // category frame を segmentation prior として渡す（crop ではない）。 失敗しても登録は止めない。
+        // C1L-4c-b1: 保存する cutout の優先順位 = ①BackgroundRemover で適用した draft（見たもの=保存物）
+        //   ②draft が無い場合のみ V1 を fallback 実行 ③それも失敗なら imageUrl のみ。
+        // category frame は segmentation prior（crop ではない）。 失敗しても登録は止めない。
         let cutoutFields: CutoutItemFields | null = null;
-        if (imageFile) {
+        if (cutoutDraft) {
+            cutoutFields = cutoutDraftToItemFields(cutoutDraft);
+        } else if (imageFile) {
             setProcessing(true);
             try {
                 const result = await processImageCutout(imageFile, {
@@ -286,6 +297,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
         formality,
         itemCount,
         onSave,
+        cutoutDraft,
     ]);
 
     const handleRestart = useCallback(() => {
@@ -300,6 +312,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
         setName("");
         setSeason("all");
         setFormality("casual");
+        setCutoutDraft(null); // C1L-4c-b1: 次の登録用に draft をクリア
         setSaved(false);
         setDirection(-1);
         setStep(1);
@@ -907,8 +920,14 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
                         <h3 className="text-lg font-bold text-slate-900 mb-3">背景を整える</h3>
                         <BackgroundRemover
                             imageFile={imageFile}
-                            onApply={(processedUrl) => void proceedToColorStep(processedUrl)}
-                            onSkip={() => void proceedToColorStep()}
+                            onApply={(draft) => {
+                                setCutoutDraft(draft);
+                                void proceedToColorStep(draft.dataUrl);
+                            }}
+                            onSkip={() => {
+                                setCutoutDraft(skippedDraft());
+                                void proceedToColorStep();
+                            }}
                             onCancel={() => setShowBgRemover(false)}
                         />
                     </div>
