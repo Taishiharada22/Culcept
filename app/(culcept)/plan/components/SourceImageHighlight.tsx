@@ -22,7 +22,7 @@ interface SourceImageHighlightProps {
   geometry: ShiftGridGeometry;
   /** ハイライトする日（null なら強調なし） */
   highlightDay: number | null;
-  /** 表示幅(px)。画像はこの幅に縮尺 */
+  /** 表示幅(px)。画像はこの幅に縮尺。モバイルではコンテナ幅を超え横スクロール */
   displayWidth?: number;
 }
 
@@ -30,7 +30,7 @@ export function SourceImageHighlight({
   imageSrc,
   geometry,
   highlightDay,
-  displayWidth = 340,
+  displayWidth = 600,
 }: SourceImageHighlightProps) {
   const scale = displayWidth / geometry.imageWidth;
   const displayHeight = Math.round(geometry.imageHeight * scale);

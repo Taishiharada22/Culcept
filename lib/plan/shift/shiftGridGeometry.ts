@@ -55,16 +55,20 @@ export function cellCropRegion(
 /**
  * July 原田 SPRIX の calibration（1860×846）。
  *
- * CEO 実機観測（2026-05-30）から逆算: 旧 gridLeft=400/colWidth=45.4 で
- * day1→day3・day8→day9・day19→day19 のズレ（= 線形ドリフトの整数丸め）。
- * myX(1)=trueX(3), myX(19)=trueX(19) を解いて gridLeft=298, colWidth=51.1。
- * ※ bucket 境界に僅かな非線形残差。実機 calibration UI で per-column 補正の対象。
+ * ground-truth 校正（2026-05-30, Playwright + canvas でヘッダー日番号の列中心を実測）:
+ *   検出した数字中心 = day2..31 の 301,353,…,1795（均一 51.5px）。
+ *   day1 の細い「1」は輝度閾下で未検出 → 外挿で中心 249.5。
+ *   → day1 セル左端 = 249.5 − 51.5/2 ≈ 224、colWidth = 51.5。
+ * 裏付け: 旧 gridLeft=298 では「day25 に合わせると day26 が光る」（CEO 観測）。
+ *   旧 box center=1550 が true day26(≈1537) に乗る計算と一致し、検出 index0=day2 を確証。
+ *   新値は全日 <1px で整合（旧 247/51.1 は day25 のみ合致し低day で +20px 残存の近似）。
+ * ※ 縦(cropTop/Height)は CEO 許容範囲。微調整は実機 calibration UI（将来）。
  */
 export const HARADA_SPRIX_JULY_GEOMETRY: ShiftGridGeometry = {
   imageWidth: 1860,
   imageHeight: 846,
-  gridLeft: 298,
-  colWidth: 51.1,
+  gridLeft: 224,
+  colWidth: 51.5,
   cropTop: 298,
   cropHeight: 52,
 };
