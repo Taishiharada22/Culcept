@@ -276,6 +276,51 @@ canonical / localStorage data は消さない（canary は read-only・write 無
 
 **5-D2 の境界**：本節は checklist を docs 固定するのみ。 **flag ON / `.env.local` 変更 / dev smoke 実行は別ゲート（CEO 承認後）**。
 
+### 14.10b local dev smoke 実行結果（5-D2b・compile-safe PASS / 挙動次元は未検証）
+- 実施：inline env（`NEXT_PUBLIC_WORN_HISTORY_ENGINE_READS_CORPUS=true npx next dev`・`.env.local` 不触）で OFF→ON→OFF の 3 フェーズ。
+- **安全次元 PASS**：3 フェーズとも `/plan=307 /calendar=307 /login=200`・compile/runtime error なし・flag OFF 復帰一致・`.env.local` hash 不変・tree clean。
+- **挙動次元は未検証**：curl は未認証 redirect（307）までしか観測できず、/plan の client レンダリング（提案・SYNC・confidence・item 構成）と My-Style IndexedDB 実データに到達できない。→ 提案が空でないか / my_style が recency のみか / mock 非混入か等は **preview（CEO 認証ブラウザ + 実データ）で確認**（§14.11）。
+
+### 14.11 preview smoke plan（5-D3・docs のみ・未実行）
+preview 環境で flag ON 時に、 CEO の**認証済みブラウザ + 実 My-Style データ**で /plan 提案が壊れないかを確認するための設計（5-D2b で観測できなかった「挙動次元」を preview で見る）。
+
+**前提**：
+- 対象は **preview 環境のみ**。 production は触らない。 **production global flip は禁止**。 Vercel production env は触らない。
+- `/calendar` 削除・UI 変更・My-Style 変更には進まない。
+
+**手順案（docs 固定・5-D3 では実行しない）**：
+```
+1.  working tree clean を確認
+2.  preview branch / deployment 対象を確認
+3.  preview env に NEXT_PUBLIC_WORN_HISTORY_ENGINE_READS_CORPUS=true を設定
+4.  preview を redeploy（NEXT_PUBLIC_ は build-time baked のため必須）
+5.  CEO が認証済みブラウザで /plan を開く
+6.  おすすめコーデが表示されるか確認
+7.  SYNC score / confidence / item 構成を記録（アイテム名でなく件数・重なり率）
+8.  flag OFF の preview と比較
+9.  問題があれば preview env から flag を unset + redeploy
+```
+
+**CEO 実機で見る項目**：
+- /plan が開く
+- おすすめコーデが表示される
+- 提案が空にならない
+- 同じ服ばかりにならない
+- SYNC score が極端に崩れない
+- confidence が極端に崩れない
+- 最近着た服が過剰に再提案されない
+- my_style は recency として効くが learning には入らない
+- mock / hydrated_mock は learning に入らない
+- flag OFF に戻すと旧 path に戻る
+
+**before / after 比較（flag OFF / ON）**：proposal count / item overlap ratio / SYNC score delta / confidence delta / fallback・error 有無 / empty proposal 有無。**raw item IDs / note / moodTag / personal text は出さない**（「重なり率」「件数」「差分あり/なし」で記録）。
+
+**preview rollback**：
+- preview env から flag を消す → preview redeploy。
+- **canonical / localStorage data は消さない**。 production は無関係。
+
+**5-D3 の境界**：本節は preview smoke plan を docs 固定するのみ。 **preview env 変更 / Vercel 変更 / flag ON / redeploy / 実行は別ゲート（CEO 承認後）**。 production / runtime override / analytics / server-sync / backfill / canonical-only flip / old key 削除 / `/calendar` 削除 には進まない。
+
 ---
 
 ## Appendix A — store inventory（現状）
