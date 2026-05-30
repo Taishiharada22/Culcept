@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { scoreExtraction } from "@/lib/plan/shift/shiftExtractionScoring";
 import type { ExtractedShiftCell } from "@/lib/plan/shift/shiftExtractionContract";
 import { JULY_HARADA_CODES } from "./julyHaradaGolden";
+import { APRIL_HARADA_CODES } from "./shiftMonthGoldens";
 
 // July 原田行 golden（単一正本・CEO 原本確認済、day25 空欄）
 const JULY_CODES = [...JULY_HARADA_CODES];
@@ -117,5 +118,39 @@ describe("scoreExtraction — 空セル誤読（GPT B1a 指標）", () => {
     const s = scoreExtraction(dropped, emptyGolden);
     expect(s.emptyCell.missedContent).toBe(1);
     expect(s.emptyCell.ok).toBe(false);
+  });
+});
+
+describe("scoreExtraction — blankSkipShift（GPT B1a-v3 指標）", () => {
+  it("完全一致は ok（空も正読）", () => {
+    const g = buildCells(["G", "", "N", "L"]);
+    const s = scoreExtraction(g, g);
+    expect(s.blankSkipShift.ok).toBe(true);
+    expect(s.blankSkipShift.expectedBlanks).toBe(1);
+    expect(s.blankSkipShift.blanksReadCorrectly).toBe(1);
+  });
+
+  it("空を飛ばして前詰めした shift を検出（blanksMissed + pullForward）", () => {
+    const golden = buildCells(["G", "", "N", "L"]); // 2日目=空
+    const shifted = buildCells(["G", "N", "L", ""]); // 空を飛ばし前詰め
+    const s = scoreExtraction(shifted, golden);
+    expect(s.blankSkipShift.blanksMissed).toBe(1); // 2日目の空を埋めた
+    expect(s.blankSkipShift.pullForwardMismatches).toBeGreaterThanOrEqual(1);
+    expect(s.blankSkipShift.detected).toBe(true);
+    expect(s.blankSkipShift.ok).toBe(false);
+  });
+
+  it("実 April の blank-skip を検出（model 25=G で 25日空を埋めた）", () => {
+    // B1a-v2 実走の April 抽出（25日空を G で埋め以降 shift）
+    const modelApril = buildCells([
+      "L", "E", "N", "BD", "HREQ", "H", "E-18", "L", "N", "L",
+      "G", "H", "H", "L", "L", "E", "N", "BD", "H", "H",
+      "E-18", "L", "N", "L", "G", "H", "H", "L", "L", "",
+    ]);
+    const golden = buildCells([...APRIL_HARADA_CODES]);
+    const s = scoreExtraction(modelApril, golden);
+    expect(s.blankSkipShift.blanksMissed).toBe(1); // 25日空を G で埋めた
+    expect(s.blankSkipShift.detected).toBe(true);
+    expect(s.cellAccuracy).toBeCloseTo(27 / 30, 2); // 90%
   });
 });

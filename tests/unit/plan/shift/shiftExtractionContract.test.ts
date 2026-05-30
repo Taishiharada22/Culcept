@@ -174,4 +174,16 @@ describe("buildDayKeyedExtractionPrompt", () => {
     expect(p).toContain("16日〜31日");
     expect(DAY_KEYED_EXTRACTION_JSON_SCHEMA.items.required).toContain("day");
   });
+
+  it("空セル保全（blank-skip 防止）の文言を含む（B1a-v3）", () => {
+    const p = buildDayKeyedExtractionPrompt({
+      personName: "原田 大志",
+      year: 2025,
+      month: 7,
+      daysInMonth: 31,
+    });
+    expect(p).toContain("空セルの扱い");
+    expect(p).toContain("空セルを隣の日の値で埋めないでください");
+    expect(p).toContain("前に詰める読み方は");
+  });
 });

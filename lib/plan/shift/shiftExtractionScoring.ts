@@ -48,6 +48,20 @@ export interface ExtractionScore {
     missedContent: number; // golden に記号があるのに空と読んだ
     ok: boolean;
   };
+  /**
+   * blank-skip shift（B1a cross-month の真の失敗モード）。
+   * 真の空セルを飛ばし、以降を 1 つ前に詰めて読む = coverage 通過のまま内容 shift。
+   * ※ golden 有り（eval）での検出指標。production（golden 無し）では clean に
+   *   終わる shift は構造署名を残さない → 確認画面が final safety net。
+   */
+  blankSkipShift: {
+    expectedBlanks: number; // golden の空セル数
+    blanksReadCorrectly: number; // 空として正読できた数
+    blanksMissed: number; // 空を非空で埋めた数（skip の起点）
+    pullForwardMismatches: number; // 不一致 かつ extracted[D]==golden[D+1]（前詰め署名）
+    detected: boolean; // blanksMissed>0 && pullForward>0
+    ok: boolean; // blanksMissed==0 && pullForward==0
+  };
 }
 
 function indexByDate(
@@ -141,6 +155,27 @@ export function scoreExtraction(
     }
   }
 
+  // blank-skip shift: 空見落とし + pull-forward 署名（extracted[D]==golden[D+1]）
+  const sortedDates = [...goldenByDate.keys()].sort();
+  let expectedBlanks = 0;
+  let blanksReadCorrectly = 0;
+  let blanksMissed = 0;
+  let pullForward = 0;
+  for (let i = 0; i < sortedDates.length; i += 1) {
+    const date = sortedDates[i];
+    const exp = goldenByDate.get(date)!;
+    const got = extractedByDate.get(date) ?? null;
+    if (exp === "") {
+      expectedBlanks += 1;
+      if (got === "") blanksReadCorrectly += 1;
+      else blanksMissed += 1;
+    }
+    if (got !== null && got !== exp && i + 1 < sortedDates.length) {
+      const nextExp = goldenByDate.get(sortedDates[i + 1]);
+      if (got === nextExp) pullForward += 1;
+    }
+  }
+
   return {
     totalGoldenCells: total,
     matchedCells: matched,
@@ -164,6 +199,14 @@ export function scoreExtraction(
       falseContent,
       missedContent,
       ok: falseContent === 0 && missedContent === 0,
+    },
+    blankSkipShift: {
+      expectedBlanks,
+      blanksReadCorrectly,
+      blanksMissed,
+      pullForwardMismatches: pullForward,
+      detected: blanksMissed > 0 && pullForward > 0,
+      ok: blanksMissed === 0 && pullForward === 0,
     },
   };
 }
