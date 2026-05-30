@@ -44,7 +44,7 @@ describe("HARADA_SPRIX_JULY_GEOMETRY", () => {
     expect(HARADA_SPRIX_JULY_GEOMETRY.imageWidth).toBe(1860);
     expect(HARADA_SPRIX_JULY_GEOMETRY.imageHeight).toBe(846);
     const r = cellCropRegion(HARADA_SPRIX_JULY_GEOMETRY, 1);
-    expect(r.x).toBe(224);
+    expect(r.x).toBe(275);
     expect(r.width).toBeCloseTo(51.5, 1);
   });
 

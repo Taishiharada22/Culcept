@@ -56,18 +56,19 @@ export function cellCropRegion(
  * July 原田 SPRIX の calibration（1860×846）。
  *
  * ground-truth 校正（2026-05-30, Playwright + canvas でヘッダー日番号の列中心を実測）:
- *   検出した数字中心 = day2..31 の 301,353,…,1795（均一 51.5px）。
- *   day1 の細い「1」は輝度閾下で未検出 → 外挿で中心 249.5。
- *   → day1 セル左端 = 249.5 − 51.5/2 ≈ 224、colWidth = 51.5。
- * 裏付け: 旧 gridLeft=298 では「day25 に合わせると day26 が光る」（CEO 観測）。
- *   旧 box center=1550 が true day26(≈1537) に乗る計算と一致し、検出 index0=day2 を確証。
- *   新値は全日 <1px で整合（旧 247/51.1 は day25 のみ合致し低day で +20px 残存の近似）。
+ *   検出した数字中心 = 301,353,…,1795（均一 51.5px）。
+ *   index0(301) が day1 か day2 かが原点を決める。CEO の構造的観測が決定打:
+ *   「gridLeft=224 では day1 が左隣の公休列を指し、day25 が day24」=「301=day1」を確定
+ *   （細い「1」を別要素と誤認し一時 301=day2 と推論したのは誤り）。
+ *   → box 中心を数字中心に一致させる gridLeft = 301 − 51.5/2 ≈ 275、colWidth = 51.5。
+ *   検証: box_center(D)=275+(D-0.5)*51.5 は digit_center(D)=301+(D-1)*51.5 と全日 <0.5px 一致。
+ *   （旧 298 は +0.45 セルで CEO に +1=day26 と見え、224 は −1 セルで公休にずれた。275 が中心）
  * ※ 縦(cropTop/Height)は CEO 許容範囲。微調整は実機 calibration UI（将来）。
  */
 export const HARADA_SPRIX_JULY_GEOMETRY: ShiftGridGeometry = {
   imageWidth: 1860,
   imageHeight: 846,
-  gridLeft: 224,
+  gridLeft: 275,
   colWidth: 51.5,
   cropTop: 298,
   cropHeight: 52,
