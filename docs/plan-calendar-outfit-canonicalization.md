@@ -127,9 +127,20 @@ shared WornHistory を engine 学習入力へ接続する段階。**いきなり
 |---|---|---|
 | 5-A | engine read / learned 解禁 設計ゲート | 完了（設計） |
 | **5-B** | **learning / recency adapter + shadow comparator（pure・runtime 非接続）** | **完了 commit `0f8b0809`** |
-| 5-C | gated engine read switch（flag 既定 off。 学習=corpus / recency=entries を 2 読取点に配線）| 未 |
-| 5-D | learned signal verification（flag on canary で提案変化を検証）| 未 |
+| 5-C（設計） | gated engine read switch 設計ゲート（2 読取点 × 用途 2 系統・activation 遅延）| 完了（設計） |
+| **5-C1** | **flag + engine input bundle builder + recentlyWorn helper（pure・engine 非接続）** | **完了 commit `2165ba41`** |
+| 5-C2 | facade（A）gated injection（satisfaction/combo/recency を bundle 注入）| 未・flag off 維持 |
+| 5-C3 | getScoringCache（B）rotation 注入（engine IP・最危険）| 未・flag off 維持 |
+| 5-D | flag を canary で初 on（A+B 配線後）→ 提案変化検証 | 未 |
 | 5-E | server-sync 一本化設計 | 未 |
+
+**5-C1 成果物（runtime 非接続）**：
+- flag `WORN_HISTORY_FLAGS.engineReadsCorpus(override?)`（既定 false・`NEXT_PUBLIC_WORN_HISTORY_ENGINE_READS_CORPUS` 直接 member access で client 可視・override 最優先）。
+- `WornHistoryEngineInput { learningRecords, recencyRecords }` + `buildWornHistoryEngineInput(async)`（knownWardrobeIds 空 / read 失敗 / 両空 → null fallback）。
+- `getRecentlyWornItemIdsFromRecencyRecords()`（recency の shared 版・現行 `getRecentlyWornItemIds(7)` 相当）。
+- **engine（generateTodayProposal / generateDayProposal / getScoringCache）には未接続**。flag は ON 運用しない。
+
+**activation 安全規則（5-A/5-C 設計）**：A だけ on にすると A/B recency 不一致が本番化するため、**flag は 5-C2/5-C3 では off 維持し、A+B 両配線後（5-D）で初 on**。
 
 **用途分離（5-A 確定・5-B 実装）**：
 - 満足度 / コンボ学習 ← `learningCorpus`（source ∈ {engine, calendar_form}・satisfaction 必須）→ `learningCorpusToWornRecords()`
