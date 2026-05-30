@@ -29,6 +29,7 @@ import type {
   ShiftImportRepository,
   ShiftImportSourceInput,
   ShiftImportSaveResult,
+  ShiftImportRange,
 } from "./shiftImportRepository";
 
 export interface ExecuteShiftImportSaveInput {
@@ -36,6 +37,12 @@ export interface ExecuteShiftImportSaveInput {
   cells: ShiftCellReading[];
   dictionary: ShiftCodeDictionary;
   source: ShiftImportSourceInput;
+  /**
+   * 取り込み月範囲（半開 [start, endExclusive)）。**6B の range-scoped replace に必須**。
+   * 6A の in-memory repo（first-import）は無くても動くため optional（後方互換）。
+   * server action（6B-apply-C）は year/month から算出して必ず渡す。
+   */
+  importRange?: ShiftImportRange;
 }
 
 export type ShiftImportSaveOutcome =
@@ -64,6 +71,8 @@ export async function executeShiftImportSave(
     source: input.source,
     anchors: plan.anchorInputs,
     dayIndicators: plan.dayIndicators,
+    // 渡された時のみ importRange を束ねる（in-memory repo は無視、RPC repo は必須）
+    ...(input.importRange ? { importRange: input.importRange } : {}),
   });
 
   return { status: "saved", result };

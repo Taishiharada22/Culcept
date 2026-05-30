@@ -5,6 +5,10 @@ import {
 } from "@/lib/plan/shift/shiftImportSave";
 import { createInMemoryShiftImportRepository } from "@/lib/plan/shift/shiftImportRepositoryMemory";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
+import type {
+  ShiftImportRepository,
+  ShiftImportRange,
+} from "@/lib/plan/shift/shiftImportRepository";
 
 function deps() {
   let n = 0;
@@ -84,6 +88,52 @@ describe("executeShiftImportSave", () => {
     if (out.status !== "saved") return;
     expect(out.result.ok).toBe(false);
     expect(repo._isEmpty()).toBe(true);
+  });
+
+  it("importRange を渡すと repo.saveShiftImportBundle にそのまま forward される（6B range-scoped replace 用）", async () => {
+    const calls: { userId: string; importRange?: ShiftImportRange }[] = [];
+    const capturingRepo: ShiftImportRepository = {
+      async saveShiftImportBundle(userId, input) {
+        calls.push({ userId, importRange: input.importRange });
+        return { ok: false, errors: [{ kind: "persistence_failed", message: "x" }] };
+      },
+    };
+    await executeShiftImportSave(
+      {
+        userId: "user-1",
+        cells: [{ date: "2025-07-06", rawCode: "N" }], // 全 resolved → repo 到達
+        dictionary: HARADA_SPRIX_DICTIONARY,
+        source: {},
+        importRange: { start: "2025-07-01", endExclusive: "2025-08-01" },
+      },
+      capturingRepo
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].importRange).toEqual({
+      start: "2025-07-01",
+      endExclusive: "2025-08-01",
+    });
+  });
+
+  it("importRange を渡さなければ bundle に乗らない（6A 後方互換）", async () => {
+    const calls: { importRange?: ShiftImportRange }[] = [];
+    const capturingRepo: ShiftImportRepository = {
+      async saveShiftImportBundle(_userId, input) {
+        calls.push({ importRange: input.importRange });
+        return { ok: false, errors: [{ kind: "persistence_failed", message: "x" }] };
+      },
+    };
+    await executeShiftImportSave(
+      {
+        userId: "user-1",
+        cells: [{ date: "2025-07-06", rawCode: "N" }],
+        dictionary: HARADA_SPRIX_DICTIONARY,
+        source: {},
+      },
+      capturingRepo
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].importRange).toBeUndefined();
   });
 });
 
