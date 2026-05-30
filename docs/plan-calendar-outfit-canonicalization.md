@@ -1,6 +1,6 @@
 # Plan / Calendar Outfit — Canonicalization & shared WornHistory Roadmap
 
-**Status:** 現在地の固定（docs-only）。最終更新 2026-05-29。
+**Status:** 現在地の固定（docs-only）。最終更新 2026-05-30。
 **Scope:** これは「`/plan` Calendar タブのコーデ推薦体験」と「旧スタンドアロン `/calendar` ルートの縮退」、および両者をつなぐ **shared WornHistory** の現在地と将来計画を固定する文書です。
 **※ 命名注意:** `docs/alter-plan-*` は別ドメイン（Alter morning planner）です。本書は **服装/コーデ推薦と着用履歴（WornHistory）** に限定します。
 
@@ -11,8 +11,8 @@
 ## 0. TL;DR（現在地）
 - `/plan` の Calendar タブ（`app/(culcept)/plan/tabs/_calendar-outfit/`）を、コーデ体験の **今後の正本 UI** とする。
 - 旧 `/calendar` ルートは将来の**縮退/削除候補**。ただし **engine IP・learning source・server-sync はまだ `/calendar` 側に生きている**（§3）。
-- shared WornHistory は **ドメイン土台（Phase 3-A）** と **read-view（Phase 3-B-B）** までを実装済み。**まだ書き込みも runtime 接続もしていない**（§8）。
-- **learned 昇格は HOLD**（§7）。
+- shared WornHistory は **ドメイン土台（Phase 3-A）** + **read-view（Phase 3-B-B）** + **canonical write（Phase 4-1: shadow mirror, commit `5c961f7e`）** を実装済み。**engine runtime 接続・read-view flip・learned 昇格はしていない**（§7-8）。
+- **learned 昇格は HOLD（初解禁は Phase 5）**（§7）。
 
 ---
 
@@ -71,10 +71,11 @@
 ## 7. learned 昇格は HOLD
 - `/plan` の隔離 record を「学習対象」に昇格する（= engine が `/plan` 由来 record を学習する）ことは **HOLD**。
 - read-view の `learningCorpus` は**読み取り表現**であり、engine への接続はしていない（§8）。
+- **Phase 4-1（canonical shadow mirror）でも昇格しない**。canonical entry は `learningEligible` を保存するが、engine はこの canonical を読まない。**learned 初解禁は Phase 5**。
 
 ## 8. まだ未接続（触れていない）
 - `saveWornRecord`（calendar 学習 write）／`culcept_calendar_worn_v1` への write
-- shared store **write**（新 key `culcept_worn_history_v1` は**未作成**）
+- shared store **write**：`/plan`→`culcept_worn_history_v1` の **shadow mirror は Phase 4-1 で実装済**。calendar→canonical mirror（4-3）・read-view の canonical flip（4-2）は未
 - server-sync（`/api/calendar/day`）／Supabase／DB／migration
 - engine runtime からの `getLearningCorpus` 読み取り（Phase 5）
 - API route 新設／server action 新設／UI 接続（read-view を消費する UI はまだ無い）
@@ -92,11 +93,13 @@
 - **local diary UI 実機**：選択→着用→評価→取り消し→日付ドット→非 active マーカーの一連。
 - **read-view facade 実読み**：`loadWornHistoryView({includeCalendar:true})` が client 実環境で calendar 履歴を facade 経由で正しく読むか（unit は facade mock で固定済み、実読みは未確認）。
 
-## 11. Future roadmap（Phase 4 以降・すべて HOLD）
+## 11. Future roadmap（Phase 4-2 以降・すべて HOLD）
 | Phase | 内容 | 主なゲート |
 |---|---|---|
-| **4** | shared store **write / dual-write**：新 key `culcept_worn_history_v1` を新設。`/plan` が canonical へ書く。旧 key（plan/calendar）は rollback 用に温存。**初の learned 解禁はここ**。`②plan key in-place 変形は禁止`（rollback 喪失のため）。 | write 設計ゲート |
-| **5** | **engine reads shared WornHistory**：engine の `loadWornHistory` を `getLearningCorpus` に差し替え。`/calendar` 直読み廃止。server-sync を shared に一本化。 | engine read ゲート |
+| **4-1** | **canonical shadow mirror（実装済 commit `5c961f7e`）**：新 key `culcept_worn_history_v1` を新設し、`/plan` の着用 diary を mirror。旧 key 温存・read-view は旧 key のまま＝UX 不変・**learned 解禁しない**。 | write 設計ゲート（通過） |
+| **4-2** | **read-view canonical merge / flip**：read-view を canonical 優先へ。過去日欠落を防ぐため `canonical ∪ 旧 key` の後方互換 merge（または backfill）。 | read flip ゲート |
+| **4-3** | **calendar source mirror / backfill**：`/calendar` 着用保存も canonical へ mirror（＋既存履歴 backfill）。 | calendar write ゲート |
+| **5** | **engine reads shared WornHistory + learned 解禁**：engine の `loadWornHistory` を `getLearningCorpus` に差し替え。`/calendar` 直読み廃止。server-sync を shared に一本化。**learned 昇格はここで初解禁**（`②plan key in-place 変形は禁止`＝rollback 喪失のため）。 | engine read / learned ゲート |
 | **6** | `/calendar` redirect or hide（consumer 付け替え完了後）。 | `/calendar` 撤退ゲート |
 | **7** | `/calendar` physical removal（engine/学習を `lib/shared` へ移送済が前提）。 | 削除ゲート |
 
@@ -110,7 +113,7 @@
 | `culcept_plan_outfit_selection_v1` | `/plan` 選択（意図） | `CalendarOutfitSelection` | なし | WornHistory 対象外 |
 | `culcept_plan_worn_v1` | `/plan` 着用 diary（結果） | `PlanWornRecord` | なし（隔離） | dual-read の plan ソース |
 | `culcept_calendar_worn_v1`(+`_session`) | `/calendar` 着用＝現行学習正本 | `WornRecord{date,itemIds,satisfaction(必須),note?}` | **あり**（learner/combo/rotation/server-sync） | dual-read の calendar ソース（facade 経由） |
-| `culcept_worn_history_v1` | （未作成）shared canonical write home | `WornHistoryEntry[]` 予定 | — | **Phase 4 で新設予定** |
+| `culcept_worn_history_v1` | shared canonical write home（**Phase 4-1 新設**・shadow mirror） | `WornHistoryEntry[]` | なし（engine 未読・Phase 5 解禁） | dual-write の canonical |
 | (`culcept_wear_records_v1`) | My-Style cost-per-wear | 別ドメイン | — | 対象外 |
 
 ## Appendix B — 不変条件（read-view 実装で守られていること）
