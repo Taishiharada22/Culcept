@@ -3,7 +3,9 @@ import { describe, it, expect } from "vitest";
 import {
   planWornRecordToEntry,
   calendarWornRecordToEntry,
+  wearEventToEntry,
   type PlanWornRecordInput,
+  type WearEventInput,
 } from "@/lib/shared/wornHistory";
 // type-only import: 実 PlanWornRecord が converter 入力に assignable であることを compile-time で pin
 // （直接の runtime 依存は作らない。 storage には一切触れない）
@@ -148,5 +150,50 @@ describe("calendarWornRecordToEntry", () => {
     expect(calendarWornRecordToEntry(rec, { knownWardrobeIds: ["zzz"] }).learningEligible).toBe(
       false,
     );
+  });
+});
+
+describe("wearEventToEntry（Phase 4-4a）", () => {
+  it("origin=style / source=my_style を作る（wornAt 既定は date 深夜）", () => {
+    const input: WearEventInput = { date: "2026-05-29", itemIds: ["m1", "m2"] };
+    const e = wearEventToEntry(input);
+    expect(e.origin).toBe("style");
+    expect(e.source).toBe("my_style");
+    expect(e.itemIds).toEqual(["m1", "m2"]);
+    expect(e.wornAt).toBe("2026-05-29T00:00:00.000Z");
+  });
+
+  it("satisfaction があれば保持する", () => {
+    const e = wearEventToEntry({ date: "2026-05-29", itemIds: ["m1"], satisfaction: 4 });
+    expect(e.satisfaction).toBe(4);
+  });
+
+  it("satisfaction + itemIds + knownWardrobeIds 一致でも learningEligible=false（my_style は学習対象外）", () => {
+    expect(wearEventToEntry({ date: "2026-05-29", itemIds: ["m1"], satisfaction: 5 }).learningEligible).toBe(false);
+    expect(
+      wearEventToEntry({ date: "2026-05-29", itemIds: ["m1"], satisfaction: 5 }, { knownWardrobeIds: ["m1"] })
+        .learningEligible,
+    ).toBe(false);
+  });
+
+  it("note / moodTag は canonical entry に載らない（入力で渡しても無視）", () => {
+    const rich = { date: "2026-05-29", itemIds: ["m1"], satisfaction: 4, note: "[秘密] メモ", moodTag: "planned" };
+    const e = wearEventToEntry(rich as WearEventInput);
+    expect(e).not.toHaveProperty("note");
+    expect(e).not.toHaveProperty("moodTag");
+    expect(JSON.stringify(e)).not.toContain("秘密");
+    expect(JSON.stringify(e)).not.toContain("planned");
+  });
+
+  it("wornAt を明示指定できる", () => {
+    const e = wearEventToEntry({ date: "2026-05-29", itemIds: ["m1"] }, { wornAt: "2026-05-29T08:00:00.000Z" });
+    expect(e.wornAt).toBe("2026-05-29T08:00:00.000Z");
+  });
+
+  it("itemIds は防御的にコピーされる（入力配列と同一参照にしない）", () => {
+    const ids = ["m1"];
+    const e = wearEventToEntry({ date: "2026-05-29", itemIds: ids });
+    expect(e.itemIds).toEqual(["m1"]);
+    expect(e.itemIds).not.toBe(ids);
   });
 });

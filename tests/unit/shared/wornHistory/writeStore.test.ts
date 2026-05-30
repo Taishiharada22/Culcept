@@ -192,4 +192,15 @@ describe("wornHistory writeStore (canonical)", () => {
     upsertCanonicalWornHistoryEntry(e);
     expect(getCanonicalWornHistoryEntries()[0].learningEligible).toBe(true);
   });
+
+  // ── Phase 4-4a: style origin / my_style source を保存できる（mirror 配線は 4-4c で別途） ──
+  it("origin=style / source=my_style entry を保存・取得できる", () => {
+    upsertCanonicalWornHistoryEntry(
+      entry("2026-05-29", { origin: "style", source: "my_style", learningEligible: false }),
+    );
+    const all = getCanonicalWornHistoryEntries();
+    expect(all).toHaveLength(1);
+    expect(all[0].origin).toBe("style");
+    expect(all[0].source).toBe("my_style");
+  });
 });

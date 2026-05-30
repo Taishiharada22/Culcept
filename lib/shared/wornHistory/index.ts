@@ -23,9 +23,12 @@ export {
 export {
   planWornRecordToEntry,
   calendarWornRecordToEntry,
+  wearEventToEntry,
   type PlanWornRecordInput,
   type CalendarWornRecordInput,
   type CalendarConvertOptions,
+  type WearEventInput,
+  type WearEventConvertOptions,
 } from "./converters";
 
 export {

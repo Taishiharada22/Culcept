@@ -39,7 +39,8 @@ export function computeLearningEligibility(
 ): boolean {
   const { source, satisfaction, itemIds } = input;
 
-  // 1) mock / hydrated_mock は絶対に学習対象にしない（whitelist で二重に保証）。
+  // 1) 学習は engine / calendar_form のみ（whitelist）。 mock / hydrated_mock / my_style は
+  //    満足度があっても絶対に学習対象にしない（my_style = 手動ログで「推薦→結果」の因果が無いため）。
   if (source !== "engine" && source !== "calendar_form") return false;
 
   // 2) 満足度がなければ学習しない（「satisfaction exists」）。

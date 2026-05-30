@@ -21,11 +21,16 @@ export type SatisfactionLevel = 1 | 2 | 3 | 4 | 5;
  *   - mock          : 素の mock 提案（学習に流さない）
  *   - hydrated_mock : 画像ハイドレートした mock（slot は mock id のまま → 学習に流さない）
  *   - calendar_form : 既存 /calendar の着用フォーム由来（実 wardrobe id）→ 学習候補
+ *   - my_style      : My-Style / Home morning の wearEvents 由来（手動ログ・推薦結果ではない）→ 学習に流さない
  */
-export type WornHistorySource = "engine" | "mock" | "hydrated_mock" | "calendar_form";
+export type WornHistorySource = "engine" | "mock" | "hydrated_mock" | "calendar_form" | "my_style";
 
-/** 記録がどの体験面で作られたか（衝突解決で calendar 優先判定に使う）。 */
-export type WornHistoryOrigin = "plan" | "calendar";
+/**
+ * 記録がどの体験面で作られたか（衝突解決で calendar 優先判定に使う）。
+ *   - plan / calendar : /plan・/calendar の着用ダッシュボード由来。
+ *   - style           : My-Style / Home morning の wearEvents 由来（Phase 4-4: 代表は最下位・corpus 非対象）。
+ */
+export type WornHistoryOrigin = "plan" | "calendar" | "style";
 
 /**
  * canonical な着用履歴エントリ（1 日 1 件想定の正規形）。

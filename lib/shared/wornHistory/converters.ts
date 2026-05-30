@@ -94,3 +94,47 @@ export function calendarWornRecordToEntry(
   const learningEligible = computeLearningEligibility(base, options);
   return { ...base, learningEligible };
 }
+
+/**
+ * My-Style / Home morning の wearEvents を構造的に写した入力型（直接 import せず mirror）。
+ * 出典: lib/shared/wearEvents.ts の WearEvent（date / itemIds / satisfaction のみ消費）。
+ * note / moodTag は **意図的に受け取らない**（canonical に自由記述・曖昧情報を載せない）。
+ */
+export interface WearEventInput {
+  /** YYYY-MM-DD */
+  date: string;
+  /** 着用アイテム id 群 */
+  itemIds: string[];
+  /** 満足度（あれば。 多くの wearEvents 経路は持たない） */
+  satisfaction?: number;
+}
+
+export interface WearEventConvertOptions extends LearningEligibilityOptions {
+  /** wearEvents は時刻を持たないため、 既定は `${date}T00:00:00.000Z`。 */
+  wornAt?: string;
+}
+
+/**
+ * wearEvents → WornHistoryEntry（pure・origin=style・source=my_style）。
+ *   - **learningEligible は常に false**：my_style は学習 whitelist 外（手動ログで「推薦→結果」の因果が無い）。
+ *     satisfaction があっても false（computeLearningEligibility が source で弾く）。
+ *   - note / moodTag は載せない（privacy-minimal・入力型が受け取らない）。
+ *   - wornAt は副作用回避のため呼出側 or 既定（date 深夜）。
+ */
+export function wearEventToEntry(
+  input: WearEventInput,
+  options: WearEventConvertOptions = {},
+): WornHistoryEntry {
+  const satisfaction = toSatisfactionLevel(input.satisfaction);
+  const wornAt = options.wornAt ?? `${input.date}T00:00:00.000Z`;
+  const base = {
+    date: input.date,
+    wornAt,
+    itemIds: [...input.itemIds],
+    satisfaction,
+    source: "my_style" as const,
+    origin: "style" as const,
+  };
+  const learningEligible = computeLearningEligibility(base, options);
+  return { ...base, learningEligible };
+}

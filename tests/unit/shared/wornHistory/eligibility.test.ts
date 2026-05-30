@@ -112,3 +112,22 @@ describe("recomputeLearningEligibility", () => {
     expect(next).toBe(base);
   });
 });
+
+describe("computeLearningEligibility — my_style hard ban（Phase 4-4a）", () => {
+  it("my_style は satisfaction + itemIds + known 一致でも false（手動ログは学習対象外）", () => {
+    expect(computeLearningEligibility({ source: "my_style", satisfaction: 5, itemIds: ["m1"] })).toBe(false);
+    expect(
+      computeLearningEligibility(
+        { source: "my_style", satisfaction: 5, itemIds: ["m1"] },
+        { knownWardrobeIds: ["m1"] },
+      ),
+    ).toBe(false);
+  });
+
+  it("既存 source の判定は不変（engine / calendar_form = 可、 mock / hydrated_mock = 不可）", () => {
+    expect(computeLearningEligibility({ source: "engine", satisfaction: 5, itemIds: ["w1"] })).toBe(true);
+    expect(computeLearningEligibility({ source: "calendar_form", satisfaction: 4, itemIds: ["c1"] })).toBe(true);
+    expect(computeLearningEligibility({ source: "mock", satisfaction: 5, itemIds: ["x"] })).toBe(false);
+    expect(computeLearningEligibility({ source: "hydrated_mock", satisfaction: 5, itemIds: ["x"] })).toBe(false);
+  });
+});

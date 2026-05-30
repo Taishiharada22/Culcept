@@ -37,8 +37,13 @@ const VALID_SOURCES: ReadonlySet<WornHistorySource> = new Set<WornHistorySource>
   "mock",
   "hydrated_mock",
   "calendar_form",
+  "my_style",
 ]);
-const VALID_ORIGINS: ReadonlySet<WornHistoryOrigin> = new Set<WornHistoryOrigin>(["plan", "calendar"]);
+const VALID_ORIGINS: ReadonlySet<WornHistoryOrigin> = new Set<WornHistoryOrigin>([
+  "plan",
+  "calendar",
+  "style",
+]);
 
 function getLocalStorage(): Storage | null {
   try {
