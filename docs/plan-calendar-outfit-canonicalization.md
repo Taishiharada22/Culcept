@@ -351,6 +351,27 @@ production canary: NO-GO
 - 実服データが preview origin で読める状態を作る（= My-Style / wardrobe が origin 依存 IDB か Supabase 等の共有データかを切り分け、A/B のどちらが必要かを特定）。 **5-D4 production canary には進まない**。
 - 運用メモ：本 branch の build は 8GB に収まらず一時 16GB を使用。 ① smoke 後に build machine を標準（8GB）へ戻す（Enhanced はビルドごと課金）。 ② 本 branch を production に merge する前に build 軽量化（例 `next build --webpack` → Turbopack）が前提（production canary readiness の別ブロッカー）。
 
+### 14.13 B-minimal — server wardrobe fallback（実装済）
+5-D3c 監査で判明した「preview origin で wardrobe が空 → engine 不発火 → mock 提案」を解消するための最小修正。**preview smoke の前提修正**であり、production canary 自体ではない。
+
+**変更**：
+- `wardrobeAssets.ts` に `loadWardrobeWithServerFallback()` を追加。`useCalendarOutfit.ts` の wardrobe load を IDB-only からこれに差し替え。
+- 優先順位：**IDB wardrobe（画像付き）> server wardrobe（`fetchWardrobe` = `GET /api/my-style/bridge`・画像 strip 版/hosted URL のみ）> mock fallback**。
+- IDB に 1 件でもあれば server を呼ばない（**IDB がある本番体験を劣化させない**）。IDB 空の origin（preview / 新端末 / cache clear）のときだけ server へ。
+- fail-open：server の 401 / network error / 非配列 / throw はすべて `[]` → caller が mock 維持（退化ゼロ）。
+- 依存境界：server 読み取りは `@/lib/shared/wardrobe`（shared）経由のみ。`/calendar/_lib` 直 import しない。engine scoring / My-Style / Supabase schema は無改変。
+
+**意味**：
+- preview origin / 新端末 / cache clear 後でも、ログイン済みなら **server wardrobe で engine 提案が走る**。
+- server wardrobe は画像 strip 版の可能性があり、その item は **silhouette 表示**になる場合がある（ただし engine は属性ベースで動くため提案自体は実データ由来）。
+- 副次効果＝**実プロダクト欠陥の修正**（新端末/cache クリアで wardrobe が出ない問題）。
+
+**B-minimal で確認できること**：preview でも wardrobe が取れて engine が走るか / 実服属性ベース提案が空にならないか / SYNC が mock 定数(84)でなく engine 出力か。
+
+**B-minimal でもまだ確認できないこと（別問題）**：shared WornHistory corpus が効くか / my_style が recency にだけ効くか / mock・hydrated_mock が learning に入らないか / recently-worn suppression が効くか。理由＝**worn-history corpus も origin-local**（localStorage `culcept_worn_history_v1` 等・server 同期されない）ため、preview では corpus が空。
+
+**production canary はまだ NO-GO**（flag 学習効果は corpus ありの origin = dev-seed or 本番 runtime-override で別途検証 → §14.4 判断 → 5-D4）。
+
 ---
 
 ## Appendix A — store inventory（現状）
