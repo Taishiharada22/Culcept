@@ -27,6 +27,11 @@ import {
   projectShiftRoster,
   type ShiftCellReading,
 } from "@/lib/plan/shift/shiftRosterProjection";
+import {
+  cellCropRegion,
+  type ShiftGridGeometry,
+} from "@/lib/plan/shift/shiftGridGeometry";
+import { SourceCellCrop } from "./SourceCellCrop";
 
 export interface ShiftReviewCell {
   day: number;
@@ -42,6 +47,10 @@ interface ShiftReviewGridProps {
   year: number;
   month: number;
   lowConfidenceThreshold?: number;
+  /** 原稿画像（あれば sheet で該当セル crop を表示。無ければ placeholder） */
+  imageSrc?: string;
+  /** calibrated grid geometry（imageSrc とセットで crop 算出に使用） */
+  geometry?: ShiftGridGeometry;
 }
 
 type CellKind = "empty" | "work" | "off" | "candidate" | "unresolved";
@@ -109,6 +118,8 @@ export function ShiftReviewGrid({
   year,
   month,
   lowConfidenceThreshold = 0.7,
+  imageSrc,
+  geometry,
 }: ShiftReviewGridProps) {
   const [cells, setCells] = useState<ShiftReviewCell[]>(initialCells);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -302,11 +313,20 @@ export function ShiftReviewGrid({
                     </button>
                   </div>
 
-                  {/* 原稿セル crop 枠（取り込み時は calibrated grid crop を表示） */}
+                  {/* 原稿セル crop（calibrated grid geometry から該当セルを切り出し） */}
                   <div className="mb-3 flex items-center gap-3">
-                    <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-[10px] text-gray-400">
-                      原稿セル
-                    </div>
+                    {imageSrc && geometry ? (
+                      <SourceCellCrop
+                        imageSrc={imageSrc}
+                        imageWidth={geometry.imageWidth}
+                        imageHeight={geometry.imageHeight}
+                        region={cellCropRegion(geometry, selectedCell.day)}
+                      />
+                    ) : (
+                      <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-[10px] text-gray-400">
+                        原稿セル
+                      </div>
+                    )}
                     <div className="text-xs text-gray-600">
                       <div>
                         読み取り: <b className="text-base text-gray-900">{isEmpty ? "（空欄）" : selectedCell.rawCode}</b>
