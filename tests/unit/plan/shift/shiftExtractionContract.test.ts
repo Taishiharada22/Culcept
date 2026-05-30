@@ -3,11 +3,15 @@ import {
   validateExtractedCells,
   extractedToCellReadings,
   filterByPersonRow,
+  validateDayKeyedCells,
+  dayKeyedToExtracted,
   type ExtractedShiftCell,
 } from "@/lib/plan/shift/shiftExtractionContract";
 import {
   buildShiftExtractionPrompt,
   SHIFT_EXTRACTION_JSON_SCHEMA,
+  buildDayKeyedExtractionPrompt,
+  DAY_KEYED_EXTRACTION_JSON_SCHEMA,
 } from "@/lib/plan/shift/shiftExtractionPrompt";
 
 describe("validateExtractedCells", () => {
@@ -83,5 +87,91 @@ describe("buildShiftExtractionPrompt", () => {
   it("JSON schema はセル配列を強制する", () => {
     expect(SHIFT_EXTRACTION_JSON_SCHEMA.type).toBe("array");
     expect(SHIFT_EXTRACTION_JSON_SCHEMA.items.required).toContain("rawCode");
+  });
+});
+
+describe("validateDayKeyedCells（B1a-v2 列アンカー）", () => {
+  function dayCells(codes: string[]) {
+    return codes.map((rawCode, i) => ({
+      day: i + 1,
+      rawCode,
+      rowLabel: "原田 大志",
+    }));
+  }
+
+  it("1..31 全揃いなら coverage 完全・missing/dup なし", () => {
+    const raw = dayCells(Array.from({ length: 31 }, () => "G"));
+    const r = validateDayKeyedCells(raw, 31);
+    expect(r.errors).toHaveLength(0);
+    expect(r.coverage.presentDays).toHaveLength(31);
+    expect(r.coverage.missing).toEqual([]);
+    expect(r.coverage.duplicates).toEqual([]);
+  });
+
+  it("欠落日を missing で検出（列ドロップ＝silent でなくなる）", () => {
+    const raw = dayCells(Array.from({ length: 31 }, () => "G")).filter(
+      (c) => c.day !== 26
+    );
+    const r = validateDayKeyedCells(raw, 31);
+    expect(r.coverage.missing).toEqual([26]);
+  });
+
+  it("重複日を duplicates で検出", () => {
+    const raw = [
+      { day: 5, rawCode: "G", rowLabel: "原田" },
+      { day: 5, rawCode: "N", rowLabel: "原田" },
+    ];
+    const r = validateDayKeyedCells(raw, 31);
+    expect(r.coverage.duplicates).toEqual([5]);
+  });
+
+  it("範囲外/非整数の day を弾く", () => {
+    const raw = [
+      { day: 0, rawCode: "G", rowLabel: "原田" },
+      { day: 32, rawCode: "G", rowLabel: "原田" },
+      { day: 5.5, rawCode: "G", rowLabel: "原田" },
+      { day: 10, rawCode: "N", rowLabel: "原田" },
+    ];
+    const r = validateDayKeyedCells(raw, 31);
+    expect(r.cells).toHaveLength(1);
+    expect(r.errors).toHaveLength(3);
+  });
+});
+
+describe("dayKeyedToExtracted", () => {
+  it("day → date を決定的に解決", () => {
+    const out = dayKeyedToExtracted(
+      [{ day: 8, rawCode: "G", rowLabel: "原田" }],
+      2025,
+      7
+    );
+    expect(out[0].date).toBe("2025-07-08");
+    expect(out[0].rawCode).toBe("G");
+  });
+});
+
+describe("buildDayKeyedExtractionPrompt", () => {
+  it("列アンカー指示（印字番号に紐づけ・順番推測禁止・全日1件）を含む", () => {
+    const p = buildDayKeyedExtractionPrompt({
+      personName: "原田 大志",
+      year: 2025,
+      month: 7,
+      daysInMonth: 31,
+    });
+    expect(p).toContain("日番号");
+    expect(p).toContain("配列の順番や位置で日付を推測しないでください");
+    expect(p).toContain('"day"');
+  });
+
+  it("dayRange で chunk 範囲を限定", () => {
+    const p = buildDayKeyedExtractionPrompt({
+      personName: "原田 大志",
+      year: 2025,
+      month: 7,
+      daysInMonth: 31,
+      dayRange: [16, 31],
+    });
+    expect(p).toContain("16日〜31日");
+    expect(DAY_KEYED_EXTRACTION_JSON_SCHEMA.items.required).toContain("day");
   });
 });

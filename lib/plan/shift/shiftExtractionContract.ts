@@ -149,5 +149,129 @@ export function filterByPersonRow(
   return cells.filter((c) => c.rowLabel.replace(/\s+/g, "").includes(target));
 }
 
+// ─────────────────────────────────────────────────────────────
+// day-keyed 抽出（B1a-v2・列アンカー設計）
+//
+// B1a 第1走で密表 tail の +1 列シフトを検出。原因 = 配列順で日付推定 →
+// 1列ドロップが silent に伝播。対策 = 各セルを「印字された日番号」に紐づけ、
+// coverage(missing/duplicate) を検出可能にする（CEO/GPT 補正）。
+// ─────────────────────────────────────────────────────────────
+
+/** VLM が日番号付きで埋めるセル（B1a-v2 contract） */
+export interface DayKeyedShiftCell {
+  /** ヘッダの印字日番号 1..daysInMonth（配列順で推定しない） */
+  day: number;
+  /** 原文の表記そのまま（""=空セル） */
+  rawCode: string;
+  /** 読めた人名 */
+  rowLabel: string;
+  /** 任意: 信頼度 0..1（日番号不明なら下げる） */
+  confidence?: number | null;
+}
+
+/** 1..daysInMonth の被覆状況 */
+export interface DayCoverage {
+  expectedDays: number;
+  presentDays: number[]; // sorted unique
+  missing: number[];
+  duplicates: number[];
+}
+
+export interface DayKeyedValidationResult {
+  cells: DayKeyedShiftCell[];
+  errors: ExtractionValidationError[];
+  coverage: DayCoverage;
+}
+
+/**
+ * day-keyed VLM 出力を防御的検証 + coverage 算出。
+ * day が 1..daysInMonth の整数でなければ弾く。rawCode/rowLabel は string 必須。
+ */
+export function validateDayKeyedCells(
+  raw: unknown,
+  daysInMonth: number
+): DayKeyedValidationResult {
+  const cells: DayKeyedShiftCell[] = [];
+  const errors: ExtractionValidationError[] = [];
+
+  if (!Array.isArray(raw)) {
+    return {
+      cells,
+      errors: [{ index: -1, field: "root", message: "expected an array" }],
+      coverage: { expectedDays: daysInMonth, presentDays: [], missing: [], duplicates: [] },
+    };
+  }
+
+  raw.forEach((item, index) => {
+    if (item === null || typeof item !== "object") {
+      errors.push({ index, field: "item", message: "expected an object" });
+      return;
+    }
+    const obj = item as Record<string, unknown>;
+    if (
+      typeof obj.day !== "number" ||
+      !Number.isInteger(obj.day) ||
+      obj.day < 1 ||
+      obj.day > daysInMonth
+    ) {
+      errors.push({
+        index,
+        field: "day",
+        message: `day must be an integer 1..${daysInMonth}`,
+      });
+      return;
+    }
+    if (typeof obj.rawCode !== "string") {
+      errors.push({ index, field: "rawCode", message: "rawCode is required" });
+      return;
+    }
+    if (typeof obj.rowLabel !== "string") {
+      errors.push({ index, field: "rowLabel", message: "rowLabel is required" });
+      return;
+    }
+    const cell: DayKeyedShiftCell = {
+      day: obj.day,
+      rawCode: obj.rawCode,
+      rowLabel: obj.rowLabel,
+    };
+    if (isFiniteNumber(obj.confidence)) cell.confidence = obj.confidence;
+    cells.push(cell);
+  });
+
+  // coverage
+  const counts = new Map<number, number>();
+  for (const c of cells) counts.set(c.day, (counts.get(c.day) ?? 0) + 1);
+  const presentDays = [...counts.keys()].sort((a, b) => a - b);
+  const duplicates = presentDays.filter((d) => (counts.get(d) ?? 0) > 1);
+  const missing: number[] = [];
+  for (let d = 1; d <= daysInMonth; d += 1) {
+    if (!counts.has(d)) missing.push(d);
+  }
+
+  return {
+    cells,
+    errors,
+    coverage: { expectedDays: daysInMonth, presentDays, missing, duplicates },
+  };
+}
+
+/**
+ * day-keyed セルを date 付き ExtractedShiftCell[] に変換（採点器で再利用）。
+ * date は day から決定的に解決（VLM に日付整形をさせない）。
+ */
+export function dayKeyedToExtracted(
+  cells: DayKeyedShiftCell[],
+  year: number,
+  month: number
+): ExtractedShiftCell[] {
+  const mm = String(month).padStart(2, "0");
+  return cells.map((c) => ({
+    date: `${year}-${mm}-${String(c.day).padStart(2, "0")}`,
+    rawCode: c.rawCode,
+    rowLabel: c.rowLabel,
+    confidence: c.confidence ?? null,
+  }));
+}
+
 /** rawCode 正規化を re-export（採点器と共有） */
 export { normalizeRawCode };

@@ -83,3 +83,82 @@ export const SHIFT_EXTRACTION_JSON_SCHEMA = {
     additionalProperties: false,
   },
 } as const;
+
+// ─────────────────────────────────────────────────────────────
+// B1a-v2: day-keyed（列アンカー）プロンプト
+//
+// B1a 第1走の +1 列シフト対策。配列順でなく「印字日番号」に紐づけて読ませる。
+// ─────────────────────────────────────────────────────────────
+
+export interface DayKeyedExtractionPromptParams
+  extends ShiftExtractionPromptParams {
+  /** 任意: chunk 対象の日範囲 [from, to]（指定時はこの範囲のみ出力） */
+  dayRange?: [number, number];
+}
+
+/**
+ * day-keyed 抽出指示文。各セルをヘッダの印字日番号にアンカーさせる。
+ */
+export function buildDayKeyedExtractionPrompt(
+  params: DayKeyedExtractionPromptParams
+): string {
+  const { personName, year, month, daysInMonth, knownCodes, dayRange } = params;
+  const ym = `${year}-${String(month).padStart(2, "0")}`;
+  const from = dayRange ? dayRange[0] : 1;
+  const to = dayRange ? dayRange[1] : daysInMonth;
+
+  const lines: string[] = [
+    "あなたはシフト表（勤務表）の画像を読み取る抽出器です。意味の解釈はせず、書いてある記号を正確に読むことだけが仕事です。",
+    "",
+    `# 対象`,
+    `- 人物: 「${personName}」の行のみ（他の人の行は無視）。`,
+    `- 期間: ${ym}。対象は ${from}日〜${to}日。`,
+    "",
+    `# 列アンカー（最重要）`,
+    `- 表の一番上の行に印字された「日番号(1〜${daysInMonth})」を必ず読み、各セルをその**日番号に紐づけて**出力してください。`,
+    `- **配列の順番や位置で日付を推測しないでください**。必ずヘッダの印字番号と照合する。`,
+    `- ${from}日から${to}日まで、**1日も飛ばさず重複させず**、各日ちょうど1件ずつ出力してください。`,
+    `- ある列の日番号が読み取れない場合は、その日の confidence を下げてください。`,
+    "",
+    `# 記号ルール`,
+    `- セルの記号(rawCode)を**そのまま**読む。意味(休み/勤務)は判定しない。`,
+    `- "E-18" を "E" に縮めない。"HREQ" を "H" にしない。大文字小文字・ハイフンも原文どおり。`,
+    `- 空セル（何も書かれていない）は rawCode を空文字 "" に。`,
+    `- 読み取り信頼度 confidence(0.0〜1.0) を添える。`,
+    `- rowLabel には読み取った人物名をそのまま入れる。`,
+  ];
+
+  if (knownCodes && knownCodes.length > 0) {
+    lines.push(
+      "",
+      `# 参考（凡例の記号。意味判定はせず読み取りの参考のみ）`,
+      `- ${knownCodes.join(" / ")}`
+    );
+  }
+
+  lines.push(
+    "",
+    `# 出力`,
+    `- JSON 配列のみ。各要素は {"day": 整数(${from}-${to}), "rawCode": "...", "rowLabel": "...", "confidence": 0.0}。`,
+    `- ${from}日〜${to}日の全日（${to - from + 1}件）を出力。`,
+    `- JSON 以外の説明文は出力しない。`
+  );
+
+  return lines.join("\n");
+}
+
+/** day-keyed structured output schema */
+export const DAY_KEYED_EXTRACTION_JSON_SCHEMA = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      day: { type: "integer", description: "ヘッダの印字日番号" },
+      rawCode: { type: "string", description: "原文の記号。空セルは空文字" },
+      rowLabel: { type: "string" },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+    },
+    required: ["day", "rawCode", "rowLabel"],
+    additionalProperties: false,
+  },
+} as const;
