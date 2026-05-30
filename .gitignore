@@ -78,3 +78,6 @@ supabase/.temp/
 
 # P2 Step 2 G3-B judge harness 一時出力 (= local result JSON、 commit しない)
 tmp/
+
+# Private eval data (raw シフト画像 / 抽出出力 — CEO 厳守: commit しない、ローカル実験専用)
+private-eval/
