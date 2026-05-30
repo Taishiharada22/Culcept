@@ -99,6 +99,9 @@
 | **4-1** | **canonical shadow mirror（実装済 commit `5c961f7e`）**：新 key `culcept_worn_history_v1` を新設し、`/plan` の着用 diary を mirror。旧 key 温存・read-view は旧 key のまま＝UX 不変・**learned 解禁しない**。 | write 設計ゲート（通過） |
 | **4-2** | **read-view canonical union merge（実装済 commit `af53e7b4`）**：read-view が `canonical ∪ old plan ∪ old calendar` を union merge。同 (date, origin) は canonical 優先・**canonical-only ではない**・**backfill しない**・`includeCanonical` kill switch あり・**learned は Phase 5 まで HOLD**。 | read flip ゲート（通過）|
 | **4-3** | **calendar save path canonical shadow mirror（実装済 commit `0db62f91`）**：`/calendar` の `rotationTracker.saveWornRecord` を canonical へ mirror（origin=calendar / source=calendar_form / note 非持越）。old calendar key 維持・server-sync 不変・learned HOLD・**backfill なし**・**My-Style/Home `wearEvents` は対象外（§12）**。 | calendar write ゲート（通過）|
+| **4-4a** | **style wear 型基盤（実装済 commit `fba415e1`）**：`origin="style"` / `source="my_style"` + `wearEventToEntry` + writeStore validation。`my_style` は satisfaction があっても `learningEligible=false`。配線・readView 統合なし。 | 型ゲート（通過）|
+| **4-4b** | **style wear read-view 統合（実装済 commit `2b65b4dc`）**：readView が `origin=style` を `slot.style` に受け、 **最下位 fallback**（style 単独日だけ代表・corpus 非対象）。conflictPolicy 本体不変・`includeCanonical` で無視可。**`wearEvents.ts` mirror 配線は未（4-4c）**。 | read ゲート（通過）|
+| **4-4c** | **wearEvents → canonical mirror 配線（未）**：`saveWearEvent`/`updateWearSatisfaction` に best-effort mirror（origin=style）。これで My-Style/Home wear が canonical に蓄積され、canonical-only flip の前提が揃う。 | wearEvents write ゲート |
 | **5** | **engine reads shared WornHistory + learned 解禁**：engine の `loadWornHistory` を `getLearningCorpus` に差し替え。`/calendar` 直読み廃止。server-sync を shared に一本化。**learned 昇格はここで初解禁**（`②plan key in-place 変形は禁止`＝rollback 喪失のため）。 | engine read / learned ゲート |
 | **6** | `/calendar` redirect or hide（consumer 付け替え完了後）。 | `/calendar` 撤退ゲート |
 | **7** | `/calendar` physical removal（engine/学習を `lib/shared` へ移送済が前提）。 | 削除ゲート |
@@ -110,6 +113,7 @@
 ## 12. canonical-only flip 前の必須課題（記録 — Phase 4-3 で発見）
 **`culcept_calendar_worn_v1` は `/calendar` 専用ではない。** My-Style + Home morning も `lib/shared/wearEvents.ts` の `saveWearEvent` / `updateWearSatisfaction`（`source:"my-style"`）で同 key に書く（呼出元: `my-style/_components/TodaysMirror` / `WeatherOutfitPanel` / `components/home/morning/MorningOutfitCard`）。
 - Phase 4-3 は **`/calendar` の `saveWornRecord` のみ** canonical mirror した。**My-Style/Home の `wearEvents` 経由 wear は canonical に入らない**（意図的にスコープ外）。
+- **進捗（4-4 分割）**：4-4a 型基盤（`fba415e1`）+ 4-4b readView 統合（`2b65b4dc`）完了。canonical に `origin=style` が入れば読める状態。**残るは 4-4c（`wearEvents.ts` の mirror 配線）**。4-4c まで完了して初めて My-Style/Home wear が canonical に蓄積される（それまでは old key 経由でのみ存在）。
 - **読みは現状安全**：read-view の calendar source は `loadWornHistory()`（同 key 全体）なので、My-Style/Home wear も `calendar_form` として 4-2 union read で既に読めている。
 - **⚠️ canonical-only flip（Phase 5+ で old calendar key の read を廃止）する前に、My-Style/Home `wearEvents` を canonical へどう移すか（別 origin 新設 / mirror / backfill）を別ゲートで必ず解く。** 解かずに old key read を切ると、canonical に無い My-Style/Home wear が消失する。
 - 補足: My-Style wear は通常 satisfaction なし → 学習対象化しないが、satisfaction 付き経路（`WeatherOutfitPanel`）が稀に corpus candidate に混じり得る。Phase 5 の corpus hygiene で origin 識別が要る（記録のみ）。
