@@ -1,21 +1,23 @@
 "use client";
 
 /**
- * Source-of-truth cell review（シフト取り込み確認画面 prototype）
+ * Source-of-truth cell review（シフト取り込み確認画面）
  *
  * 設計書: docs/alter-plan-shift-import-cell-review-readiness.md
  *
- * fixture-based prototype（GPT 承認範囲）:
- *   - grid review（原稿表と同形で並べ、blank-skip が一目で浮く）
- *   - rawCode 修正 → 辞書/projection 即時再計算 → 反映予定ライブ更新
- *   - blank-risk / low-confidence の heuristic 強調（完全自動検出は保証しない）
- *   - projection preview（work→timed / off→day_indicator / unresolved→止める）
- *   - 保存ボタンは disabled（DB write / migration は次段 CEO gate）
+ * カレンダー型 grid review（CEO/GPT 2026-05-30）:
+ *   - 月全体を 7列×週 のカレンダーで一覧（曜日ヘッダ付き）→ blank-skip が一目で浮く
+ *   - セルタップ → bottom sheet 詳細（原稿セル crop 枠 / 意味 / 反映予定 / 修正 picker）
+ *   - blank-risk は小さな corner marker（うるさくしない）+ 上部 honest banner
+ *   - projection preview は下部 sticky / 保存ボタン disabled
+ *   - glassmorphism で上質に
  *
- * 不変原則: DB write なし。raw 画像非依存（fixture）。projectShiftRoster は pure 再利用。
+ * 不変原則: 機能（編集→辞書/projection 即時再計算→preview→blank-risk）は不変。
+ *           見せ方のみ進化。DB write なし・raw 画像非依存（fixture）。
  */
 
 import { useMemo, useState } from "react";
+import { GlassCard } from "@/components/ui/glassmorphism-design";
 import {
   type ShiftCodeDictionary,
   lookupCode,
@@ -26,60 +28,86 @@ import {
   type ShiftCellReading,
 } from "@/lib/plan/shift/shiftRosterProjection";
 
-/** 確認画面に渡す 1 セル（抽出結果 + 信頼度） */
 export interface ShiftReviewCell {
   day: number;
-  date: string; // YYYY-MM-DD
-  rawCode: string; // "" = 空欄
-  confidence: number; // 0..1
+  date: string;
+  rawCode: string;
+  confidence: number;
 }
 
 interface ShiftReviewGridProps {
   cells: ShiftReviewCell[];
   dictionary: ShiftCodeDictionary;
-  monthLabel: string; // 例 "2025年7月"
+  monthLabel: string;
+  year: number;
+  month: number;
   lowConfidenceThreshold?: number;
 }
 
 type CellKind = "empty" | "work" | "off" | "candidate" | "unresolved";
 
-function cellKind(rawCode: string, dictionary: ShiftCodeDictionary): {
-  kind: CellKind;
-  meaning: string;
-} {
-  if (normalizeRawCode(rawCode) === "") return { kind: "empty", meaning: "空欄" };
+const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+
+/** Sakamoto: 0=Sun..6=Sat（pure・Date 非依存） */
+function dayOfWeek(y: number, m: number, d: number): number {
+  const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+  const yy = m < 3 ? y - 1 : y;
+  return (
+    (yy +
+      Math.floor(yy / 4) -
+      Math.floor(yy / 100) +
+      Math.floor(yy / 400) +
+      t[m - 1] +
+      d) %
+    7
+  );
+}
+
+function cellInfo(
+  rawCode: string,
+  dictionary: ShiftCodeDictionary
+): { kind: CellKind; meaning: string; projectLabel: string } {
+  if (normalizeRawCode(rawCode) === "")
+    return { kind: "empty", meaning: "空欄", projectLabel: "反映なし" };
   const entry = lookupCode(dictionary, rawCode);
-  if (!entry) return { kind: "unresolved", meaning: "未知（要確認）" };
+  if (!entry)
+    return { kind: "unresolved", meaning: "未知（要確認）", projectLabel: "保存前に要確認" };
   switch (entry.projectMode) {
     case "timed_event":
-      return { kind: "work", meaning: `${entry.displayLabel}（反映）` };
+      return {
+        kind: "work",
+        meaning: `${entry.displayLabel}（${entry.startTime ?? ""}–${entry.endTime ?? ""}）`,
+        projectLabel: "予定として反映",
+      };
     case "day_indicator":
-      return { kind: "off", meaning: `${entry.displayLabel}・休み表示` };
+      return { kind: "off", meaning: entry.displayLabel, projectLabel: "「休み」表示（枠なし）" };
     case "candidate":
-      return { kind: "candidate", meaning: `${entry.displayLabel}・候補` };
+      return { kind: "candidate", meaning: entry.displayLabel, projectLabel: "候補（控えめ表示）" };
     default:
-      return { kind: "unresolved", meaning: "要確認" };
+      return { kind: "unresolved", meaning: "要確認", projectLabel: "保存前に要確認" };
   }
 }
 
-const KIND_STYLE: Record<CellKind, string> = {
-  empty: "bg-gray-50 text-gray-400 border-gray-200",
-  work: "bg-sky-50 text-sky-700 border-sky-300",
-  off: "bg-slate-100 text-slate-600 border-slate-300",
-  candidate: "bg-amber-50 text-amber-700 border-amber-300",
-  unresolved: "bg-rose-50 text-rose-700 border-rose-300",
+// 淡い glassmorphism tint（うるさくしない）
+const KIND_TINT: Record<CellKind, string> = {
+  empty: "bg-white/50 text-gray-300",
+  work: "bg-sky-50/80 text-sky-700",
+  off: "bg-slate-100/70 text-slate-500",
+  candidate: "bg-amber-50/80 text-amber-700",
+  unresolved: "bg-rose-50/80 text-rose-600",
 };
 
 export function ShiftReviewGrid({
   cells: initialCells,
   dictionary,
   monthLabel,
+  year,
+  month,
   lowConfidenceThreshold = 0.7,
 }: ShiftReviewGridProps) {
   const [cells, setCells] = useState<ShiftReviewCell[]>(initialCells);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
-  // projection を即時再計算（Step1 の pure 関数を再利用）
   const projection = useMemo(() => {
     const readings: ShiftCellReading[] = cells.map((c) => ({
       date: c.date,
@@ -88,9 +116,11 @@ export function ShiftReviewGrid({
     return projectShiftRoster(readings, dictionary);
   }, [cells, dictionary]);
 
-  // blank-risk heuristic: 低信頼 or 空欄に隣接（強調＝注意の補助。flag なし＝安全 ではない）
   const emptyDays = useMemo(
-    () => new Set(cells.filter((c) => normalizeRawCode(c.rawCode) === "").map((c) => c.day)),
+    () =>
+      new Set(
+        cells.filter((c) => normalizeRawCode(c.rawCode) === "").map((c) => c.day)
+      ),
     [cells]
   );
   const isBlankRisk = (c: ShiftReviewCell): boolean =>
@@ -98,114 +128,210 @@ export function ShiftReviewGrid({
     emptyDays.has(c.day - 1) ||
     emptyDays.has(c.day + 1);
 
+  // カレンダー週構築（先頭の曜日に空きを入れる）
+  const weeks = useMemo(() => {
+    const firstDow = dayOfWeek(year, month, 1);
+    const slots: (ShiftReviewCell | null)[] = [
+      ...Array<null>(firstDow).fill(null),
+      ...[...cells].sort((a, b) => a.day - b.day),
+    ];
+    while (slots.length % 7 !== 0) slots.push(null);
+    const out: (ShiftReviewCell | null)[][] = [];
+    for (let i = 0; i < slots.length; i += 7) out.push(slots.slice(i, i + 7));
+    return out;
+  }, [cells, year, month]);
+
   const knownCodes = Object.values(dictionary.codes).map((e) => e.rawCode);
+  const selectedCell = cells.find((c) => c.day === selectedDay) ?? null;
 
   function setRawCode(day: number, rawCode: string) {
     setCells((prev) =>
       prev.map((c) => (c.day === day ? { ...c, rawCode, confidence: 1 } : c))
     );
-    setSelectedDay(null);
   }
 
   return (
-    <div data-testid="shift-review-grid" className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">{monthLabel} の取り込み確認</h2>
-        <span className="text-xs text-gray-500">原稿と見比べて修正してください</span>
+    <GlassCard className="relative">
+      <div data-testid="shift-review-grid">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h2 className="text-base font-semibold text-gray-800">
+          {monthLabel} の取り込み確認
+        </h2>
+        <span className="text-[11px] text-gray-400">原稿と見比べて修正</span>
       </div>
 
-      {/* honest banner（GPT 補正: 強調は補助、全格子レビューが最終保証） */}
       <p
         data-testid="shift-review-notice"
-        className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800"
+        className="mb-3 rounded-xl border border-amber-200/60 bg-amber-50/70 px-3 py-2 text-[11px] leading-relaxed text-amber-800 backdrop-blur"
       >
-        ⚠️ 強調（点線）は注意の補助です。<b>強調が無くても全セルを原稿と照合</b>してください。空欄が勝手に埋まる場合があります。
+        強調（隅の印）は注意の補助です。<b>強調が無くても全セルを原稿と照合</b>してください。空欄が勝手に埋まる場合があります。
       </p>
 
-      {/* grid review（原稿表と同形・横スクロール） */}
-      <div className="overflow-x-auto">
-        <div className="flex gap-1 pb-1">
-          {cells.map((c) => {
-            const { kind } = cellKind(c.rawCode, dictionary);
-            const risk = isBlankRisk(c);
-            const selected = selectedDay === c.day;
-            return (
-              <button
-                key={c.day}
-                type="button"
-                data-testid={`shift-review-cell-${c.day}`}
-                data-kind={kind}
-                data-blank-risk={risk ? "true" : "false"}
-                onClick={() => setSelectedDay(selected ? null : c.day)}
-                className={`flex w-12 shrink-0 flex-col items-center rounded border px-1 py-1 text-center ${KIND_STYLE[kind]} ${
-                  risk ? "border-dashed ring-1 ring-amber-400" : ""
-                } ${selected ? "ring-2 ring-sky-500" : ""}`}
-              >
-                <span className="text-[10px] text-gray-400">{c.day}</span>
-                <span className="text-sm font-bold leading-tight">
-                  {normalizeRawCode(c.rawCode) === "" ? "空" : c.rawCode}
-                </span>
-                {risk && <span className="text-[9px] text-amber-600">要確認</span>}
-              </button>
-            );
-          })}
-        </div>
+      {/* 曜日ヘッダ */}
+      <div
+        data-testid="shift-review-weekday-header"
+        className="grid grid-cols-7 gap-1 px-0.5 pb-1"
+      >
+        {WEEKDAYS.map((w, i) => (
+          <div
+            key={w}
+            className={`text-center text-[11px] font-medium ${
+              i === 0 ? "text-rose-400" : i === 6 ? "text-sky-400" : "text-gray-400"
+            }`}
+          >
+            {w}
+          </div>
+        ))}
       </div>
 
-      {/* セル修正エディタ */}
-      {selectedDay !== null && (
-        <div data-testid="shift-review-editor" className="rounded-md border border-gray-200 p-2">
-          <p className="mb-1 text-xs text-gray-600">{selectedDay}日のコードを修正</p>
-          <div className="flex flex-wrap gap-1">
-            {knownCodes.map((code) => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setRawCode(selectedDay, code)}
-                className="rounded border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-100"
-              >
-                {code}
-              </button>
-            ))}
+      {/* カレンダー grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {weeks.flat().map((cell, idx) => {
+          if (!cell) return <div key={`pad-${idx}`} className="aspect-square" />;
+          const { kind } = cellInfo(cell.rawCode, dictionary);
+          const risk = isBlankRisk(cell);
+          const selected = selectedDay === cell.day;
+          const isEmpty = normalizeRawCode(cell.rawCode) === "";
+          return (
             <button
+              key={cell.day}
               type="button"
-              onClick={() => setRawCode(selectedDay, "")}
-              className="rounded border border-gray-300 px-2 py-0.5 text-xs hover:bg-gray-100"
+              data-testid={`shift-review-cell-${cell.day}`}
+              data-kind={kind}
+              data-blank-risk={risk ? "true" : "false"}
+              onClick={() => setSelectedDay(cell.day)}
+              className={`relative flex aspect-square flex-col items-center justify-center rounded-xl border backdrop-blur transition ${KIND_TINT[kind]} ${
+                selected
+                  ? "border-sky-400 ring-2 ring-sky-300"
+                  : "border-white/50 shadow-sm"
+              }`}
             >
-              空欄
+              <span className="absolute left-1 top-0.5 text-[9px] text-gray-400">
+                {cell.day}
+              </span>
+              <span className={`text-sm font-bold leading-none ${isEmpty ? "text-gray-300" : ""}`}>
+                {isEmpty ? "·" : cell.rawCode}
+              </span>
+              {risk && (
+                <span
+                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400"
+                  aria-label="要確認"
+                />
+              )}
             </button>
-          </div>
-          {(() => {
-            const cell = cells.find((c) => c.day === selectedDay)!;
-            const { meaning } = cellKind(cell.rawCode, dictionary);
-            return <p className="mt-1 text-[11px] text-gray-500">現在の意味: {meaning}</p>;
-          })()}
-        </div>
-      )}
+          );
+        })}
+      </div>
 
-      {/* projection preview（反映イメージ） */}
-      <div data-testid="shift-review-preview" className="rounded-md bg-gray-50 p-2 text-xs">
-        <p className="mb-1 font-medium text-gray-700">反映プレビュー</p>
-        <div className="flex flex-wrap gap-3">
-          <span>勤務（予定化）: <b>{projection.timedEvents.length}</b></span>
-          <span>休み（表示のみ）: <b>{projection.dayIndicators.length}</b></span>
-          <span>候補: <b>{projection.candidates.length}</b></span>
+      {/* 下部 sticky preview */}
+      <div
+        data-testid="shift-review-preview"
+        className="mt-3 flex items-center justify-between rounded-xl border border-white/50 bg-white/60 px-3 py-2 text-[11px] backdrop-blur"
+      >
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-600">
+          <span>勤務 <b className="text-sky-700">{projection.timedEvents.length}</b></span>
+          <span>休み <b className="text-slate-600">{projection.dayIndicators.length}</b></span>
+          <span>候補 <b className="text-amber-700">{projection.candidates.length}</b></span>
           <span className={projection.unresolved.length ? "text-rose-600" : ""}>
-            要確認: <b>{projection.unresolved.length}</b>
+            要確認 <b>{projection.unresolved.length}</b>
           </span>
         </div>
+        <button
+          type="button"
+          data-testid="shift-review-save"
+          disabled
+          className="cursor-not-allowed rounded-lg bg-gray-200/80 px-3 py-1 text-[11px] text-gray-400"
+          title="保存は次段（DB 承認後）"
+        >
+          反映（次段で有効化）
+        </button>
       </div>
 
-      {/* 保存（prototype は disabled） */}
-      <button
-        type="button"
-        data-testid="shift-review-save"
-        disabled
-        className="cursor-not-allowed rounded-md bg-gray-200 px-4 py-2 text-sm text-gray-500"
-        title="保存は次段（DB 承認後）"
-      >
-        反映する（保存は次段で有効化）
-      </button>
-    </div>
+      {/* セル詳細 bottom sheet */}
+      {selectedCell && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/20"
+            onClick={() => setSelectedDay(null)}
+            aria-hidden="true"
+          />
+          <div
+            data-testid="shift-review-sheet"
+            className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md rounded-t-2xl border border-white/50 bg-white/80 p-4 shadow-2xl backdrop-blur-xl"
+          >
+            {(() => {
+              const dow =
+                WEEKDAYS[dayOfWeek(year, month, selectedCell.day)];
+              const { meaning, projectLabel } = cellInfo(
+                selectedCell.rawCode,
+                dictionary
+              );
+              const isEmpty = normalizeRawCode(selectedCell.rawCode) === "";
+              return (
+                <>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-800">
+                      {monthLabel.replace(/年.*/, "")}年{month}月{selectedCell.day}日（{dow}）
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDay(null)}
+                      className="text-xs text-gray-400"
+                    >
+                      閉じる
+                    </button>
+                  </div>
+
+                  {/* 原稿セル crop 枠（取り込み時は calibrated grid crop を表示） */}
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-[10px] text-gray-400">
+                      原稿セル
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      <div>
+                        読み取り: <b className="text-base text-gray-900">{isEmpty ? "（空欄）" : selectedCell.rawCode}</b>
+                      </div>
+                      <div>意味: {meaning}</div>
+                      <div className="text-gray-400">反映予定: {projectLabel}</div>
+                    </div>
+                  </div>
+
+                  {/* 修正 picker */}
+                  <p className="mb-1 text-[11px] text-gray-500">コードを修正</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {knownCodes.map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setRawCode(selectedCell.day, code)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs transition ${
+                          normalizeRawCode(code) === normalizeRawCode(selectedCell.rawCode)
+                            ? "border-sky-400 bg-sky-50 text-sky-700"
+                            : "border-gray-200 bg-white/70 hover:bg-gray-50"
+                        }`}
+                      >
+                        {code}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setRawCode(selectedCell.day, "")}
+                      className={`rounded-lg border px-2.5 py-1 text-xs ${
+                        isEmpty
+                          ? "border-sky-400 bg-sky-50 text-sky-700"
+                          : "border-gray-200 bg-white/70 hover:bg-gray-50"
+                      }`}
+                    >
+                      空欄
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </>
+      )}
+      </div>
+    </GlassCard>
   );
 }
