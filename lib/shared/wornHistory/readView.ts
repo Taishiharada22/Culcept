@@ -64,11 +64,16 @@ interface DateResolution {
   conflict?: WornHistoryConflictNote;
 }
 
-/** 同日の calendar / plan エントリから「代表エントリ」と「学習可否」を決める（pure）。 */
+/**
+ * 同日の calendar / plan / style エントリから「代表エントリ」と「学習可否」を決める（pure）。
+ * calendar / plan は既存 conflictPolicy で解決。 style（My-Style/Home wearEvents）は **最下位 fallback**:
+ * calendar も plan も無い日だけ代表になり、 corpus には絶対入れない・conflict も増やさない（Phase 4-4b）。
+ */
 function resolveDate(
   date: string,
   cal: WornHistoryEntry | undefined,
   plan: WornHistoryEntry | undefined,
+  style: WornHistoryEntry | undefined,
 ): DateResolution | null {
   if (cal && plan) {
     const decision = resolveWornHistoryConflict(cal, plan);
@@ -96,6 +101,10 @@ function resolveDate(
       inCorpus: decision.action === "use_plan_diary" && plan.learningEligible,
     };
   }
+  // Phase 4-4b: calendar も plan も無く style だけ → 最下位 fallback。 履歴として代表に出すが corpus には入れない。
+  if (style) {
+    return { representative: style, inCorpus: false };
+  }
   return null;
 }
 
@@ -105,7 +114,10 @@ const byDateDesc = (a: { date: string }, b: { date: string }): number =>
 /** pure: 与えられた plan/calendar レコードを canonical view に束ねる（storage 非接触・書かない）。 */
 export function buildWornHistoryView(input: BuildWornHistoryViewInput = {}): WornHistoryView {
   const opts = input.knownWardrobeIds ? { knownWardrobeIds: input.knownWardrobeIds } : {};
-  const byDate = new Map<string, { cal?: WornHistoryEntry; plan?: WornHistoryEntry }>();
+  const byDate = new Map<
+    string,
+    { cal?: WornHistoryEntry; plan?: WornHistoryEntry; style?: WornHistoryEntry }
+  >();
 
   for (const rec of input.calendarRecords ?? []) {
     const entry = calendarWornRecordToEntry(rec, opts);
@@ -128,6 +140,8 @@ export function buildWornHistoryView(input: BuildWornHistoryViewInput = {}): Wor
       slot.cal = entry;
     } else if (entry.origin === "plan") {
       slot.plan = entry;
+    } else if (entry.origin === "style") {
+      slot.style = entry; // Phase 4-4b: My-Style/Home wearEvents 由来。 最下位 fallback・corpus 非対象。
     } else {
       continue; // 未知 origin は安全に無視（read-view 全体は落とさない）
     }
@@ -139,7 +153,7 @@ export function buildWornHistoryView(input: BuildWornHistoryViewInput = {}): Wor
   const conflicts: WornHistoryConflictNote[] = [];
 
   for (const [date, slot] of byDate) {
-    const res = resolveDate(date, slot.cal, slot.plan);
+    const res = resolveDate(date, slot.cal, slot.plan, slot.style);
     if (!res) continue;
     entries.push(res.representative);
     if (res.inCorpus) learningCorpus.push(res.representative);

@@ -287,6 +287,78 @@ describe("buildWornHistoryView — canonical union merge（Phase 4-2）", () => 
   });
 });
 
+describe("buildWornHistoryView — style origin（Phase 4-4b）", () => {
+  it("style-only の日は style が representative として出る", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [canon("2026-05-29", { origin: "style", source: "my_style", itemIds: ["m1"] })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("style");
+    expect(view.entries[0].itemIds).toEqual(["m1"]);
+  });
+
+  it("style-only entry は learningCorpus に入らない（satisfaction があっても）", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [canon("2026-05-29", { origin: "style", source: "my_style", satisfaction: 5 })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.learningCorpus).toHaveLength(0);
+  });
+
+  it("calendar + style 同日 → calendar が代表（style 無視）", () => {
+    const view = buildWornHistoryView({
+      calendarRecords: [{ date: "2026-05-29", itemIds: ["c1"], satisfaction: 4 }],
+      canonicalEntries: [canon("2026-05-29", { origin: "style", source: "my_style", itemIds: ["m1"] })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("calendar");
+    expect(view.entries[0].itemIds).toEqual(["c1"]);
+  });
+
+  it("plan + style 同日 → plan が代表（style 無視）", () => {
+    const view = buildWornHistoryView({
+      planRecords: [{ date: "2026-05-29", wornAt: "t", itemIds: ["w1"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [canon("2026-05-29", { origin: "style", source: "my_style", itemIds: ["m1"] })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("plan");
+  });
+
+  it("calendar + plan + style 同日 → 既存 conflictPolicy（calendar 優先）維持・style 無視", () => {
+    const view = buildWornHistoryView({
+      calendarRecords: [{ date: "2026-05-29", itemIds: ["c1"], satisfaction: 4 }],
+      planRecords: [{ date: "2026-05-29", wornAt: "t", itemIds: ["w1"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [canon("2026-05-29", { origin: "style", source: "my_style", itemIds: ["m1"] })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("calendar");
+    expect(view.conflicts).toEqual([{ date: "2026-05-29", decision: { action: "use_existing_calendar" } }]);
+  });
+
+  it("style は conflict を二重化しない（calendar+style / plan+style は conflict 0）", () => {
+    const view = buildWornHistoryView({
+      calendarRecords: [{ date: "2026-05-20", itemIds: ["c1"], satisfaction: 4 }],
+      planRecords: [{ date: "2026-05-21", wornAt: "t", itemIds: ["w1"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [
+        canon("2026-05-20", { origin: "style", source: "my_style" }),
+        canon("2026-05-21", { origin: "style", source: "my_style" }),
+      ],
+    });
+    expect(view.conflicts).toHaveLength(0); // calendar 単独日・plan 単独日（style は最下位）→ 衝突なし
+  });
+
+  it("unknown origin は安全に無視（style は出るが unknown は出ない）", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [
+        { date: "2026-05-22", wornAt: "t", itemIds: ["x"], source: "engine", origin: "weird" as WornHistoryEntry["origin"], learningEligible: false },
+        canon("2026-05-23", { origin: "style", source: "my_style", itemIds: ["m1"] }),
+      ],
+    });
+    expect(view.entries.map((e) => e.date)).toEqual(["2026-05-23"]);
+    expect(view.entries[0].origin).toBe("style");
+  });
+});
+
 // ── IO シェル（fake localStorage + facade mock） ───────────────────
 describe("loadWornHistoryView / getLearningCorpus（IO・read-only）", () => {
   beforeEach(() => {
@@ -375,5 +447,14 @@ describe("loadWornHistoryView / getLearningCorpus（IO・read-only）", () => {
     g.localStorage!.setItem(CANONICAL_KEY, "{broken");
     const view = await loadWornHistoryView({ includeCalendar: false });
     expect(view.entries.map((e) => e.date)).toEqual(["2026-05-21"]);
+  });
+
+  it("style canonical: 既定 true で style 単独日が出る / includeCanonical:false で無視（4-4b）", async () => {
+    seedCanonical([canon("2026-05-23", { origin: "style", source: "my_style", itemIds: ["m1"] })]);
+    const on = await loadWornHistoryView({ includeCalendar: false });
+    expect(on.entries.map((e) => e.origin)).toEqual(["style"]); // 既定 true → style 単独日が代表
+    expect(on.learningCorpus).toHaveLength(0); // style は corpus 非対象
+    const off = await loadWornHistoryView({ includeCalendar: false, includeCanonical: false });
+    expect(off.entries).toHaveLength(0); // canonical 読まない → style も出ない
   });
 });
