@@ -321,6 +321,36 @@ preview 環境で flag ON 時に、 CEO の**認証済みブラウザ + 実 My-S
 
 **5-D3 の境界**：本節は preview smoke plan を docs 固定するのみ。 **preview env 変更 / Vercel 変更 / flag ON / redeploy / 実行は別ゲート（CEO 承認後）**。 production / runtime override / analytics / server-sync / backfill / canonical-only flip / old key 削除 / `/calendar` 削除 には進まない。
 
+### 14.12 preview smoke 実機結果（5-D3・限定PASS / behavior UNVERIFIED）
+2026-05-30、CEO 認証ブラウザで preview 実機確認を実施。 **deployment-scoped build env** で flag ON の preview deployment を作成（`--build-env NEXT_PUBLIC_WORN_HISTORY_ENGINE_READS_CORPUS=true` / `--prod` 不使用＝preview / project・branch env 不変更 / production 不触）。 default 8GB build machine では build が OOM（SIGKILL）したため、CEO が一時的に Enhanced build machine（16GB）へ増強して build 成功（`readyState: READY` / `target: null`＝preview）。
+
+**確認できたこと（PASS）**：
+1. preview deployment は成功（READY・preview target）。
+2. `/plan` は普通に開いた。
+3. UI の不自然な劣化はなかった（preview deploy / route / auth / display safety は問題なさそう）。
+
+**確認できなかったこと（UNVERIFIED）**：
+4. **おすすめコーデに実服が反映されていない**（preview 上の提案が実 My-Style アイテム由来か確認できない）。
+5. **SYNC 84 の妥当性は未確認**：実服が反映されていない以上、このスコアは mock / silhouette / fallback proposal に対する値の可能性が高く、実服スコアとしての妥当性は確認できない。
+6. confidence / 「同じ服ばかりにならないか」 / 「最近着た服の過剰再提案抑制」：**確認不可**。
+7. my_style が recency にのみ効くか / mock・hydrated_mock が learning に非混入か / learning effect が出ているか：**実機上は未確認**。
+
+**根本原因の仮説（要切り分け・今は実装しない）**：preview URL は production / local と **origin が異なる**。 My-Style / wardrobe が **IndexedDB / localStorage 由来**（client-only）なら、 preview origin には実服データが存在せず → 提案が fallback になり SYNC も実服由来でない。 preview で学習効果を検証するには次のどちらかが必要：
+- **A**. preview URL 上で My-Style に実アイテムを登録してから再確認する。
+- **B**. My-Style / wardrobe を origin 依存 IDB ではなく、preview でも読める backend / shared source に接続する。
+
+**5-D3 最終判定**：
+```
+deployment safety: PASS
+UI safety: PASS
+behavior / learning effect: UNVERIFIED
+production canary: NO-GO
+```
+
+**次に必要なこと**：
+- 実服データが preview origin で読める状態を作る（= My-Style / wardrobe が origin 依存 IDB か Supabase 等の共有データかを切り分け、A/B のどちらが必要かを特定）。 **5-D4 production canary には進まない**。
+- 運用メモ：本 branch の build は 8GB に収まらず一時 16GB を使用。 ① smoke 後に build machine を標準（8GB）へ戻す（Enhanced はビルドごと課金）。 ② 本 branch を production に merge する前に build 軽量化（例 `next build --webpack` → Turbopack）が前提（production canary readiness の別ブロッカー）。
+
 ---
 
 ## Appendix A — store inventory（現状）
