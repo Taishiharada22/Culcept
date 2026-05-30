@@ -88,13 +88,18 @@ function cellInfo(
   }
 }
 
-// 淡い glassmorphism tint（うるさくしない）
+// 設計: 勤務=緑を figure（強い）/ 休み=淡く ground。色は一系統だけ強める（CEO）
 const KIND_TINT: Record<CellKind, string> = {
-  empty: "bg-white/50 text-gray-300",
-  work: "bg-sky-50/80 text-sky-700",
-  off: "bg-slate-100/70 text-slate-500",
-  candidate: "bg-amber-50/80 text-amber-700",
-  unresolved: "bg-rose-50/80 text-rose-600",
+  // 勤務 = 緑系を明確に（働く日が一目で浮く）
+  work: "bg-emerald-100 text-emerald-800 border-emerald-300 shadow-sm shadow-emerald-200/40",
+  // 休み = 淡く退く
+  off: "bg-white/40 text-slate-400 border-slate-200/60",
+  // 希望休 = 控えめな琥珀（休みと区別を残す・GPT）
+  candidate: "bg-amber-50/70 text-amber-600 border-amber-200/70",
+  // 空欄 = ほぼ無色
+  empty: "bg-white/20 text-gray-300 border-slate-100",
+  // 未知 = 要確認の赤
+  unresolved: "bg-rose-100 text-rose-700 border-rose-300",
 };
 
 export function ShiftReviewGrid({
@@ -167,6 +172,19 @@ export function ShiftReviewGrid({
         強調（隅の印）は注意の補助です。<b>強調が無くても全セルを原稿と照合</b>してください。空欄が勝手に埋まる場合があります。
       </p>
 
+      {/* 凡例（うるさくしない最小限） */}
+      <div className="mb-2 flex items-center gap-3 text-[10px] text-gray-400">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded bg-emerald-200" />勤務
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2.5 w-2.5 rounded border border-slate-200 bg-white" />休み
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />要確認
+        </span>
+      </div>
+
       {/* 曜日ヘッダ */}
       <div
         data-testid="shift-review-weekday-header"
@@ -200,16 +218,18 @@ export function ShiftReviewGrid({
               data-kind={kind}
               data-blank-risk={risk ? "true" : "false"}
               onClick={() => setSelectedDay(cell.day)}
-              className={`relative flex aspect-square flex-col items-center justify-center rounded-xl border backdrop-blur transition ${KIND_TINT[kind]} ${
-                selected
-                  ? "border-sky-400 ring-2 ring-sky-300"
-                  : "border-white/50 shadow-sm"
+              className={`relative flex aspect-square flex-col items-center justify-center rounded-xl border transition ${KIND_TINT[kind]} ${
+                selected ? "ring-2 ring-sky-400 ring-offset-1" : ""
               }`}
             >
-              <span className="absolute left-1 top-0.5 text-[9px] text-gray-400">
+              <span className="absolute left-1.5 top-1 text-[9px] font-medium text-gray-400">
                 {cell.day}
               </span>
-              <span className={`text-sm font-bold leading-none ${isEmpty ? "text-gray-300" : ""}`}>
+              <span
+                className={`text-[15px] font-extrabold leading-none tracking-tight ${
+                  isEmpty ? "text-gray-300" : ""
+                }`}
+              >
                 {isEmpty ? "·" : cell.rawCode}
               </span>
               {risk && (
