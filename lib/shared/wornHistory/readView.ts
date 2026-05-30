@@ -28,7 +28,9 @@ import {
   type CalendarWornRecordInput,
   type PlanWornRecordInput,
 } from "./converters";
+import { recomputeLearningEligibility } from "./eligibility";
 import type { WornHistoryEntry } from "./types";
+import { getCanonicalWornHistoryEntries } from "./writeStore";
 
 /** /plan diary の物理 key（writer は app/(culcept)/plan/tabs/_calendar-outfit/wornStore.ts）。 read のみ。 */
 const PLAN_WORN_KEY = "culcept_plan_worn_v1";
@@ -36,6 +38,8 @@ const PLAN_WORN_KEY = "culcept_plan_worn_v1";
 export interface BuildWornHistoryViewInput {
   planRecords?: PlanWornRecordInput[];
   calendarRecords?: CalendarWornRecordInput[];
+  /** canonical 正本（culcept_worn_history_v1）の entry。 同 (date, origin) では旧 key より優先（Phase 4-2）。 */
+  canonicalEntries?: WornHistoryEntry[];
   knownWardrobeIds?: Iterable<string>;
 }
 
@@ -113,6 +117,20 @@ export function buildWornHistoryView(input: BuildWornHistoryViewInput = {}): Wor
     const entry = planWornRecordToEntry(rec, opts);
     const slot = byDate.get(entry.date) ?? {};
     slot.plan = entry; // 同日 plan 複数は後勝ち（plan store は 1/date 上書き）。
+    byDate.set(entry.date, slot);
+  }
+  // canonical（Phase 4-2）。 旧 key の後に投入し、 同 (date, origin) では canonical を優先（後勝ち）。
+  // 既に WornHistoryEntry。 eligibility のみ read 時に再判定（storage は書き換えない・Phase 5 で knownWardrobeIds 対応）。
+  for (const raw of input.canonicalEntries ?? []) {
+    const entry = recomputeLearningEligibility(raw, opts);
+    const slot = byDate.get(entry.date) ?? {};
+    if (entry.origin === "calendar") {
+      slot.cal = entry;
+    } else if (entry.origin === "plan") {
+      slot.plan = entry;
+    } else {
+      continue; // 未知 origin は安全に無視（read-view 全体は落とさない）
+    }
     byDate.set(entry.date, slot);
   }
 
@@ -208,9 +226,20 @@ async function readCalendarWornRecords(): Promise<CalendarWornRecordInput[]> {
   }
 }
 
+/** canonical 正本を read-only で読む（4-1 writeStore 経由）。 失敗しても read-view 全体を落とさない（fail-open []）。 */
+function readCanonicalEntries(): WornHistoryEntry[] {
+  try {
+    return getCanonicalWornHistoryEntries();
+  } catch {
+    return [];
+  }
+}
+
 export interface LoadWornHistoryViewOptions {
-  /** calendar 履歴を含めるか（既定 true: canonical = plan + calendar）。 */
+  /** calendar 履歴（旧 culcept_calendar_worn_v1, facade 経由）を含めるか（既定 true）。 */
   includeCalendar?: boolean;
+  /** canonical 正本（culcept_worn_history_v1）を含めるか（既定 true）。 false で 4-2 前の挙動＝kill switch。 */
+  includeCanonical?: boolean;
   knownWardrobeIds?: Iterable<string>;
 }
 
@@ -219,11 +248,14 @@ export async function loadWornHistoryView(
   options: LoadWornHistoryViewOptions = {},
 ): Promise<WornHistoryView> {
   const includeCalendar = options.includeCalendar ?? true;
+  const includeCanonical = options.includeCanonical ?? true;
   const planRecords = readPlanWornRecords();
   const calendarRecords = includeCalendar ? await readCalendarWornRecords() : [];
+  const canonicalEntries = includeCanonical ? readCanonicalEntries() : [];
   return buildWornHistoryView({
     planRecords,
     calendarRecords,
+    canonicalEntries,
     ...(options.knownWardrobeIds ? { knownWardrobeIds: options.knownWardrobeIds } : {}),
   });
 }

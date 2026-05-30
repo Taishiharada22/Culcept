@@ -6,6 +6,7 @@ import {
   getLearningCorpus,
   getWornHistoryEntryForDate,
   type BuildWornHistoryViewInput,
+  type WornHistoryEntry,
 } from "@/lib/shared/wornHistory";
 
 // calendar 履歴は facade `@/lib/shared/outfitEngine` の loadWornHistory() 経由（readView は dynamic import）。
@@ -21,6 +22,7 @@ vi.mock("@/lib/shared/outfitEngine", () => ({
 }));
 
 const PLAN_KEY = "culcept_plan_worn_v1";
+const CANONICAL_KEY = "culcept_worn_history_v1";
 const g = globalThis as unknown as { localStorage?: Storage };
 
 function makeFakeStorage(): Storage {
@@ -39,6 +41,19 @@ function makeFakeStorage(): Storage {
       m.set(k, String(v));
     },
   } as Storage;
+}
+
+/** canonical WornHistoryEntry の factory（learningEligible は read 時 recompute されるので任意値でよい）。 */
+function canon(date: string, p: Partial<WornHistoryEntry> = {}): WornHistoryEntry {
+  return {
+    date,
+    wornAt: `${date}T20:00:00.000Z`,
+    itemIds: ["w1"],
+    source: "engine",
+    origin: "plan",
+    learningEligible: true,
+    ...p,
+  };
 }
 
 // ── pure buildWornHistoryView（storage / mock 非依存） ──────────────
@@ -148,6 +163,130 @@ describe("buildWornHistoryView — 整列 / 部分集合", () => {
   });
 });
 
+describe("buildWornHistoryView — canonical union merge（Phase 4-2）", () => {
+  it("canonical なし / 空配列 → 既存挙動と同じ", () => {
+    const rec = { date: "2026-05-10", wornAt: "t", itemIds: ["w1"], source: "engine" as const, satisfaction: 5 };
+    expect(buildWornHistoryView({ planRecords: [rec] })).toEqual(
+      buildWornHistoryView({ planRecords: [rec], canonicalEntries: [] }),
+    );
+  });
+
+  it("old plan のみの日 → old plan が読まれる", () => {
+    const view = buildWornHistoryView({
+      planRecords: [{ date: "2026-05-10", wornAt: "t", itemIds: ["old"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [canon("2026-05-11", { itemIds: ["canon"] })],
+    });
+    expect(view.entries.find((e) => e.date === "2026-05-10")?.itemIds).toEqual(["old"]);
+  });
+
+  it("canonical plan のみの日 → canonical plan が読まれる", () => {
+    const view = buildWornHistoryView({ canonicalEntries: [canon("2026-05-12", { itemIds: ["canon"] })] });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("plan");
+    expect(view.entries[0].itemIds).toEqual(["canon"]);
+  });
+
+  it("同 (date, plan) が old plan と canonical で重なる → canonical 優先", () => {
+    const view = buildWornHistoryView({
+      planRecords: [{ date: "2026-05-13", wornAt: "t", itemIds: ["old"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [canon("2026-05-13", { itemIds: ["canon"], satisfaction: 5 })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].itemIds).toEqual(["canon"]); // canonical 後勝ち
+  });
+
+  it("同 (date, calendar) が old calendar と canonical で重なる → canonical 優先（4-3 前方互換）", () => {
+    const view = buildWornHistoryView({
+      calendarRecords: [{ date: "2026-05-14", itemIds: ["oldcal"], satisfaction: 4 }],
+      canonicalEntries: [
+        canon("2026-05-14", { origin: "calendar", source: "calendar_form", itemIds: ["canoncal"], satisfaction: 4 }),
+      ],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("calendar");
+    expect(view.entries[0].itemIds).toEqual(["canoncal"]);
+  });
+
+  it("plan + calendar 同日 → 既存 conflictPolicy（calendar 優先）を維持", () => {
+    const view = buildWornHistoryView({
+      calendarRecords: [{ date: "2026-05-15", itemIds: ["c1"], satisfaction: 4 }],
+      canonicalEntries: [canon("2026-05-15", { origin: "plan", itemIds: ["w1"], satisfaction: 5 })],
+    });
+    expect(view.entries).toHaveLength(1);
+    expect(view.entries[0].origin).toBe("calendar"); // calendar 優先は不変
+    expect(view.conflicts).toEqual([{ date: "2026-05-15", decision: { action: "use_existing_calendar" } }]);
+  });
+
+  it("old plan + canonical plan が重なっても plan conflict は二重に出ない", () => {
+    const view = buildWornHistoryView({
+      calendarRecords: [{ date: "2026-05-16", itemIds: ["c1"], satisfaction: 4 }],
+      planRecords: [{ date: "2026-05-16", wornAt: "t", itemIds: ["old"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [canon("2026-05-16", { origin: "plan", itemIds: ["canon"], satisfaction: 5 })],
+    });
+    expect(view.conflicts).toHaveLength(1); // plan は old/canonical で 1 枠に collapse
+    expect(view.entries.filter((e) => e.date === "2026-05-16")).toHaveLength(1);
+  });
+
+  // ── learningCorpus ──
+  it("canonical の mock / hydrated_mock は corpus に入らない（read 時 recompute）", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [
+        // 保存値が誤って true でも source=mock なら read 時 recompute で除外
+        canon("2026-05-17", { source: "mock", satisfaction: 5, learningEligible: true }),
+        canon("2026-05-18", { source: "hydrated_mock", satisfaction: 5, learningEligible: true }),
+      ],
+    });
+    expect(view.entries).toHaveLength(2);
+    expect(view.learningCorpus).toHaveLength(0);
+  });
+
+  it("canonical の engine + 評価 + itemIds は corpus candidate", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [canon("2026-05-19", { source: "engine", satisfaction: 5, itemIds: ["w1"] })],
+    });
+    expect(view.learningCorpus).toHaveLength(1);
+    expect(view.learningCorpus[0].learningEligible).toBe(true);
+  });
+
+  it("canonical の calendar_form は corpus candidate", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [
+        canon("2026-05-20", { origin: "calendar", source: "calendar_form", satisfaction: 4, itemIds: ["c1"] }),
+      ],
+    });
+    expect(view.learningCorpus).toHaveLength(1);
+    expect(view.learningCorpus[0].source).toBe("calendar_form");
+  });
+
+  it("corpus は canonical mirror で二重増加しない（old plan == canonical plan）", () => {
+    const view = buildWornHistoryView({
+      planRecords: [{ date: "2026-05-21", wornAt: "t", itemIds: ["w1"], source: "engine", satisfaction: 5 }],
+      canonicalEntries: [canon("2026-05-21", { origin: "plan", source: "engine", satisfaction: 5, itemIds: ["w1"] })],
+    });
+    expect(view.learningCorpus).toHaveLength(1);
+  });
+
+  it("Phase 5 前方互換: knownWardrobeIds 指定時 canonical も read 時 recompute される", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [canon("2026-05-22", { source: "engine", satisfaction: 5, itemIds: ["ghost"], learningEligible: true })],
+      knownWardrobeIds: ["real"], // ghost 不在 → recompute で eligible=false
+    });
+    expect(view.learningCorpus).toHaveLength(0);
+    expect(view.entries[0].learningEligible).toBe(false);
+  });
+
+  // ── safety ──
+  it("unknown origin の canonical entry は安全に無視（throw しない）", () => {
+    const view = buildWornHistoryView({
+      canonicalEntries: [
+        { date: "2026-05-23", wornAt: "t", itemIds: ["x"], source: "engine", origin: "weird" as WornHistoryEntry["origin"], learningEligible: false },
+        canon("2026-05-24", { itemIds: ["ok"] }),
+      ],
+    });
+    expect(view.entries.map((e) => e.date)).toEqual(["2026-05-24"]); // weird は除外
+  });
+});
+
 // ── IO シェル（fake localStorage + facade mock） ───────────────────
 describe("loadWornHistoryView / getLearningCorpus（IO・read-only）", () => {
   beforeEach(() => {
@@ -159,6 +298,9 @@ describe("loadWornHistoryView / getLearningCorpus（IO・read-only）", () => {
 
   function seedPlan(records: unknown[]): void {
     g.localStorage!.setItem(PLAN_KEY, JSON.stringify(records));
+  }
+  function seedCanonical(entries: unknown[]): void {
+    g.localStorage!.setItem(CANONICAL_KEY, JSON.stringify(entries));
   }
 
   it("plan(localStorage) + calendar(facade) を merge", async () => {
@@ -207,5 +349,31 @@ describe("loadWornHistoryView / getLearningCorpus（IO・read-only）", () => {
     g.localStorage!.setItem(PLAN_KEY, "{broken");
     const view = await loadWornHistoryView();
     expect(view.entries.map((e) => e.date)).toEqual(["2026-05-22", "2026-05-20"]); // calendar fixture のみ
+  });
+
+  // ── canonical（Phase 4-2） ──
+  it("canonical(localStorage) も merge し、 同 (date,plan) は canonical 優先", async () => {
+    seedPlan([{ date: "2026-05-21", wornAt: "t", itemIds: ["old"], source: "engine", satisfaction: 5 }]);
+    seedCanonical([
+      canon("2026-05-21", { origin: "plan", itemIds: ["canon"], satisfaction: 5 }),
+      canon("2026-05-23", { origin: "plan", itemIds: ["c23"], satisfaction: 5 }),
+    ]);
+    const view = await loadWornHistoryView({ includeCalendar: false });
+    expect(view.entries.map((e) => e.date)).toEqual(["2026-05-23", "2026-05-21"]);
+    expect(view.entries.find((e) => e.date === "2026-05-21")?.itemIds).toEqual(["canon"]); // canonical 優先
+  });
+
+  it("includeCanonical:false → canonical を無視（4-2 前の挙動・kill switch）", async () => {
+    seedPlan([{ date: "2026-05-21", wornAt: "t", itemIds: ["old"], source: "engine", satisfaction: 5 }]);
+    seedCanonical([canon("2026-05-23", { origin: "plan", itemIds: ["c23"], satisfaction: 5 })]);
+    const view = await loadWornHistoryView({ includeCalendar: false, includeCanonical: false });
+    expect(view.entries.map((e) => e.date)).toEqual(["2026-05-21"]); // canonical 05-23 は出ない
+  });
+
+  it("破損 canonical JSON → 無視して plan は読める（read-view 全体は落ちない）", async () => {
+    seedPlan([{ date: "2026-05-21", wornAt: "t", itemIds: ["w1"], source: "engine", satisfaction: 5 }]);
+    g.localStorage!.setItem(CANONICAL_KEY, "{broken");
+    const view = await loadWornHistoryView({ includeCalendar: false });
+    expect(view.entries.map((e) => e.date)).toEqual(["2026-05-21"]);
   });
 });
