@@ -22,7 +22,7 @@
  *   - browser 専用: module top-level で window/indexedDB に触らない。 失敗しても throw せず `[]`。
  */
 
-import type { WardrobeItem } from "@/lib/shared/wardrobe";
+import { fetchWardrobe, type WardrobeItem } from "@/lib/shared/wardrobe";
 
 /** my-style が使う IndexedDB の正本スキーマ (_lib/stateCache.ts と一致させる) */
 const DB_NAME = "culcept_mystyle";
@@ -115,6 +115,42 @@ export async function loadWardrobeImagesFromMyStyleIDB(): Promise<WardrobeItem[]
         }
       };
     });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * IDB 優先（画像付き）→ 空なら server（origin 非依存・画像 strip 版の可能性あり）→ 両空/失敗なら []。
+ *
+ * preview origin / 新端末 / cache clear 後など、 client IndexedDB が空の origin でも、
+ * ログイン済みなら Supabase 由来の wardrobe（`fetchWardrobe`）で engine 提案を動かすための fallback。
+ *
+ * 安全制約 (B-minimal / CEO・GPT):
+ *   - **本番体験を劣化させない**: IDB に 1 件でもあれば server を呼ばず IDB を返す
+ *     (IDB は画像付き正本。 server snapshot は画像 strip 版のため、 IDB がある限り画像を保つ)。
+ *   - **read-only**: storage write しない (fetchWardrobe は GET のみ)。
+ *   - **fail-open**: server の 401 / network error / 非配列 / throw はすべて [] に倒し、
+ *     caller (useCalendarOutfit) が mock を維持する (退化ゼロ)。
+ *   - 依存境界: server 読み取りは `@/lib/shared/wardrobe` (shared) 経由のみ。 `/calendar/_lib` を直接 import しない。
+ *
+ * `deps` は test 用の注入 seam (本番は無指定 = 実 reader/fetcher を使う)。
+ */
+export async function loadWardrobeWithServerFallback(deps?: {
+  loadIdb?: () => Promise<WardrobeItem[]>;
+  loadServer?: () => Promise<WardrobeItem[]>;
+}): Promise<WardrobeItem[]> {
+  const loadIdb = deps?.loadIdb ?? loadWardrobeImagesFromMyStyleIDB;
+  const loadServer = deps?.loadServer ?? fetchWardrobe;
+
+  // 1. IDB 優先 (画像付き正本)。 本番ユーザーは通常ここで返り、 server へは行かない。
+  const idb = await loadIdb();
+  if (idb.length > 0) return idb;
+
+  // 2. IDB が空の origin (preview / 新端末 / cache clear) のみ server へ。 fail-open。
+  try {
+    const remote = await loadServer();
+    return Array.isArray(remote) ? remote : [];
   } catch {
     return [];
   }

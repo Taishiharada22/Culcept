@@ -29,7 +29,7 @@ import type { WardrobeItem } from "@/lib/shared/wardrobe";
 
 import { MOCK_CALENDAR_OUTFIT_VM } from "./mockCalendarOutfit";
 import type { CalendarOutfitSyncVM, CalendarOutfitVM, CalendarOutfitWeatherVM } from "./types";
-import { loadWardrobeImagesFromMyStyleIDB } from "./wardrobeAssets";
+import { loadWardrobeWithServerFallback } from "./wardrobeAssets";
 import { hydrateOutfitVM } from "./wardrobeToOutfit";
 import { fetchOutfitWeather } from "./weatherSource";
 import { anchorsToOutfitEvents } from "./anchorsToOutfitEvents";
@@ -58,7 +58,7 @@ export function useCalendarOutfit({
   useEffect(() => {
     let active = true;
     Promise.all([
-      loadWardrobeImagesFromMyStyleIDB().catch(() => [] as WardrobeItem[]),
+      loadWardrobeWithServerFallback().catch(() => [] as WardrobeItem[]),
       fetchOutfitWeather().catch(() => null),
     ]).then(([wardrobe, weather]) => {
       if (active) setMaterials({ wardrobe, weather });
