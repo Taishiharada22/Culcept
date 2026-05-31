@@ -237,6 +237,79 @@ export function selectedItemsNeedsAccessory(
   return base === "smart" || base === "dress";
 }
 
+/**
+ * D3-2: cold day 判定。 既存 `getRecommendedThickness` の `needsOuter` 境界（temp_max < 15）に整合。
+ *   独自閾値を作らない根拠: 「アウターが要る寒さ = scarf が活きる」。 15°C 未満でアウター推奨に入るため、
+ *   同じ境界で scarf 優先に切り替える。 temp_max=null（天気不明）は cold 扱いしない（過剰防寒回避）。
+ */
+export function isColdDay(weather: WeatherDaily | null): boolean {
+  return weather?.temp_max != null && weather.temp_max < 15;
+}
+
+/** accessory item の subcategory（taxonomy `"subcategory.<name>"` prefix そのまま、 小文字化） */
+function accessorySubcat(item: WardrobeItem): string {
+  return (item.subcategory ?? "").toLowerCase();
+}
+
+/**
+ * D3-2: accessory を最大 `count` 件、 **subcategory 重複禁止**で選ぶ pure helper。
+ *
+ * 規約（supplemental を壊さない）:
+ *   - cold day: scarf を **先頭へ stable partition**（除外しない。 scarf 無しなら既存順で fallback）。
+ *     scarf が無いだけで accessory 全体を消さない。
+ *   - 既に選ばれた subcategory は 2 件目以降で採用しない（jewelry 2 個などの過剰回避）。
+ *   - subcategory 未設定の item も 1 件は採用可（空 subcategory は「重複」とは見なさず最大 1 つ通す）。
+ *   - `pick(pool)` callback（= buildCombo の pickBest）で各ステップの最良 1 件を選ぶ。
+ *     選んだ item を pool から除いて次を選ぶ（同一 item の二重採用を防ぐ）。
+ *   - pure: 副作用なし。 入力 mutate なし。
+ */
+export function selectAccessories(input: {
+  pool: ReadonlyArray<WardrobeItem>;
+  count: number;
+  coldDay: boolean;
+  pick: (pool: WardrobeItem[]) => WardrobeItem | null;
+}): WardrobeItem[] {
+  const { count, coldDay, pick } = input;
+  if (input.pool.length === 0 || count <= 0) return [];
+
+  const chosen: WardrobeItem[] = [];
+  const usedSubcats = new Set<string>();
+  let remaining: WardrobeItem[] = [...input.pool];
+
+  // cold day: 1 件目は **scarf sub-pool に限定して pick** する。
+  //   理由: pick (= buildCombo の pickBest) は同点候補を内部で再ソート + seed 選択するため、
+  //   単に scarf を配列先頭へ並べ替えるだけでは scarf が選ばれる保証がない（formality 未設定だと全 50 点同点）。
+  //   そこで cold day かつ scarf が存在するときは scarf だけを pick に渡し、 確実に scarf を最優先採用する。
+  //   scarf が無ければ通常 pick に fallback（accessory 全体は消さない）。
+  if (coldDay) {
+    const scarves = remaining.filter((a) => accessorySubcat(a).endsWith("scarf"));
+    if (scarves.length > 0) {
+      const scarf = pick([...scarves]);
+      if (scarf) {
+        chosen.push(scarf);
+        usedSubcats.add(accessorySubcat(scarf));
+        remaining = remaining.filter((x) => x.id !== scarf.id);
+      }
+    }
+  }
+
+  // 残り枠を通常 pick で埋める（subcategory 重複禁止）。
+  while (chosen.length < count && remaining.length > 0) {
+    const candidate = pick([...remaining]);
+    if (!candidate) break;
+    const subcat = accessorySubcat(candidate);
+    if (usedSubcats.has(subcat)) {
+      // 同 subcategory は除外して別 subcategory を探す（過剰回避）。
+      remaining = remaining.filter((x) => accessorySubcat(x) !== subcat);
+      continue;
+    }
+    chosen.push(candidate);
+    usedSubcats.add(subcat);
+    remaining = remaining.filter((x) => x.id !== candidate.id);
+  }
+  return chosen;
+}
+
 /* ── アイテムの適格スコア ── */
 function scoreCandidate(
   item: WardrobeItem,
@@ -479,8 +552,16 @@ function buildCombo(
     if (bag) selectedItems.push(bag);
   }
   if (selectedItemsNeedsAccessory(selectedItems, adjustedFormality) && pools.accessory.length > 0) {
-    const accessory = pickBest(pools.accessory);
-    if (accessory) selectedItems.push(accessory);
+    // D3-2: dress のみ最大 2 件、 それ以外（smart）は 1 件。 cold day は scarf 優先。 subcategory 重複禁止。
+    const baseFormality = inferBaseFormality(selectedItems) ?? adjustedFormality;
+    const accCount = baseFormality === "dress" ? 2 : 1;
+    const accessories = selectAccessories({
+      pool: pools.accessory,
+      count: accCount,
+      coldDay: isColdDay(weather),
+      pick: pickBest,
+    });
+    for (const accessory of accessories) selectedItems.push(accessory);
   }
   // ────────────────────────────────────────────────────────────────────────
 
