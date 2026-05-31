@@ -63,3 +63,56 @@ describe("ShiftImportModal — E1 shell", () => {
     expect(html).not.toContain("反映（次段で有効化）");
   });
 });
+
+describe("ShiftImportModal — B1b-2C-8-c-1 risk pass-through", () => {
+  /** ShiftReviewGrid 内 detectDraftRisks が完全な月で発火しないよう、空欄なし 31 セルを作る */
+  const VALID_CODES = ["H", "E", "N", "L", "G", "BD", "E-18", "HREQ"];
+  const FULL_MONTH: ShiftReviewCell[] = Array.from({ length: 31 }, (_, i) => ({
+    day: i + 1,
+    date: `2025-07-${String(i + 1).padStart(2, "0")}`,
+    rawCode: VALID_CODES[i % VALID_CODES.length],
+    confidence: 1,
+  }));
+
+  it("既定（riskReviewEnabled 未指定）→ risk panel は出ない（既存挙動・dormant 維持）", () => {
+    const html = render({ cells: FULL_MONTH });
+    expect(html).not.toContain('data-testid="shift-review-risk-panel"');
+  });
+
+  it("riskReviewEnabled=true（完全月）→ panel なし（不要時は出さない）", () => {
+    const html = render({ cells: FULL_MONTH, riskReviewEnabled: true });
+    expect(html).not.toContain('data-testid="shift-review-risk-panel"');
+  });
+
+  it("riskReviewEnabled=true + missing day（hard）→ Grid 内 hard panel が出る（pass-through 確認）", () => {
+    const missingDay = FULL_MONTH.filter((c) => c.day !== 5);
+    const html = render({ cells: missingDay, riskReviewEnabled: true });
+    expect(html).toContain('data-testid="shift-review-risk-panel"');
+    expect(html).toContain('data-testid="shift-review-risk-hard"');
+    expect(html).toContain('data-testid="shift-review-risk-missing_day"');
+  });
+
+  it("riskReviewEnabled=true + adjacent_duplicate（soft）→ soft panel・保存 block しない（pass-through 確認）", () => {
+    const dup = FULL_MONTH.map((c) =>
+      c.day === 4 || c.day === 5 ? { ...c, rawCode: "HREQ" } : c
+    );
+    const html = render({
+      cells: dup,
+      riskReviewEnabled: true,
+      saveEnabled: true,
+    });
+    expect(html).toContain('data-testid="shift-review-risk-soft"');
+    expect(html).toContain('data-testid="shift-review-risk-adjacent_duplicate"');
+    // soft のみなら CTA は active
+    expect(html).toContain("この内容で保存");
+  });
+
+  it("chunkBoundaries=[15]（完全月）→ chunk_boundary hint が出る（pass-through 確認）", () => {
+    const html = render({
+      cells: FULL_MONTH,
+      riskReviewEnabled: true,
+      chunkBoundaries: [15],
+    });
+    expect(html).toContain('data-testid="shift-review-risk-chunk_boundary"');
+  });
+});

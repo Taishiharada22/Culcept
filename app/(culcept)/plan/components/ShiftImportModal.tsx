@@ -40,6 +40,10 @@ export interface ShiftImportModalProps {
   /** 原稿画像（任意。確認画面で該当セル crop を表示） */
   imageSrc?: string;
   geometry?: ShiftGridGeometry;
+  /** SR B1b-2C-8-c-1: draft review hint（既定 false=dormant）。ShiftReviewGrid に pass-through。 */
+  riskReviewEnabled?: boolean;
+  /** SR B1b-2C-8-c-1: draft chunk 境目（既定なし）。ShiftReviewGrid に pass-through。 */
+  chunkBoundaries?: number[];
   /** 保存成功時（host が /plan refetch を wire） */
   onSuccess: () => void;
   /** modal を閉じる */
@@ -55,6 +59,8 @@ export function ShiftImportModal({
   saveEnabled = false,
   imageSrc,
   geometry,
+  riskReviewEnabled,
+  chunkBoundaries,
   onSuccess,
   onClose,
 }: ShiftImportModalProps) {
@@ -113,6 +119,9 @@ export function ShiftImportModal({
           onConfirm={requestSave}
           onConfirmBlankRisk={confirmBlankRisk}
           onCancel={cancel}
+          // ── B1b-2C-8-c-1: draft review hint pass-through（既定 undefined=dormant） ──
+          riskReviewEnabled={riskReviewEnabled}
+          chunkBoundaries={chunkBoundaries}
         />
       </div>
     </div>
