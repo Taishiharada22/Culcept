@@ -17,6 +17,8 @@
  * 到達する状態:
  *   - 8-c-2: idle / image_loaded / row_selected
  *   - 8-c-3: extracting / cells_loaded / error（extract_started/succeeded/failed/retry で到達）
+ *   - 8-c-4: saved（cells_loaded → save_succeeded で到達。imageObjectUrl 不保持＝自動 revoke）
+ *           cells_loaded に reviewOpen フラグ追加（open_review / close_review）
  */
 
 import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
@@ -64,6 +66,8 @@ export type DevShiftDraftState =
       cells: ShiftReviewCell[];
       year: number;
       month: number;
+      /** 確認画面（ShiftImportModal）を開いているか。CEO 補正: 自動 open 禁止 → 既定 false。 */
+      reviewOpen: boolean;
     }
   | {
       // error は retry context を保持（再アップロード無しで extract_retry 可能に）。
@@ -75,6 +79,14 @@ export type DevShiftDraftState =
       month: number;
       /** safe copy（server action の error.message 由来 / decode 失敗時の固定文）。 */
       message: string;
+    }
+  | {
+      // 保存成功後の終端状態。**imageObjectUrl を持たない** → 既存 useEffect の差分検出が
+      // 自動 revoke を発火する（CEO 要件: saved 時に revoke）。cells は保持しない（保存済）。
+      kind: "saved";
+      year: number;
+      month: number;
+      cellCount: number;
     };
 
 /**
@@ -110,6 +122,19 @@ export type DevShiftDraftAction =
   | {
       // error → extracting。同 selection で再試行（imageObjectUrl/year/month 引き継ぎ）。
       type: "extract_retry";
+    }
+  // ── 8-c-4: 確認画面 + 保存 ──
+  | {
+      // cells_loaded.reviewOpen を true へ（「確認画面を開く」CTA 押下時）。
+      type: "open_review";
+    }
+  | {
+      // cells_loaded.reviewOpen を false へ（Modal の onClose）。
+      type: "close_review";
+    }
+  | {
+      // cells_loaded → saved（Modal の onSuccess）。imageObjectUrl 不保持＝自動 revoke。
+      type: "save_succeeded";
     }
   | { type: "cancel" };
 
@@ -164,6 +189,7 @@ export function devShiftDraftReducer(
 
     case "extract_succeeded": {
       // extracting からのみ。year/month は extracting から引き継ぐ（targetMonth 一貫性）。
+      // reviewOpen は **既定 false**（CEO 補正: Modal 自動 open 禁止）。
       if (state.kind !== "extracting") return state;
       return {
         kind: "cells_loaded",
@@ -173,6 +199,7 @@ export function devShiftDraftReducer(
         cells: action.cells,
         year: state.year,
         month: state.month,
+        reviewOpen: false,
       };
     }
 
@@ -200,6 +227,31 @@ export function devShiftDraftReducer(
         selection: state.selection,
         year: state.year,
         month: state.month,
+      };
+    }
+
+    case "open_review": {
+      // cells_loaded のみ受理。reviewOpen を true へ（imageObjectUrl は保持＝同一 URL 持ち越し）。
+      if (state.kind !== "cells_loaded") return state;
+      if (state.reviewOpen) return state; // 冪等（同一 reference 維持）
+      return { ...state, reviewOpen: true };
+    }
+
+    case "close_review": {
+      // cells_loaded のみ受理。reviewOpen を false へ（imageObjectUrl は保持）。
+      if (state.kind !== "cells_loaded") return state;
+      if (!state.reviewOpen) return state; // 冪等
+      return { ...state, reviewOpen: false };
+    }
+
+    case "save_succeeded": {
+      // cells_loaded のみ受理。saved（imageObjectUrl 不保持）へ → useEffect が revoke。
+      if (state.kind !== "cells_loaded") return state;
+      return {
+        kind: "saved",
+        year: state.year,
+        month: state.month,
+        cellCount: state.cells.length,
       };
     }
 
@@ -239,6 +291,9 @@ export function currentImageObjectUrl(
 ): string | null {
   switch (state.kind) {
     case "idle":
+    case "saved":
+      // saved は imageObjectUrl を持たない → 直前の cells_loaded で持っていた URL を
+      // useEffect の差分検出が revoke する（CEO 要件: saved 時に revoke）。
       return null;
     case "image_loaded":
     case "row_selected":

@@ -1,19 +1,24 @@
 "use client";
 
 /**
- * DevShiftDraftClient — fixture host の client（SR B1b-2C-8-c-3）
+ * DevShiftDraftClient — fixture host の client（SR B1b-2C-8-c-4）
  *
- * 本コミット（B1b-2C-8-c-3）の scope:
- *   - 8-c-2 の state machine（idle / image_loaded / row_selected）に **抽出パス**を接続:
- *       row_selected → crop → extract action → cells_loaded / error
- *   - targetMonth 入力（<input type="month">）。daysInMonth は targetYear/month から再計算。
- *   - submit 時だけ imageObjectUrl から image decode（transient local）→ generateAssistedCrops →
- *     runDraftExtractionSubmit（DI orchestrator）→ extractShiftDraftAction（server action）。
- *   - 結果を cells_loaded（最小サマリ）/ error（retry 付き）へ。
+ * 本コミット（B1b-2C-8-c-4）の scope:
+ *   - cells_loaded に「確認画面を開く」CTA を追加 → dispatch open_review。
+ *   - selectImportModalProps（pure selector）経由で ShiftImportModal を条件 mount。
+ *     riskReviewEnabled=true / chunkBoundaries=[15] / saveEnabled は server prop 由来 / imageSrc=ObjectURL。
+ *   - Modal の onClose → close_review、onSuccess → save_succeeded（cells_loaded → saved）。
+ *   - saved 状態で success banner + 「最初からやり直す」（→ cancel で idle へ）。
+ *   - saved は imageObjectUrl を持たない → useEffect の差分検出が **自動 revoke**（CEO 要件）。
  *
- * 範囲外（**8-c-4 で接続**）:
- *   - ShiftImportModal mount / riskReviewEnabled / saveEnabled flag による保存導線
- *   - DB write / 保存ボタン有効化
+ * 既存（8-c-2/8-c-3 で確立）:
+ *   - state machine（idle / image_loaded / row_selected / extracting / cells_loaded / error）
+ *   - targetMonth 入力 + crop + extract action wiring（VLM cost 入口は server action 経由のみ）
+ *
+ * 範囲外（**8-c-4 でやらない・CEO 禁止**）:
+ *   - /plan 自動遷移（dev host では見送り）
+ *   - saveEnabled hardcode true
+ *   - staging smoke / VLM 再実行 / DB write の実行（PLAN_SHIFT_IMPORT_SAVE flag で dormant 維持）
  *
  * 不変原則（CEO 補正・2026-06-01）:
  *   - **File / Blob を React state に長期保持しない**（state は ObjectURL string + image metadata のみ）。
@@ -31,9 +36,11 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { AssistedRowSelector } from "@/app/(culcept)/plan/components/AssistedRowSelector";
+import { ShiftImportModal } from "@/app/(culcept)/plan/components/ShiftImportModal";
 import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
 import { generateAssistedCrops } from "@/lib/plan/shift/assistedCropGenerator";
 import { runDraftExtractionSubmit } from "@/lib/plan/shift/runDraftExtractionSubmit";
+import { selectImportModalProps } from "@/lib/plan/shift/devShiftDraftModalSelector";
 import {
   daysInMonth,
   formatMonthInput,
@@ -53,7 +60,8 @@ import {
 export interface DevShiftDraftClientProps {
   /**
    * 保存導線の活性化。**server-side flag（PLAN_SHIFT_IMPORT_SAVE）由来**。
-   * 本コミット（8-c-3）では未使用（ShiftImportModal mount は 8-c-4）。hardcode true は禁止。
+   * 8-c-4: ShiftImportModal の saveEnabled prop に pass-through。**hardcode true 禁止**。
+   * 既定 false で dormant（test 環境では env 未設定 → false → Modal の保存 CTA は disabled placeholder）。
    */
   saveEnabled?: boolean;
   /** server が算出した既定年（現在月）。targetMonth の初期値に使う。 */
@@ -101,6 +109,7 @@ const SAFE_MONTH_NOTICE = "対象の年月を選んでください。";
 const SAFE_RUNTIME_FAIL = "読み取りに失敗しました。もう一度お試しください。";
 
 export function DevShiftDraftClient({
+  saveEnabled,
   defaultYear,
   defaultMonth,
 }: DevShiftDraftClientProps = {}) {
@@ -224,8 +233,19 @@ export function DevShiftDraftClient({
 
   const onRetry = useCallback(() => dispatch({ type: "extract_retry" }), []);
 
+  // ── 8-c-4: 確認画面（ShiftImportModal）の開閉 + 保存成功 ──
+  const onOpenReview = useCallback(() => dispatch({ type: "open_review" }), []);
+  const onCloseReview = useCallback(() => dispatch({ type: "close_review" }), []);
+  const onSaveSucceeded = useCallback(
+    () => dispatch({ type: "save_succeeded" }),
+    []
+  );
+
   const isSelecting =
     state.kind === "image_loaded" || state.kind === "row_selected";
+
+  // selector は pure: state.kind !== cells_loaded か reviewOpen=false なら null（mount しない）
+  const modalProps = selectImportModalProps(state, { saveEnabled });
 
   return (
     <div
@@ -358,7 +378,7 @@ export function DevShiftDraftClient({
             <p data-testid="dev-shift-draft-cells-count" className="font-medium">
               {`${state.year}年${state.month}月 — ${state.cells.length} 件の下書きを読み取りました。`}
             </p>
-            {/* 最小サマリ（day: rawCode）。ShiftReviewGrid / 保存導線は 8-c-4 で接続。 */}
+            {/* 最小サマリ（day: rawCode）。詳細確認は「確認画面を開く」CTA から。 */}
             <ul className="grid grid-cols-4 gap-1 text-[11px] text-slate-500">
               {state.cells.map((c) => (
                 <li
@@ -369,14 +389,46 @@ export function DevShiftDraftClient({
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-slate-400">
-              次の段階で、確認画面（取り込み確認）に接続します。
+            {/* CEO 補正: Modal は自動 open せず、必ず CTA を挟む */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="dev-shift-draft-open-review"
+                onClick={onOpenReview}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-[12px] font-medium text-white"
+              >
+                確認画面を開く
+              </button>
+              <button
+                type="button"
+                data-testid="dev-shift-draft-restart"
+                onClick={onCancel}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] text-slate-600"
+              >
+                最初からやり直す
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 8-c-4: saved 終端 — success banner + 「最初からやり直す」。
+            saved 状態には imageObjectUrl が無い → useEffect 差分検出で自動 revoke 発火。 */}
+        {state.kind === "saved" && (
+          <div
+            data-testid="dev-shift-draft-saved"
+            className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-[12px] leading-relaxed text-emerald-800"
+          >
+            <p data-testid="dev-shift-draft-saved-message" className="font-medium">
+              {`${state.year}年${state.month}月 — ${state.cellCount} 件を反映しました。`}
+            </p>
+            <p className="text-[11px] text-emerald-700">
+              続けて別の月を取り込むには、最初からやり直してください。
             </p>
             <button
               type="button"
-              data-testid="dev-shift-draft-restart"
+              data-testid="dev-shift-draft-saved-restart"
               onClick={onCancel}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] text-slate-600"
+              className="rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-[11px] text-emerald-700"
             >
               最初からやり直す
             </button>
@@ -408,6 +460,25 @@ export function DevShiftDraftClient({
               </button>
             </div>
           </div>
+        )}
+
+        {/* 8-c-4: ShiftImportModal 条件 mount。
+            selector が null を返す（cells_loaded.reviewOpen=false / 他状態）と一切 mount しない。
+            saveEnabled は server prop 由来（hardcode true なし）。
+            riskReviewEnabled=true / chunkBoundaries=[15] は selector で hardcode（dev host 検証用）。 */}
+        {modalProps && (
+          <ShiftImportModal
+            open={modalProps.open}
+            year={modalProps.year}
+            month={modalProps.month}
+            cells={modalProps.cells}
+            saveEnabled={modalProps.saveEnabled}
+            imageSrc={modalProps.imageSrc}
+            riskReviewEnabled={modalProps.riskReviewEnabled}
+            chunkBoundaries={modalProps.chunkBoundaries}
+            onSuccess={onSaveSucceeded}
+            onClose={onCloseReview}
+          />
         )}
       </div>
     </div>

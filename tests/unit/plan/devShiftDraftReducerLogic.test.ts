@@ -271,8 +271,20 @@ describe("currentImageObjectUrl helper", () => {
         cells: [],
         year: 2025,
         month: 7,
+        reviewOpen: false,
       })
     ).toBe(URL1);
+  });
+
+  it("saved → null（imageObjectUrl 不保持 → useEffect 差分検出で自動 revoke）", () => {
+    expect(
+      currentImageObjectUrl({
+        kind: "saved",
+        year: 2025,
+        month: 7,
+        cellCount: 3,
+      })
+    ).toBeNull();
   });
 });
 
@@ -315,7 +327,7 @@ describe("devShiftDraftReducer — extract_started", () => {
 });
 
 describe("devShiftDraftReducer — extract_succeeded", () => {
-  it("extracting → cells_loaded（year/month は extracting から引き継ぐ）", () => {
+  it("extracting → cells_loaded（year/month は extracting から引き継ぐ、reviewOpen 既定 false）", () => {
     const next = devShiftDraftReducer(EXTRACTING, {
       type: "extract_succeeded",
       cells: CELLS,
@@ -328,6 +340,7 @@ describe("devShiftDraftReducer — extract_succeeded", () => {
       cells: CELLS,
       year: 2025,
       month: 7,
+      reviewOpen: false, // 8-c-4: 自動 open 禁止（CEO 補正）
     });
   });
 
@@ -421,5 +434,108 @@ describe("outcomeToAction — submit outcome → dispatch action", () => {
     const action = outcomeToAction({ kind: "error", message: "失敗しました" });
     const next = devShiftDraftReducer(EXTRACTING, action as DevShiftDraftAction);
     expect(next.kind).toBe("error");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 8-c-4: 確認画面（reviewOpen）+ 保存（saved）transition
+// ─────────────────────────────────────────────────────────────
+
+/** 共通 cells_loaded fixture（reviewOpen は各 test で変える）。 */
+const CELLS_LOADED = (reviewOpen: boolean): DevShiftDraftState => ({
+  kind: "cells_loaded",
+  imageObjectUrl: URL1,
+  imageMeta: META,
+  selection: SELECTION,
+  cells: CELLS,
+  year: 2025,
+  month: 7,
+  reviewOpen,
+});
+
+describe("devShiftDraftReducer — open_review / close_review", () => {
+  it("cells_loaded(reviewOpen=false) + open_review → reviewOpen=true（imageObjectUrl 保持）", () => {
+    const before = CELLS_LOADED(false);
+    const next = devShiftDraftReducer(before, { type: "open_review" });
+    expect(next).toEqual({ ...before, reviewOpen: true });
+    expect(next.kind === "cells_loaded" && next.imageObjectUrl).toBe(URL1);
+  });
+
+  it("cells_loaded(reviewOpen=true) + open_review は冪等（同一 reference）", () => {
+    const opened = CELLS_LOADED(true);
+    expect(devShiftDraftReducer(opened, { type: "open_review" })).toBe(opened);
+  });
+
+  it("cells_loaded(reviewOpen=true) + close_review → reviewOpen=false", () => {
+    const opened = CELLS_LOADED(true);
+    const next = devShiftDraftReducer(opened, { type: "close_review" });
+    expect(next).toEqual({ ...opened, reviewOpen: false });
+  });
+
+  it("cells_loaded(reviewOpen=false) + close_review は冪等", () => {
+    const closed = CELLS_LOADED(false);
+    expect(devShiftDraftReducer(closed, { type: "close_review" })).toBe(closed);
+  });
+
+  it("cells_loaded 以外からの open_review / close_review は no-op", () => {
+    expect(devShiftDraftReducer(INITIAL_STATE, { type: "open_review" })).toBe(INITIAL_STATE);
+    expect(devShiftDraftReducer(EXTRACTING, { type: "open_review" })).toBe(EXTRACTING);
+    expect(devShiftDraftReducer(ERRORED, { type: "open_review" })).toBe(ERRORED);
+    expect(devShiftDraftReducer(EXTRACTING, { type: "close_review" })).toBe(EXTRACTING);
+  });
+});
+
+describe("devShiftDraftReducer — save_succeeded", () => {
+  it("cells_loaded → saved（imageObjectUrl 不保持 / cellCount は cells.length）", () => {
+    const before = CELLS_LOADED(true);
+    const next = devShiftDraftReducer(before, { type: "save_succeeded" });
+    expect(next).toEqual({
+      kind: "saved",
+      year: 2025,
+      month: 7,
+      cellCount: CELLS.length,
+    });
+    // saved state に imageObjectUrl が無いことを構造的に保証
+    expect(Object.keys(next)).not.toContain("imageObjectUrl");
+    expect(Object.keys(next)).not.toContain("imageMeta");
+    expect(Object.keys(next)).not.toContain("cells");
+  });
+
+  it("cells_loaded 以外からの save_succeeded は no-op", () => {
+    expect(devShiftDraftReducer(INITIAL_STATE, { type: "save_succeeded" })).toBe(INITIAL_STATE);
+    expect(devShiftDraftReducer(EXTRACTING, { type: "save_succeeded" })).toBe(EXTRACTING);
+    expect(devShiftDraftReducer(ERRORED, { type: "save_succeeded" })).toBe(ERRORED);
+  });
+
+  it("save_succeeded で currentImageObjectUrl(saved)=null → useEffect 差分検出で revoke 発火", () => {
+    const before = CELLS_LOADED(true);
+    expect(currentImageObjectUrl(before)).toBe(URL1);
+    const after = devShiftDraftReducer(before, { type: "save_succeeded" });
+    expect(currentImageObjectUrl(after)).toBeNull();
+  });
+});
+
+describe("devShiftDraftReducer — saved 終端 + cancel", () => {
+  it("saved + cancel → idle", () => {
+    const saved: DevShiftDraftState = {
+      kind: "saved",
+      year: 2025,
+      month: 7,
+      cellCount: 3,
+    };
+    expect(devShiftDraftReducer(saved, { type: "cancel" })).toEqual({ kind: "idle" });
+  });
+
+  it("saved からの open_review / close_review / save_succeeded / extract_retry は no-op", () => {
+    const saved: DevShiftDraftState = {
+      kind: "saved",
+      year: 2025,
+      month: 7,
+      cellCount: 3,
+    };
+    expect(devShiftDraftReducer(saved, { type: "open_review" })).toBe(saved);
+    expect(devShiftDraftReducer(saved, { type: "close_review" })).toBe(saved);
+    expect(devShiftDraftReducer(saved, { type: "save_succeeded" })).toBe(saved);
+    expect(devShiftDraftReducer(saved, { type: "extract_retry" })).toBe(saved);
   });
 });
