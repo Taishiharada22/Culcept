@@ -97,14 +97,26 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
 }
 
 /* ── カテゴリでフィルタ ── */
-type CategoryGroup = "outer" | "tops" | "bottoms" | "shoes";
+// D2-1: bag / accessory を supplemental pool として追加（buildCombo は未配線・no-op）。
+//   - 主軸（outfit 成立必須）: tops / bottoms / shoes
+//   - 条件付き: outer
+//   - supplemental: bag / accessory  ← D2-2 で buildCombo に配線
+// D2-1: 型と関数を export し、 D2 unit test から直接 assertion 可能にする。
+// 内部のロジックは不変（buildCombo 等は file-private のまま）。
+export type CategoryGroup = "outer" | "tops" | "bottoms" | "shoes" | "bag" | "accessory";
 
-function categorize(item: WardrobeItem): CategoryGroup | null {
+export function categorize(item: WardrobeItem): CategoryGroup | null {
+  // categoryMain（taxonomy.ts の正規語彙）を優先、 無ければ legacy category。
   const cat = item.categoryMain || item.category;
   if (cat === "outer" || cat === "outerwear") return "outer";
   if (cat === "tops") return "tops";
   if (cat === "bottoms") return "bottoms";
   if (cat === "shoes") return "shoes";
+  // D2-1: bag は categoryMain のみ（legacy category には bag が無い）。
+  if (cat === "bag") return "bag";
+  // D2-1: accessory は categoryMain="accessory"、 legacy category="accessories"（複数形）、
+  //   legacy category="hat"（accessory.hat に migration）も accessory pool に集約。
+  if (cat === "accessory" || cat === "accessories" || cat === "hat") return "accessory";
   return null;
 }
 
@@ -371,8 +383,10 @@ export function generateDayProposal(
   const recentlyWornIds = new Set(recentlyWornItemIds);
 
   // カテゴリ別プール
+  // D2-1: bag / accessory を pool に追加（型網羅性のため必須）。 buildCombo はまだ参照しない（no-op 段階）。
+  //   分類だけ動くが、 selection には影響しない → /plan の見た目は D2-1 時点で不変。
   const pools: Record<CategoryGroup, WardrobeItem[]> = {
-    outer: [], tops: [], bottoms: [], shoes: [],
+    outer: [], tops: [], bottoms: [], shoes: [], bag: [], accessory: [],
   };
   for (const item of wardrobe) {
     const cat = categorize(item);
