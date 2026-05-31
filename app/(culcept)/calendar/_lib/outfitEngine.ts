@@ -251,6 +251,96 @@ function accessorySubcat(item: WardrobeItem): string {
   return (item.subcategory ?? "").toLowerCase();
 }
 
+// ── D4: accessory subcategory 別 gate helpers ────────────────────────────
+
+/**
+ * D4: outfit accessory 採用判定で使う context（CEO 補正に従い既存 event_type / weather field のみ使用）。
+ *   - hotSunny: temp_max>=28 + 晴れ系（暑い昼の UV 対策で hat を活かす）。 既存閾値が無いため 28°C を境界に新設
+ *     （独自閾値の根拠: 環境省「真夏日」の境界 30°C より少し控えめに、 夏物想定の T シャツ気温帯の上限）。
+ *   - rainy: 既存 outfitEngine 内 rain 判定（`weather?.weather_icon === "rain" || outfit_tag === "rain"`）と整合。
+ *   - outdoorEvent: TPO_FORMALITY_MAP に実在する `"outdoor"` event_type（推測ではなく実値）。
+ *   - hasBottoms: belt は bottoms が無いと使えないため（CEO 補正 3）。
+ */
+export type AccessoryContext = {
+  hotSunny: boolean;
+  rainy: boolean;
+  outdoorEvent: boolean;
+  hasBottoms: boolean;
+  baseFormality: "casual" | "smart" | "dress";
+};
+
+export function buildAccessoryContext(
+  selectedItems: ReadonlyArray<WardrobeItem>,
+  weather: WeatherDaily | null,
+  events: ReadonlyArray<{ event_type: string }>,
+  adjustedFormality: string,
+): AccessoryContext {
+  const icon = weather?.weather_icon;
+  const temp = weather?.temp_max;
+  const baseRaw = inferBaseFormality(selectedItems) ?? adjustedFormality;
+  const baseFormality: "casual" | "smart" | "dress" =
+    baseRaw === "smart" || baseRaw === "dress" ? baseRaw : "casual";
+  return {
+    hotSunny: temp != null && temp >= 28 && (icon === "sun" || icon === "cloud" || icon === "unknown"),
+    rainy: icon === "rain" || weather?.outfit_tag === "rain",
+    outdoorEvent: events.some((e) => e.event_type === "outdoor"),
+    hasBottoms: selectedItems.some((i) => i.categoryMain === "bottoms" || i.category === "bottoms"),
+    baseFormality,
+  };
+}
+
+/**
+ * D4: subcategory 別の **採用 tier** を返す pure helper（hard filter ではなく partition 用）。
+ *   "preferred" = 優先群（先頭）／"normal" = 中立／"suppressed" = 抑制群（後ろ）
+ *
+ *   - scarf: cold day 優先は selectAccessories 側の scarf sub-pool で別途強制（D3-2 維持）。 ここは normal。
+ *   - hat:  hot sunny + outdoor → preferred / rainy → suppressed（**除外ではなく後ろへ** = CEO 補正 1）/ それ以外 normal
+ *   - belt: bottoms あり + smart/dress → preferred（実用 + 装飾）/ bottoms あり + casual → normal（採用可・CEO 補正 3）/ bottoms 無し → suppressed
+ *   - jewelry: dress → preferred / smart → suppressed（**除外ではなく後ろへ** = CEO 補正 4: smart で control されるが pool 1 種なら 1 件残る）/ casual → suppressed
+ *
+ *   抑制群も後ろに置くだけで、 pool が 1 種類しかなければ最終的に 1 件は採用される（accessory 全体を消さない）。
+ */
+export type AccessoryTier = "preferred" | "normal" | "suppressed";
+export function accessorySubcategoryTier(
+  item: WardrobeItem,
+  ctx: AccessoryContext,
+): AccessoryTier {
+  const sub = accessorySubcat(item);
+  if (sub.endsWith("scarf")) return "normal"; // scarf は cold sub-pool 側で D3-2 優先
+  if (sub.endsWith("hat")) {
+    if (ctx.rainy) return "suppressed";
+    if (ctx.hotSunny && ctx.outdoorEvent) return "preferred";
+    return "normal";
+  }
+  if (sub.endsWith("belt")) {
+    if (!ctx.hasBottoms) return "suppressed";
+    if (ctx.baseFormality === "smart" || ctx.baseFormality === "dress") return "preferred";
+    return "normal"; // casual + bottoms あり → 採用可
+  }
+  if (sub.endsWith("jewelry")) {
+    if (ctx.baseFormality === "dress") return "preferred";
+    return "suppressed"; // smart/casual では後ろへ
+  }
+  return "normal";
+}
+
+/** preferred → normal → suppressed の安定 partition（除外しない）。 */
+function partitionByTier(
+  pool: ReadonlyArray<WardrobeItem>,
+  ctx: AccessoryContext,
+): WardrobeItem[] {
+  const preferred: WardrobeItem[] = [];
+  const normal: WardrobeItem[] = [];
+  const suppressed: WardrobeItem[] = [];
+  for (const item of pool) {
+    const tier = accessorySubcategoryTier(item, ctx);
+    if (tier === "preferred") preferred.push(item);
+    else if (tier === "suppressed") suppressed.push(item);
+    else normal.push(item);
+  }
+  return [...preferred, ...normal, ...suppressed];
+}
+
 /**
  * D3-2: accessory を最大 `count` 件、 **subcategory 重複禁止**で選ぶ pure helper。
  *
@@ -268,19 +358,25 @@ export function selectAccessories(input: {
   count: number;
   coldDay: boolean;
   pick: (pool: WardrobeItem[]) => WardrobeItem | null;
+  /** D4: subcategory 別 eligibility 用 context（省略可・後方互換）。 渡さなければ D3-2 挙動と完全同一。 */
+  ctx?: AccessoryContext;
 }): WardrobeItem[] {
-  const { count, coldDay, pick } = input;
+  const { count, coldDay, pick, ctx } = input;
   if (input.pool.length === 0 || count <= 0) return [];
 
   const chosen: WardrobeItem[] = [];
   const usedSubcats = new Set<string>();
-  let remaining: WardrobeItem[] = [...input.pool];
+  // D4: ctx があれば subcategory 別 tier で安定 partition（除外せず順序のみ変更）。 ctx 無しは D3-2 互換。
+  let remaining: WardrobeItem[] = ctx
+    ? partitionByTier(input.pool, ctx)
+    : [...input.pool];
 
   // cold day: 1 件目は **scarf sub-pool に限定して pick** する。
   //   理由: pick (= buildCombo の pickBest) は同点候補を内部で再ソート + seed 選択するため、
   //   単に scarf を配列先頭へ並べ替えるだけでは scarf が選ばれる保証がない（formality 未設定だと全 50 点同点）。
   //   そこで cold day かつ scarf が存在するときは scarf だけを pick に渡し、 確実に scarf を最優先採用する。
   //   scarf が無ければ通常 pick に fallback（accessory 全体は消さない）。
+  //   D4: scarf cold 優先は subcategory tier より強い（D3-2 仕様を壊さない）。
   if (coldDay) {
     const scarves = remaining.filter((a) => accessorySubcat(a).endsWith("scarf"));
     if (scarves.length > 0) {
@@ -294,18 +390,46 @@ export function selectAccessories(input: {
   }
 
   // 残り枠を通常 pick で埋める（subcategory 重複禁止）。
-  while (chosen.length < count && remaining.length > 0) {
-    const candidate = pick([...remaining]);
-    if (!candidate) break;
-    const subcat = accessorySubcat(candidate);
-    if (usedSubcats.has(subcat)) {
-      // 同 subcategory は除外して別 subcategory を探す（過剰回避）。
-      remaining = remaining.filter((x) => accessorySubcat(x) !== subcat);
-      continue;
+  //   D4: ctx ありの場合、 remaining は tier 順（preferred → normal → suppressed）。 pick は pickBest 同点で
+  //   再ソートされ得るが、 tier 別に **sub-pool を順に渡す** ことで eligibility を尊重する。
+  if (ctx) {
+    // tier 別 sub-pool を順に試す。 各 sub-pool 内で subcategory 重複禁止。
+    const tiers: AccessoryTier[] = ["preferred", "normal", "suppressed"];
+    for (const tier of tiers) {
+      if (chosen.length >= count) break;
+      const tierPool = remaining.filter((x) => accessorySubcategoryTier(x, ctx) === tier);
+      while (chosen.length < count && tierPool.length > 0) {
+        const candidate = pick([...tierPool]);
+        if (!candidate) break;
+        const subcat = accessorySubcat(candidate);
+        if (usedSubcats.has(subcat)) {
+          // 同 subcategory はこの tier から除外して別 subcategory を探す。
+          for (let i = tierPool.length - 1; i >= 0; i--) {
+            if (accessorySubcat(tierPool[i]) === subcat) tierPool.splice(i, 1);
+          }
+          continue;
+        }
+        chosen.push(candidate);
+        usedSubcats.add(subcat);
+        const idx = tierPool.findIndex((x) => x.id === candidate.id);
+        if (idx >= 0) tierPool.splice(idx, 1);
+        remaining = remaining.filter((x) => x.id !== candidate.id);
+      }
     }
-    chosen.push(candidate);
-    usedSubcats.add(subcat);
-    remaining = remaining.filter((x) => x.id !== candidate.id);
+  } else {
+    // D3-2 互換 path（ctx 無し）
+    while (chosen.length < count && remaining.length > 0) {
+      const candidate = pick([...remaining]);
+      if (!candidate) break;
+      const subcat = accessorySubcat(candidate);
+      if (usedSubcats.has(subcat)) {
+        remaining = remaining.filter((x) => accessorySubcat(x) !== subcat);
+        continue;
+      }
+      chosen.push(candidate);
+      usedSubcats.add(subcat);
+      remaining = remaining.filter((x) => x.id !== candidate.id);
+    }
   }
   return chosen;
 }
@@ -553,13 +677,15 @@ function buildCombo(
   }
   if (selectedItemsNeedsAccessory(selectedItems, adjustedFormality) && pools.accessory.length > 0) {
     // D3-2: dress のみ最大 2 件、 それ以外（smart）は 1 件。 cold day は scarf 優先。 subcategory 重複禁止。
-    const baseFormality = inferBaseFormality(selectedItems) ?? adjustedFormality;
-    const accCount = baseFormality === "dress" ? 2 : 1;
+    // D4: subcategory 別 eligibility（hat/belt/jewelry/scarf）を ctx で渡し、 tier 別 sub-pool で順番に pick。
+    const accCtx = buildAccessoryContext(selectedItems, weather, events, adjustedFormality);
+    const accCount = accCtx.baseFormality === "dress" ? 2 : 1;
     const accessories = selectAccessories({
       pool: pools.accessory,
       count: accCount,
       coldDay: isColdDay(weather),
       pick: pickBest,
+      ctx: accCtx,
     });
     for (const accessory of accessories) selectedItems.push(accessory);
   }
