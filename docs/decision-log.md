@@ -14768,3 +14768,34 @@ D5 完了報告時に提出した D6 design / risk audit を docs に固定。 D
 - **STOP 条件**: baseline test 作成不可 / 既存スコア変動 / Calendar/plan test 退化 / NaN
 
 ---
+
+## [2026-06-01] [Build] D6-1 scoreCandidate baseline test 固定 [承認: CEO]
+
+D6-2 実装前の必須前提として、 scoreCandidate のスコアを 17 cases で固定。 tops/bottoms/shoes/outer の挙動を構造的に保証。 同時に `scoreCandidate` を export（test import 用）。
+
+- **commit**: `6711c934`
+- **新規 test**: `tests/unit/calendar/scoreCandidateBaseline.test.ts` 17 cases PASS
+- **export**: `app/(culcept)/calendar/_lib/outfitEngine.ts` の `scoreCandidate` に export 付与（既存呼び出しに影響なし）
+- **最小依存原則**: `localStorage` 空、 `recentlyWornIds = []`、 persona/satisfactionProfile/cache 未注入
+- **D6-2 後の差し替え**: bag/accessory 3 cases は当時 50（D6-2 後 53 になる旨コメント明記）
+- **検証**: Calendar 全 / plan 全 / eslint clean / tsc 自分のファイル差分 0
+- **次**: D6-2 で scoreCandidate に bag/accessory 限定 weighting を追加
+
+---
+
+## [2026-06-01] [Build] D6 scoreCandidate に bag/accessory 限定 weighting close [承認: CEO]
+
+D6-0 design 案に従い、 scoreCandidate に bag/accessory 限定の +3 weighting を追加。 tops/bottoms/shoes/outer のスコアは完全不変。 D6-1 baseline 17 cases は変更なしで PASS、 bag/accessory は 8 cases に拡充（D6-2 後の動作を構造的に固定）。
+
+- **詳細**: `docs/plan-outfit-scorecandidate-bag-accessory-close.md`
+- **4 commits**:
+  - `0bceb81c` D6-0 design / risk audit
+  - `6711c934` D6-1 baseline score test 固定（17 cases）
+  - `bba39686` D6-2 実装 — scoreCandidate に bag/accessory 限定 weighting + baseline 期待値更新（25 cases）
+  - 本コミット D6-close docs
+- **採用**: bag = backpack×casual / tote-shoulder-crossbody×smart-dress / accessory = scarf×thick / jewelry×dress / belt×casual-smart に +3。 hat は context 不足で D6 スコープ外
+- **不変原則**: tops/bottoms/shoes/outer のスコア完全不変 / scoreCandidate 構造改修なし（`return score` 直前の gated 分岐のみ）/ 属性未設定 item は中性扱い / NaN なし
+- **検証**: scoreCandidateBaseline 25 cases PASS（既存 17 + 新規 8）/ Calendar 322 / plan 3532 / eslint clean / tsc baseline 1116 維持
+- **次**: CEO 判断（Calendar 他改善 / Plan / 別ユニット）
+
+---
