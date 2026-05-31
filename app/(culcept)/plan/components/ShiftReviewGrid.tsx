@@ -34,13 +34,17 @@ import {
 } from "@/lib/plan/shift/shiftGridGeometry";
 import { SourceCellCrop } from "./SourceCellCrop";
 import { SourceImageHighlight } from "./SourceImageHighlight";
+import {
+  type ShiftReviewCell,
+  computeEmptyDays,
+  isBlankRisk,
+} from "@/lib/plan/shift/shiftReviewClassification";
+import {
+  type ShiftSaveState,
+  SHIFT_SAVE_CONFIRM_MESSAGE,
+} from "@/lib/plan/shift/shiftSaveController";
 
-export interface ShiftReviewCell {
-  day: number;
-  date: string;
-  rawCode: string;
-  confidence: number;
-}
+export type { ShiftReviewCell };
 
 interface ShiftReviewGridProps {
   cells: ShiftReviewCell[];
@@ -53,6 +57,17 @@ interface ShiftReviewGridProps {
   imageSrc?: string;
   /** calibrated grid geometry（imageSrc とセットで crop 算出に使用） */
   geometry?: ShiftGridGeometry;
+  // ── SR Step 6D: 保存 CTA contract（host が wire。未指定なら dormant placeholder のまま）──
+  /** 保存導線を出すか（flag OFF / host 未設定なら false → 旧 disabled placeholder）。 */
+  saveEnabled?: boolean;
+  /** 保存状態（host の controller から。CTA/status の表示を駆動）。 */
+  saveState?: ShiftSaveState;
+  /** 保存要求（現在のセルを渡す。host が controller.requestSave に繋ぐ）。 */
+  onConfirm?: (cells: ShiftReviewCell[]) => void | Promise<void>;
+  /** blank-risk soft confirm 後の続行（controller.confirmBlankRisk）。 */
+  onConfirmBlankRisk?: () => void | Promise<void>;
+  /** 確認/結果から戻る（controller.cancel）。 */
+  onCancel?: () => void;
 }
 
 type CellKind = "empty" | "work" | "off" | "candidate" | "unresolved";
@@ -122,6 +137,11 @@ export function ShiftReviewGrid({
   lowConfidenceThreshold = 0.7,
   imageSrc,
   geometry,
+  saveEnabled,
+  saveState,
+  onConfirm,
+  onConfirmBlankRisk,
+  onCancel,
 }: ShiftReviewGridProps) {
   const [cells, setCells] = useState<ShiftReviewCell[]>(initialCells);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -145,17 +165,10 @@ export function ShiftReviewGrid({
     return projectShiftRoster(readings, dictionary);
   }, [cells, dictionary]);
 
-  const emptyDays = useMemo(
-    () =>
-      new Set(
-        cells.filter((c) => normalizeRawCode(c.rawCode) === "").map((c) => c.day)
-      ),
-    [cells]
-  );
-  const isBlankRisk = (c: ShiftReviewCell): boolean =>
-    c.confidence < lowConfidenceThreshold ||
-    emptyDays.has(c.day - 1) ||
-    emptyDays.has(c.day + 1);
+  // blank-risk 判定は shiftReviewClassification（controller の保存前 gate と同一 source）
+  const emptyDays = useMemo(() => computeEmptyDays(cells), [cells]);
+  const cellIsBlankRisk = (c: ShiftReviewCell): boolean =>
+    isBlankRisk(c, emptyDays, lowConfidenceThreshold);
 
   // カレンダー週構築（先頭の曜日に空きを入れる）
   const weeks = useMemo(() => {
@@ -178,6 +191,11 @@ export function ShiftReviewGrid({
       prev.map((c) => (c.day === day ? { ...c, rawCode, confidence: 1 } : c))
     );
   }
+
+  // ── 保存 CTA（6D contract）: saveEnabled かつ onConfirm がある時のみ active。未指定は dormant placeholder ──
+  const activeSave = saveEnabled === true && typeof onConfirm === "function";
+  const hasUnresolved = projection.unresolved.length > 0;
+  const saveStatus: ShiftSaveState["status"] = saveState?.status ?? "idle";
 
   return (
     <GlassCard className="relative">
@@ -231,7 +249,7 @@ export function ShiftReviewGrid({
         {weeks.flat().map((cell, idx) => {
           if (!cell) return <div key={`pad-${idx}`} className="aspect-square" />;
           const { kind } = cellInfo(cell.rawCode, dictionary);
-          const risk = isBlankRisk(cell);
+          const risk = cellIsBlankRisk(cell);
           const selected = selectedDay === cell.day;
           const isEmpty = normalizeRawCode(cell.rawCode) === "";
           return (
@@ -293,16 +311,97 @@ export function ShiftReviewGrid({
             要確認 <b>{projection.unresolved.length}</b>
           </span>
         </div>
-        <button
-          type="button"
-          data-testid="shift-review-save"
-          disabled
-          className="cursor-not-allowed rounded-lg bg-gray-200/80 px-3 py-1 text-[11px] text-gray-400"
-          title="保存は次段（DB 承認後）"
-        >
-          反映（次段で有効化）
-        </button>
+        {activeSave ? (
+          <button
+            type="button"
+            data-testid="shift-review-save"
+            disabled={hasUnresolved || saveStatus === "saving"}
+            onClick={() => {
+              void onConfirm?.(cells);
+            }}
+            className={`rounded-lg px-3 py-1 text-[11px] ${
+              hasUnresolved || saveStatus === "saving"
+                ? "cursor-not-allowed bg-gray-200/80 text-gray-400"
+                : "bg-sky-500 text-white shadow-sm shadow-sky-200/50"
+            }`}
+            title={hasUnresolved ? "要確認のセルを解決してください" : "この内容で保存"}
+          >
+            {saveStatus === "saving"
+              ? "保存中…"
+              : hasUnresolved
+                ? "要確認あり"
+                : "この内容で保存"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-testid="shift-review-save"
+            disabled
+            className="cursor-not-allowed rounded-lg bg-gray-200/80 px-3 py-1 text-[11px] text-gray-400"
+            title="保存は次段（DB 承認後）"
+          >
+            反映（次段で有効化）
+          </button>
+        )}
       </div>
+
+      {/* 保存 status region（6D: active save 時のみ。文言はすべて safe・raw なし）*/}
+      {activeSave && saveState?.status === "needs_blank_risk_confirmation" && (
+        <div
+          data-testid="shift-review-blank-confirm"
+          className="mt-2 rounded-xl border border-amber-200/70 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-800"
+        >
+          <p className="mb-2">
+            {SHIFT_SAVE_CONFIRM_MESSAGE}（要確認 {saveState.blankRiskDays.length} 日）
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              data-testid="shift-review-blank-confirm-proceed"
+              onClick={() => {
+                void onConfirmBlankRisk?.();
+              }}
+              className="rounded-lg bg-amber-500 px-3 py-1 text-white"
+            >
+              照合した・保存する
+            </button>
+            <button
+              type="button"
+              onClick={() => onCancel?.()}
+              className="rounded-lg border border-slate-200 bg-white/70 px-3 py-1 text-gray-500"
+            >
+              戻る
+            </button>
+          </div>
+        </div>
+      )}
+      {activeSave && saveState?.status === "success" && (
+        <p
+          data-testid="shift-review-save-success"
+          className="mt-2 rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-3 py-2 text-[11px] text-emerald-800"
+        >
+          勤務 {saveState.summary.insertedAnchors} 件・休み{" "}
+          {saveState.summary.insertedIndicators} 件を反映しました
+        </p>
+      )}
+      {activeSave && saveState?.status === "conflict" && (
+        <p
+          data-testid="shift-review-save-conflict"
+          className="mt-2 rounded-xl border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-[11px] text-rose-700"
+        >
+          {saveState.message}（{saveState.dates.join("、")}）
+        </p>
+      )}
+      {activeSave &&
+        (saveState?.status === "error" ||
+          saveState?.status === "unresolved_blocked") && (
+          <p
+            data-testid="shift-review-save-error"
+            className="mt-2 rounded-xl border border-rose-200/70 bg-rose-50/70 px-3 py-2 text-[11px] text-rose-700"
+          >
+            {saveState.message}
+          </p>
+        )}
 
       {/* セル詳細 bottom sheet */}
       {selectedCell && (
