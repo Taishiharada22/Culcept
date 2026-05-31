@@ -14799,3 +14799,22 @@ D6-0 design 案に従い、 scoreCandidate に bag/accessory 限定の +3 weight
 - **次**: CEO 判断（Calendar 他改善 / Plan / 別ユニット）
 
 ---
+
+## [2026-06-01] [Build/Product] M2-0 既存 item 背景再処理 read-only audit 提出 [承認: CEO 指示で着手]
+
+CEO 次フェーズ指示「M2: 既存 item 再処理」を受け、 read-only audit + 実装分割案を提出。 既存 wardrobe item の cutout をユーザーが任意で個別再処理できるようにする設計。 コード変更なし（docs-only）。
+
+- **詳細**: `docs/my-style-existing-item-reprocess-design.md`
+- **核心結論（GO 可能・low risk）**: BackgroundRemover を `imageUrl` prop で**無改修**再利用 → `onApply(draft)` → `cutoutDraftToItemFields` → `setState` で item に merge。 新規エンジン/永続化コードゼロ
+- **要 feasibility 確定事項**:
+  - imageUrl は `resizeImage` → `toDataURL("image/jpeg")` で **dataURL** → `processImageCutout(string)` が CORS なしで動く（constants.ts 82）
+  - `processImageCutout` は production 稼働中（PhotoAddWizard + BackgroundRemover が import）。 cutoutBrowser 冒頭の「接続しない」コメントは C1L-4a の stale
+  - BackgroundRemover は既に `imageUrl?: string` + `onApply/onSkip/onCancel` を持つ（再利用テンプレ確定）
+  - cutoutUrl は imageUrl と同経路（IDB 正本 / localStorage strip / C1L-6 復元）→ setState で足すだけ
+  - /plan は `cutoutStatus==="success" && cutoutUrl` 優先（wardrobeToOutfit.ts 129-141）→ 保存後自動反映
+- **imageUrl 無し item**: 再処理不可。 導線を出さず「再登録が必要」と正直に表示（自動復旧しない）
+- **実装分割**: M2-0(audit) / M2-1(pure helper + test) / M2-2(導線 + BackgroundRemover 接続) / M2-3(実機 + close)。 CEO 推奨 4 分割の M2-2/M2-3 を統合、 ロジックは M2-1 に全寄せ
+- **STOP 条件**: imageUrl 再処理不可 / item 消失 / IDB-localStorage-server 整合崩れ / 白抜き事故再発 / 外部 API / UI 大改修
+- **次**: CEO の M2-1 GO 待ち
+
+---
