@@ -114,8 +114,14 @@ export function slotOfWardrobe(item: WardrobeItem): OutfitSlot | undefined {
       return "shoes";
     case "accessories":
       return "accessory";
+    // D3-3: legacy "hat" を accessory slot に migration。 engine 側 (calendar/_lib/outfitEngine.ts.categorize)
+    //   が D2-1 で "hat" → accessory pool に migrate 済のため、 hydrate fallback path もここで揃える。
+    //   slotOfWardrobe で hat が undefined だと engine_padded / hydrated_mock path で旧 "hat" item が
+    //   実画像 hydrate されない。 D3-3 audit で発見した唯一のギャップ。
+    case "hat":
+      return "accessory";
     default:
-      return undefined; // hat / other → スロットなし
+      return undefined; // other → スロットなし
   }
 }
 

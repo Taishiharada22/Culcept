@@ -27,10 +27,14 @@ describe("category → shape / slot mapping (証拠ベース)", () => {
     expect(shapeOfWardrobe(w({ id: "c", category: "outerwear", color: "#000" }))).toBe("outer");
     expect(shapeOfWardrobe(w({ id: "d", category: "tops", color: "#000" }))).toBe("top");
   });
-  it("対応の無いカテゴリは shape / slot ともに undefined (hat / other)", () => {
+  it("対応の無いカテゴリは shape / slot ともに undefined (other のみ)", () => {
+    // D3-3 更新: legacy "hat" は engine D2-1 で accessory pool に migration 済 → slot も accessory に整合。
+    // shape 側は依然 silhouette マッピングが無いので undefined のまま（hat 専用 silhouette shape 不在）。
     expect(shapeOfWardrobe(w({ id: "e", category: "hat", color: "#000" }))).toBeUndefined();
-    expect(slotOfWardrobe(w({ id: "f", category: "hat", color: "#000" }))).toBeUndefined();
     expect(slotOfWardrobe(w({ id: "g", categoryMain: "other", category: "other", color: "#000" }))).toBeUndefined();
+  });
+  it("D3-3: legacy category=hat → slot 'accessory'（engine D2-1 migration と整合）", () => {
+    expect(slotOfWardrobe(w({ id: "f", category: "hat", color: "#000" }))).toBe("accessory");
   });
   it("slotOfWardrobe: categoryMain bag → bag スロット", () => {
     expect(slotOfWardrobe(w({ id: "h", categoryMain: "bag", category: "other", color: "#000" }))).toBe("bag");
@@ -53,9 +57,15 @@ describe("hydrateOutfitVM — fallback (退化ゼロ)", () => {
     ];
     expect(hydrateOutfitVM(MOCK, noImg)).toBe(MOCK);
   });
-  it("スロットを持たないカテゴリの画像 (hat) → mock のまま (誤ハイドレートしない)", () => {
+  it("D3-3 更新: hat 画像は accessory slot に hydrate される（engine migration と整合）", () => {
+    // 以前は hat → undefined slot で mock そのまま返却だったが、 D2-1 engine の "hat" → accessory pool
+    // migration に hydrate 側も整合させたため、 hat も accessory slot で hydrate される。 mock とは異なる ref。
     const hatImg = w({ id: "hat1", name: "ハット", category: "hat", color: "#333", imageUrl: DATA_URL });
-    expect(hydrateOutfitVM(MOCK, [hatImg])).toBe(MOCK);
+    const out = hydrateOutfitVM(MOCK, [hatImg]);
+    expect(out).not.toBe(MOCK);
+    // mock smart proposal (index 1) のみ accessory slot を持つ → ハットがそこに入る
+    const hydratedAcc = out.proposals.flatMap((p) => p.items.filter((i) => i.label === "ハット"));
+    expect(hydratedAcc.length).toBeGreaterThanOrEqual(1);
   });
 });
 
