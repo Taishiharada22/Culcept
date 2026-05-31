@@ -14646,3 +14646,22 @@ CEO 判断 A 採用 + 1 点補正で D1 設計 close。 次は D1-1 から実装
 - **次**: D1-0 docs commit → そのまま D1-1 実装
 
 ---
+
+## [2026-06-01] [Build/Product] D2 bag/accessory engine 拡張 design gate close [承認: CEO]
+
+D1 後、 engine 提案に bag/accessory を supplemental category として追加する設計を確定。 D2-0 docs-only commit へ。
+
+- **詳細**: `docs/plan-outfit-bag-accessory-design.md`
+- **方針**: tops/bottoms/shoes 必須 / outer 条件付き / **bag・accessory は supplemental**（無くても proposal は成立する設計を維持。 主軸スコアリングと diff 判定には載せない）
+- **engine 不可触の解除（限定的）**: D1 の「engine 本体には触らない」原則を D2 のみ限定解除。 変更は `CategoryGroup` union 拡張・`categorize` return 拡張・`buildCombo` 末尾に 2 行追加。 既存 tops/bottoms/shoes/outer 選定ロジックは**完全に不変**。
+- **read-only 監査 6 項目完了**:
+  - taxonomy.ts に bag/accessory subcategory 完備（bag=4種・accessory=4種）
+  - OutfitCollage `OutfitSlot` に bag/accessory slot 配置済（無改修）
+  - scoreCandidate に NaN リスクなし（`if (item.X)` で gated）
+  - 既存 Calendar test 6 ファイルが indirect 影響範囲
+  - legacy category `"accessories"` (複数形) / `"hat"` の accessory への migration map を D2-1 で同梱
+- **commit 分割**: D2-0 (docs) / D2-1 (pools 拡張・buildCombo 未配線) / D2-2 (buildCombo 配線 + 条件選定) / D2-3 (adapter/plan 確認) / D2-4 (docs close)
+- **触らない**: UI 再設計 / My-Style persistence / cutout / quota / weather route / 既存 item 再処理 / push / deploy / migration
+- **次**: D2-0 docs commit → CEO 承認 → D2-1 着手
+
+---
