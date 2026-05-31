@@ -188,8 +188,17 @@ export interface CalendarOutfitStatVM {
   tone?: CalendarOutfitStatusTone;
 }
 
-/** 提案の出所 (選択保存の source 判定に使用)。 engine 実推薦 / 素 mock / 画像ハイドレート mock。 */
-export type CalendarOutfitProposalSource = "engine" | "mock" | "hydrated_mock";
+/** 提案の出所 (選択保存の source 判定に使用)。
+ *   - "engine": engine が main + 2 alternatives を返した（D1 Tier A）
+ *   - "engine_padded": engine main は出たが alternatives 不足、 adapter 側で swap-by-axis 派生または mock pad で 3 件に補った（D1 Tier B）
+ *   - "hydrated_mock": engine null だが wardrobe あり。 mock 3 件を実画像で patch（D1 Tier C）
+ *   - "mock": wardrobe 空 / engine 不可。 mock そのまま（D1 Tier D）
+ */
+export type CalendarOutfitProposalSource =
+  | "engine"
+  | "engine_padded"
+  | "hydrated_mock"
+  | "mock";
 
 /** Calendar Outfit Dashboard 全体の VM (mock) */
 export interface CalendarOutfitVM {
