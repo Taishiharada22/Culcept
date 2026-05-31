@@ -15079,3 +15079,48 @@ v2 失敗の真因は**製品バグではなく smoke 側の hydration race**。
 - **ステータス**: 自動抽出 **未達（最良 chunk 92.8%）**。次: **B1b-2 assisted review path mini design**（assisted row selection / draft extraction=chunk / risk detection / review UI / E2b 保存パス / production gate）。実装・upload UI・本流入口・production はさらに次 gate。
 
 ---
+
+## 2026-06-01 [Build] SR B1b-2C-5 VLM runtime chain smoke PASS（本流E2Eではない）[承認: CEO「PASS として受理」]
+
+### 到達点（表現は厳密に）
+
+**今回 PASS したのは VLM runtime chain smoke のみ**。次の chain が実 Gemini Pro 呼出でも壊れず噛み合うことを確認した:
+
+```
+planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
+```
+
+**まだ通っていないもの（=本流E2Eではない）**: AssistedRowSelector 実 UI / upload UI / ShiftImportModal 本流接続 / 保存 / DB / /plan 反映 / production。
+
+### 実行サマリ
+
+- **model**: Gemini Pro（`gemini-2.5-pro`）
+- **対象**: may / july（既存 B1b-1 系の本人行 crop・gitignored）
+- **call 数**: **4 chunks**（may 1-15/16-末 + july 1-15/16-末・fetch retry なし）
+- **runtime chain pass / fail**: **ALL PASS（両月）**
+- **cells**: may **31/31** / july **31/31**
+- **perChunkCounts**: may **[15, 16]** / july **[15, 16]**
+- **risk**: may **hard=0 / soft=4** / july **hard=0 / soft=2**（blocking=false 両月）
+- **所要**: may 40.7s / july 48.7s
+- **gitignored runner**: `private-eval/shift/b1b-2c-5-eval-smoke.ts`（非 commit）
+
+### 重要表記（risk の限界）
+
+**risk hard=0 は「may が正確に読めた」ことを意味しない**。risk model は **重点確認を促す補助**であり、**誤り確定検出ではない**。最終保証は **source-of-truth review + human confirmation**（B1b-2B の ShiftReviewGrid 接続）に委ねる設計。
+
+### 衛生
+
+- **DB write なし**（Supabase 非 import・実行中 DB トラフィックなし）
+- **raw 画像 commit なし**（既存 B1b-1 系の `private-eval/` 規約）
+- **raw response commit なし / log なし**（adapter local のみ・stdout に raw 出力なし）
+- **base64 commit / 保存なし**（adapter 関数 local のみ・return/state/props/localStorage/DB/log に載せない）
+- **API key 値出力なし**
+- **runner gitignored**（非 commit）/ tracked 変更なし
+- **tsc baseline 1112 不変** / shift suite 25 files / 267 tests PASS（不変）
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-06-01、「B1b-2C-5 は PASS。runtime chain smoke として受理。最終保証は human review」）。
+- **ステータス**: VLM runtime chain **PASS**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **B1b-2C-6 host wiring mini design**（実装は別 gate）。server action / upload UI / 本流入口 / 保存 / production はさらに次 gate。
+
+---
