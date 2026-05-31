@@ -14756,3 +14756,15 @@ D2 残課題の localStorage quota 圧迫（実機 5.24MB → quota 上限近接
 - **次**: D6（scoreCandidate への bag/accessory 限定 weighting）に進む
 
 ---
+
+## [2026-06-01] [Build/Product] D6 design / risk audit 提出 [承認: CEO]
+
+D5 完了報告時に提出した D6 design / risk audit を docs に固定。 D6-1 baseline test + D6-2 実装 + close docs の 4 commit プランで進行。
+
+- **詳細**: `docs/plan-outfit-scorecandidate-bag-accessory-design.md`
+- **方針**: scoreCandidate の `return score` 直前に bag/accessory gated weight を追加（各 +3 程度・controlled）。 tops/bottoms/shoes/outer のスコアは完全不変が必須条件
+- **D6-1 必須**: baseline score test で tops/bottoms/shoes/outer のスコアを固定してから D6-2 実装に進む（順序厳守）
+- **触らない**: D1 helper / diffScore / buildCombo / adapter / hook / UI / scoreCandidate 大改修
+- **STOP 条件**: baseline test 作成不可 / 既存スコア変動 / Calendar/plan test 退化 / NaN
+
+---
