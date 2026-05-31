@@ -9,6 +9,7 @@ import {
     normalizeSavedState,
 } from "@/app/my-style/_lib/state";
 import type { SavedState } from "@/app/my-style/_lib/types";
+import { wardrobeCategoriesToTextArray, bridgeWriteHttpStatus } from "./bridgePayload";
 
 export const runtime = "nodejs";
 
@@ -213,7 +214,10 @@ export async function POST(request: NextRequest) {
             user_id: auth.user.id,
             style_tags: derived.summary.styleTags,
             wardrobe_colors: derived.summary.wardrobeColors,
-            wardrobe_categories: derived.summary.wardrobeCategories,
+            // DB 列は text[]。 summary.wardrobeCategories は countBy のオブジェクトなので、
+            // そのまま送ると 22P02 (expected JSON array) で styleSummary 書込が失敗し wardrobe が保存されない。
+            // 列型に合わせて string[] へ正規化（migration はしない）。
+            wardrobe_categories: wardrobeCategoriesToTextArray(derived.summary.wardrobeCategories),
             mood_keywords: derived.summary.moodKeywords,
             favorite_colors: derived.summary.favoriteColors,
             quiz_result: nextQuizResult,
@@ -245,8 +249,15 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        if (failures.length === labels.length) {
-            return NextResponse.json({ error: "All bridge writes failed", failures }, { status: 500 });
+        // styleSummary は quiz_result.myStyleState.wardrobe を含むため、 その失敗は **握り潰さず 500** を返す
+        // （client が res.ok を成功と誤認して add/delete を失う事故を防ぐ）。
+        // prefProfile 単独失敗は非致命（wardrobe は保存済）→ 200 + partialFailures で明示。
+        const httpStatus = bridgeWriteHttpStatus(failures);
+        if (httpStatus !== 200) {
+            return NextResponse.json(
+                { error: "styleSummary write failed", failures },
+                { status: httpStatus },
+            );
         }
 
         return NextResponse.json({
