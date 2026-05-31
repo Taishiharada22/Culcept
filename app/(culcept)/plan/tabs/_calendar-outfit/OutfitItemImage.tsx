@@ -1,15 +1,14 @@
 "use client";
 
 /**
- * V2a — wardrobe 画像 1 枚（描画時 cutout 対応）
+ * wardrobe 画像 1 枚（C1L hotfix: 描画時の背景除去を廃止）
  *
- *   - useCutoutImage が成功すれば背景除去済み画像を、 それ以外は元画像をそのまま表示。
- *   - 保存はしない（session cache のみ）。 UI を壊さないフォールバック最優先。
- *   - hook を使うため client component として OutfitItemView の withImage から切り出す
- *     （OutfitItemView 本体は presentational のまま保つ）。
+ *   - 以前は描画時に背景除去フックを呼び、 旧アルゴリズム（O(n²) flood-fill・同期）を実行していたが、
+ *     これが main thread をブロックし /plan を固まらせる主因だったため **除去**（freeze root-cause audit 確定）。
+ *   - 背景透過は登録時（My-Style）に生成・保存され、 /plan は getWardrobeDisplayImageUrl 経由で
+ *     確定済み透過画像（cutoutStatus=success）を src として受け取る。 ここでは **src をそのまま表示**し、 再処理しない。
+ *   - data URL（透過済み / 原画）も外部 URL もそのまま <img> に渡す。
  */
-
-import { useCutoutImage } from "./useCutoutImage";
 
 export function OutfitItemImage({
   src,
@@ -20,12 +19,10 @@ export function OutfitItemImage({
   alt: string;
   className: string;
 }) {
-  const cutout = useCutoutImage(src);
   return (
-    // data URL（localStorage / IndexedDB 由来）なので next/image ではなく素の <img>。
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={cutout ?? src}
+      src={src}
       alt={alt}
       loading="lazy"
       decoding="async"
