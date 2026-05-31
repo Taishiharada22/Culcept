@@ -267,3 +267,96 @@ D2-0 close 後の D2-1 で実施:
 - **D2 design gate: GO（docs-only commit へ）**
 - **D2-1 着手は CEO の D2-0 承認後**
 - 累計 commit 目安: D2-0（docs） + D2-1（pools 拡張） + D2-2（buildCombo 配線） + D2-3（adapter/plan 確認）+ D2-4（docs close）= **5 commits**
+
+---
+
+# D2 close（2026-06-01）
+
+**承認**: CEO 最終 PASS（2026-06-01 / branch `claude/loving-pike-fa227a`、 D2 全実装完了）
+
+D2 設計の全 5 段階を実機 PASS で完了し、 close とする。 wardrobe に bag / accessory を含めて `/plan` を開くと、 engine path で 5 カテゴリ揃った 3 候補が中央 main で表示されることを CEO 実機確認済み（D2-3 黙示確認）。
+
+## D2 累計 commit（5 commits）
+
+| | commit | 役割 |
+|---|---|---|
+| 1 | `271b2dec` | **D2-0 design docs**（本ドキュメント。 read-only 監査 6 項目 + supplemental 方針確定） |
+| 2 | `6ddd1383` | **D2-1 pools 拡張（no-op）** — `CategoryGroup` に `"bag" \| "accessory"` 追加 / `categorize` で正規 + legacy migration（`"accessories"`/`"hat"`→accessory）/ pools 6 key 初期化。 buildCombo 未配線で UI に出ない段階。 |
+| 3 | `c8e87da4` | **D2-2 supplemental selection** — buildCombo 末尾に bag/accessory を条件付き push。 needsBag = engine 既知 4 種（`work / meeting / date / party`）、 needsAccessory = baseFormality `smart \| dress`。 `scoreCandidate` 未接触、 既存 outfit 成立判定（`selectedItems.length < 2`）も不変。 |
+| 4 | `ba1fa183` | **D2-3 adapter pass-through 固定（test-only）** — 実 import path `"@/lib/shared/outfitEngine"` + 実 `CATEGORY_MAIN_JA` label（`"バッグ"` / `"小物"`）で end-to-end test。 production code 0 行変更。 |
+| 5 | （本コミット） | **D2-4 close docs** — design docs に本 section 追記 + decision-log 1 行。 |
+
+## 確定した実装仕様（D2 結論）
+
+### bag / accessory が engine proposal に supplemental として入る
+- pool: `categoryMain="bag" / "accessory"`、 legacy `"accessories"` (複数形) / `"hat"` は accessory pool へ migration（D2-1）
+- 選定: `buildCombo` 末尾で `selectedItems.length < 2` 判定**通過後**に末尾 push（D2-2）
+
+### bag / accessory は必須カテゴリではない
+- 主軸（必須）= tops / bottoms / shoes（既存）
+- 条件付き = outer（気温・季節）
+- **supplemental = bag / accessory**（無くても proposal は成立）
+
+### bag / accessory が無くても proposal は成立する
+- pool 空 → `if (pools.X.length > 0)` で skip → proposal は既存 4 カテゴリのまま成立
+- `selectedItems.length < 2` 境界は据え置き（bag/accessory のみでは null）
+- adapter contract test ⑤⑥ + buildCombo end-to-end test ⑤⑧ で固定
+
+### D2-2 の needsBag は work / meeting / date / party に限定
+- TPO_FORMALITY_MAP の正規 8 種（`constants.ts:27`）から、 外出が確実な 4 種のみ採用
+- `casual / outdoor / sports / travel` は安全側で除外（在宅可能性 + 多義性）
+- 未知 event_type も false（過剰広げ防止）
+- 実装: `BAG_REQUIRED_EVENT_TYPES = new Set(["work", "meeting", "date", "party"])`
+
+### accessory は smart / dress gate で採用する
+- `inferBaseFormality(selectedItems)`: 既選択 items の formality 最頻値
+- gate: `inferBaseFormality(items) ?? adjustedFormality` が `"smart" \| "dress"` なら採用
+- baseFormality null（全 item formality 未設定）→ variant 補正後の adjustedFormality fallback
+- → wardrobe に formality 属性が全く無くても variant=dressy 等で accessory を出せる
+- **採用 gate 専用** — scoring には流さない（CEO 補正 2 = A 採用）
+
+### scoreCandidate には触っていない
+- `app/(culcept)/calendar/_lib/outfitEngine.ts` の `scoreCandidate` 関数は **D2 全体で 1 文字も変更なし**
+- bag/accessory のスコアリングは既存 `if (item.X)` ガードで未設定属性を中性扱い（NaN リスクなし、 D2-0 監査で確認）
+- formality 軸での bag/accessory weighting は **D3 以降の検討事項**
+
+### UI / OutfitCollage は無改修で通った
+- D2-0 監査の予測どおり、 production code 変更は engine 1 ファイル（outfitEngine.ts）のみ
+- adapter (`wardrobeItemToVM` + `CATEGORY_MAIN_JA`) 既に bag/accessory 対応済 → 無改修
+- D1 helper (`ensureThreeProposals` / `diffScore` / `swap-by-axis`) → 無改修（id 対称差は bag/accessory が混じっても破綻しない）
+- hook (`useCalendarOutfit`) → 無改修（patch.proposals を流すだけ）
+- UI (`OutfitCarousel` / `OutfitCard` / `OutfitCollage`) → 無改修（`OutfitSlot` に bag/accessory 完備・SLOT_LAYOUT 配置済）
+- D2-3 は **test-only commit** で済んだ
+
+### 実画面上でも正常動作を確認した（2026-06-01）
+CEO 実機確認: wardrobe に bag + accessory を含めて `/plan` を開くと、 engine path のおすすめコーデに bag / accessory が反映されることを目視確認。 D1 既存挙動（3 候補保証・写真表示・中央 main）も維持。
+
+## D2 で触っていない領域
+UI 全体再設計 / My-Style persistence / cutout 生成・C1L-5 / quota cleanup / weather route / 既存 item 再処理 / server purge / IndexedDB 削除 / localStorage 削除 / Supabase / DB / migration / server-sync / external API / package 追加 / push / deploy / production canary / `ensureThreeProposals.ts` / `outfitEngineAdapter.ts` の production code（D2-3 は test-only）/ `useCalendarOutfit.ts` / `OutfitCollage.tsx` / `scoreCandidate` 関数本体
+
+## 検証総括
+- Calendar 全テスト: **236 PASS**（D2 開始時 202 → 236、 +34 = 新規分のみ、 退化 0）
+- plan 全テスト: **3501 PASS**（D2 開始時 3495 → 3501、 +6 = 新規分のみ、 退化 0）
+- eslint: **clean**
+- tsc: 全体 **1116 baseline 維持** / 自分のファイル **差分内 0**
+
+## 残課題 / D3 候補（着手は CEO 判断・別ターン）
+
+### チューニング候補
+1. **travel で bag を出す**: 旅行確定の event_type で bag whitelist を拡張するか（D2-2 では安全側除外）。 backpack 優先などの subcategory 整合も同時検討
+2. **寒い日 scarf 優先**: `weather.temp_max < 10°C` 等で accessory pool 内 `subcategory.scarf` を優先
+3. **accessory 複数対応**: 現在 max 1 件。 dress 時の belt + jewelry など 2 件並列採用
+4. **雨日 bag 防水**: 既存 shoes の water フィルタパターンを bag にも展開（`item.attributes?.water === "waterproof" / "repellent"`）
+
+### 拡張候補（D1 helper への限定変更が必要）
+5. **bag/accessory を diff 主軸に取り込む**: 「bag だけ違う候補」を意味ある差分と扱う（D1 helper `diffScore` への加点）
+6. **bag subcategory による formality 整合**: smart event 時に backpack ではなく tote/shoulder を優先（subcategory 別 weight）
+
+### audit 候補
+7. **hydrated_mock path** で wardrobe の bag/accessory が mock スロットに patch されるか確認（`wardrobeToOutfit.hydrateOutfitVM` の slot mapping 監査）
+8. **accessory subcategory** による gate 精緻化（hat=季節 / belt=casual 可 / jewelry=dress 専用）
+
+### scoring 軸への進出（要 CEO 判断）
+9. **scoreCandidate に bag/accessory 用 weight 追加**: D2 では未接触原則を守ったが、 D3 で限定的に解除するか
+
+D3 詳細計画は D2-4 完了報告と同時に提出する。
