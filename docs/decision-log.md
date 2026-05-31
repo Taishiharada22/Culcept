@@ -14740,3 +14740,19 @@ D1 `diffScore` を CEO 推奨 B 案（main-axis required + supplemental as tie-b
 - **次**: D6-0 設計/risk audit を docs として提出（scoreCandidate 高リスク領域・実装は別 design gate GO 後）
 
 ---
+
+## [2026-06-01] [Build/Ops] M1 localStorage quota cleanup close [承認: CEO + 実機 PASS]
+
+D2 残課題の localStorage quota 圧迫（実機 5.24MB → quota 上限近接）を M1-1 + M1-2A の 2 commit で実質解消。 実機 console 観測で `culcept_tryon_history_v1` が消え、 total 0.70MB へ激減を CEO 確認済。 M1-3 docs-only commit で close。
+
+- **詳細**: `docs/maintenance-localstorage-quota-cleanup-close.md`
+- **3 commits**:
+  - `7b10eb58` M1-1 — orphan `culcept_tryon_history_v1`（~4.54MB）を EXPENDABLE_EXACT_KEYS 追加
+  - `0cffe565` M1-2A — `loadStateBundle` から PREVIOUS_BACKUP_STORAGE_KEY 読込停止 + `culcept_my_style_v2_backup` 追加
+  - 本コミット M1-3 close docs
+- **不変原則**: IndexedDB / server / current wardrobe / My-Style v3 / culcept_my_style_v2 本体 すべて未削除
+- **deferred**: M1-2B（v2 本体読込停止）— quota 余裕回復済で着手不要、 必要性が出てから再評価
+- **検証**: my-style 119 PASS / plan+Calendar+stargazer 5868 PASS / eslint clean / tsc 差分内 0 / 実機 PASS
+- **次**: D6（scoreCandidate への bag/accessory 限定 weighting）に進む
+
+---
