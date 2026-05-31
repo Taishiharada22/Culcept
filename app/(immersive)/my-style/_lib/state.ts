@@ -1010,24 +1010,30 @@ export function hasMeaningfulState(state: SavedState | null | undefined) {
 /**
  * Fix D（削除復活の停止）: remote(server) state を local に採用してよいか判定する pure helper。
  *
- * 原則 — **IDB / current state > server**:
- *   - 端末に既にユーザーデータがある（current の _revision>0 または meaningful）なら、
- *     **server で絶対に上書きしない**。 localStorage が quota で消えても、 mount 時に IDB full state が
- *     current へ復元されるため、 ここで current を見れば「IDB にデータがある」状態を尊重できる。
- *   - これにより、 stale な server state が local の削除を巻き戻す事故を防ぐ。
- *   - server remote を採用するのは **localStorage も IDB も本当に空の新規端末**（current が virgin）で、
- *     かつ remote に中身がある場合のみ。
+ * **revision-aware**（2026-05-31 改訂）:
+ *   - localStorage が quota で **古い revision に stale 固定**され（書込失敗）、 それが reload で current に
+ *     なる一方、 IDB / server は新しい revision に進む——という非対称が起きる。 current が meaningful という
+ *     だけで remote を弾くと、 **古い current が新しい remote の削除結果を巻き戻す**（実ログ: current 24/rev1 が
+ *     server 23/rev2 を adopt:false で拒否）。 そこで **revision を比較**する。
+ *
+ * 判定:
+ *   1. `remoteRev > currentRev` → **採用**（remote が新しい。 delete-all＝空 wardrobe でも新しければ反映）。
+ *   2. revision 同等以下で current が active（rev>0）/ meaningful → **維持**（古い remote で上書きしない）。
+ *   3. current が完全 virgin（rev0 かつ非 meaningful）→ 中身のある remote のみ **採用**（新規端末の復元）。
  *
  * ※ 呼び出し側は **stale な initialBundle ではなく「現在の state」**（functional setState の prev）を
- *    current として渡すこと。 これが本 fix の要点。
+ *    current として渡すこと。
  */
 export function shouldAdoptRemoteState(
     current: SavedState | null | undefined,
     remote: SavedState | null | undefined,
 ): boolean {
     if (!remote) return false;
-    if (current && ((current._revision ?? 0) > 0 || hasMeaningfulState(current))) return false;
-    return (remote._revision ?? 0) > 0 || hasMeaningfulState(remote);
+    const currentRev = current?._revision ?? 0;
+    const remoteRev = remote?._revision ?? 0;
+    if (remoteRev > currentRev) return true;
+    if (currentRev > 0 || hasMeaningfulState(current)) return false;
+    return hasMeaningfulState(remote);
 }
 
 export function getStateRichness(state: SavedState | null | undefined) {
