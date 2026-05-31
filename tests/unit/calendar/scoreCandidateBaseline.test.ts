@@ -163,10 +163,10 @@ describe("D6-2 不変条件: main-axis 4 カテゴリのスコアは D6-2 後も
   });
 });
 
-// ── bag/accessory baseline（D6-2 で加点される条件の現状値を記録）───────
+// ── bag/accessory scoring（D6-2 適用後の期待値）─────────────────────
 
-describe("scoreCandidate baseline — bag/accessory pre-D6-2（D6-2 後に変化することを記録）", () => {
-  it("bag (subcategory.backpack) + casual day, 属性デフォルト → 50（D6-2 後は +3 されて 53）", () => {
+describe("scoreCandidate — D6-2 bag/accessory 限定 weighting（+3 controlled）", () => {
+  it("bag (subcategory.backpack) + casual day → 50 + 3 = 53（D6-2 加点）", () => {
     const item: WardrobeItem = {
       id: "bag-bp",
       name: "bp",
@@ -175,10 +175,34 @@ describe("scoreCandidate baseline — bag/accessory pre-D6-2（D6-2 後に変化
       categoryMain: "bag",
       subcategory: "subcategory.backpack",
     } as WardrobeItem;
-    expect(scoreCandidate(item, "ss", "mid", "casual", NO_RECENT)).toBe(50);
+    expect(scoreCandidate(item, "ss", "mid", "casual", NO_RECENT)).toBe(53);
   });
 
-  it("accessory (subcategory.scarf) + thick day, 属性デフォルト → 50（D6-2 後は +3 されて 53）", () => {
+  it("bag (subcategory.tote) + smart day → +3 = 53", () => {
+    const item: WardrobeItem = {
+      id: "bag-tote",
+      name: "tote",
+      category: "other",
+      color: "#000",
+      categoryMain: "bag",
+      subcategory: "subcategory.tote",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "smart", NO_RECENT)).toBe(53);
+  });
+
+  it("bag (subcategory.backpack) + smart day → 加点なし = 50（条件 mismatch）", () => {
+    const item: WardrobeItem = {
+      id: "bag-bp-mismatch",
+      name: "bp",
+      category: "other",
+      color: "#000",
+      categoryMain: "bag",
+      subcategory: "subcategory.backpack",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "smart", NO_RECENT)).toBe(50);
+  });
+
+  it("accessory (subcategory.scarf) + thick day → +3 = 53", () => {
     const item: WardrobeItem = {
       id: "acc-scarf",
       name: "scarf",
@@ -187,10 +211,22 @@ describe("scoreCandidate baseline — bag/accessory pre-D6-2（D6-2 後に変化
       categoryMain: "accessory",
       subcategory: "subcategory.scarf",
     } as WardrobeItem;
-    expect(scoreCandidate(item, "aw", "thick", "casual", NO_RECENT)).toBe(50);
+    expect(scoreCandidate(item, "aw", "thick", "casual", NO_RECENT)).toBe(53);
   });
 
-  it("accessory (subcategory.jewelry) + dress day → 50（D6-2 後は +3 されて 53）", () => {
+  it("accessory (subcategory.scarf) + mid day → 加点なし = 50（thick 限定）", () => {
+    const item: WardrobeItem = {
+      id: "acc-scarf-mid",
+      name: "scarf",
+      category: "other",
+      color: "#000",
+      categoryMain: "accessory",
+      subcategory: "subcategory.scarf",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "casual", NO_RECENT)).toBe(50);
+  });
+
+  it("accessory (subcategory.jewelry) + dress day → +3 = 53", () => {
     const item: WardrobeItem = {
       id: "acc-jw",
       name: "jw",
@@ -199,6 +235,61 @@ describe("scoreCandidate baseline — bag/accessory pre-D6-2（D6-2 後に変化
       categoryMain: "accessory",
       subcategory: "subcategory.jewelry",
     } as WardrobeItem;
-    expect(scoreCandidate(item, "ss", "mid", "dress", NO_RECENT)).toBe(50);
+    expect(scoreCandidate(item, "ss", "mid", "dress", NO_RECENT)).toBe(53);
+  });
+
+  it("accessory (subcategory.jewelry) + smart day → 加点なし = 50（dress 限定）", () => {
+    const item: WardrobeItem = {
+      id: "acc-jw-smart",
+      name: "jw",
+      category: "other",
+      color: "#000",
+      categoryMain: "accessory",
+      subcategory: "subcategory.jewelry",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "smart", NO_RECENT)).toBe(50);
+  });
+
+  it("accessory (subcategory.belt) + casual day → +3 = 53", () => {
+    const item: WardrobeItem = {
+      id: "acc-belt-c",
+      name: "belt",
+      category: "other",
+      color: "#000",
+      categoryMain: "accessory",
+      subcategory: "subcategory.belt",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "casual", NO_RECENT)).toBe(53);
+  });
+
+  it("accessory (subcategory.belt) + smart day → +3 = 53", () => {
+    const item: WardrobeItem = {
+      id: "acc-belt-s",
+      name: "belt",
+      category: "other",
+      color: "#000",
+      categoryMain: "accessory",
+      subcategory: "subcategory.belt",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "smart", NO_RECENT)).toBe(53);
+  });
+
+  it("accessory (subcategory.hat) → 加点なし = 50（D6 では hat は context 不足で省略）", () => {
+    const item: WardrobeItem = {
+      id: "acc-hat",
+      name: "hat",
+      category: "other",
+      color: "#000",
+      categoryMain: "accessory",
+      subcategory: "subcategory.hat",
+    } as WardrobeItem;
+    expect(scoreCandidate(item, "ss", "mid", "casual", NO_RECENT)).toBe(50);
+  });
+
+  it("bag/accessory 属性全未設定 → 加点なし = 50（NaN 経路なし・中性）", () => {
+    const bag: WardrobeItem = { id: "bare-bag", name: "b", category: "other", color: "#000", categoryMain: "bag" } as WardrobeItem;
+    const acc: WardrobeItem = { id: "bare-acc", name: "a", category: "other", color: "#000", categoryMain: "accessory" } as WardrobeItem;
+    expect(scoreCandidate(bag, "ss", "mid", "casual", NO_RECENT)).toBe(50);
+    expect(scoreCandidate(acc, "ss", "mid", "casual", NO_RECENT)).toBe(50);
   });
 });

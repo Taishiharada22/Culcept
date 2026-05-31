@@ -510,6 +510,30 @@ export function scoreCandidate(
     }
   }
 
+  // ── D6-2 (2026-06-01): bag / accessory 限定 weighting ─────────────────
+  //   tops / bottoms / shoes / outer のスコアには **一切影響しない**（categoryMain で gated）。
+  //   各 +3 の控えめ加点（既存 season +10 / formality +15 より明確に小さい）。
+  //   属性未設定（subcategory なし等）は加点なし＝中性扱い。 NaN 経路なし。
+  //   baseline test (scoreCandidateBaseline.test.ts) で main-axis 不変を構造的に固定。
+  if (item.categoryMain === "bag") {
+    const sub = (item.subcategory ?? "").toLowerCase();
+    if (sub.endsWith("backpack") && requiredFormality === "casual") score += 3;
+    else if (
+      (sub.endsWith("tote") || sub.endsWith("shoulder") || sub.endsWith("crossbody")) &&
+      (requiredFormality === "smart" || requiredFormality === "dress")
+    ) {
+      score += 3;
+    }
+  } else if (item.categoryMain === "accessory") {
+    const sub = (item.subcategory ?? "").toLowerCase();
+    if (sub.endsWith("scarf") && recThickness === "thick") score += 3; // cold day 代理（既存 thick = cold）
+    else if (sub.endsWith("jewelry") && requiredFormality === "dress") score += 3;
+    else if (sub.endsWith("belt") && (requiredFormality === "casual" || requiredFormality === "smart")) score += 3;
+    // hat の hotSunny + outdoor は scoreCandidate のシグネチャから取れない（weather/events 未受領）。
+    // D4 で eligibility tier に hat を入れているのでここでは加点せず、 次回 design gate で扱う。
+  }
+  // ───────────────────────────────────────────────────────────────────────
+
   return score;
 }
 
