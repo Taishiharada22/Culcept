@@ -108,6 +108,18 @@ describe("ensureStorageSpace — M1-1 culcept_tryon_history_v1 expendable", () =
     expect(store.has("culcept_my_style_v3")).toBe(true);
   });
 
+  it("⑧ M1-2A: culcept_my_style_v2_backup が expendable exact key として削除される（v2 race 素因の物理回収）", async () => {
+    const store = installStorage({
+      "culcept_my_style_v2_backup": "old-v2-backup",
+      "culcept_my_style_v3": "live",
+    });
+    const { ensureStorageSpace } = await import("@/lib/stargazer/localStorageHelper");
+    const freed = ensureStorageSpace();
+    expect(freed).toBe(true);
+    expect(store.has("culcept_my_style_v2_backup")).toBe(false);
+    expect(store.has("culcept_my_style_v3")).toBe(true); // current は無傷
+  });
+
   it("⑦ 古い versioned key の cleanup も維持（既存 OLD_VERSION_RE: foo_v5 は foo_v7 があれば削除）", async () => {
     const store = installStorage({
       "demo_v5": "old",

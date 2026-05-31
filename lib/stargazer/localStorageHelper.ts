@@ -30,6 +30,10 @@ const EXPENDABLE_EXACT_KEYS = [
   "culcept_origin_memory_v5",
   "culcept_origin_memory_v6",
   "culcept_tryon_history_v1",
+  // M1-2A (2026-06-01): v2 時代の backup snapshot。 D2 で `loadStateBundle` から読込を停止し、
+  //   v2 race の素因（quota 失敗 → v3 消失 → v2_backup 復活 → server 上書き）を完全に断つ。
+  //   v2 本体 (culcept_my_style_v2) は legacy migration source として残す（CEO 補正・M1-2B で別判断）。
+  "culcept_my_style_v2_backup",
 ];
 
 /** Key suffixes that mark a key as expendable backup data. */

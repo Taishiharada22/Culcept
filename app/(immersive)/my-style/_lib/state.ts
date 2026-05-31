@@ -38,7 +38,11 @@ export const STORAGE_KEY = "culcept_my_style_v3";
 export const BACKUP_STORAGE_KEY = "culcept_my_style_v3_backup";
 export const LEGACY_STORAGE_KEY = "culcept_my_style_v1";
 const PREVIOUS_STORAGE_KEY = "culcept_my_style_v2";
-const PREVIOUS_BACKUP_STORAGE_KEY = "culcept_my_style_v2_backup";
+// M1-2A (2026-06-01): PREVIOUS_BACKUP_STORAGE_KEY ("culcept_my_style_v2_backup") は loadStateBundle から
+//   読込停止済（v2 race の素因を断つため）。 宣言ごと削除して unused にしない。 文字列値は
+//   lib/stargazer/localStorageHelper.ts の EXPENDABLE_EXACT_KEYS に列挙されており、 次回 ensureStorageSpace
+//   実行時に物理削除されるため、 ここに定数として保持する必要はない。
+// const PREVIOUS_BACKUP_STORAGE_KEY = "culcept_my_style_v2_backup";  // [removed by M1-2A]
 
 const MAX_SIGNAL_COUNT = 6;
 const ZERO_DATE = new Date(0).toISOString();
@@ -1512,7 +1516,13 @@ export type LoadBundle = {
 export function loadStateBundle(): LoadBundle {
     const currentRaw = readJsonStorage(STORAGE_KEY) ?? readJsonStorage(PREVIOUS_STORAGE_KEY);
     const current = normalizeSavedState(currentRaw);
-    const backupRaw = readJsonStorage(BACKUP_STORAGE_KEY) ?? readJsonStorage(PREVIOUS_BACKUP_STORAGE_KEY);
+    // M1-2A (2026-06-01): PREVIOUS_BACKUP_STORAGE_KEY (= "culcept_my_style_v2_backup") の読込を停止。
+    //   D2 で確定した「v2_backup race」の素因（quota 失敗で v3/v3_backup 消失 → 古い v2_backup を読んで
+    //   復活 → 自動 persist が IDB を v2 時代 state で上書き）を構造的に消す。 IDB 正本化 (D2-3, a77c8933)
+    //   と組み合わせて、 削除済 item が「過去の v2 snapshot」由来で蘇る経路を断つ。
+    //   v2 本体 (PREVIOUS_STORAGE_KEY = culcept_my_style_v2) は legacy migration source として残す
+    //   （CEO 補正：M1-2B で別途判断）。
+    const backupRaw = readJsonStorage(BACKUP_STORAGE_KEY);
     const backup = backupRaw ? normalizeSavedState(backupRaw) : null;
     const merged = mergeWithBackup(current, backup);
 
