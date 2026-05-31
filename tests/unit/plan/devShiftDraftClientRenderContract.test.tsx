@@ -1,33 +1,34 @@
 /**
- * SR B1b-2C-8-c-2 — DevShiftDraftClient state machine skeleton render contract
+ * SR B1b-2C-8-c-3 — DevShiftDraftClient render contract（idle static render）
  *
- * 不変条件（static render = idle 状態のみ検証。state 遷移は reducer test 側）:
- *   ① host testid / 警告文 / state attribute が出る
- *   ② 初期 state = idle（data-state="idle"）
- *   ③ idle で file input が DOM に存在し、accept=image/png,image/jpeg
- *   ④ idle で「画像を選ぶ」CTA が出る
- *   ⑤ idle では AssistedRowSelector が mount されない（image_loaded 以降に出る）
- *   ⑥ 範囲外の DOM が出ない:
- *      - ShiftImportModal mount なし（"shift-import-modal" testid 不在）
- *      - extractShiftDraft の trace なし
- *      - data:image / base64 / dataURL の trace なし
- *      - blob: URL は static render では空（mount 時に作る）
- *   ⑦ safe copy（CEO 補正）:
- *      - 「本流」「正式入口」「保存できます」「取り込み完了」を含まない
- *      - error/wrong/failed/誤/失敗/間違 を含まない
- *   ⑧ saveEnabled prop を受け取れる（accept されて render が壊れない）
- *      - 本コミット範囲では UI への visible 反映なし（dormant 維持）
+ * 注: renderToStaticMarkup は初期 state=idle のみを描画する。抽出 transition
+ *   （row_selected→extracting→cells_loaded/error）の論理は reducer / orchestrator
+ *   の pure test（devShiftDraftReducerLogic / runDraftExtractionSubmit）で固定する。
+ *   本 contract は idle render + 構造的安全性（base64/raw 不在）+ props 受理に絞る。
+ *
+ * 不変条件:
+ *   ① host testid / 警告 / state=idle
+ *   ② idle で file input（accept=image/png,image/jpeg）+「画像を選ぶ」CTA
+ *   ③ idle では row-select 階層 / 月入力 / extracting / cells_loaded / error が出ない
+ *   ④ 範囲外: ShiftImportModal mount なし / extractShiftDraft trace なし / base64・dataURL・blob: 不在
+ *   ⑤ safe copy（本流 / 正式入口 / 保存できます / 取り込み完了 / error 系を含まない）
+ *   ⑥ saveEnabled / defaultYear / defaultMonth を受理しても idle render は壊れない
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+
+// extractShiftDraftAction の import chain が server-only（Gemini adapter）を引くため無効化
+vi.mock("server-only", () => ({}));
 
 import { DevShiftDraftClient } from "@/app/(culcept)/plan/dev-shift-draft/DevShiftDraftClient";
 
 const htmlDefault = renderToStaticMarkup(<DevShiftDraftClient />);
 const htmlSaveOff = renderToStaticMarkup(<DevShiftDraftClient saveEnabled={false} />);
-const htmlSaveOn = renderToStaticMarkup(<DevShiftDraftClient saveEnabled />);
+const htmlSaveOn = renderToStaticMarkup(
+  <DevShiftDraftClient saveEnabled defaultYear={2026} defaultMonth={6} />
+);
 
-describe("DevShiftDraftClient — shell shared invariants（B1b-2C-8-c-2）", () => {
+describe("DevShiftDraftClient — shell shared invariants（B1b-2C-8-c-3）", () => {
   it("host testid + 警告 + 初期 state=idle が出る", () => {
     expect(htmlDefault).toContain('data-testid="dev-shift-draft-host"');
     expect(htmlDefault).toContain('data-testid="dev-shift-draft-warning"');
@@ -48,7 +49,7 @@ describe("DevShiftDraftClient — shell shared invariants（B1b-2C-8-c-2）", ()
   });
 });
 
-describe("DevShiftDraftClient — idle 初期 render（B1b-2C-8-c-2）", () => {
+describe("DevShiftDraftClient — idle 初期 render（B1b-2C-8-c-3）", () => {
   it("file input が DOM に存在し、accept は image/png,image/jpeg", () => {
     expect(htmlDefault).toContain('data-testid="dev-shift-draft-file-input"');
     expect(htmlDefault).toMatch(/<input[^>]*type="file"/i);
@@ -61,59 +62,43 @@ describe("DevShiftDraftClient — idle 初期 render（B1b-2C-8-c-2）", () => {
     expect(htmlDefault).toContain("画像を選ぶ");
   });
 
-  it("idle では AssistedRowSelector / row-select 階層が mount されない", () => {
-    // assisted-row-selector の DOM trace（component 内部の testid を含む可能性は将来あり得るが、本 host 直配下では出ない）
+  it("idle では row-select 階層 / 月入力 / 抽出系が出ない", () => {
     expect(htmlDefault).not.toContain('data-testid="dev-shift-draft-row-select"');
-  });
-
-  it("idle では「次の段階」placeholder（row_selected 用）が出ない", () => {
-    expect(htmlDefault).not.toContain(
-      'data-testid="dev-shift-draft-next-stage-placeholder"'
-    );
-  });
-
-  it("8-c-3 以降の placeholder（extracting / cells_loaded / error）が idle では出ない", () => {
-    expect(htmlDefault).not.toContain(
-      'data-testid="dev-shift-draft-extracting-placeholder"'
-    );
-    expect(htmlDefault).not.toContain(
-      'data-testid="dev-shift-draft-cells-loaded-placeholder"'
-    );
-    expect(htmlDefault).not.toContain(
-      'data-testid="dev-shift-draft-error-placeholder"'
-    );
+    expect(htmlDefault).not.toContain('data-testid="dev-shift-draft-target-month"');
+    expect(htmlDefault).not.toContain('data-testid="dev-shift-draft-extract"');
+    expect(htmlDefault).not.toContain('data-testid="dev-shift-draft-extracting"');
+    expect(htmlDefault).not.toContain('data-testid="dev-shift-draft-cells-loaded"');
+    expect(htmlDefault).not.toContain('data-testid="dev-shift-draft-error"');
   });
 });
 
-describe("DevShiftDraftClient — 範囲外 DOM の不在（B1b-2C-8-c-2）", () => {
-  it("ShiftImportModal の mount trace がない", () => {
+describe("DevShiftDraftClient — 範囲外 DOM の不在（B1b-2C-8-c-3）", () => {
+  it("ShiftImportModal の mount trace がない（8-c-4 に分離）", () => {
     expect(htmlDefault).not.toContain('data-testid="shift-import-modal"');
     expect(htmlDefault).not.toContain('data-testid="shift-review-grid"');
   });
 
-  it("extractShiftDraft 呼出の trace がない", () => {
-    expect(htmlDefault).not.toContain("extractShiftDraft");
+  it("保存導線（「この内容で保存」）が出ない", () => {
+    expect(htmlDefault).not.toContain("この内容で保存");
   });
 
   it("画像本体（data:image / base64 / dataURL）の trace がない", () => {
     expect(htmlDefault).not.toMatch(/data:image|base64|dataurl/i);
   });
 
-  it("static render では blob: URL は本文に出現しない（mount 時に作るため）", () => {
+  it("static render では blob: URL は本文に出現しない（submit 時にだけ decode するため）", () => {
     expect(htmlDefault).not.toContain("blob:");
   });
 });
 
-describe("DevShiftDraftClient — saveEnabled prop（B1b-2C-8-c-2）", () => {
-  it("saveEnabled 未指定 / false / true で render は壊れず、いずれも idle で同形", () => {
-    // 本コミット範囲では saveEnabled は UI に visible 反映しない（dormant 維持）。
-    // → 3 通りで idle 表示が成立する＝prop が accept されており、UI に副作用がない。
+describe("DevShiftDraftClient — props 受理（B1b-2C-8-c-3）", () => {
+  it("saveEnabled 未指定 / false / true(+default month) で idle render が壊れない", () => {
     expect(htmlDefault).toContain('data-testid="dev-shift-draft-idle"');
     expect(htmlSaveOff).toContain('data-testid="dev-shift-draft-idle"');
     expect(htmlSaveOn).toContain('data-testid="dev-shift-draft-idle"');
   });
 
-  it("saveEnabled=true でも「この内容で保存」CTA は idle 段階では出ない（Modal mount は 8-c-4）", () => {
+  it("saveEnabled=true でも保存 CTA / Modal は idle 段階では出ない（Modal mount は 8-c-4）", () => {
     expect(htmlSaveOn).not.toContain("この内容で保存");
     expect(htmlSaveOn).not.toContain('data-testid="shift-import-modal"');
   });

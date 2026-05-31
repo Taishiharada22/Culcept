@@ -17,11 +17,13 @@ import {
   INITIAL_STATE,
   currentImageObjectUrl,
   devShiftDraftReducer,
+  outcomeToAction,
   type DevShiftDraftAction,
   type DevShiftDraftState,
   type ImageMeta,
 } from "@/app/(culcept)/plan/dev-shift-draft/devShiftDraftReducer";
 import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
+import type { ShiftReviewCell } from "@/lib/plan/shift/shiftReviewClassification";
 
 const META: ImageMeta = {
   width: 1860,
@@ -57,6 +59,36 @@ const loadImage = (url: string, meta: ImageMeta): DevShiftDraftAction => ({
   imageObjectUrl: url,
   imageMeta: meta,
 });
+
+const CELLS: ShiftReviewCell[] = [
+  { day: 1, date: "2025-07-01", rawCode: "N", confidence: 1 },
+  { day: 2, date: "2025-07-02", rawCode: "H", confidence: 1 },
+];
+
+/** 共有 fixture: row_selected / extracting / error の各状態（8-c-3 transition 用）。 */
+const ROW_SELECTED: DevShiftDraftState = {
+  kind: "row_selected",
+  imageObjectUrl: URL1,
+  imageMeta: META,
+  selection: SELECTION,
+};
+const EXTRACTING: DevShiftDraftState = {
+  kind: "extracting",
+  imageObjectUrl: URL1,
+  imageMeta: META,
+  selection: SELECTION,
+  year: 2025,
+  month: 7,
+};
+const ERRORED: DevShiftDraftState = {
+  kind: "error",
+  imageObjectUrl: URL1,
+  imageMeta: META,
+  selection: SELECTION,
+  year: 2025,
+  month: 7,
+  message: "読み取りに失敗しました。",
+};
 
 describe("devShiftDraftReducer — INITIAL_STATE / shape", () => {
   it("INITIAL_STATE は kind=idle", () => {
@@ -139,16 +171,11 @@ describe("devShiftDraftReducer — row_selected アクション", () => {
   });
 
   it("error 状態からの row_selected は no-op（不正遷移を防ぐ）", () => {
-    const errored: DevShiftDraftState = {
-      kind: "error",
-      imageObjectUrl: URL1,
-      message: "test",
-    };
-    const next = devShiftDraftReducer(errored, {
+    const next = devShiftDraftReducer(ERRORED, {
       type: "row_selected",
       selection: SELECTION,
     });
-    expect(next).toBe(errored);
+    expect(next).toBe(ERRORED);
   });
 });
 
@@ -229,28 +256,12 @@ describe("currentImageObjectUrl helper", () => {
     ).toBe(URL1);
   });
 
-  it("error (url あり) → imageObjectUrl", () => {
-    expect(
-      currentImageObjectUrl({
-        kind: "error",
-        imageObjectUrl: URL1,
-        message: "x",
-      })
-    ).toBe(URL1);
-  });
-
-  it("error (url なし) → null", () => {
-    expect(
-      currentImageObjectUrl({
-        kind: "error",
-        imageObjectUrl: null,
-        message: "x",
-      })
-    ).toBeNull();
+  it("error → imageObjectUrl（retry context を保持）", () => {
+    expect(currentImageObjectUrl(ERRORED)).toBe(URL1);
   });
 
   it("cells_loaded → imageObjectUrl が維持される（review 中に元画像を見られる前提）", () => {
-    // 8-c-3 で初到達する状態だが、型レベル契約として helper 動作を固定。
+    // 型レベル契約として helper 動作を固定。
     expect(
       currentImageObjectUrl({
         kind: "cells_loaded",
@@ -262,5 +273,153 @@ describe("currentImageObjectUrl helper", () => {
         month: 7,
       })
     ).toBe(URL1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 8-c-3: 抽出 transition
+// ─────────────────────────────────────────────────────────────
+
+describe("devShiftDraftReducer — extract_started", () => {
+  it("row_selected → extracting（targetMonth を持ち込む）", () => {
+    const next = devShiftDraftReducer(ROW_SELECTED, {
+      type: "extract_started",
+      year: 2025,
+      month: 7,
+    });
+    expect(next).toEqual({
+      kind: "extracting",
+      imageObjectUrl: URL1,
+      imageMeta: META,
+      selection: SELECTION,
+      year: 2025,
+      month: 7,
+    });
+  });
+
+  it("idle / image_loaded / extracting / error からの extract_started は no-op", () => {
+    expect(
+      devShiftDraftReducer(INITIAL_STATE, { type: "extract_started", year: 2025, month: 7 })
+    ).toBe(INITIAL_STATE);
+    const imgLoaded = devShiftDraftReducer(INITIAL_STATE, loadImage(URL1, META));
+    expect(
+      devShiftDraftReducer(imgLoaded, { type: "extract_started", year: 2025, month: 7 })
+    ).toBe(imgLoaded);
+    expect(
+      devShiftDraftReducer(EXTRACTING, { type: "extract_started", year: 2025, month: 7 })
+    ).toBe(EXTRACTING);
+    expect(
+      devShiftDraftReducer(ERRORED, { type: "extract_started", year: 2025, month: 7 })
+    ).toBe(ERRORED);
+  });
+});
+
+describe("devShiftDraftReducer — extract_succeeded", () => {
+  it("extracting → cells_loaded（year/month は extracting から引き継ぐ）", () => {
+    const next = devShiftDraftReducer(EXTRACTING, {
+      type: "extract_succeeded",
+      cells: CELLS,
+    });
+    expect(next).toEqual({
+      kind: "cells_loaded",
+      imageObjectUrl: URL1,
+      imageMeta: META,
+      selection: SELECTION,
+      cells: CELLS,
+      year: 2025,
+      month: 7,
+    });
+  });
+
+  it("extracting 以外からの extract_succeeded は no-op", () => {
+    expect(
+      devShiftDraftReducer(ROW_SELECTED, { type: "extract_succeeded", cells: CELLS })
+    ).toBe(ROW_SELECTED);
+    expect(
+      devShiftDraftReducer(INITIAL_STATE, { type: "extract_succeeded", cells: CELLS })
+    ).toBe(INITIAL_STATE);
+  });
+});
+
+describe("devShiftDraftReducer — extract_failed", () => {
+  it("extracting → error（retry context を保持）", () => {
+    const next = devShiftDraftReducer(EXTRACTING, {
+      type: "extract_failed",
+      message: "読み取りに失敗しました。",
+    });
+    expect(next).toEqual({
+      kind: "error",
+      imageObjectUrl: URL1,
+      imageMeta: META,
+      selection: SELECTION,
+      year: 2025,
+      month: 7,
+      message: "読み取りに失敗しました。",
+    });
+  });
+
+  it("extracting 以外からの extract_failed は no-op", () => {
+    expect(
+      devShiftDraftReducer(ROW_SELECTED, { type: "extract_failed", message: "x" })
+    ).toBe(ROW_SELECTED);
+  });
+});
+
+describe("devShiftDraftReducer — extract_retry", () => {
+  it("error → extracting（同 selection / targetMonth で再試行）", () => {
+    const next = devShiftDraftReducer(ERRORED, { type: "extract_retry" });
+    expect(next).toEqual({
+      kind: "extracting",
+      imageObjectUrl: URL1,
+      imageMeta: META,
+      selection: SELECTION,
+      year: 2025,
+      month: 7,
+    });
+  });
+
+  it("error 以外からの extract_retry は no-op", () => {
+    expect(devShiftDraftReducer(EXTRACTING, { type: "extract_retry" })).toBe(EXTRACTING);
+    expect(devShiftDraftReducer(INITIAL_STATE, { type: "extract_retry" })).toBe(INITIAL_STATE);
+  });
+});
+
+describe("devShiftDraftReducer — cancel は抽出系からも idle へ", () => {
+  it("extracting → idle", () => {
+    expect(devShiftDraftReducer(EXTRACTING, { type: "cancel" })).toEqual({ kind: "idle" });
+  });
+  it("error → idle", () => {
+    expect(devShiftDraftReducer(ERRORED, { type: "cancel" })).toEqual({ kind: "idle" });
+  });
+});
+
+describe("outcomeToAction — submit outcome → dispatch action", () => {
+  it("cells → extract_succeeded", () => {
+    expect(
+      outcomeToAction({ kind: "cells", cells: CELLS, year: 2025, month: 7 })
+    ).toEqual({ type: "extract_succeeded", cells: CELLS });
+  });
+  it("error → extract_failed", () => {
+    expect(outcomeToAction({ kind: "error", message: "x" })).toEqual({
+      type: "extract_failed",
+      message: "x",
+    });
+  });
+  it("invalid_selection → null（dispatch しない）", () => {
+    expect(outcomeToAction({ kind: "invalid_selection" })).toBeNull();
+  });
+
+  it("cells outcome → extract_succeeded → reducer で cells_loaded（合成パス）", () => {
+    // outcome → action → reducer の合成で「success → cells_loaded」を pure に固定。
+    const action = outcomeToAction({ kind: "cells", cells: CELLS, year: 2025, month: 7 });
+    expect(action).not.toBeNull();
+    const next = devShiftDraftReducer(EXTRACTING, action as DevShiftDraftAction);
+    expect(next.kind).toBe("cells_loaded");
+  });
+
+  it("error outcome → extract_failed → reducer で error（合成パス）", () => {
+    const action = outcomeToAction({ kind: "error", message: "失敗しました" });
+    const next = devShiftDraftReducer(EXTRACTING, action as DevShiftDraftAction);
+    expect(next.kind).toBe("error");
   });
 });

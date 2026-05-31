@@ -14,15 +14,14 @@
  *     → 同一 ObjectURL を持ち越すため、自動 revoke は発火しない（client 側の revoke ロジックの設計前提）。
  *   - **本 reducer は revoke を実行しない**（pure 維持 — revoke は client の useEffect 責務）。
  *
- * 8-c-2 で到達する状態（本コミット）:
- *   - idle / image_loaded / row_selected
- *
- * 8-c-3 以降で到達する状態（本コミットでは action がない＝unreachable・型のみ定義）:
- *   - extracting / cells_loaded / error
+ * 到達する状態:
+ *   - 8-c-2: idle / image_loaded / row_selected
+ *   - 8-c-3: extracting / cells_loaded / error（extract_started/succeeded/failed/retry で到達）
  */
 
 import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
 import type { ShiftReviewCell } from "@/lib/plan/shift/shiftReviewClassification";
+import type { DraftExtractionSubmitOutcome } from "@/lib/plan/shift/runDraftExtractionSubmit";
 
 /** 画像メタデータ（File 本体は持たない）。 */
 export interface ImageMeta {
@@ -52,6 +51,10 @@ export type DevShiftDraftState =
       imageObjectUrl: string;
       imageMeta: ImageMeta;
       selection: AssistedRowSelection;
+      /** 対象年（targetMonth 由来）。cells_loaded へ引き継ぐ。 */
+      year: number;
+      /** 対象月 1..12。 */
+      month: number;
     }
   | {
       kind: "cells_loaded";
@@ -63,15 +66,19 @@ export type DevShiftDraftState =
       month: number;
     }
   | {
+      // error は retry context を保持（再アップロード無しで extract_retry 可能に）。
       kind: "error";
-      /** error 発生時の imageObjectUrl（あれば host が revoke 判断に使う）。 */
-      imageObjectUrl: string | null;
+      imageObjectUrl: string;
+      imageMeta: ImageMeta;
+      selection: AssistedRowSelection;
+      year: number;
+      month: number;
+      /** safe copy（server action の error.message 由来 / decode 失敗時の固定文）。 */
       message: string;
     };
 
 /**
- * Action — 8-c-2 で必要な 3 種。
- * 8-c-3 で extract_started / cells_loaded / extract_failed を追加する想定。
+ * Action — 8-c-2 の 3 種 + 8-c-3 の抽出 4 種。
  */
 export type DevShiftDraftAction =
   | {
@@ -82,6 +89,27 @@ export type DevShiftDraftAction =
   | {
       type: "row_selected";
       selection: AssistedRowSelection;
+    }
+  // ── 8-c-3: 抽出 ──
+  | {
+      // row_selected → extracting。targetMonth を持ち込む（extracting/cells_loaded で使う）。
+      type: "extract_started";
+      year: number;
+      month: number;
+    }
+  | {
+      // extracting → cells_loaded。cells は server action result 由来（safe summary）。
+      type: "extract_succeeded";
+      cells: ShiftReviewCell[];
+    }
+  | {
+      // extracting → error。message は safe copy。
+      type: "extract_failed";
+      message: string;
+    }
+  | {
+      // error → extracting。同 selection で再試行（imageObjectUrl/year/month 引き継ぎ）。
+      type: "extract_retry";
     }
   | { type: "cancel" };
 
@@ -121,8 +149,84 @@ export function devShiftDraftReducer(
       };
     }
 
+    case "extract_started": {
+      // row_selected からのみ。targetMonth を持ち込んで extracting へ。
+      if (state.kind !== "row_selected") return state;
+      return {
+        kind: "extracting",
+        imageObjectUrl: state.imageObjectUrl,
+        imageMeta: state.imageMeta,
+        selection: state.selection,
+        year: action.year,
+        month: action.month,
+      };
+    }
+
+    case "extract_succeeded": {
+      // extracting からのみ。year/month は extracting から引き継ぐ（targetMonth 一貫性）。
+      if (state.kind !== "extracting") return state;
+      return {
+        kind: "cells_loaded",
+        imageObjectUrl: state.imageObjectUrl,
+        imageMeta: state.imageMeta,
+        selection: state.selection,
+        cells: action.cells,
+        year: state.year,
+        month: state.month,
+      };
+    }
+
+    case "extract_failed": {
+      // extracting からのみ。retry context（image/selection/year/month）を保持。
+      if (state.kind !== "extracting") return state;
+      return {
+        kind: "error",
+        imageObjectUrl: state.imageObjectUrl,
+        imageMeta: state.imageMeta,
+        selection: state.selection,
+        year: state.year,
+        month: state.month,
+        message: action.message,
+      };
+    }
+
+    case "extract_retry": {
+      // error からのみ。同 selection / targetMonth で extracting へ戻す（再アップロード不要）。
+      if (state.kind !== "error") return state;
+      return {
+        kind: "extracting",
+        imageObjectUrl: state.imageObjectUrl,
+        imageMeta: state.imageMeta,
+        selection: state.selection,
+        year: state.year,
+        month: state.month,
+      };
+    }
+
     case "cancel":
       return INITIAL_STATE;
+  }
+}
+
+/**
+ * submit outcome → dispatch する action（pure・glue をテスト可能にする）。
+ *   - cells → extract_succeeded
+ *   - error → extract_failed
+ *   - invalid_selection → null（dispatch しない＝row_selected 維持・component が inline 通知）
+ *
+ * 注: extract_started は targetMonth 由来のため outcome からは導出せず、
+ *   onActionStart（crop 成功後）で別途 dispatch する。
+ */
+export function outcomeToAction(
+  outcome: DraftExtractionSubmitOutcome
+): DevShiftDraftAction | null {
+  switch (outcome.kind) {
+    case "cells":
+      return { type: "extract_succeeded", cells: outcome.cells };
+    case "error":
+      return { type: "extract_failed", message: outcome.message };
+    case "invalid_selection":
+      return null;
   }
 }
 
@@ -140,7 +244,6 @@ export function currentImageObjectUrl(
     case "row_selected":
     case "extracting":
     case "cells_loaded":
-      return state.imageObjectUrl;
     case "error":
       return state.imageObjectUrl;
   }

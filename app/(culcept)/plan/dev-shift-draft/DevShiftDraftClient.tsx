@@ -1,46 +1,51 @@
 "use client";
 
 /**
- * DevShiftDraftClient — fixture host の client（SR B1b-2C-8-c-2）
+ * DevShiftDraftClient — fixture host の client（SR B1b-2C-8-c-3）
  *
- * 本コミット（B1b-2C-8-c-2）の scope:
- *   - state machine（6 状態、idle / image_loaded / row_selected / extracting / cells_loaded / error）
- *     のうち idle / image_loaded / row_selected の遷移のみ実装。
- *   - file input（accept=image/png,image/jpeg）
- *   - URL.createObjectURL で blob: URL 生成 + HTMLImageElement で naturalWidth/Height 取得
- *   - AssistedRowSelector mount（既存 component / B1b-2C-2）
- *   - ObjectURL revoke lifecycle:
- *       - 差替 / cancel / unmount で revoke
- *       - **cells_loaded への遷移では同一 URL を引き継ぐ → 自動 revoke は発火しない**（review に元画像必須）
- *   - saveEnabled server prop の受け取り（8-c-4 で Modal mount に渡す予定）。
+ * 本コミット（B1b-2C-8-c-3）の scope:
+ *   - 8-c-2 の state machine（idle / image_loaded / row_selected）に **抽出パス**を接続:
+ *       row_selected → crop → extract action → cells_loaded / error
+ *   - targetMonth 入力（<input type="month">）。daysInMonth は targetYear/month から再計算。
+ *   - submit 時だけ imageObjectUrl から image decode（transient local）→ generateAssistedCrops →
+ *     runDraftExtractionSubmit（DI orchestrator）→ extractShiftDraftAction（server action）。
+ *   - 結果を cells_loaded（最小サマリ）/ error（retry 付き）へ。
  *
- * 範囲外（**8-c-3 以降で接続**）:
- *   - generateAssistedCrops（B1b-2C-3）
- *   - FormData 作成
- *   - extractShiftDraftAction 呼出（B1b-2C-7）
- *   - ShiftImportModal mount（B1b-2C-8-c-4）
- *   - 保存 / DB write / VLM 実行 / staging smoke
+ * 範囲外（**8-c-4 で接続**）:
+ *   - ShiftImportModal mount / riskReviewEnabled / saveEnabled flag による保存導線
+ *   - DB write / 保存ボタン有効化
  *
  * 不変原則（CEO 補正・2026-06-01）:
- *   - **File / Blob を React state に長期保持しない**（state に File 系 field なし — 構造的保証）。
- *   - **base64 / dataURL を client で作らない**（imageObjectUrl は `blob:` URL のみ）。
- *   - **localStorage に画像本体を入れない**（本 component は localStorage を一切触らない）。
- *   - **cells_loaded 直後に ObjectURL を revoke しない**（同一 URL を持ち越す設計）。
- *   - **saveEnabled は hardcode true にしない** — page.tsx が `isShiftImportSaveEnabled()` を読んで渡す。
+ *   - **File / Blob を React state に長期保持しない**（state は ObjectURL string + image metadata のみ）。
+ *   - **base64 / dataURL を client で作らない**（imageObjectUrl は blob: URL のみ・FileReader 不使用）。
+ *   - **localStorage に画像本体を入れない**（本 component は localStorage 不使用）。
+ *   - **cells_loaded 直後に ObjectURL を revoke しない**（review に元画像必須・同一 URL 持ち越し）。
+ *   - **saveEnabled は server-side flag 由来**（hardcode true なし・8-c-3 では未使用）。
+ *   - **VLM は user action 時のみ**（callAction = server action。client から VLM を直接呼ばない）。
+ *   - **extracting に入るのは crop 成功後**（invalid selection では loading にしない）。
  *
  * safe copy: 「検証 host」「製品の取り込み入口ではありません」で統一。
  *   「本流」「正式入口」「保存できます」「取り込み完了」は使わない。
  */
 
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { AssistedRowSelector } from "@/app/(culcept)/plan/components/AssistedRowSelector";
 import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
+import { generateAssistedCrops } from "@/lib/plan/shift/assistedCropGenerator";
+import { runDraftExtractionSubmit } from "@/lib/plan/shift/runDraftExtractionSubmit";
+import {
+  daysInMonth,
+  formatMonthInput,
+  parseMonthInput,
+} from "@/lib/plan/shift/targetMonth";
 
+import { extractShiftDraftAction } from "../_actions/extractShiftDraftAction";
 import {
   INITIAL_STATE,
   currentImageObjectUrl,
   devShiftDraftReducer,
+  outcomeToAction,
   type DevShiftDraftAction,
   type ImageMeta,
 } from "./devShiftDraftReducer";
@@ -48,45 +53,68 @@ import {
 export interface DevShiftDraftClientProps {
   /**
    * 保存導線の活性化。**server-side flag（PLAN_SHIFT_IMPORT_SAVE）由来**。
-   * 本コミット（8-c-2）では UI には出さない（ShiftImportModal mount は 8-c-4）。
-   * 既定 false で dormant。**hardcode true は禁止**。
+   * 本コミット（8-c-3）では未使用（ShiftImportModal mount は 8-c-4）。hardcode true は禁止。
    */
   saveEnabled?: boolean;
+  /** server が算出した既定年（現在月）。targetMonth の初期値に使う。 */
+  defaultYear?: number;
+  /** server が算出した既定月 1..12。 */
+  defaultMonth?: number;
 }
 
-/** File → ObjectURL + 自然画像サイズ取得（client 専用）。失敗時は ObjectURL を revoke して reject。 */
-async function loadImageMetadata(
-  file: File
-): Promise<{ imageObjectUrl: string; imageMeta: ImageMeta }> {
-  const url = URL.createObjectURL(file);
-  return await new Promise((resolve, reject) => {
+/** blob: ObjectURL から HTMLImageElement を decode（browser 専用・transient）。 */
+function decodeImageElement(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
-      resolve({
-        imageObjectUrl: url,
-        imageMeta: {
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-          mimeType: file.type,
-          fileName: file.name,
-          sizeBytes: file.size,
-        },
-      });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("image_decode_failed"));
-    };
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image_decode_failed"));
     img.src = url;
   });
 }
 
-export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
+/** File → ObjectURL + 自然画像サイズ。失敗時は ObjectURL を revoke して reject。 */
+async function loadImageMetadata(
+  file: File
+): Promise<{ imageObjectUrl: string; imageMeta: ImageMeta }> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await decodeImageElement(url);
+    return {
+      imageObjectUrl: url,
+      imageMeta: {
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        mimeType: file.type,
+        fileName: file.name,
+        sizeBytes: file.size,
+      },
+    };
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
+}
+
+const SAFE_DECODE_NOTICE = "画像を読み取れませんでした。もう一度お試しください。";
+const SAFE_SELECTION_NOTICE = "選択範囲をご確認ください。";
+const SAFE_MONTH_NOTICE = "対象の年月を選んでください。";
+const SAFE_RUNTIME_FAIL = "読み取りに失敗しました。もう一度お試しください。";
+
+export function DevShiftDraftClient({
+  defaultYear,
+  defaultMonth,
+}: DevShiftDraftClientProps = {}) {
   const [state, dispatch] = useReducer(devShiftDraftReducer, INITIAL_STATE);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // targetMonth（"YYYY-MM"）。server 既定（現在月）があれば prefill、無ければ空。
+  const [targetMonthValue, setTargetMonthValue] = useState<string>(
+    defaultYear && defaultMonth ? formatMonthInput(defaultYear, defaultMonth) : ""
+  );
+  // 軽い inline 通知（invalid selection / decode 失敗 / 月未選択）。画像本体ではない。
+  const [notice, setNotice] = useState<string | null>(null);
+
   // ── ObjectURL revoke 監視（差替・cancel）と unmount cleanup ──
-  // 直前の imageObjectUrl を ref に保持し、変化（または null 化）したら revoke。
   // cells_loaded への遷移では同一 URL を引き継ぐため自動 revoke は発火しない（CEO 補正）。
   const prevObjectUrlRef = useRef<string | null>(null);
   useEffect(() => {
@@ -99,7 +127,6 @@ export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
   }, [state]);
 
   useEffect(() => {
-    // unmount 時の最終 revoke（image_loaded / row_selected / cells_loaded のどれで終わっても確実に解放）
     return () => {
       const url = prevObjectUrlRef.current;
       if (url) {
@@ -110,50 +137,95 @@ export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
   }, []);
 
   // ── handlers ──
-  const handleSelectFile = useCallback(
-    async (file: File) => {
-      try {
-        const { imageObjectUrl, imageMeta } = await loadImageMetadata(file);
-        const action: DevShiftDraftAction = {
-          type: "image_loaded",
-          imageObjectUrl,
-          imageMeta,
-        };
-        dispatch(action);
-      } catch {
-        // 8-c-2 では error 状態への遷移 action を追加しない（type 上は存在するが unreachable のまま）。
-        // 8-c-3 で extract 失敗時の error 経路と合わせて設計。本コミットでは silent fallback（state 不変）。
-      }
-    },
-    []
-  );
+  const handleSelectFile = useCallback(async (file: File) => {
+    try {
+      const { imageObjectUrl, imageMeta } = await loadImageMetadata(file);
+      dispatch({ type: "image_loaded", imageObjectUrl, imageMeta });
+      setNotice(null);
+    } catch {
+      setNotice(SAFE_DECODE_NOTICE);
+    }
+  }, []);
 
   const onFileInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
       void handleSelectFile(file);
-      // 同じファイルを連続で選んだ場合も change を発火させる
-      e.target.value = "";
+      e.target.value = ""; // 同一ファイル連続選択でも change 発火
     },
     [handleSelectFile]
   );
 
-  const triggerFilePicker = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const onRowConfirm = useCallback((selection: AssistedRowSelection) => {
-    dispatch({ type: "row_selected", selection });
-  }, []);
+  const triggerFilePicker = useCallback(() => fileInputRef.current?.click(), []);
 
   const onRowChange = useCallback((selection: AssistedRowSelection) => {
+    dispatch({ type: "row_selected", selection });
+  }, []);
+  const onRowConfirm = useCallback((selection: AssistedRowSelection) => {
     dispatch({ type: "row_selected", selection });
   }, []);
 
   const onCancel = useCallback(() => {
     dispatch({ type: "cancel" });
+    setNotice(null);
   }, []);
+
+  /**
+   * 下書きを取り出す（row_selected → crop → action → cells_loaded/error）。
+   * - month 未選択 / crop null → extracting に入らず inline 通知（row_selected 維持）。
+   * - crop 成功 → onActionStart で extracting → action → outcome を dispatch。
+   */
+  const handleExtract = useCallback(async () => {
+    if (state.kind !== "row_selected") return;
+    const { selection, imageObjectUrl } = state;
+
+    const parsed = parseMonthInput(targetMonthValue);
+    if (!parsed) {
+      setNotice(SAFE_MONTH_NOTICE);
+      return;
+    }
+    const days = daysInMonth(parsed.year, parsed.month);
+    setNotice(null);
+
+    // crop 成功（onActionStart 発火）後に extracting へ入ったか追跡（stale closure 回避）。
+    let actionStarted = false;
+    try {
+      const outcome = await runDraftExtractionSubmit({
+        year: parsed.year,
+        month: parsed.month,
+        daysInMonth: days,
+        generateCrops: async () => {
+          const img = await decodeImageElement(imageObjectUrl);
+          return generateAssistedCrops(img, selection);
+        },
+        callAction: extractShiftDraftAction,
+        onActionStart: () => {
+          actionStarted = true;
+          dispatch({ type: "extract_started", year: parsed.year, month: parsed.month });
+        },
+      });
+
+      if (outcome.kind === "invalid_selection") {
+        setNotice(SAFE_SELECTION_NOTICE); // extracting に入っていない（row_selected 維持）
+        return;
+      }
+      const action = outcomeToAction(outcome);
+      if (action) dispatch(action);
+    } catch {
+      // decode / canvas / 予期せぬ例外。extracting に入った後なら error、前なら inline 通知。
+      if (actionStarted) {
+        dispatch({ type: "extract_failed", message: SAFE_RUNTIME_FAIL });
+      } else {
+        setNotice(SAFE_DECODE_NOTICE);
+      }
+    }
+  }, [state, targetMonthValue]);
+
+  const onRetry = useCallback(() => dispatch({ type: "extract_retry" }), []);
+
+  const isSelecting =
+    state.kind === "image_loaded" || state.kind === "row_selected";
 
   return (
     <div
@@ -180,6 +252,15 @@ export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
           className="hidden"
         />
 
+        {notice && (
+          <p
+            data-testid="dev-shift-draft-notice"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800"
+          >
+            {notice}
+          </p>
+        )}
+
         {state.kind === "idle" && (
           <div
             data-testid="dev-shift-draft-idle"
@@ -199,11 +280,23 @@ export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
           </div>
         )}
 
-        {(state.kind === "image_loaded" || state.kind === "row_selected") && (
-          <div
-            data-testid="dev-shift-draft-row-select"
-            className="space-y-2"
-          >
+        {isSelecting && (
+          <div data-testid="dev-shift-draft-row-select" className="space-y-2">
+            {/* targetMonth 入力（対象月が本質・現在月固定にしない／CEO 補正1） */}
+            <label className="flex items-center gap-2 text-[11px] text-slate-600">
+              <span>対象の年月</span>
+              <input
+                type="month"
+                value={targetMonthValue}
+                data-testid="dev-shift-draft-target-month"
+                onChange={(e) => {
+                  setTargetMonthValue(e.target.value);
+                  setNotice(null);
+                }}
+                className="rounded border border-slate-300 px-2 py-1 text-[12px]"
+              />
+            </label>
+
             <AssistedRowSelector
               imageObjectUrl={state.imageObjectUrl}
               imageW={state.imageMeta.width}
@@ -215,6 +308,7 @@ export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
               onConfirm={onRowConfirm}
               onCancel={onCancel}
             />
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -233,41 +327,86 @@ export function DevShiftDraftClient(_props: DevShiftDraftClientProps = {}) {
                 やり直す
               </button>
             </div>
+
             {state.kind === "row_selected" && (
-              <p
-                data-testid="dev-shift-draft-next-stage-placeholder"
-                className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-[11px] leading-relaxed text-slate-500"
+              <button
+                type="button"
+                data-testid="dev-shift-draft-extract"
+                onClick={() => void handleExtract()}
+                className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-[12px] font-medium text-white"
               >
-                次の段階で、選択した帯から下書きを取り出します。
-              </p>
+                下書きを取り出す
+              </button>
             )}
           </div>
         )}
 
-        {/* 8-c-3 以降で到達する状態（本コミットでは action 経路なし＝unreachable）。
-            TypeScript exhaustive narrowing 維持のため明示。 */}
         {state.kind === "extracting" && (
           <div
-            data-testid="dev-shift-draft-extracting-placeholder"
+            data-testid="dev-shift-draft-extracting"
             className="rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-500"
           >
-            下書きを取り出しています…
+            {`${state.year}年${state.month}月の下書きを取り出しています…`}
           </div>
         )}
+
         {state.kind === "cells_loaded" && (
           <div
-            data-testid="dev-shift-draft-cells-loaded-placeholder"
-            className="rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-500"
+            data-testid="dev-shift-draft-cells-loaded"
+            className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-600"
           >
-            下書きの確認段は次の段階で接続します。
+            <p data-testid="dev-shift-draft-cells-count" className="font-medium">
+              {`${state.year}年${state.month}月 — ${state.cells.length} 件の下書きを読み取りました。`}
+            </p>
+            {/* 最小サマリ（day: rawCode）。ShiftReviewGrid / 保存導線は 8-c-4 で接続。 */}
+            <ul className="grid grid-cols-4 gap-1 text-[11px] text-slate-500">
+              {state.cells.map((c) => (
+                <li
+                  key={c.day}
+                  className="rounded border border-slate-200 px-1 py-0.5 text-center"
+                >
+                  {`${c.day} ${c.rawCode}`}
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-slate-400">
+              次の段階で、確認画面（取り込み確認）に接続します。
+            </p>
+            <button
+              type="button"
+              data-testid="dev-shift-draft-restart"
+              onClick={onCancel}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] text-slate-600"
+            >
+              最初からやり直す
+            </button>
           </div>
         )}
+
         {state.kind === "error" && (
           <div
-            data-testid="dev-shift-draft-error-placeholder"
-            className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-[12px] leading-relaxed text-rose-700"
+            data-testid="dev-shift-draft-error"
+            className="space-y-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-[12px] leading-relaxed text-rose-700"
           >
-            {state.message}
+            <p>{state.message}</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="dev-shift-draft-retry"
+                onClick={onRetry}
+                className="rounded-lg bg-rose-600 px-3 py-1.5 text-[11px] font-medium text-white"
+              >
+                もう一度試す
+              </button>
+              <button
+                type="button"
+                data-testid="dev-shift-draft-error-cancel"
+                onClick={onCancel}
+                className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-[11px] text-rose-600"
+              >
+                やり直す
+              </button>
+            </div>
           </div>
         )}
       </div>

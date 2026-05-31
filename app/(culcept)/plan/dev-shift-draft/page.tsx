@@ -47,6 +47,15 @@ export default async function DevShiftDraftPage() {
   }
 
   // saveEnabled は server-side flag（PLAN_SHIFT_IMPORT_SAVE）由来。
-  // 本コミット（B1b-2C-8-c-2）では Client は受け取るだけで UI に出さない（Modal mount は 8-c-4）。
-  return <DevShiftDraftClient saveEnabled={isShiftImportSaveEnabled()} />;
+  // 本コミット（8-c-3）では Client は受け取るだけで UI に出さない（Modal mount は 8-c-4）。
+  // defaultYear/defaultMonth は現在月（force-dynamic のため request 時に評価）。
+  // client は targetMonth state に prefill し、過去月/来月の表に変更可能（CEO 補正1）。
+  const now = new Date();
+  return (
+    <DevShiftDraftClient
+      saveEnabled={isShiftImportSaveEnabled()}
+      defaultYear={now.getFullYear()}
+      defaultMonth={now.getMonth() + 1}
+    />
+  );
 }
