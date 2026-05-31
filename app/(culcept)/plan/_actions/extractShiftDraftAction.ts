@@ -1,0 +1,56 @@
+"use server";
+
+/**
+ * SR B1b-2C-7: extractShiftDraftAction（server action・thin wrapper）
+ *
+ * 役割: 本流から呼ばれる "use server" entry point。env 読み出し + deps wire のみ。
+ *   本体ロジックは `runExtractShiftDraft`（pure-ish・DI・test 可）に委譲。
+ *
+ * 重要原則（CEO 補正 2026-06-01）:
+ *   - env を読むのは **本ファイル only**（adapter / runner は env 非依存）
+ *   - Gemini adapter factory は `draftExtractionGeminiAdapter.server.ts`（`import "server-only"`）
+ *     経由で取得 → client bundle 混入を構造的に防ぐ
+ *   - DB write / 保存 / 本流入口 には接続しない（cells を return するだけ）
+ *   - host page / upload UI / ShiftImportModal は接続しない（次 gate）
+ *   - cost 発生入口のため、全 gate（flag/staging/prod-deny/auth/env/file）通過後にのみ adapter を呼ぶ
+ *
+ * 範囲外: result への Blob / base64 / raw response 載せ込み、DB write、production、本流入口。
+ */
+
+import { supabaseServer } from "@/lib/supabase/server";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
+import { createGeminiDraftExtractionAdapter } from "@/lib/plan/shift/draftExtractionGeminiAdapter.server";
+import {
+  runExtractShiftDraft,
+  type ExtractShiftDraftResult,
+} from "@/lib/plan/shift/runExtractShiftDraft";
+
+/** "use server" action: FormData → ExtractShiftDraftResult。 */
+export async function extractShiftDraftAction(
+  formData: FormData
+): Promise<ExtractShiftDraftResult> {
+  const client = await supabaseServer();
+  return runExtractShiftDraft(formData, {
+    env: {
+      flagOn: process.env.PLAN_SHIFT_DRAFT_HOST === "true",
+      supabaseUrl:
+        process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+      geminiApiKey: process.env.GEMINI_API_KEY,
+      vlmModel: process.env.B1B_VLM_MODEL,
+    },
+    stagingRef: STAGING_PROJECT_REF,
+    productionRef: PRODUCTION_PROJECT_REF,
+    getUserId: async () => {
+      const { data } = await client.auth.getUser();
+      return data?.user?.id ?? null;
+    },
+    createAdapter: (config) =>
+      createGeminiDraftExtractionAdapter({
+        apiKey: config.apiKey,
+        model: config.model,
+      }),
+  });
+}
