@@ -435,7 +435,9 @@ export function selectAccessories(input: {
 }
 
 /* ── アイテムの適格スコア ── */
-function scoreCandidate(
+// D6-1 (2026-06-01): export 化 — baseline score test から直接 assertion 可能にする。
+// 内部ロジックは D6-1 段階では不変（D6-2 で末尾に bag/accessory weight を追加予定）。
+export function scoreCandidate(
   item: WardrobeItem,
   season: "ss" | "aw",
   recThickness: string,
