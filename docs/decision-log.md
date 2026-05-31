@@ -14688,3 +14688,23 @@ D2-0〜D2-3 を完了し、 実機で wardrobe に bag + accessory を含めた 
 - **次**: D2-4 commit 直後に D3 詳細計画を提出
 
 ---
+
+## [2026-06-01] [Build/Product] D3 bag/accessory supplemental tuning 全実装 close [承認: CEO]
+
+D2 で engine に通した bag / accessory を、 TPO・天気・季節に応じて賢く選ぶチューニングフェーズが完了。 D3-1〜D3-3 を退化 0 で実装し、 D3-4 docs-only commit で close。
+
+- **詳細**: `docs/plan-outfit-supplemental-tuning-close.md`
+- **累計 4 commits**:
+  - `a974e486` D3-1 bag tuning（travel 追加 / rain 防水 hard filter / smart-dress で backpack 後退 / `selectBagPool` pure helper）
+  - `538da0c2` D3-2 accessory tuning（cold day temp_max<15 で scarf sub-pool 優先 pick / dress 最大 2 件 / subcategory 重複禁止 / `selectAccessories` + `isColdDay`）
+  - `19423094` D3-3 hydrate path 修正（audit で hat migration gap 発見 → `slotOfWardrobe` に hat→accessory 1 行追加 / engine D2-1 と整合）
+  - 本コミット D3-4 close docs
+- **不変原則の達成**:
+  - scoreCandidate 関数本体 D3 全体で 1 文字も変更なし（CEO 補正どおり）
+  - D1 helper / outfitEngineAdapter / useCalendarOutfit / OutfitCollage / mock 構造 すべて未接触
+  - supplemental 不変（bag/accessory 無しでも proposal 成立 / selectedItems.length<2 境界維持）
+- **検証**: Calendar 269 PASS（D3 開始時 +33、 退化 0）/ plan 3514 PASS（+13、 退化 0）/ eslint clean / tsc 自分のファイル差分 0
+- **触らない**: My-Style persistence / cutout / quota / weather route / migration / push / deploy
+- **D4 以降**: D4=accessory subcategory 別 gate (hat/belt/jewelry) / D5=diff 主軸検討 / D6=scoreCandidate 限定進出 / Maintenance（quota / 既存 item / weather 404）
+
+---
