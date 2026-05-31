@@ -52,6 +52,73 @@ const VARIANT_PREFIXES = ["main-", "casual-", "dressy-", "rain-", "cold-"] as co
 
 const OUTER_CATEGORY_LABEL = "アウター";
 
+// ── D5: main-axis / supplemental-axis 分離 ────────────────
+//
+// 設計（CEO 推奨 B 採用・補正済み）:
+//   - main-axis:        tops / bottoms / shoes / outer（VM category: "トップス" / "ボトムス" / "シューズ" / "アウター"）
+//   - supplemental-axis: bag / accessory（VM category: "バッグ" / "小物"）
+//
+//   diffScore = mainAxisDiff(a,b)
+//             + (mainAxisDiff >= 1 ? supplementalDiff(a,b) : 0)
+//
+//   ⇒ mainAxisDiff < 1（= bag/accessory だけ違う、 outer 有無差だけ）の場合は **supplemental を一切加点しない**。
+//     bag/accessory が差分主軸化するリスクを構造的に排除する（CEO 推奨どおり）。
+//   ⇒ outer 有無差 0.5 のみでは閾値 1.0 に届かず、 bag/accessory 加点も無効。 既存 outer 0.5 セマンティクスは
+//     main-axis 内で維持され、 D1 既存 outer test の 1.5（id 差 1.0 + outer 0.5）は完全に保持される。
+//
+// VM の category 識別子は日本語 label（mock / adapter / wardrobeToOutfit 全 3 経路で確定値）。
+// 識別は category === label の完全一致で判定（substring 不使用・誤判定回避）。
+const MAIN_AXIS_LABELS = new Set(["トップス", "ボトムス", "シューズ", "アウター"]);
+const SUPPLEMENTAL_LABELS = new Set(["バッグ", "小物"]);
+
+function isMainAxisItem(item: CalendarOutfitItemVM): boolean {
+  return MAIN_AXIS_LABELS.has(item.category);
+}
+function isSupplementalItem(item: CalendarOutfitItemVM): boolean {
+  return SUPPLEMENTAL_LABELS.has(item.category);
+}
+
+/**
+ * main-axis（tops/bottoms/shoes/outer）の id 対称差 + outer 有無差。
+ *   - 既存 D1 outer 0.5 セマンティクスを main-axis 内で維持
+ *   - bag/accessory は完全に除外
+ */
+export function mainAxisDiff(
+  a: CalendarOutfitProposalVM,
+  b: CalendarOutfitProposalVM,
+): number {
+  const mainA = a.items.filter(isMainAxisItem);
+  const mainB = b.items.filter(isMainAxisItem);
+  const idsA = new Set(mainA.map((i) => i.id));
+  const idsB = new Set(mainB.map((i) => i.id));
+  let diff = 0;
+  for (const id of idsA) if (!idsB.has(id)) diff += 1;
+  for (const id of idsB) if (!idsA.has(id)) diff += 1;
+  const outerA = mainA.some((i) => i.category === OUTER_CATEGORY_LABEL);
+  const outerB = mainB.some((i) => i.category === OUTER_CATEGORY_LABEL);
+  if (outerA !== outerB) diff += 0.5;
+  return diff;
+}
+
+/**
+ * supplemental-axis（bag/accessory）の id 対称差。 重みは 0.5（tie-breaker としての副次）。
+ *   - mainAxisDiff >= 1 の場合だけ加点される（呼び出し側で gating）
+ *   - bag/accessory だけ違う候補が threshold をすり抜けないように設計
+ */
+export function supplementalDiff(
+  a: CalendarOutfitProposalVM,
+  b: CalendarOutfitProposalVM,
+): number {
+  const suppA = a.items.filter(isSupplementalItem);
+  const suppB = b.items.filter(isSupplementalItem);
+  const idsA = new Set(suppA.map((i) => i.id));
+  const idsB = new Set(suppB.map((i) => i.id));
+  let diff = 0;
+  for (const id of idsA) if (!idsB.has(id)) diff += 0.5;
+  for (const id of idsB) if (!idsA.has(id)) diff += 0.5;
+  return diff;
+}
+
 // ── helper (export して unit test 可能) ───────────────────
 
 /**
@@ -70,24 +137,32 @@ export function variantOfVM(vm: CalendarOutfitProposalVM): "main" | "casual" | "
 
 /**
  * 候補ペアの差分スコア（高いほど別物）。
- *   - itemIds の対称差: 1 件あたり ×1.0
- *   - outer 有無の差: ×0.5
- * 完全同一なら 0、 通常は 2 以上（1 件入れ替えで 2 = 失った 1 + 足した 1）。
- * 「意味ある差分」は **≥1.0** を閾値とする。
+ *
+ *   D5 新ルール（main-axis required + supplemental as tie-breaker、 CEO 推奨）:
+ *     diffScore = mainAxisDiff(a, b)
+ *               + (mainAxisDiff >= 1 ? supplementalDiff(a, b) : 0)
+ *
+ *   - main-axis = tops / bottoms / shoes / outer の id 対称差 + outer 有無差 ×0.5
+ *   - supplemental = bag / accessory の id 対称差 ×0.5（**main-axis >= 1 のときだけ加点**）
+ *
+ *   ⇒ bag/accessory だけ違う候補は mainAxisDiff = 0 → diffScore = 0 → 閾値 1.0 で mock pad に倒れる
+ *     （D1/D2 で確立した「bag/accessory を差分主軸にしない」原則を構造的に強制）
+ *   ⇒ outer 有無差 0.5 のみ（main-axis < 1）でも supplemental は加点されない（CEO 推奨補正反映）
+ *   ⇒ main-axis に 1 件以上違いがある候補同士では、 bag/accessory も tie-breaker として効く
+ *
+ *   既存挙動の保持:
+ *     - tops 1 件入れ替えのみ → mainAxisDiff = 2、 supplementalDiff = 0 → diffScore = 2（D1 と同値）
+ *     - tops 1 件 + outer 有無差 → mainAxisDiff = 2.5（D1 outer test 1.5 [id 1.0 + outer 0.5] と整合）
+ *
+ *   「意味ある差分」は **≥1.0** を閾値とする（D1 と同じ閾値運用）。
  */
 export function diffScore(
   a: CalendarOutfitProposalVM,
   b: CalendarOutfitProposalVM,
 ): number {
-  const idsA = new Set(a.items.map((i) => i.id));
-  const idsB = new Set(b.items.map((i) => i.id));
-  let diff = 0;
-  for (const id of idsA) if (!idsB.has(id)) diff += 1;
-  for (const id of idsB) if (!idsA.has(id)) diff += 1;
-  const outerA = a.items.some((i) => i.category === OUTER_CATEGORY_LABEL);
-  const outerB = b.items.some((i) => i.category === OUTER_CATEGORY_LABEL);
-  if (outerA !== outerB) diff += 0.5;
-  return diff;
+  const main = mainAxisDiff(a, b);
+  if (main < 1) return main; // supplemental は無効化（main 0.5 のみ等は加点しない）
+  return main + supplementalDiff(a, b);
 }
 
 /** wardrobe item の formality rank（0=casual, 1=smart, 2=dress、 不明は 0=casual 扱い） */
