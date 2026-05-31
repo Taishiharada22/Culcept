@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  mergeCachedStateWithLocalImages,
   mergeRemoteStateWithLocalImages,
   mergeRestoredWardrobeImageFields,
   normalizeSavedState,
@@ -181,5 +182,101 @@ describe("mergeRemoteStateWithLocalImages（remote 採用時の画像保持）",
     const out = mergeRemoteStateWithLocalImages(remote, prev);
     // mergeRestoredWardrobeImageFields は current に値がある場合上書きしない
     expect(out.wardrobe[0].imageUrl).toBe("REMOTE_IMG");
+  });
+});
+
+/**
+ * 2026-05-31 — branch3 IDB 正本化（写真消失 hotfix 第2弾）。
+ *
+ * localStorage v3 が quota で消えると v2_backup（古い画像込み 24件）が initialBundle になる。
+ * 旧 branch3 merge は prev(v2_backup) を base にしていたため、 IDB の新しい id 集合との id 不一致で
+ * 画像補完が効かず、 結果 prev のまま state 化 → persist で IDB が古い state で上書き → 写真消失。
+ * IDB cache を正本にして prev の画像で同 id のみ補完する設計に変える。
+ */
+describe("mergeCachedStateWithLocalImages（branch3 IDB 正本化）", () => {
+  const cachedFull = (n: number, rev: number): unknown => ({
+    wardrobe: Array.from({ length: n }, (_, i) => w({ id: `new-${i}`, imageUrl: IMG, cutoutUrl: CUT })),
+    _revision: rev,
+  });
+
+  it("① cached(IDB) 7件 画像あり → 7件 画像保持 (cached.rev を採用)", () => {
+    const out = mergeCachedStateWithLocalImages(cachedFull(7, 26), []);
+    expect(out).not.toBeNull();
+    expect(out!.wardrobe).toHaveLength(7);
+    expect(out!.wardrobe[0].imageUrl).toBe(IMG);
+    expect(out!.wardrobe[0].cutoutUrl).toBe(CUT);
+    expect(out!._revision).toBe(26);
+  });
+
+  it("② cached が null / undefined / 非オブジェクト → null（caller は prev 維持）", () => {
+    expect(mergeCachedStateWithLocalImages(null, [])).toBeNull();
+    expect(mergeCachedStateWithLocalImages(undefined, [])).toBeNull();
+    expect(mergeCachedStateWithLocalImages("not-an-object", [])).toBeNull();
+  });
+
+  it("③ cached.wardrobe が空 → null（caller は prev 維持）", () => {
+    expect(mergeCachedStateWithLocalImages({ wardrobe: [], _revision: 1 }, [])).toBeNull();
+  });
+
+  it("④ 削除は cached に従う（prev にあって cached に無い id は復活しない）", () => {
+    const cached = {
+      wardrobe: [w({ id: "new-1", imageUrl: IMG })],
+      _revision: 26,
+    };
+    const prev = [
+      w({ id: "v2-old-1", imageUrl: "OLD_IMG_1" }),
+      w({ id: "v2-old-2", imageUrl: "OLD_IMG_2" }),
+    ];
+    const out = mergeCachedStateWithLocalImages(cached, prev);
+    expect(out!.wardrobe).toHaveLength(1);
+    expect(out!.wardrobe[0].id).toBe("new-1");
+  });
+
+  it("⑤ rev は cached を採用（prev.rev で上書きしない）— wrapper bump 回避の前提", () => {
+    const cached = { wardrobe: [w({ id: "a", imageUrl: IMG })], _revision: 26 };
+    const out = mergeCachedStateWithLocalImages(cached, [w({ id: "a", imageUrl: IMG })] /* rev 1 想定 */);
+    expect(out!._revision).toBe(26);
+  });
+
+  it("⑥ cached に画像が欠落していて、 prev に同 id の画像があれば補完される（保険）", () => {
+    const cached = { wardrobe: [w({ id: "a" })], _revision: 2 };
+    const prev = [w({ id: "a", imageUrl: IMG, cutoutUrl: CUT })];
+    const out = mergeCachedStateWithLocalImages(cached, prev);
+    expect(out!.wardrobe[0].imageUrl).toBe(IMG);
+    expect(out!.wardrobe[0].cutoutUrl).toBe(CUT);
+  });
+
+  it("⑦ CEO 観測の構図再現: cached 7件 新 id + prev 24件 古い id → state = 7件 cached 通り", () => {
+    const cached = {
+      wardrobe: Array.from({ length: 7 }, (_, i) => w({ id: `new-${i}`, imageUrl: IMG })),
+      _revision: 26,
+    };
+    const prev = Array.from({ length: 24 }, (_, i) => w({ id: `v2-${i}`, imageUrl: "V2_IMG" }));
+    const out = mergeCachedStateWithLocalImages(cached, prev);
+    expect(out!.wardrobe).toHaveLength(7);
+    // cached の画像が全部残る (cached 自身が画像を持っているため、 prev からの補完は不要)
+    expect(out!.wardrobe.every((i) => i.imageUrl === IMG)).toBe(true);
+    expect(out!._revision).toBe(26);
+  });
+});
+
+import { readFileSync } from "node:fs";
+
+describe("page.tsx 配線（IDB 正本化 + remote-load gate）", () => {
+  const SRC = readFileSync("app/(immersive)/my-style/page.tsx", "utf8").replace(/\s+/g, " ");
+
+  it("branch3 は mergeCachedStateWithLocalImages を rawSetState 経由で適用（rev wrapper bump を回避）", () => {
+    expect(SRC).toContain("mergeCachedStateWithLocalImages(cached, prev.wardrobe)");
+    expect(SRC).toContain("rawSetState((prev) => { const merged = mergeCachedStateWithLocalImages");
+  });
+
+  it("旧設計（prev base + cached patch）に戻っていない", () => {
+    expect(SRC).not.toContain("mergeRestoredWardrobeImageFields(prev.wardrobe, cachedWardrobe)");
+  });
+
+  it("remote-load は restorationResolved 完了後に走る（race 解消）", () => {
+    // remote-load effect の guard と deps
+    expect(SRC).toContain("if (!restorationResolved) return; let active = true; async function loadRemote()");
+    expect(SRC).toMatch(/loadRemote\(\); return \(\) => \{ active = false; \}; \}, \[restorationResolved\]\);/);
   });
 });

@@ -1428,6 +1428,38 @@ export function mergeRemoteStateWithLocalImages(
 }
 
 /**
+ * Fix（IDB 正本化・2026-05-31）: mount-once restore で IDB cache を current の正本として採用する pure helper。
+ *
+ * 背景:
+ *   - 旧設計は branch3 を「prev(localStorage 由来) を base に cached(IDB) の画像を id 一致で patch」していた。
+ *   - 一方で PREVIOUS_BACKUP_STORAGE_KEY="culcept_my_style_v2_backup" を loadStateBundle が読むため、
+ *     localStorage v3 が quota で消えると **v2 時代の古い 24件 (画像込み、stripHeavyImageUrls 適用前)** が
+ *     initialBundle になり得る。 prev の id 集合 ≠ IDB の id 集合（新規 add の id）。
+ *   - 結果 1: 旧 merge は id 不一致で何も patch しない → state = prev(v2_backup 24件 古い id)
+ *   - 結果 2: その state が persist で IDB を上書き → IDB が古い state で壊れる
+ *   - 結果 3: remote-load が adopt しても prev の画像（古い id）と remote(server 新しい id)の id 不一致で
+ *     画像補完が効かず、 写真が reload 後に白抜きで残る。
+ *
+ * 設計:
+ *   - **IDB cache が current の正本**（id 集合・rev・画像）。 persist effect で常に最新が IDB に書かれる
+ *     ため、 IDB こそが信頼できる。
+ *   - cached を base にして、 prev の同 id のみで画像補完（IDB が稀に画像欠落のケースの保険）。
+ *   - 削除は cached に従う（cached に無い id は復活させない）。
+ *   - rev は cached を採用 — caller は **rawSetState** で適用し、 setState wrapper の rev bump を避けること。
+ *   - cached.wardrobe が空 → `null`（caller は prev を維持）。
+ */
+export function mergeCachedStateWithLocalImages(
+    cachedRaw: unknown,
+    prevWardrobe: WardrobeItem[],
+): SavedState | null {
+    if (!cachedRaw || typeof cachedRaw !== "object") return null;
+    const normalized = normalizeSavedState(cachedRaw);
+    if (normalized.wardrobe.length === 0) return null;
+    const wardrobe = mergeRestoredWardrobeImageFields(normalized.wardrobe, prevWardrobe);
+    return wardrobe === normalized.wardrobe ? normalized : { ...normalized, wardrobe };
+}
+
+/**
  * Legacy field names that are fully derivable from canonical fields
  * (styleSelections, iam, iseek, ibecome, etc.) via finalizeSavedState.
  * Stripping them from the portable snapshot saves significant bytes

@@ -96,6 +96,7 @@ import {
     finalizeSavedState,
     hasMeaningfulState,
     loadStateBundle,
+    mergeCachedStateWithLocalImages,
     mergeRemoteStateWithLocalImages,
     mergeRestoredWardrobeImageFields,
     normalizeSavedState,
@@ -905,15 +906,17 @@ export default function MyStylePage() {
                 try {
                     const cached = await loadCachedState<SavedState>("my-style-state");
                     if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0) {
-                        const cachedWardrobe = cached.wardrobe;
-                        // C1L-6 fix: imageUrl だけでなく cutoutUrl / originalUrl も IDB full state から復元する。
-                        //   localStorage は stripHeavyImageUrls で 3 つの heavy 画像 URL を除去するため、
-                        //   imageUrl だけ復元すると cutout が戻らず、 直後の自動 persist が IDB を
-                        //   cutoutUrl 無しで上書きして /plan + My-Style の透過表示が壊れる（C1L-6 で確定）。
-                        //   復元は欠損フィールドのみ・metadata は current 維持（mergeRestoredWardrobeImageFields）。
-                        setState((prev) => {
-                            const wardrobe = mergeRestoredWardrobeImageFields(prev.wardrobe, cachedWardrobe);
-                            return wardrobe === prev.wardrobe ? prev : { ...prev, wardrobe };
+                        // Fix（2026-05-31・IDB 正本化）: IDB cache を current の正本にする。
+                        //   旧実装は「prev(localStorage 由来) base + cached の画像 patch」だったが、
+                        //   localStorage v3 が quota で消えると PREVIOUS_BACKUP_STORAGE_KEY="v2_backup" が
+                        //   読まれ、 v2 時代の古い 24件 (画像込み、 古い id) が initialBundle になる。
+                        //   prev の id 集合と IDB（最新 add の id）の id 集合が一致せず、 旧 merge では
+                        //   prev のまま state 化 → persist で IDB を古い state で上書きする事故が起きていた。
+                        //   IDB は persist で常に最新が書かれる正本。 cached を base にし、 prev の同 id のみで
+                        //   画像補完（保険）にする。 rawSetState で rev wrapper bump を回避し cached.rev を保持。
+                        rawSetState((prev) => {
+                            const merged = mergeCachedStateWithLocalImages(cached, prev.wardrobe);
+                            return merged ?? prev;
                         });
                     }
                 } catch { /* IndexedDB unavailable */ }
@@ -938,7 +941,12 @@ export default function MyStylePage() {
     useEffect(() => { if (!notice) return; const t = window.setTimeout(() => setNotice(null), 2800); return () => window.clearTimeout(t); }, [notice]);
 
     // Remote sync (load)
+    //   Fix（2026-05-31・race 解消）: restorationResolved=true まで待つ。 mount once effect の
+    //   branch1/3 が IDB から復元する前に remote-load が adopt 判定すると、 prev = initialBundle
+    //   (v2_backup 由来の古い id 集合) で remote(server 新 id) との id 不一致が起き、 画像補完が
+    //   効かなくなる（reload 後の写真消失の race 部分）。 IDB 復元完了後に走らせる。
     useEffect(() => {
+        if (!restorationResolved) return;
         let active = true;
         async function loadRemote() {
             const res = await fetch("/api/my-style/bridge", { cache: "no-store" }).catch(() => null);
@@ -974,7 +982,7 @@ export default function MyStylePage() {
         }
         void loadRemote();
         return () => { active = false; };
-    }, [initialBundle.state]);
+    }, [restorationResolved]);
 
     // Remote sync (save) — with offline queue fallback
     // 復元完了前は POST を禁止（空 state でサーバーを上書きしない）
