@@ -73,4 +73,10 @@ describe("page.tsx 配線（Fix C/D 構造固定）", () => {
     expect(SRC).toContain("shouldAdoptRemoteState(prev, remoteState)");
     expect(SRC).not.toContain("!hasMeaningfulState(initialBundle.state) && json?.remoteState");
   });
+
+  it("remote 採用時は画像を保持する（mergeRemoteStateWithLocalImages 経由・素の finalizeSavedState を直接 return しない）", () => {
+    expect(SRC).toContain("mergeRemoteStateWithLocalImages(remoteState, prev.wardrobe)");
+    // adopt 分岐で素の finalizeSavedState を return していないこと
+    expect(SRC).not.toContain("return finalizeSavedState(remoteState);");
+  });
 });

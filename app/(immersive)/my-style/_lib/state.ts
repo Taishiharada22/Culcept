@@ -1400,6 +1400,34 @@ export function mergeRestoredWardrobeImageFields(
 }
 
 /**
+ * Fix（写真消失の停止・2026-05-31）: revision-aware remote-adopt で remote(server) を採用する際に、
+ * prev(IDB 復元済) の **heavy 画像フィールド** を保持して合成する pure helper。
+ *
+ * 背景:
+ *   - server snapshot は `createPortableStateSnapshot → stripHeavyImageUrls` で送られるため
+ *     imageUrl / cutoutUrl / originalUrl が **全く無い**（画像の正本は IDB のみ）。
+ *   - revision-aware fix で remote が新しいとき adopt するようになったが、 そのまま
+ *     `finalizeSavedState(remoteState)` で state を置換すると、 IDB から復元されていた画像が消える
+ *     （= reload 後に My-Style / /plan の写真が白抜き化）。
+ *   - そこで remote の wardrobe を base にして、 prev(IDB 復元済) の画像で **id 一致**だけを補完する。
+ *
+ * 不変原則:
+ *   - **削除は remote に従う**: remote に無い id は復活させない（id 一致のみ補完）。
+ *   - **画像は prev から保持**: 同じ id の item は imageUrl/cutoutUrl/originalUrl を prev から戻す。
+ *   - **metadata は remote 優先**: name / category / colorHex 等は remote の値を使う（最新版が server）。
+ *   - **_revision は remote のものを採用**: rawSetState 経由なので setState wrapper の bump はかからない。
+ *   - pure: 入力を mutate しない。 補完すべき画像が無ければ `finalizeSavedState(remoteState)` と同等を返す。
+ */
+export function mergeRemoteStateWithLocalImages(
+    remoteState: SavedState,
+    prevWardrobe: WardrobeItem[],
+): SavedState {
+    const finalized = finalizeSavedState(remoteState);
+    const wardrobe = mergeRestoredWardrobeImageFields(finalized.wardrobe, prevWardrobe);
+    return wardrobe === finalized.wardrobe ? finalized : { ...finalized, wardrobe };
+}
+
+/**
  * Legacy field names that are fully derivable from canonical fields
  * (styleSelections, iam, iseek, ibecome, etc.) via finalizeSavedState.
  * Stripping them from the portable snapshot saves significant bytes

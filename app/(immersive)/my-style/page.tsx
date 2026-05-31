@@ -96,6 +96,7 @@ import {
     finalizeSavedState,
     hasMeaningfulState,
     loadStateBundle,
+    mergeRemoteStateWithLocalImages,
     mergeRestoredWardrobeImageFields,
     normalizeSavedState,
     shouldAdoptRemoteState,
@@ -960,7 +961,11 @@ export default function MyStylePage() {
                 rawSetState((prev) => {
                     if (shouldAdoptRemoteState(prev, remoteState)) {
                         adopted = true;
-                        return finalizeSavedState(remoteState);
+                        // server snapshot は stripHeavyImageUrls 済で画像が無い。 そのまま finalize すると
+                        // IDB 復元済の imageUrl/cutoutUrl/originalUrl が消える → 写真が reload 後に白抜き化する。
+                        // remote wardrobe を base にして、 prev(IDB 復元済) の画像を id 一致で補完する
+                        // （削除は remote に従う＝remote に無い id は復活させない）。
+                        return mergeRemoteStateWithLocalImages(remoteState, prev.wardrobe);
                     }
                     return prev;
                 });
