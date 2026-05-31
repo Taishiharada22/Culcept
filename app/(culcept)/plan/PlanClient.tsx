@@ -46,6 +46,7 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { PlanDayIndicator } from "@/lib/plan/planDayIndicatorReader";
+import { dayIndicatorsByDate } from "@/lib/plan/dayIndicatorView";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 // ── Phase 3-J-6e-1 / J-6e-2: Proposal 接続 ──
 // 注: TestOverrideContext は import しない (= production import 禁止)。
@@ -433,6 +434,12 @@ export default function PlanClient({
   }, [now, state]);
   // K-2: tab に渡す optional prop。 tab は受け取るが使わない (= UI 不変)。
   const dayGraphByDate = dayGraphState.byDate;
+
+  // SR #216 D3: 休み/希望休 を iso → viewModel に index 化（anchor と別レイヤー / day-level badge 用）
+  const dayIndicatorByIso = useMemo(
+    () => dayIndicatorsByDate(state.kind === "ok" ? state.dayIndicators : []),
+    [state]
+  );
 
   // accept callback (= 9-step transaction、 ref + state 二段防御)
   const handleProposalAccept = useCallback(
@@ -881,6 +888,7 @@ export default function PlanClient({
                 recentUndoRecords={recentUndoRecords}
                 onProposalUndo={handleProposalUndo}
                 dayGraphByDate={dayGraphByDate}
+                dayIndicatorByIso={dayIndicatorByIso}
               />
             )}
             {activeTab === "flow" && (
@@ -889,6 +897,7 @@ export default function PlanClient({
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
                 dayGraphByDate={dayGraphByDate}
+                dayIndicatorByIso={dayIndicatorByIso}
               />
             )}
             {/* 9 closeout cleanup: MapTab 単一 path 化、 受領 prop は anchors + now + onAnchorClick のみ。

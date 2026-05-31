@@ -73,6 +73,8 @@ import {
   utcMidnight,
   type WeekStripCell,
 } from "./_helpers";
+import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
+import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -80,6 +82,13 @@ import {
 
 /** Weekday labels Sun-first (日本ロケール標準、CEO mock 整合) */
 const WEEKDAY_LABELS_SUN_FIRST = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** SR #216 D3: 週セル indicator dot の色（H=rose / BD=slate / HREQ=violet。amber 不使用）。 */
+function dayIndicatorDotClass(vm?: DayIndicatorViewModel): string {
+  if (vm?.variant === "public_holiday") return "bg-rose-400";
+  if (vm?.variant === "requested_off") return "bg-violet-300";
+  return "bg-slate-300"; // off / 既定
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Component
@@ -107,6 +116,8 @@ export function CalendarTab({
   // 既存 anchor list は **置換しない**、 timeline を **静かに追加**するだけ。
   // proposal chip 位置不変、 onAnchorClick への bridge 経由で詳細を開く。
   dayGraphByDate,
+  // SR #216 D3: 休み/希望休 day-level badge（iso → viewModel）。anchor と別レイヤー。
+  dayIndicatorByIso,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -121,6 +132,8 @@ export function CalendarTab({
    * optional のため未指定でも既存 UI は不変。
    */
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
+  /** SR #216 D3: 休み/希望休 day-level badge。未指定なら badge なし。 */
+  dayIndicatorByIso?: ReadonlyMap<string, DayIndicatorViewModel>;
 } & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
@@ -139,6 +152,8 @@ export function CalendarTab({
   const selectedDateObj = new Date(selectedDate + "T00:00:00.000Z");
   const weekStrip = buildWeekStrip(selectedDateObj, currentMonth);
   const selectedDayAnchors = anchorsForDay(anchors, selectedDateObj);
+  // SR #216 D3: 選択日の休み/希望休 badge（anchor list と別レイヤー）
+  const selectedDayIndicator = dayIndicatorByIso?.get(selectedDate);
 
   // ── L-4d-b1 (= 2026-05-22 CEO 承認): selected day timeline のみ移動時間表示 ──
   //    既存 usePlanGeocode を **selected day anchors の最小 subset に限定** して利用。
@@ -360,7 +375,18 @@ export function CalendarTab({
                     data-testid={`plan-calendar-day-${cell.iso}`}
                     className={cellClasses(cell, isToday, isSelected)}
                   >
-                    <span className="text-sm font-medium">{cell.dayOfMonth}</span>
+                    <span className="flex flex-col items-center leading-none">
+                      <span className="text-sm font-medium">{cell.dayOfMonth}</span>
+                      {dayIndicatorByIso?.has(cell.iso) && (
+                        <span
+                          data-testid={`plan-calendar-day-indicator-${cell.iso}`}
+                          className={`mt-0.5 h-1 w-1 rounded-full ${dayIndicatorDotClass(
+                            dayIndicatorByIso.get(cell.iso)
+                          )}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
                   </button>
                 );
               })}
@@ -368,6 +394,14 @@ export function CalendarTab({
 
             {/* Selected day agenda section (slide animation 内、月送りで一緒に動く) */}
             <section data-testid="plan-calendar-selected-day" className="px-4">
+              {selectedDayIndicator && (
+                <div
+                  className="mb-2"
+                  data-testid="plan-calendar-selected-day-indicator"
+                >
+                  <DayIndicatorBadge indicator={selectedDayIndicator} />
+                </div>
+              )}
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}

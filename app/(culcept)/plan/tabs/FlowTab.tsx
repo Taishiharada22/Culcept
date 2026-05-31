@@ -103,6 +103,8 @@ import {
   weekdayTone,
   type FlowWeekdayTone,
 } from "./_helpers";
+import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
+import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -132,6 +134,8 @@ export function FlowTab({
   // K-2 から受領していた dayGraphByDate を、 ここで active 利用。
   // 各 FlowDaySection に dayGraphResult prop として渡す (= section 側で render)。
   dayGraphByDate,
+  // SR #216 D3: 休み/希望休 の day-level badge（iso → viewModel）。anchor と別レイヤー。
+  dayIndicatorByIso,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -145,6 +149,8 @@ export function FlowTab({
    * 各 FlowDaySection で dayGraphByDate[iso] を lookup して timeline 表示。
    */
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
+  /** SR #216 D3: 休み/希望休 day-level badge（dayIndicatorsByDate の結果）。未指定なら badge なし。 */
+  dayIndicatorByIso?: ReadonlyMap<string, DayIndicatorViewModel>;
 }) {
   const baseNow = now ?? new Date();
   const today = useMemo(
@@ -389,6 +395,7 @@ export function FlowTab({
             day={day}
             today={today}
             anchors={dayAnchors}
+            dayIndicator={dayIndicatorByIso?.get(iso)}
             dayOverlaps={dayOverlaps}
             onEmptyClick={
               onAddRequest ? () => handleEmptyDayClick(day) : undefined
@@ -448,6 +455,7 @@ function FlowDaySection({
   day,
   today,
   anchors,
+  dayIndicator,
   dayOverlaps,
   onEmptyClick,
   onAnchorClick,
@@ -460,6 +468,8 @@ function FlowDaySection({
   day: Date;
   today: Date;
   anchors: ExternalAnchor[];
+  /** SR #216 D3: 当日の休み/希望休 badge（親で iso lookup 済）。undefined なら badge なし。 */
+  dayIndicator?: DayIndicatorViewModel;
   /** Phase 2-E: 同日の overlap anchor id Set (= 親から detectTimedAnchorOverlaps の結果) */
   dayOverlaps: ReadonlySet<string>;
   /** 予定なし日の inline button onClick (onAddRequest あり時のみ undefined でない) */
@@ -500,6 +510,13 @@ function FlowDaySection({
   const ariaLabel = hasAnchors
     ? `${label} · ${anchors.length} 件`
     : `${label} · 予定なし`;
+
+  // SR #216 D3: day-level 休み/希望休 badge（anchor と別レイヤー。dayIndicator なしなら null）
+  const indicatorBadge = dayIndicator ? (
+    <div className="px-4 pt-2" data-testid={`plan-flow-day-indicator-${iso}`}>
+      <DayIndicatorBadge indicator={dayIndicator} />
+    </div>
+  ) : null;
 
   // ─────────────────────────────────────────────────────────────────────
   // sub-phase 8a-impl: 新 List 表示 path (= LIST_NEW_TIMELINE_ENABLED 時のみ)
@@ -567,6 +584,7 @@ function FlowDaySection({
         data-testid={`plan-flow-section-${iso}`}
         aria-label={ariaLabel}
       >
+        {indicatorBadge}
         {/* 8b-9 corrective: sticky header (= 「今日 · 5月24日(日) 2 件」 等) は date picker と重複するため非表示
             ただし onEmptyClick === undefined の場合 (= read-only) のみ minimal static 「予定なし」 を表示 */}
         {!hasAnchors && onEmptyClick === undefined && (
@@ -612,6 +630,7 @@ function FlowDaySection({
       data-testid={`plan-flow-section-${iso}`}
       aria-label={ariaLabel}
     >
+      {indicatorBadge}
       {/* Sticky header: scroll しても日付見出しが top に残る (Beyond §11.11) */}
       <header
         className="
