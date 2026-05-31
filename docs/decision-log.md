@@ -14708,3 +14708,18 @@ D2 で engine に通した bag / accessory を、 TPO・天気・季節に応じ
 - **D4 以降**: D4=accessory subcategory 別 gate (hat/belt/jewelry) / D5=diff 主軸検討 / D6=scoreCandidate 限定進出 / Maintenance（quota / 既存 item / weather 404）
 
 ---
+
+## [2026-06-01] [Build/Product] D4 accessory subcategory eligibility close [承認: CEO]
+
+D3 同領域・低リスクで accessory subcategory 別 gating を 1 commit + close docs で完了。 CEO 補正 5 点（hat 雨日 suppressed・outdoor は実 event_type のみ・hotSunny は temp_max>=28・belt bottoms 前提で casual 可・jewelry dress 寄り・scarf D3-2 維持）を全反映。
+
+- **詳細**: `docs/plan-outfit-accessory-subcategory-close.md`
+- **2 commits**:
+  - `57638fb8` D4 実装 — `buildAccessoryContext` + `accessorySubcategoryTier` + `selectAccessories` に `ctx` 引数
+  - 本コミット D4 close docs
+- **不変原則**: scoreCandidate / D1 helper / UI / OutfitCollage / mock 構造 すべて未接触。 hard filter なし（tier は安定 partition）→ pool 1 種なら必ず採用（補正 1/4 の核心）。 scarf cold 優先（D3-2）は最強で維持。 ctx 無し呼び出しは D3-2 完全互換。
+- **検証**: Calendar 297 PASS（D4 開始時 +28、 退化 0）/ plan 3514 PASS（退化 0）/ eslint clean / tsc 自分のファイル差分 0
+- **触らない**: My-Style persistence / cutout / quota / weather route / migration / push / deploy
+- **次**: D5 mini design 補正（CEO 推奨案 B = main-axis diff required + supplemental as tie-breaker）を再提出して STOP
+
+---
