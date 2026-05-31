@@ -17,11 +17,19 @@ const ANEURASYNC_SG_PREFIX = "aneurasync_sg_";
 const TIMESTAMP_SUFFIX = "__ts";
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Specific keys that are always safe to remove when storage is tight. */
+/**
+ * Specific keys that are always safe to remove when storage is tight.
+ *
+ * M1-1 (2026-06-01): added `culcept_tryon_history_v1` — observed at ~4.54MB on real device,
+ * dominating localStorage quota. Static audit of the current codebase finds **no reader/writer**
+ * for this key (try-on UI / api / lib all clean), so it is an orphan from a removed feature.
+ * Listing it here lets `ensureStorageSpace` reclaim it on the next quota-recovery pass.
+ */
 const EXPENDABLE_EXACT_KEYS = [
   "culcept_my_style_v3_backup",
   "culcept_origin_memory_v5",
   "culcept_origin_memory_v6",
+  "culcept_tryon_history_v1",
 ];
 
 /** Key suffixes that mark a key as expendable backup data. */
