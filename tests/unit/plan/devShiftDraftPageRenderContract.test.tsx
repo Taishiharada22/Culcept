@@ -1,10 +1,12 @@
 /**
- * SR B1b-2C-8-b — /plan/dev-shift-draft server component の guard wire 契約
+ * SR B1b-2C-8-b / 8-c-2 — /plan/dev-shift-draft server component の guard wire 契約
  *
  * 不変条件:
  *   ① guard false → notFound() 呼出（DevShiftDraftClient mount しない）
  *   ② guard true + unauthenticated → redirect("/login?next=/plan/dev-shift-draft")
- *   ③ guard true + authenticated → DevShiftDraftClient を mount
+ *   ③ guard true + authenticated → DevShiftDraftClient を mount（idle 既定）
+ *   ④ saveEnabled は server-side flag `isShiftImportSaveEnabled()` 経由（8-c-2）。
+ *      → test 環境では env 未設定で false が伝わる。
  *
  * mock 戦略（E2a client test pattern を踏襲）:
  *   - "server-only" / supabaseServer は vi.mock で差替え
@@ -74,7 +76,7 @@ describe("/plan/dev-shift-draft server component — guard wire", () => {
     expect(redirectCalls.url).toBe("/login?next=/plan/dev-shift-draft");
   });
 
-  it("guard true + authenticated → DevShiftDraftClient を mount（warning + placeholder）", async () => {
+  it("guard true + authenticated → DevShiftDraftClient を mount（idle 既定 + warning + state=idle）", async () => {
     isShiftDraftHostAllowedMock.mockReturnValue(true);
     currentAuthUser = { id: "user-abc" };
 
@@ -82,7 +84,12 @@ describe("/plan/dev-shift-draft server component — guard wire", () => {
     const html = renderToStaticMarkup(node);
     expect(html).toContain('data-testid="dev-shift-draft-host"');
     expect(html).toContain('data-testid="dev-shift-draft-warning"');
-    expect(html).toContain('data-testid="dev-shift-draft-shell-placeholder"');
+    // 8-c-2: 初期 state は idle、file input + 「画像を選ぶ」CTA が出る
+    expect(html).toContain('data-state="idle"');
+    expect(html).toContain('data-testid="dev-shift-draft-idle"');
+    expect(html).toContain('data-testid="dev-shift-draft-file-input"');
+    // saveEnabled は test 環境では PLAN_SHIFT_IMPORT_SAVE 未設定 → false → idle 段階では UI 反映なし
+    expect(html).not.toContain('data-testid="shift-import-modal"');
     expect(notFoundCalls.count).toBe(0);
     expect(redirectCalls.url).toBeNull();
   });

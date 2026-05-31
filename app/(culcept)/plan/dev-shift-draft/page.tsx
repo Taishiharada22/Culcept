@@ -21,6 +21,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { supabaseServer } from "@/lib/supabase/server";
 import { isShiftDraftHostAllowed } from "@/lib/plan/shift/devDraftHost";
+import { isShiftImportSaveEnabled } from "@/lib/plan/shift/shiftImportSave";
 
 import { DevShiftDraftClient } from "./DevShiftDraftClient";
 
@@ -45,6 +46,7 @@ export default async function DevShiftDraftPage() {
     redirect("/login?next=/plan/dev-shift-draft");
   }
 
-  // shell mount（B1b-2C-8-b 範囲はここまで）
-  return <DevShiftDraftClient />;
+  // saveEnabled は server-side flag（PLAN_SHIFT_IMPORT_SAVE）由来。
+  // 本コミット（B1b-2C-8-c-2）では Client は受け取るだけで UI に出さない（Modal mount は 8-c-4）。
+  return <DevShiftDraftClient saveEnabled={isShiftImportSaveEnabled()} />;
 }
