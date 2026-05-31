@@ -15038,3 +15038,44 @@ v2 失敗の真因は**製品バグではなく smoke 側の hydration race**。
 - **ステータス**: UI→保存→DB→/plan 反映ループ **staging PASS**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **B1b mini design**（実画像→本人行→VLM 抽出→ShiftReviewGrid 接続の実験設計。VLM 実行は CEO gate）。本流入口・production・upload UI 本実装はさらに次 gate。
 
 ---
+
+## 2026-05-31 [Build] SR B1b 抽出 robustness 実験（3手法）— 自動確定は未達、方針を「VLM下書き + human review」へ転換 [承認: CEO「FAIL 受理・B1b-2 へ転換」]
+
+### 到達点（表現は厳密に）
+
+**現状の本人行 crop + Gemini Pro + prompt硬化/chunk/contact sheet の範囲では、5ヶ月安定**自動**抽出は未達。**（「VLM 自動抽出が原理的に不可能」ではない）
+
+本人行 crop 済み 5ヶ月（3〜7月・golden=`SHIFT_MONTH_GOLDENS`）に対し、committed scorer（`shiftExtractionMonthlyReport`）で 3 手法を read-only 採点（DB write なし / raw画像・VLM生ログ・contact sheet すべて非 commit）。
+
+### 3 手法の結果（同一 golden・同一 scorer）
+
+| 手法 | 全体 cellAccuracy | months pass | 備考 |
+|---|---|---|---|
+| Pro single-shot | 80.4% | 2/5 | may 32%（隣接 HREQ 併合→列ズレ）、june/july 末尾空セル skip |
+| **Pro chunk 2/month（1-15 / 16-末）** | **92.8%** | **3/5（最良）** | july の空 skip 解消。may chunk1 の HREQ 併合・june day25 空 skip 残存 |
+| Pro contact sheet（1日=1tile 前処理） | 48.4% | 1/5（最悪） | 自動セル分割が table-structure 問題で脆弱 + 多 tile 化で VLM 応答が JSON truncation（may/june 0%） |
+
+### 失敗モード（境界知覚に集中・非決定的）
+
+- **隣接同一セルの併合**（may: HREQ HREQ を 1 つに）／**空セル skip → 前詰め shift**（june/july 末尾）。テキスト硬化で名指し禁止しても残存 ＝ 指示追従でなく**知覚**の問題。
+- 同じ day25 空が july で解消・june で残存 ＝ **同種セルでも run/月で揺れる非決定性**。→ どれだけスコアが良くても単発抽出を「元原稿どおり」と信頼できない。
+- contact sheet（最複雑）が最悪 ＝ 「画像側で正規化」も正規化自体が同じ難問を要し、多 tile 化が VLM を不安定化。複雑化は逆効果。
+
+### 方針転換（CEO 決定）
+
+- **VLM = 確定抽出器ではなく「下書き生成器」**。「元原稿どおり正確に」は VLM 単体でなく **source-of-truth review（ShiftReviewGrid）+ human confirmation** で担保。
+- 採用する下書き方式 = **chunk 2/month（最良）**。ただし may 型 silent shift があるため review 側で必ず強調。
+- **保存反映パスは E2b で staging PASS 済**（confirmed cells → ShiftImportModal → save action → staging DB → /plan）。これは流用。
+- 自動抽出 100% を追うフェーズはここでいったん停止。
+
+### 衛生
+
+- 製品コード無変更（実験は gitignored runner/helper のみ: `b1b-1-run*.ts` / `_make-contact-sheet.ts` / `generated-contact-sheets/`）。tsc baseline **1112 不変**。
+- B1b-1 採点 harness は committed 済（`97604563`）。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-31、「B1b-1R2 contact sheet は FAIL 受理。自動抽出 100% を追うのを止め、VLM下書き + human review 前提の B1b-2 assisted review path へ転換」）。
+- **ステータス**: 自動抽出 **未達（最良 chunk 92.8%）**。次: **B1b-2 assisted review path mini design**（assisted row selection / draft extraction=chunk / risk detection / review UI / E2b 保存パス / production gate）。実装・upload UI・本流入口・production はさらに次 gate。
+
+---
