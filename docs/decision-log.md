@@ -14997,3 +14997,44 @@ gitignored runner（`private-eval/shift/staging-smoke.ts`・非 commit・synthet
 - **ステータス**: 保存パス **DB/RPC レイヤー staging PASS（保守対象）**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **6B-apply-C**（types regen 判断 + Server Action 本接続 + 単体 test）。UI 保存ボタン有効化・B1b・本番 apply はさらに次 gate。
 
 ---
+
+## 2026-05-31 [Build] SR E2b — UI 保存→staging DB→/plan 反映 決定論ループ local smoke PASS [承認: CEO「PASS として受理」]
+
+### 到達点（表現は厳密に）
+
+**保存・反映パスは staging で PASS。ただし実画像からの自動抽出 B1b は未実証。本流入口 / production / upload UI も未接続。**
+
+確認画面で承認したセル → /plan 反映の **UI 層〜保存〜DB〜表示〜cleanup の決定論ループ**を、local dev server + staging Supabase で end-to-end に通した。6B-apply（DB/RPC staging PASS）以降に積んだ UI 側資産（6B-apply-C Server Action / 6D save controller / #216 D1-D3 day_indicator read·wire·render / E1 ShiftImportModal / E2a fixture host）が実環境で繋がることを実証。
+
+### 実証したループ
+
+`fixture cells → ShiftImportModal → importShiftRosterAction（server action）→ staging DB → /plan serving path → cleanup`
+
+### smoke（11/11 PASS・gitignored runner `private-eval/shift/e2b-fixture-smoke.ts`・非 commit）
+
+- 実施環境: **local dev（localhost:3100）+ staging Supabase（hjcrvndumgiovyfdacwc）**。GitHub / push / PR / deploy 不使用。production（aljavfujeqcwnqryjmhl）不接触（URL に staging ref 含む / prod ref 非含有を実行前検証）。
+- fixture host guard: 三重ガード（明示flag PLAN_SHIFT_FIXTURE_HOST + staging allowlist + production deny、NODE_ENV 非依存）通過。
+- 保存成功 → DB 実値が元原稿どおり:
+  - **E-18（勤務）05-29 → external_anchors**（title「早番ロング」= timed anchor）
+  - **H（公休）05-30 → plan_day_indicators**（off / counts_as_public_holiday=true）
+  - **HREQ（希望休）05-31 → plan_day_indicators**（off_request）
+  - → 勤務=anchor / 休み・希望休=day_indicator の分離原則を実 DB で確認。
+- /plan serving path: `/api/plan/anchors` が anchor + day_indicator（公休/希望休/勤務 3 種）を client へ配信。in-window の希望休 badge を実描画（today=05-31 が月末日曜のため公休/勤務は前週=週ストリップ viewport 外だが、serving-path + unit render-contract でカバー）。
+- cleanup: source 削除 → composite FK (source_id,user_id) ON DELETE CASCADE で day_indicators も原子削除（sources=0 / indicators=0）。
+
+### デバッグ知見（透明性）
+
+v2 失敗の真因は**製品バグではなく smoke 側の hydration race**。dev server log で server action POST が未発火と判明（warm-up 二度目 goto 直後、`waitForSelector` は DOM 存在のみ待ち hydration 前に click → onClick 未装着）。**robust save click（状態遷移を待ち無反応なら再click）**で解消。保存ロジック自体は健全。
+
+### 衛生
+
+- 製品コード無変更（デバッグは gitignored smoke 側のみ）。
+- smoke 完了後: env flag（PLAN_SHIFT_FIXTURE_HOST / PLAN_SHIFT_IMPORT_SAVE）削除で **dormant 復帰**、dev server 停止。
+- `supabase/.temp/*` は CLI 状態のため**非 commit**。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-31、「E2b は PASS として受理。保存・反映パスは staging で PASS、ただし B1b / 本流入口 / production は未接続」）。
+- **ステータス**: UI→保存→DB→/plan 反映ループ **staging PASS**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **B1b mini design**（実画像→本人行→VLM 抽出→ShiftReviewGrid 接続の実験設計。VLM 実行は CEO gate）。本流入口・production・upload UI 本実装はさらに次 gate。
+
+---
