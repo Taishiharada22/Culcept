@@ -141,9 +141,22 @@ export function CalendarTab({
   const reducedMotion = useReducedMotion();
 
   // ── derived ──
-  const selectedDateObj = new Date(selectedDate + "T00:00:00.000Z");
+  // freeze 修正 (2026-05-31): selectedDateObj / selectedDayAnchors を useMemo で安定化する。
+  //   直書きだと毎レンダー新しい ref になり、 これを effect 依存に取る
+  //   useMapTabMovementDisplay / useCalendarTabFeasibilityDisplay の effect が毎レンダー再実行 →
+  //   async pipeline 完了で setDisplayMap(new Map()) → 再レンダー → また新 ref … と
+  //   **無限 async setState ループ**になり main thread を固める (= Chrome「ページが応答しません」)。
+  //   MapTab は同じ hook に useMemo 済みの安定 ref を渡しているため固まらない (= 対照証拠)。
+  //   selectedDate / anchors が変わらない限り同一 ref を返し、 hook の effect 依存を安定させる。
+  const selectedDateObj = useMemo(
+    () => new Date(`${selectedDate}T00:00:00.000Z`),
+    [selectedDate],
+  );
   const weekStrip = buildWeekStrip(selectedDateObj, currentMonth);
-  const selectedDayAnchors = anchorsForDay(anchors, selectedDateObj);
+  const selectedDayAnchors = useMemo(
+    () => anchorsForDay(anchors, selectedDateObj),
+    [anchors, selectedDateObj],
+  );
 
   // ── L-4d-b1 (= 2026-05-22 CEO 承認): selected day timeline のみ移動時間表示 ──
   //    既存 usePlanGeocode を **selected day anchors の最小 subset に限定** して利用。
