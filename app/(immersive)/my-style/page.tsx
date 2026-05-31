@@ -96,6 +96,7 @@ import {
     finalizeSavedState,
     hasMeaningfulState,
     loadStateBundle,
+    mergeRestoredWardrobeImageFields,
     normalizeSavedState,
 } from "./_lib/state";
 import type { SavedState, WardrobeItem } from "./_lib/types";
@@ -903,25 +904,16 @@ export default function MyStylePage() {
                 try {
                     const cached = await loadCachedState<SavedState>("my-style-state");
                     if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0) {
-                        const imageMap = new Map<string, string>();
-                        for (const item of cached.wardrobe) {
-                            if (item.id && item.imageUrl) imageMap.set(item.id, item.imageUrl);
-                        }
-                        if (imageMap.size > 0) {
-                            setState((prev) => {
-                                const hasAnyImage = prev.wardrobe.some(w => !!w.imageUrl);
-                                if (hasAnyImage) return prev; // already has images
-                                let restored = 0;
-                                const wardrobe = prev.wardrobe.map((item) => {
-                                    if (item.imageUrl) return item;
-                                    const img = imageMap.get(item.id);
-                                    if (img) { restored++; return { ...item, imageUrl: img }; }
-                                    return item;
-                                });
-                                if (restored > 0) console.log(`[my-style] 🖼 restored ${restored} images from IndexedDB`);
-                                return restored > 0 ? { ...prev, wardrobe } : prev;
-                            });
-                        }
+                        const cachedWardrobe = cached.wardrobe;
+                        // C1L-6 fix: imageUrl だけでなく cutoutUrl / originalUrl も IDB full state から復元する。
+                        //   localStorage は stripHeavyImageUrls で 3 つの heavy 画像 URL を除去するため、
+                        //   imageUrl だけ復元すると cutout が戻らず、 直後の自動 persist が IDB を
+                        //   cutoutUrl 無しで上書きして /plan + My-Style の透過表示が壊れる（C1L-6 で確定）。
+                        //   復元は欠損フィールドのみ・metadata は current 維持（mergeRestoredWardrobeImageFields）。
+                        setState((prev) => {
+                            const wardrobe = mergeRestoredWardrobeImageFields(prev.wardrobe, cachedWardrobe);
+                            return wardrobe === prev.wardrobe ? prev : { ...prev, wardrobe };
+                        });
                     }
                 } catch { /* IndexedDB unavailable */ }
                 setRestorationResolved(true);

@@ -1319,6 +1319,58 @@ export function stripHeavyImageUrls(wardrobe: WardrobeItem[]): WardrobeItem[] {
 }
 
 /**
+ * C1L-6 fix: 再読込時に IDB(cached full state) から **heavy 画像フィールド**を
+ * current(localStorage は stripHeavyImageUrls 済) へ id 一致で復元する。
+ *
+ * 背景:
+ *   - localStorage は quota 対策で imageUrl / originalUrl / cutoutUrl(base64 data:) を除去する。
+ *   - 再読込時に **imageUrl だけ**復元すると cutoutUrl / originalUrl が戻らず、 直後の自動 persist が
+ *     IDB を cutoutUrl 無しで上書きして、 /plan + My-Style の **背景透過表示が壊れる**。
+ *   - 本 helper は 3 つの heavy 画像フィールドを復元し、 cutout を保つ。
+ *
+ * 規約（壊さないための不変条件）:
+ *   - 復元対象は **imageUrl / cutoutUrl / originalUrl のみ**。
+ *   - cutoutStatus / cutoutConfidence / cutoutMethod など軽量 metadata は current を保持
+ *     （current を spread の base にするため自動で残る）。
+ *   - cached 側に**非空値がある時だけ**復元。 **undefined で current の既存値を上書きしない**。
+ *   - current 側に既に値があるフィールドは維持（cached で上書きしない）。
+ *   - id 不一致の cached は無視。 並び順・他フィールドは current のまま。
+ *   - pure: 副作用なし・入力を mutate しない。 何も復元しなければ **同じ配列参照**を返す（再描画ゼロ）。
+ */
+export function mergeRestoredWardrobeImageFields(
+    currentWardrobe: WardrobeItem[],
+    cachedWardrobe: WardrobeItem[],
+): WardrobeItem[] {
+    const isNonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+
+    const heavyById = new Map<string, Pick<WardrobeItem, "imageUrl" | "cutoutUrl" | "originalUrl">>();
+    for (const item of cachedWardrobe) {
+        if (!item || !item.id) continue;
+        const heavy: Pick<WardrobeItem, "imageUrl" | "cutoutUrl" | "originalUrl"> = {};
+        if (isNonEmpty(item.imageUrl)) heavy.imageUrl = item.imageUrl;
+        if (isNonEmpty(item.cutoutUrl)) heavy.cutoutUrl = item.cutoutUrl;
+        if (isNonEmpty(item.originalUrl)) heavy.originalUrl = item.originalUrl;
+        if (heavy.imageUrl || heavy.cutoutUrl || heavy.originalUrl) heavyById.set(item.id, heavy);
+    }
+    if (heavyById.size === 0) return currentWardrobe;
+
+    let changed = false;
+    const next = currentWardrobe.map((item) => {
+        const heavy = heavyById.get(item.id);
+        if (!heavy) return item;
+        // current に欠けている heavy 値だけを cached から補う（既存値・undefined は触らない）。
+        const patch: Partial<WardrobeItem> = {};
+        if (!isNonEmpty(item.imageUrl) && heavy.imageUrl) patch.imageUrl = heavy.imageUrl;
+        if (!isNonEmpty(item.cutoutUrl) && heavy.cutoutUrl) patch.cutoutUrl = heavy.cutoutUrl;
+        if (!isNonEmpty(item.originalUrl) && heavy.originalUrl) patch.originalUrl = heavy.originalUrl;
+        if (Object.keys(patch).length === 0) return item;
+        changed = true;
+        return { ...item, ...patch };
+    });
+    return changed ? next : currentWardrobe;
+}
+
+/**
  * Legacy field names that are fully derivable from canonical fields
  * (styleSelections, iam, iseek, ibecome, etc.) via finalizeSavedState.
  * Stripping them from the portable snapshot saves significant bytes
