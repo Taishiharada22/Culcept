@@ -1007,6 +1007,29 @@ export function hasMeaningfulState(state: SavedState | null | undefined) {
     );
 }
 
+/**
+ * Fix D（削除復活の停止）: remote(server) state を local に採用してよいか判定する pure helper。
+ *
+ * 原則 — **IDB / current state > server**:
+ *   - 端末に既にユーザーデータがある（current の _revision>0 または meaningful）なら、
+ *     **server で絶対に上書きしない**。 localStorage が quota で消えても、 mount 時に IDB full state が
+ *     current へ復元されるため、 ここで current を見れば「IDB にデータがある」状態を尊重できる。
+ *   - これにより、 stale な server state が local の削除を巻き戻す事故を防ぐ。
+ *   - server remote を採用するのは **localStorage も IDB も本当に空の新規端末**（current が virgin）で、
+ *     かつ remote に中身がある場合のみ。
+ *
+ * ※ 呼び出し側は **stale な initialBundle ではなく「現在の state」**（functional setState の prev）を
+ *    current として渡すこと。 これが本 fix の要点。
+ */
+export function shouldAdoptRemoteState(
+    current: SavedState | null | undefined,
+    remote: SavedState | null | undefined,
+): boolean {
+    if (!remote) return false;
+    if (current && ((current._revision ?? 0) > 0 || hasMeaningfulState(current))) return false;
+    return (remote._revision ?? 0) > 0 || hasMeaningfulState(remote);
+}
+
 export function getStateRichness(state: SavedState | null | undefined) {
     if (!state) return 0;
     return (

@@ -98,6 +98,7 @@ import {
     loadStateBundle,
     mergeRestoredWardrobeImageFields,
     normalizeSavedState,
+    shouldAdoptRemoteState,
 } from "./_lib/state";
 import type { SavedState, WardrobeItem } from "./_lib/types";
 import {
@@ -828,10 +829,9 @@ export default function MyStylePage() {
             try {
                 localStorage.setItem(STORAGE_KEY, json);
             } catch {
-                // Quota still exceeded — rely on IndexedDB as primary store
-                // Remove stale localStorage entry to prevent reading outdated data on next load
-                try { localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
-                console.warn("[my-style] localStorage quota exceeded — using IndexedDB as primary store");
+                // Fix C: quota 超過でも main snapshot を **消さない**。 消すと次回 load が virgin 化し、
+                // stale な server state が local の削除を上書きする（＝削除復活の原因）。 IDB を primary として継続。
+                console.warn("[my-style] localStorage quota exceeded — keeping IndexedDB as primary store");
             }
         }
         // Backup moved to beforeunload only — writing it on every change doubled quota pressure
@@ -950,12 +950,21 @@ export default function MyStylePage() {
             setSyncStatus(json?.syncedAt ? "synced" : "idle");
             if (json?.crossFeature) setCrossFeature(json.crossFeature);
             if (json?.pulse) setBridgePulse(json.pulse);
-            // Only overwrite local state with remote if local is truly virgin (rev 0 + empty).
-            // If local has revision > 0, user has been active — even if wardrobe is empty (delete-all).
-            const localRevNow = initialBundle.state._revision ?? 0;
-            const remoteRev = json?.remoteState?._revision ?? 0;
-            if (localRevNow === 0 && !hasMeaningfulState(initialBundle.state) && json?.remoteState && (remoteRev > 0 || hasMeaningfulState(json.remoteState))) {
-                rawSetState(finalizeSavedState(json.remoteState)); setNotice("保存データを読み込みました");
+            // Fix D（削除復活の停止）: server remote の採用は **現在の state** で判定する。
+            //   stale な initialBundle は見ない。 localStorage が quota で消えても mount 時に IDB full state が
+            //   current へ復元されるため、 current が meaningful なら server で上書きしない（IDB > server）。
+            //   stale な server が local の削除を巻き戻す事故を防ぐ。 本当に空の新規端末のときだけ remote を採用。
+            const remoteState = json?.remoteState;
+            if (remoteState) {
+                let adopted = false;
+                rawSetState((prev) => {
+                    if (shouldAdoptRemoteState(prev, remoteState)) {
+                        adopted = true;
+                        return finalizeSavedState(remoteState);
+                    }
+                    return prev;
+                });
+                if (adopted) setNotice("保存データを読み込みました");
             }
         }
         void loadRemote();
