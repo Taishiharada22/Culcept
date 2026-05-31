@@ -120,6 +120,59 @@ export function categorize(item: WardrobeItem): CategoryGroup | null {
   return null;
 }
 
+// ── D2-2: supplemental bag/accessory selection helpers ───────────────────
+
+/**
+ * D2-2: 外出 anchor の判定。
+ *   TPO_FORMALITY_MAP の正規 8 種から、 外出が確実な 4 種だけを needsBag 対象にする
+ *   （work/meeting/date/party）。 残り（casual/outdoor/sports/travel）は bag が不要な場面を含むため
+ *   安全側で除外（D3 以降で必要なら精緻化）。 未知の event_type も false（過剰広げ防止）。
+ *   export しているのは D2-2 unit test から直接 assertion できるようにするため（D2-1 と同方針）。
+ */
+const BAG_REQUIRED_EVENT_TYPES = new Set(["work", "meeting", "date", "party"]);
+export function selectedItemsNeedsBag(events: ReadonlyArray<{ event_type: string }>): boolean {
+  for (const e of events) {
+    if (BAG_REQUIRED_EVENT_TYPES.has(e.event_type)) return true;
+  }
+  return false;
+}
+
+/**
+ * D2-2: 既選 selectedItems の formality 最頻値（baseFormality）を求める。
+ *   formality 未設定の item は count しない（中性扱い）。 全 item 未設定なら null。
+ *   accessory 採用 gate 専用 — scoreCandidate には流さない（CEO 補正 2 = A 採用）。
+ */
+export function inferBaseFormality(
+  items: ReadonlyArray<WardrobeItem>,
+): "casual" | "smart" | "dress" | null {
+  const counts: Record<string, number> = {};
+  for (const item of items) {
+    if (item.formality === "casual" || item.formality === "smart" || item.formality === "dress") {
+      counts[item.formality] = (counts[item.formality] ?? 0) + 1;
+    }
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const top = sorted[0]?.[0];
+  if (top === "casual" || top === "smart" || top === "dress") return top;
+  return null;
+}
+
+/**
+ * D2-2: accessory 採用 gate。
+ *   baseFormality（実選択結果の最頻値）が smart/dress → 採用、 casual or 不明 → 不採用。
+ *   baseFormality が null（全 item formality 未設定）の場合は **fallback として adjustedFormality**
+ *   （variant 補正後の reqFormality）を見る。 これも smart/dress なら採用。 → wardrobe に
+ *   formality 属性が全く無くても variant=dressy 等で accessory を出せる。
+ *   bag と違い event_type には依存しない（formality 軸専用 gate）。
+ */
+export function selectedItemsNeedsAccessory(
+  selectedItems: ReadonlyArray<WardrobeItem>,
+  adjustedFormality: string,
+): boolean {
+  const base = inferBaseFormality(selectedItems) ?? adjustedFormality;
+  return base === "smart" || base === "dress";
+}
+
 /* ── アイテムの適格スコア ── */
 function scoreCandidate(
   item: WardrobeItem,
@@ -341,6 +394,29 @@ function buildCombo(
   }
 
   if (selectedItems.length < 2) return null;
+
+  // ─── D2-2: supplemental — bag / accessory ──────────────────────────────
+  //   既存 outfit 成立判定（selectedItems.length < 2）を通過した **後** に末尾追加するため、
+  //   bag/accessory が無くても proposal は null にならない（supplemental 原則）。
+  //
+  //   event_type 語彙の根拠（read-only audit, D2-2 冒頭, 2026-06-01）:
+  //     TPO_FORMALITY_MAP の正規 8 種 (work/meeting/date/party/casual/outdoor/sports/travel) のうち、
+  //     外出が確実な 4 種（work/meeting/date/party）のみを needsBag 対象とする。
+  //     casual/outdoor/sports/travel は bag 不要のケースを含むため安全側で除外（D3 以降で精緻化）。
+  //
+  //   accessory の formality gate（CEO 補正 2 = A 採用）:
+  //     scoreCandidate には触らず、 既に選ばれた selectedItems の formality 最頻値を見て、
+  //     smart/dress の日のみ accessory を採用。 採用判定だけに使う（scoring には流さない）。
+  //     formality 未設定の accessory は scoreCandidate 側で中性扱い（既存 if-gate のおかげ）。
+  if (selectedItemsNeedsBag(events) && pools.bag.length > 0) {
+    const bag = pickBest(pools.bag);
+    if (bag) selectedItems.push(bag);
+  }
+  if (selectedItemsNeedsAccessory(selectedItems, adjustedFormality) && pools.accessory.length > 0) {
+    const accessory = pickBest(pools.accessory);
+    if (accessory) selectedItems.push(accessory);
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   const sync = computeSyncScore(selectedItems, weather, events, month, persona, satisfactionProfile, extendedOptions);
   const risks = analyzeRisks({ id: "", items: selectedItems, sync, risks: [], reason: "", moodTag: "", variant }, weather, events, recentlyWornIds);

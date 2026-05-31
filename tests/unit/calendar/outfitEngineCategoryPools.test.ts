@@ -96,22 +96,15 @@ describe("D2-1 構造固定 — buildCombo 未配線・既存挙動不変", () =
     );
   });
 
-  it("buildCombo は bag / accessory を pickBest しない（未配線・既存挙動不変）", () => {
-    // 既存の選定: tops / bottoms は直接 pickBest、 shoes は filter 経由（pools.shoes 文字列のみ存在）、
-    //   outer は outerPool ローカル変数経由。 bag / accessory は **どのバリエーションでも未参照**。
+  it("D2-1 時点の核: pools 初期化に bag/accessory が両方含まれる（D2-2 以降の supplemental 配線の土台）", () => {
+    // D2-1 で 6 key 初期化を確立した事実は不変。 D2-2 以降は selectedItems への push が解禁される（buildCombo 末尾）。
+    expect(SRC).toContain("bag: []");
+    expect(SRC).toContain("accessory: []");
+    // 既存の主軸（tops/bottoms/outer/shoes）の選定は不変（pickBest 経路の固定）。
     expect(SRC).toContain("pickBest(pools.tops)");
     expect(SRC).toContain("pickBest(pools.bottoms)");
     expect(SRC).toContain("pools.shoes");
     expect(SRC).toContain("pools.outer");
-    // bag / accessory が selection に参照されないこと（pool 構築以外）
-    // → pools.bag / pools.accessory が 「pools 初期化リテラル」 以外に登場しないことを構造で固定
-    const bagRefs = SRC.match(/pools\.bag/g) ?? [];
-    const accessoryRefs = SRC.match(/pools\.accessory/g) ?? [];
-    expect(bagRefs.length).toBe(0); // 初期化リテラルは "bag: []" 形式で "pools.bag" にマッチしない
-    expect(accessoryRefs.length).toBe(0);
-    // pickBest 直引数として bag/accessory が無いことの 2 重固定
-    expect(SRC).not.toContain("pickBest(pools.bag)");
-    expect(SRC).not.toContain("pickBest(pools.accessory)");
   });
 
   it("⑨ 既存 selectedItems.length < 2 境界が維持されている（bag/accessory のみでは null）", () => {
