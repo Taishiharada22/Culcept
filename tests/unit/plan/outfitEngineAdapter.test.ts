@@ -103,16 +103,19 @@ describe("generateCalendarOutfitProposal — fallback (退化ゼロ)", () => {
 describe("generateCalendarOutfitProposal — 変換", () => {
   beforeEach(() => mockEngine.mockReset());
 
-  it("TodayProposal → proposals + sync、 imageUrl 保持、 band 直写し", async () => {
+  it("TodayProposal → proposals + sync、 imageUrl 保持、 band 直写し (D1-2: 常に 3 件・main は中央 [1])", async () => {
     mockEngine.mockReturnValue(makeToday());
     const r = await generateCalendarOutfitProposal(INPUT);
     expect(r).not.toBeNull();
-    expect(r!.proposals).toHaveLength(1);
-    expect(r!.proposals[0].title).toBe("きれいめ"); // moodTag
-    expect(r!.proposals[0].syncScore).toBe(84);
-    expect(r!.proposals[0].syncBandKey).toBe("good");
-    expect(r!.proposals[0].items[0].imageUrl).toBe("data:image/png;base64,AAA");
+    expect(r!.proposals).toHaveLength(3); // D1-2: ensureThreeProposals で常に 3 件
+    // main は中央 (proposals[1]) に配置（CEO 補正: OutfitCarousel.initialIndex=1 for count=3）
+    expect(r!.proposals[1].title).toBe("きれいめ"); // moodTag (元 main)
+    expect(r!.proposals[1].syncScore).toBe(84);
+    expect(r!.proposals[1].syncBandKey).toBe("good");
+    expect(r!.proposals[1].items[0].imageUrl).toBe("data:image/png;base64,AAA");
     expect(r!.sync).toEqual({ score: 84, bandKey: "good", bandLabel: expect.any(String) });
+    // D1-2: source は engine（alternatives なしなので engine_padded）
+    expect(r!.source).toBe("engine_padded");
   });
 
   it("engine に渡す weather は WeatherDaily へ変換され、 events はそのまま渡る", async () => {
@@ -132,11 +135,25 @@ describe("generateCalendarOutfitProposal — 変換", () => {
     );
   });
 
-  it("main + alternatives を最大 3 件まで proposals 化", async () => {
+  it("main + alternatives を最大 3 件まで proposals 化（D1-2: main は中央 [1]）", async () => {
+    // 各 alt の id を main と異なる items にして、 mock pad に置換されないようにする
     mockEngine.mockReturnValue(
       makeToday() && ({
-        main: makeProposal({ id: "m" }),
-        alternatives: [makeProposal({ id: "a1" }), makeProposal({ id: "a2" }), makeProposal({ id: "a3" })],
+        main: makeProposal({ id: "main-1" }),
+        alternatives: [
+          makeProposal({
+            id: "casual-2",
+            items: [wItem({ id: "alt2-i1", categoryMain: "tops" })],
+          }),
+          makeProposal({
+            id: "dressy-3",
+            items: [wItem({ id: "alt3-i1", categoryMain: "tops" })],
+          }),
+          makeProposal({
+            id: "rain-4",
+            items: [wItem({ id: "alt4-i1", categoryMain: "tops" })],
+          }),
+        ],
         reason: "r",
         weatherSummary: "",
         syncScore: 84,
@@ -146,6 +163,85 @@ describe("generateCalendarOutfitProposal — 変換", () => {
     );
     const r = await generateCalendarOutfitProposal(INPUT);
     expect(r!.proposals).toHaveLength(3); // main + 2 alts (cap 3)
+    expect(r!.proposals[1].id).toBe("main-1"); // 中央 = main
+    // 端 (relaxed/smart) は engine alternatives から採用される（mock pad ではない）
+    expect(r!.proposals[0].id).toBe("casual-2"); // relaxed = casual variant 優先
+    expect(r!.proposals[2].id).toBe("dressy-3"); // smart = dressy variant 優先
+    expect(r!.source).toBe("engine"); // 全部 engine 由来
+  });
+});
+
+describe("generateCalendarOutfitProposal — D1-2 ensureThreeProposals 結線", () => {
+  beforeEach(() => mockEngine.mockReset());
+
+  it("Tier A: engine が main + casual + dressy → source=engine, proposals[1]=main", async () => {
+    mockEngine.mockReturnValue({
+      main: makeProposal({ id: "main-1" }),
+      alternatives: [
+        makeProposal({
+          id: "casual-2",
+          items: [wItem({ id: "c-i1", categoryMain: "tops" })],
+        }),
+        makeProposal({
+          id: "dressy-3",
+          items: [wItem({ id: "d-i1", categoryMain: "tops" })],
+        }),
+      ],
+      reason: "r",
+      weatherSummary: "",
+      syncScore: 84,
+      confidence: 0.5,
+      date: "2026-05-29",
+    } as unknown as TodayProposal);
+    const r = await generateCalendarOutfitProposal(INPUT);
+    expect(r).not.toBeNull();
+    expect(r!.proposals).toHaveLength(3);
+    expect(r!.proposals[1].id).toBe("main-1");
+    expect(r!.source).toBe("engine");
+  });
+
+  it("Tier B: engine main のみ → source=engine_padded、 mock pad で 3 件、 main は中央", async () => {
+    mockEngine.mockReturnValue({
+      main: makeProposal({ id: "main-only" }),
+      alternatives: [],
+      reason: "r",
+      weatherSummary: "",
+      syncScore: 84,
+      confidence: 0.5,
+      date: "2026-05-29",
+    } as unknown as TodayProposal);
+    const r = await generateCalendarOutfitProposal(INPUT);
+    expect(r).not.toBeNull();
+    expect(r!.proposals).toHaveLength(3);
+    expect(r!.proposals[1].id).toBe("main-only");
+    expect(r!.source).toBe("engine_padded");
+    // 端は mock pad（id は "mock-outfit-*-pad-*" 形式）
+    expect(r!.proposals[0].id).toMatch(/mock-outfit-.*-pad/);
+    expect(r!.proposals[2].id).toMatch(/mock-outfit-.*-pad/);
+  });
+
+  it("engine 提案が wardrobe item を持つ場合、 swap-by-axis で派生が作られる（mock pad ではない）", async () => {
+    // INPUT.wardrobe は wItem({id:"i1",categoryMain:"outer",...}) 1 件のみ。
+    // 同カテゴリの swap 候補が無いので、 swap-by-axis は失敗 → mock pad に降りる。
+    // → 本テストは「wardrobe 1 件では padded になる」既存挙動を回帰固定する。
+    mockEngine.mockReturnValue({
+      main: makeProposal({ id: "main-1", items: [wItem({ id: "i1", categoryMain: "outer" })] }),
+      alternatives: [],
+      reason: "r",
+      weatherSummary: "",
+      syncScore: 84,
+      confidence: 0.5,
+      date: "2026-05-29",
+    } as unknown as TodayProposal);
+    const r = await generateCalendarOutfitProposal(INPUT);
+    expect(r!.source).toBe("engine_padded");
+    expect(r!.proposals[1].id).toBe("main-1");
+  });
+
+  it("source は型上 engine | engine_padded のみ（hydrated_mock / mock は caller 側で）", async () => {
+    mockEngine.mockReturnValue(makeToday());
+    const r = await generateCalendarOutfitProposal(INPUT);
+    expect(["engine", "engine_padded"]).toContain(r!.source);
   });
 });
 

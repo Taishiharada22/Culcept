@@ -29,6 +29,7 @@ import {
 
 import type {
   CalendarOutfitItemVM,
+  CalendarOutfitProposalSource,
   CalendarOutfitProposalVM,
   CalendarOutfitSyncVM,
   CalendarOutfitWeatherVM,
@@ -36,6 +37,8 @@ import type {
 import { SYNC_BAND_VM } from "./_palette";
 import { shapeOfWardrobe, getWardrobeDisplayImageUrl } from "./wardrobeToOutfit";
 import type { ProjectedCalendarEvent } from "./outfitEventProjection";
+import { ensureThreeProposals, type ThreeProposals } from "./ensureThreeProposals";
+import { MOCK_CALENDAR_OUTFIT_VM } from "./mockCalendarOutfit";
 
 export interface OutfitEngineInput {
   wardrobe: WardrobeItem[];
@@ -45,8 +48,11 @@ export interface OutfitEngineInput {
 }
 
 export interface OutfitEnginePatch {
-  proposals: CalendarOutfitProposalVM[];
+  /** D1-2: 必ず 3 件並び `[relaxed, main, smart]`。 既存 Carousel の initialIndex=1（count=3）が中央=main を選ぶ。 */
+  proposals: ThreeProposals;
   sync: CalendarOutfitSyncVM;
+  /** D1-2: 3 件の出所（"engine" = 全部 engine 由来 / "engine_padded" = swap 派生 or mock pad が混じる） */
+  source: Extract<CalendarOutfitProposalSource, "engine" | "engine_padded">;
 }
 
 /** B-2 weather VM emoji → engine WeatherDaily.weather_icon */
@@ -103,7 +109,11 @@ export function weatherVmToDaily(w: CalendarOutfitWeatherVM | null): WeatherDail
   };
 }
 
-function wardrobeItemToVM(item: WardrobeItem): CalendarOutfitItemVM {
+/**
+ * D1-2: wardrobe item → VM 写像。 D1-1 の ensureThreeProposals が swap-by-axis 派生 VM を作る際に
+ * `deps.itemToVM` callback として注入される。 内部ロジックは不変、 export 化のみ。
+ */
+export function wardrobeItemToVM(item: WardrobeItem): CalendarOutfitItemVM {
   const category =
     (item.categoryMain && CATEGORY_MAIN_JA[item.categoryMain]) ||
     CATEGORY_LEGACY_JA[item.category] ||
@@ -172,10 +182,23 @@ export async function generateCalendarOutfitProposal(
     if (!result || !result.main) return null;
 
     const rawProposals: OutfitProposal[] = [result.main, ...(result.alternatives ?? [])].slice(0, 3);
-    const proposals = rawProposals
+    const engineVMs = rawProposals
       .map(proposalToVM)
       .filter((p) => p.items.length > 0);
-    if (proposals.length === 0) return null;
+    if (engineVMs.length === 0) return null;
+
+    // D1-2: ensureThreeProposals に通して `[relaxed, main, smart]` の 3 件並びを保証する。
+    //   - proposals[1] = engine.main を厳守（既存 Carousel.initialIndex=1 で中央表示）
+    //   - 不足は wardrobe pool から swap-by-axis 派生、 それでも埋まらなければ mock pad
+    //   - 完全同一ペアは mock pad で置換（diffScore < 1 の差分なし回避）
+    //   - engineVMs 0 件は上で早期 return 済み → ここでは必ず 3 件出る前提
+    const ensured = ensureThreeProposals({
+      engineVMs,
+      wardrobe: input.wardrobe,
+      mockProposals: MOCK_CALENDAR_OUTFIT_VM.proposals,
+      deps: { itemToVM: wardrobeItemToVM },
+    });
+    if (!ensured) return null;
 
     const band = result.main.sync.band;
     const sync: CalendarOutfitSyncVM = {
@@ -184,7 +207,7 @@ export async function generateCalendarOutfitProposal(
       bandLabel: SYNC_BAND_VM[band]?.label ?? "良好",
     };
 
-    return { proposals, sync };
+    return { proposals: ensured.proposals, sync, source: ensured.source };
   } catch {
     // import 失敗 / engine throw / 想定外 → mock 維持
     return null;
