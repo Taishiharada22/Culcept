@@ -129,12 +129,76 @@ export function categorize(item: WardrobeItem): CategoryGroup | null {
  *   安全側で除外（D3 以降で必要なら精緻化）。 未知の event_type も false（過剰広げ防止）。
  *   export しているのは D2-2 unit test から直接 assertion できるようにするため（D2-1 と同方針）。
  */
-const BAG_REQUIRED_EVENT_TYPES = new Set(["work", "meeting", "date", "party"]);
+// D3-1: travel を whitelist に追加（外出確定。 day-trip でも手荷物が要るため安全側で採用）。
+const BAG_REQUIRED_EVENT_TYPES = new Set(["work", "meeting", "date", "party", "travel"]);
 export function selectedItemsNeedsBag(events: ReadonlyArray<{ event_type: string }>): boolean {
   for (const e of events) {
     if (BAG_REQUIRED_EVENT_TYPES.has(e.event_type)) return true;
   }
   return false;
+}
+
+/**
+ * D3-1: bag pool を TPO / 天気 / formality に応じて **優先順位だけ並べ替える** pure helper。
+ *   scoreCandidate には触らず、 pickBest に渡す前段で order を整える（採用 gate の延長）。
+ *
+ * 不変原則（supplemental を壊さない）:
+ *   - **除外しない（partition のみ）**: rain 以外は hard filter せず、 優先群を前に出すだけ。
+ *     bag が 1 種類しか無いユーザーでも必ず候補が残る。
+ *   - **rain だけ hard filter**: 防水/撥水 bag があればそれだけに絞る（既存 shoes と同じ意味的必然性）。
+ *     防水 bag が 1 つも無ければ全 bag を残す（消さない）。
+ *
+ * 優先順位の根拠:
+ *   - rain: waterproof / repellent を最優先（実用）
+ *   - travel: backpack / tote / crossbody を前（容量・両手空き）、 shoulder を後ろ
+ *   - smart / dress: backpack を後ろ（カジュアル過ぎる）、 tote / shoulder / crossbody を前
+ *   - casual: 並べ替えなし（全 bag 等価）
+ *
+ * subcategory は taxonomy の `"subcategory.<name>"` prefix 形式なので endsWith で判定する。
+ */
+const BACKPACK_SUFFIX = "backpack";
+function isWaterResistant(item: WardrobeItem): boolean {
+  const w = item.attributes?.water;
+  return w === "waterproof" || w === "repellent";
+}
+function bagSubcat(item: WardrobeItem): string {
+  return (item.subcategory ?? "").toLowerCase();
+}
+/** order を変えずに [優先群, 残り] へ安定 partition する（filter ではない）。 */
+function stablePartition<T>(arr: ReadonlyArray<T>, pred: (x: T) => boolean): T[] {
+  const front: T[] = [];
+  const back: T[] = [];
+  for (const x of arr) (pred(x) ? front : back).push(x);
+  return [...front, ...back];
+}
+export function selectBagPool(
+  pool: ReadonlyArray<WardrobeItem>,
+  variant: ProposalVariant,
+  events: ReadonlyArray<{ event_type: string }>,
+  formality: string,
+): WardrobeItem[] {
+  if (pool.length === 0) return [];
+
+  // 1) rain: 防水/撥水があればそれだけに hard filter（無ければ全件）。
+  let working: WardrobeItem[] = [...pool];
+  if (variant === "rain") {
+    const waterproof = working.filter(isWaterResistant);
+    if (waterproof.length > 0) working = waterproof;
+  }
+
+  // 2) travel: backpack / tote / crossbody を前（shoulder を後ろ）。
+  const isTravel = events.some((e) => e.event_type === "travel");
+  if (isTravel) {
+    return stablePartition(working, (b) => !bagSubcat(b).endsWith("shoulder"));
+  }
+
+  // 3) smart / dress: backpack を後ろへ（formal 寄りでは大きすぎる）。
+  if (formality === "smart" || formality === "dress") {
+    return stablePartition(working, (b) => !bagSubcat(b).endsWith(BACKPACK_SUFFIX));
+  }
+
+  // 4) casual / その他: 並べ替えなし。
+  return working;
 }
 
 /**
@@ -409,7 +473,9 @@ function buildCombo(
   //     smart/dress の日のみ accessory を採用。 採用判定だけに使う（scoring には流さない）。
   //     formality 未設定の accessory は scoreCandidate 側で中性扱い（既存 if-gate のおかげ）。
   if (selectedItemsNeedsBag(events) && pools.bag.length > 0) {
-    const bag = pickBest(pools.bag);
+    // D3-1: rain 防水 / travel / formality で bag pool の優先順位を整えてから pickBest（除外せず並べ替え）。
+    const bagPool = selectBagPool(pools.bag, variant, events, adjustedFormality);
+    const bag = pickBest(bagPool);
     if (bag) selectedItems.push(bag);
   }
   if (selectedItemsNeedsAccessory(selectedItems, adjustedFormality) && pools.accessory.length > 0) {

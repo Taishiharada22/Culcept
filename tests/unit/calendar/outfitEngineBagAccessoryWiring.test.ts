@@ -35,14 +35,15 @@ const NULL_WEATHER = null;
 // ── selectedItemsNeedsBag — event_type whitelist ─────────
 
 describe("selectedItemsNeedsBag — engine 既知 event_type 4 種のみ", () => {
-  it("work / meeting / date / party は true（外出確定）", () => {
-    for (const t of ["work", "meeting", "date", "party"]) {
+  it("work / meeting / date / party / travel は true（外出確定。 travel は D3-1 で追加）", () => {
+    for (const t of ["work", "meeting", "date", "party", "travel"]) {
       expect(selectedItemsNeedsBag([{ event_type: t }])).toBe(true);
     }
   });
 
-  it("casual / outdoor / sports / travel は false（在宅可能性あり・安全側除外）", () => {
-    for (const t of ["casual", "outdoor", "sports", "travel"]) {
+  it("casual / outdoor / sports は false（在宅可能性あり・安全側除外）", () => {
+    // travel は D3-1 で whitelist に移動済（外出確定）。 ここでは残り 3 種が false であることを固定。
+    for (const t of ["casual", "outdoor", "sports"]) {
       expect(selectedItemsNeedsBag([{ event_type: t }])).toBe(false);
     }
   });
