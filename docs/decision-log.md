@@ -14609,3 +14609,24 @@ Map impl readiness v1 (= commit `d9dea93e`) を CEO + GPT 確認。 「採用、
 - **ステータス**: Map impl readiness v2 **採用確定**。 9a-pre 着手 → 完了後 報告と停止。
 
 ---
+
+## [2026-05-31] [Build] /plan freeze + My-Style 永続化 + cutout 表示復旧 を 9 commits 連鎖で close [承認: CEO]
+
+CEO 観測 7 件（freeze / 永続化失敗 / 削除復活 / 追加消失 / 写真消失 / /plan 反映 / 透過反映）を、 branch `claude/loving-pike-fa227a`（**未 push**、 HEAD `a77c8933`）の **累計 9 commits** で連鎖修正し、 実機 PASS 確認後に close。
+
+- **詳細**: `docs/plan-my-style-outfit-persistence-close.md`
+- **代表 commit**:
+  - `0773f074` /plan CalendarTab anchors memoize（freeze 停止）
+  - `74d7ab68` /plan render-time cutout 停止
+  - `e4a6e168` /plan C1L-5 確定 cutout 優先表示
+  - `e1526076` My-Style: IDB cached からの heavy 画像 fields 復元
+  - `48f55a5e` bridge route 22P02 修正 + styleSummary failure を握り潰さない
+  - `80a7dcc8` localStorage quota 失敗時に main を残し IDB primary 化
+  - `71db4795` remote adoption を revision-aware 化（削除を server から受け取る）
+  - `db7aeb02` remote adopt 時に prev の画像を保持
+  - `a77c8933` IDB を正本化 + remote-load を restorationResolved gate（最終解決）
+- **残課題（別スライス）**: localStorage quota 圧迫源削減 / 既存白抜き item 一括再処理 / `/api/weather/subscription` 404 / 3 候補生成（D1）
+- **触らない**: push / deploy / DB migration / Supabase schema / server-sync 仕様 / external API / package / production canary
+- **次フェーズ**: **D1 おすすめコーデ 3 候補生成** — design gate から着手（実装はまだ進めない）
+
+---
