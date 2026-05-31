@@ -145,4 +145,57 @@ describe("fetchAnchors", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("400");
   });
+
+  // ── SR #216 D2: dayIndicators 追加（sources/anchors を壊さない）──
+  it("dayIndicators が present → そのまま受信、sources/anchors 不変", async () => {
+    mockFetchOnce({
+      status: 200,
+      body: {
+        ok: true,
+        data: {
+          sources: [{ id: "s1" }],
+          anchors: [{ id: "a1" }],
+          dayIndicators: [
+            {
+              id: "i1",
+              date: "2025-07-03",
+              kind: "off",
+              label: "公休",
+              countsAsPublicHoliday: true,
+              sourceType: "shift_image",
+              sourceId: "s1",
+            },
+          ],
+        },
+      },
+    });
+    const r = await fetchAnchors();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.sources).toHaveLength(1); // 不変
+    expect(r.data.anchors).toHaveLength(1); // 不変
+    expect(r.data.dayIndicators).toHaveLength(1);
+  });
+
+  it("dayIndicators 欠落 → [] にフォールバック（旧 response 後方互換）", async () => {
+    mockFetchOnce({
+      status: 200,
+      body: { ok: true, data: { sources: [], anchors: [] } }, // dayIndicators 無し
+    });
+    const r = await fetchAnchors();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.dayIndicators).toEqual([]);
+  });
+
+  it("dayIndicators が非配列 → [] にフォールバック（壊さない）", async () => {
+    mockFetchOnce({
+      status: 200,
+      body: { ok: true, data: { sources: [], anchors: [], dayIndicators: "bad" } },
+    });
+    const r = await fetchAnchors();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.dayIndicators).toEqual([]);
+  });
 });

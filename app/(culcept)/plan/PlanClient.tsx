@@ -45,6 +45,7 @@ import {
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
+import type { PlanDayIndicator } from "@/lib/plan/planDayIndicatorReader";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 // ── Phase 3-J-6e-1 / J-6e-2: Proposal 接続 ──
 // 注: TestOverrideContext は import しない (= production import 禁止)。
@@ -140,7 +141,13 @@ const TABS: ReadonlyArray<{
 
 type FetchState =
   | { kind: "loading" }
-  | { kind: "ok"; sources: ExternalAnchorSource[]; anchors: ExternalAnchor[] }
+  | {
+      kind: "ok";
+      sources: ExternalAnchorSource[];
+      anchors: ExternalAnchor[];
+      /** 休み/希望休 day-level 印（SR #216 D2。timeline event でなく day-level metadata） */
+      dayIndicators: PlanDayIndicator[];
+    }
   | { kind: "error"; message: string; status: number };
 
 /** W1-X3: cell add 起動時の pre-fill */
@@ -592,7 +599,12 @@ export default function PlanClient({
     setState({ kind: "loading" });
     const r: AnchorFetchResult = await fetchAnchors();
     if (r.ok) {
-      setState({ kind: "ok", sources: r.data.sources, anchors: r.data.anchors });
+      setState({
+        kind: "ok",
+        sources: r.data.sources,
+        anchors: r.data.anchors,
+        dayIndicators: r.data.dayIndicators,
+      });
     } else {
       setState({ kind: "error", message: r.error, status: r.status });
     }
