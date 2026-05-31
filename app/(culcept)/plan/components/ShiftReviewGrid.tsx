@@ -43,6 +43,10 @@ import {
   type ShiftSaveState,
   SHIFT_SAVE_CONFIRM_MESSAGE,
 } from "@/lib/plan/shift/shiftSaveController";
+import {
+  detectDraftRisks,
+  type DraftRiskReport,
+} from "@/lib/plan/shift/shiftDraftRiskModel";
 
 export type { ShiftReviewCell };
 
@@ -68,6 +72,11 @@ interface ShiftReviewGridProps {
   onConfirmBlankRisk?: () => void | Promise<void>;
   /** 確認/結果から戻る（controller.cancel）。 */
   onCancel?: () => void;
+  // ── SR B1b-2B: golden-free risk review hint（既定 OFF で dormant = 既存挙動不変）──
+  /** true で draft risk hint を表示 + hard risk を保存 block。risk 計算は shiftDraftRiskModel に委譲。 */
+  riskReviewEnabled?: boolean;
+  /** draft 抽出の chunk 境目（例: [15]）。chunk_boundary hint に使う（任意）。 */
+  chunkBoundaries?: number[];
 }
 
 type CellKind = "empty" | "work" | "off" | "candidate" | "unresolved";
@@ -87,6 +96,12 @@ function dayOfWeek(y: number, m: number, d: number): number {
       d) %
     7
   );
+}
+
+/** その月の日数（pure・Date 非依存・risk model の coverage 用） */
+function daysInMonth(y: number, m: number): number {
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  return [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
 }
 
 function cellInfo(
@@ -142,6 +157,8 @@ export function ShiftReviewGrid({
   onConfirm,
   onConfirmBlankRisk,
   onCancel,
+  riskReviewEnabled = false,
+  chunkBoundaries,
 }: ShiftReviewGridProps) {
   const [cells, setCells] = useState<ShiftReviewCell[]>(initialCells);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -192,9 +209,29 @@ export function ShiftReviewGrid({
     );
   }
 
+  // ── SR B1b-2B: draft risk hint（golden-free）。計算は shiftDraftRiskModel に委譲（Grid は表示器）。
+  //    cells は内部編集 state のため、編集追従のため内部 cells で再計算（projection と同パターン）。
+  //    riskReviewEnabled=false（既定）なら null = dormant（既存挙動・dev fixture 不変）。
+  const riskReport: DraftRiskReport | null = useMemo(() => {
+    if (!riskReviewEnabled) return null;
+    return detectDraftRisks(
+      cells.map((c) => ({ day: c.day, rawCode: c.rawCode, confidence: c.confidence })),
+      dictionary,
+      {
+        daysInMonth: daysInMonth(year, month),
+        lowConfidenceThreshold,
+        ...(chunkBoundaries ? { chunkBoundaries } : {}),
+      }
+    );
+  }, [riskReviewEnabled, cells, dictionary, year, month, lowConfidenceThreshold, chunkBoundaries]);
+  const hardRiskHints = riskReport?.hints.filter((h) => h.severity === "hard") ?? [];
+  const softRiskHints = riskReport?.hints.filter((h) => h.severity === "soft") ?? [];
+
   // ── 保存 CTA（6D contract）: saveEnabled かつ onConfirm がある時のみ active。未指定は dormant placeholder ──
   const activeSave = saveEnabled === true && typeof onConfirm === "function";
   const hasUnresolved = projection.unresolved.length > 0;
+  // hard risk（missing/duplicate/unknown）も保存前解消必須 → block に合流
+  const blockSave = hasUnresolved || (riskReport?.hasBlockingRisk ?? false);
   const saveStatus: ShiftSaveState["status"] = saveState?.status ?? "idle";
 
   return (
@@ -298,6 +335,43 @@ export function ShiftReviewGrid({
         />
       )}
 
+      {/* SR B1b-2B: draft risk hints（原稿照合の補助）。hard=保存前解消必須 / soft=確認おすすめ。
+          ※ 誤り確定ではなく review hint。文言は shiftDraftRiskModel の safe copy。 */}
+      {riskReport && riskReport.hints.length > 0 && (
+        <div data-testid="shift-review-risk-panel" className="mt-3 space-y-1.5">
+          {hardRiskHints.length > 0 && (
+            <div
+              data-testid="shift-review-risk-hard"
+              className="rounded-xl border border-rose-200/80 bg-rose-50/80 px-3 py-2 text-[11px] text-rose-700"
+            >
+              <p className="mb-1 font-semibold">要確認（保存前に解消してください）</p>
+              <ul className="space-y-0.5">
+                {hardRiskHints.map((h) => (
+                  <li key={h.kind} data-testid={`shift-review-risk-${h.kind}`} data-severity="hard">
+                    ・{h.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {softRiskHints.length > 0 && (
+            <div
+              data-testid="shift-review-risk-soft"
+              className="rounded-xl border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-[11px] text-amber-800"
+            >
+              <p className="mb-1">原稿と照合してください（確認おすすめ）</p>
+              <ul className="space-y-0.5">
+                {softRiskHints.map((h) => (
+                  <li key={h.kind} data-testid={`shift-review-risk-${h.kind}`} data-severity="soft">
+                    ・{h.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 下部 sticky preview */}
       <div
         data-testid="shift-review-preview"
@@ -315,20 +389,20 @@ export function ShiftReviewGrid({
           <button
             type="button"
             data-testid="shift-review-save"
-            disabled={hasUnresolved || saveStatus === "saving"}
+            disabled={blockSave || saveStatus === "saving"}
             onClick={() => {
               void onConfirm?.(cells);
             }}
             className={`rounded-lg px-3 py-1 text-[11px] ${
-              hasUnresolved || saveStatus === "saving"
+              blockSave || saveStatus === "saving"
                 ? "cursor-not-allowed bg-gray-200/80 text-gray-400"
                 : "bg-sky-500 text-white shadow-sm shadow-sky-200/50"
             }`}
-            title={hasUnresolved ? "要確認のセルを解決してください" : "この内容で保存"}
+            title={blockSave ? "要確認のセルを解決してください" : "この内容で保存"}
           >
             {saveStatus === "saving"
               ? "保存中…"
-              : hasUnresolved
+              : blockSave
                 ? "要確認あり"
                 : "この内容で保存"}
           </button>
