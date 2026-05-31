@@ -98,7 +98,11 @@ export function useCalendarOutfit({
 
         if (patch) {
           // engine 提案で proposals + SYNC を差し替え（ワードローブ分析は mock のまま）
-          next = { ...next, proposals: patch.proposals, sync: patch.sync, proposalsSource: "engine" };
+          // D1-3: patch.source（"engine" | "engine_padded"）を proposalsSource にそのまま流す。
+          //   - "engine": engine が main + 2 alternatives を返した（D1 Tier A）
+          //   - "engine_padded": adapter 側で swap-by-axis 派生 or mock pad で 3 件に整形（D1 Tier B）
+          //   hydrate fallback / mock の判定は下の else / 初期 mock VM がそれぞれ "hydrated_mock" / "mock" を担う。
+          next = { ...next, proposals: patch.proposals, sync: patch.sync, proposalsSource: patch.source };
           engineSync = patch.sync;
         } else {
           // B-1 fallback: mock proposals を実画像でハイドレート（退化ゼロ）
