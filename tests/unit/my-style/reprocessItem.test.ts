@@ -231,3 +231,53 @@ describe("immutability — 入力を破壊しない", () => {
     expect(state.wardrobe).toBe(originalWardrobeRef); // 元 wardrobe 配列は差し替わらない
   });
 });
+
+/* ── page 配線契約（M2-2）— 詳細モーダル handleReprocessApply の合成を pure に固定 ── */
+
+describe("page wiring contract (M2-2) — onApply 合成 = setState(buildReprocessWardrobeUpdater(id, draft))", () => {
+  it("production 形状の item で onApply → cutout 4 field だけ保存・imageUrl/属性は完全保持", () => {
+    const realItem = item({
+      id: "real-1",
+      name: "白シャツ",
+      category: "tops",
+      categoryMain: "tops",
+      subcategory: "subcategory.shirt",
+      color: "white",
+      colorHex: "#ffffff",
+      imageUrl: "data:image/jpeg;base64,REALPHOTO",
+      season: "all",
+      formality: "smart",
+      attributes: { warmth: 1, care: "machine" },
+      addedAt: "2026-05-01T00:00:00Z",
+    });
+    const state = makeState([realItem, item({ id: "other", imageUrl: "data:image/jpeg;base64,OTHER" })]);
+    // 詳細モーダルの handleReprocessApply と同じ合成
+    const next = buildReprocessWardrobeUpdater("real-1", successManual)(state);
+    const updated = next.wardrobe.find((w) => w.id === "real-1")!;
+    // cutout 4 field 保存
+    expect(updated.cutoutUrl).toBe("data:image/png;base64,NEWCUTOUT");
+    expect(updated.cutoutStatus).toBe("success");
+    expect(updated.cutoutMethod).toBe("manual");
+    expect(updated.cutoutConfidence).toBeCloseTo(0.91);
+    // imageUrl と他属性は完全保持（白抜き事故の生命線）
+    expect(updated.imageUrl).toBe("data:image/jpeg;base64,REALPHOTO");
+    expect(updated.name).toBe("白シャツ");
+    expect(updated.subcategory).toBe("subcategory.shirt");
+    expect(updated.formality).toBe("smart");
+    expect(updated.attributes).toEqual({ warmth: 1, care: "machine" });
+    expect(updated.addedAt).toBe("2026-05-01T00:00:00Z");
+    // 他 item は touch されず同一参照
+    expect(next.wardrobe.find((w) => w.id === "other")).toBe(state.wardrobe[1]);
+  });
+
+  it("onSkip/onCancel 相当（updater を呼ばない）→ state も item も完全不変", () => {
+    // UI 契約: onSkip/onCancel = setReprocessItemId(null) のみ。 wardrobe updater は呼ばれない。
+    const realItem = item({ id: "real-1", imageUrl: "data:image/jpeg;base64,REALPHOTO", cutoutUrl: "data:image/png;base64,OLD", cutoutStatus: "success" });
+    const state = makeState([realItem]);
+    const snapshot = JSON.parse(JSON.stringify(state));
+    // updater を呼ばない＝ state はそのまま（skip/cancel の振る舞い）
+    expect(state).toEqual(snapshot);
+    expect(state.wardrobe[0].imageUrl).toBe("data:image/jpeg;base64,REALPHOTO");
+    expect(state.wardrobe[0].cutoutUrl).toBe("data:image/png;base64,OLD");
+  });
+});

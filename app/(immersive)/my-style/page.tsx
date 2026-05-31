@@ -58,6 +58,11 @@ const FlatLayComposer = dynamic(() => import("./_components/FlatLayComposer"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-48" />,
 });
+// M2: 既存 item の背景再処理（reprocess）。 PhotoAddWizard と同じ BackgroundRemover を遅延ロードで再利用。
+const BackgroundRemover = dynamic(() => import("./_components/BackgroundRemover"), {
+    ssr: false,
+    loading: () => <LoadingSkeleton height="h-64" />,
+});
 import SmartEmptyState from "./_components/SmartEmptyState";
 import StyleLogicPanel from "./_components/StyleLogicPanel";
 import AIInsightPanel from "./_components/AIInsightPanel";
@@ -103,6 +108,8 @@ import {
     shouldAdoptRemoteState,
 } from "./_lib/state";
 import type { SavedState, WardrobeItem } from "./_lib/types";
+import { buildReprocessWardrobeUpdater, canReprocessItem, getReprocessSourceUrl } from "./_lib/reprocessItem";
+import type { CutoutDraft } from "./_lib/cutoutBrowser";
 import {
     type TabId,
     type IdentityMode,
@@ -778,6 +785,7 @@ export default function MyStylePage() {
     const [crossFeature, setCrossFeature] = useState<CrossFeatureData | null>(null);
     const [bridgePulse, setBridgePulse] = useState<BridgePayload["pulse"]>(null);
     const [activeItemId, setActiveItemId] = useState<string | null>(null);
+    const [reprocessItemId, setReprocessItemId] = useState<string | null>(null); // M2: 背景再処理対象
     const syncTimerRef = useRef<number | null>(null);
     const tabBarRef = useRef<HTMLDivElement>(null);
 
@@ -1046,8 +1054,25 @@ export default function MyStylePage() {
     /* showDna removed — Style DNA expandable removed */
     const closeActiveItem = () => setActiveItemId(null);
 
+    // M2: 背景再処理。 対象 item と再処理 source（dataURL）を導出。 imageUrl は読むだけ・絶対に書かない。
+    const reprocessItem = useMemo(
+        () => (reprocessItemId ? state.wardrobe.find((entry) => entry.id === reprocessItemId) ?? null : null),
+        [reprocessItemId, state.wardrobe],
+    );
+    const reprocessSourceUrl = reprocessItem ? getReprocessSourceUrl(reprocessItem) : null;
+    // onApply: cutout draft を helper 経由で cutout 系 4 field のみ更新。 imageUrl/originalUrl は不変。
+    const handleReprocessApply = (draft: CutoutDraft) => {
+        if (!reprocessItemId) return;
+        setState(buildReprocessWardrobeUpdater(reprocessItemId, draft));
+        setReprocessItemId(null);
+        pushNotice("背景をきれいにしました");
+    };
+
     useEffect(() => {
-        if (tab !== "closet") setActiveItemId(null);
+        if (tab !== "closet") {
+            setActiveItemId(null);
+            setReprocessItemId(null);
+        }
     }, [tab]);
 
     return (
@@ -1193,7 +1218,23 @@ export default function MyStylePage() {
                         <div className="mt-4 grid gap-4 sm:grid-cols-[140px_1fr]">
                             <ImageSurface image={activeItem.item.imageUrl} label={activeItem.item.name} gradient="from-slate-700 to-slate-900" />
                             <div className="space-y-3">
-                                <div className="flex justify-end">
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                    {canReprocessItem(activeItem.item) ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setReprocessItemId(activeItem.item.id)}
+                                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold text-emerald-600 transition hover:bg-emerald-100"
+                                        >
+                                            背景をきれいにする
+                                        </button>
+                                    ) : (
+                                        <span
+                                            className="text-[11px] text-slate-400"
+                                            title="写真が残っていないため、背景の再処理はできません。もう一度登録してください。"
+                                        >
+                                            写真がないため再処理できません
+                                        </span>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1281,6 +1322,33 @@ export default function MyStylePage() {
                         onClose={() => setShowPhotoAdd(false)}
                         itemCount={state.wardrobe.length}
                     />
+                </ErrorBoundary>
+            ) : null}
+
+            {/* M2: 既存 item 背景再処理 overlay（BackgroundRemover を imageUrl prop で再利用・無改修） */}
+            {reprocessItem && reprocessSourceUrl ? (
+                <ErrorBoundary fallbackMessage="背景の再処理中にエラーが発生しました">
+                    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+                        <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-4 shadow-2xl">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-slate-900">背景をきれいにする</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setReprocessItemId(null)}
+                                    className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200"
+                                    aria-label="閉じる"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                                </button>
+                            </div>
+                            <BackgroundRemover
+                                imageUrl={reprocessSourceUrl}
+                                onApply={handleReprocessApply}
+                                onSkip={() => setReprocessItemId(null)}
+                                onCancel={() => setReprocessItemId(null)}
+                            />
+                        </div>
+                    </div>
                 </ErrorBoundary>
             ) : null}
 
