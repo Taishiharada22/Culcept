@@ -14723,3 +14723,20 @@ D3 同領域・低リスクで accessory subcategory 別 gating を 1 commit + c
 - **次**: D5 mini design 補正（CEO 推奨案 B = main-axis diff required + supplemental as tie-breaker）を再提出して STOP
 
 ---
+
+## [2026-06-01] [Build/Product] D5 diff axis 分離 (main + supplemental) close [承認: CEO]
+
+D1 `diffScore` を CEO 推奨 B 案（main-axis required + supplemental as tie-breaker）+ 補正（`mainAxisDiff >= 1` ガード）で再設計。 bag/accessory が差分主軸化するリスクを構造的に排除。
+
+- **詳細**: `docs/plan-outfit-diff-axis-close.md`
+- **2 commits**:
+  - `a92f870e` D5 実装 — `mainAxisDiff` / `supplementalDiff` 純関数追加、 `diffScore` を 2 軸分離（main < 1 で supplemental 無効化）
+  - 本コミット D5 close docs
+- **採用**: B 案 + CEO 補正（`mainAxisDiff >= 1` のときだけ supplemental 加点 → outer 0.5 単独 + bag 違いでも main < 1 で通さない）
+- **既存 D1 outer 0.5 セマンティクス**は main-axis 内で完全保持（既存 outer test 1.5 そのまま PASS）
+- **D5 で発見した小事実**: D1 までの `diffScore` は bag/accessory も id 対称差に等価カウントしており、 「bag だけ違う」が 2.0 で通っていた。 D5 で構造的に 0 に。 D1 補正「bag/accessory を差分主軸にしない」が**実装上は部分的に効いていなかった**ものを D5 で完全実装。
+- **不変原則**: scoreCandidate / outfitEngine 本体 / adapter / hook / UI / OutfitCollage / mock 構造 / D2-D4 selection logic すべて未接触
+- **検証**: plan 3532 PASS（D5 開始時 +18、 退化 0）/ Calendar 297（退化 0）/ 既存 D1 ensureThreeProposals 32/32 維持 / eslint clean / tsc 自分のファイル差分 0
+- **次**: D6-0 設計/risk audit を docs として提出（scoreCandidate 高リスク領域・実装は別 design gate GO 後）
+
+---
