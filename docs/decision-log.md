@@ -14800,6 +14800,41 @@ D6-0 design 案に従い、 scoreCandidate に bag/accessory 限定の +3 weight
 
 ---
 
+## [2026-06-01] [Build] M2-extra WardrobeCard tap → activeItem 詳細モーダル経路追加 [承認: CEO]
+
+M2-2 の「背景をきれいにする」導線が、 WardrobeTab カテゴリ別グリッドの WardrobeCard では未配線（card tap で何も起こらない）だったため、 案 B（image 全面に透明 button を被せる）で外科的に追加。 ShowcaseRail 経由の既存経路は不変。
+
+- **commit**: `415d6ccd`
+- **変更ファイル**: 3（WardrobeCard.tsx / WardrobeTab.tsx / page.tsx、 計 24 追加 / 7 削除）
+- **実装**: WardrobeCard に onSelect prop 追加 → image 全面に透明 button (z-[1]) を被せる。 既存 hover overlay (+/✏️/🗑️) は z-[2] へ昇格、 内側ボタンは stopPropagation 済で衝突なし。 quality badge / color swatch は pointer-events-none で透過
+- **不変領域**: 既存 hover ボタン操作 / ShowcaseRail tap / WardrobeCard 表示 / 他 component 一切無改修。 onSelect 未指定なら後方互換維持
+- **検証**: my-style 141 PASS（退化 0）/ eslint clean / tsc baseline 1116 維持
+- **次**: M3-0 docs（cutout 品質改善 + 復活ブラシ + 控えめ post-process の設計）
+
+---
+
+## [2026-06-01] [Build/Product] M3-0 cutout 品質改善 design / roadmap 提出 [承認: CEO Phase 1 GO]
+
+CEO 提案「復活ブラシ」+「自動精度より、 ユーザーが直せることを優先」方針を反映した設計 docs。 既存 backgroundRemovalV1 / BackgroundRemover の大改修なし、 復活ブラシ + 控えめな post-process のみ追加する。
+
+- **詳細**: `docs/my-style-cutout-quality-improvement-design.md`
+- **構造的欠陥 5 点**（D1-D5）と文献調査結論を docs に固定
+- **Phase 設計**:
+  - Phase 1（完了）: M2-extra（WardrobeCard tap）+ M3-0（本 docs）
+  - Phase 2（GO）: M3-1 pure helper（保守的 morphology + 境界 feathering）/ M3-2 復活ブラシ UI + post-process 接続 / M3-3 close docs
+  - Phase 3（deferred）: deep matting は package 追加が必要、 別 audit へ
+- **CEO 補正 厳守項目**:
+  - imageUrl 上書き禁止（cutout 系 4 field のみ更新）
+  - 復活ブラシは original image 参照
+  - post-process は radius/iter 小・feather 境界のみ・服を削らない
+  - post-process は **初期 auto cutout のみ** に適用（manual 編集後の再適用禁止）
+  - success 判定を無理に上げない
+  - 精度 100% 表記は別スライスで検討
+- **STOP 条件**: 復活で消しゴム破壊 / post-process で服削れ / manual 後再適用 / imageUrl 接触 / BackgroundRemover 大改修 / package 追加 / テスト退化
+- **次**: M3-1 pure helper + unit tests
+
+---
+
 ## [2026-06-01] [Build/Product] M2-0 既存 item 背景再処理 read-only audit 提出 [承認: CEO 指示で着手]
 
 CEO 次フェーズ指示「M2: 既存 item 再処理」を受け、 read-only audit + 実装分割案を提出。 既存 wardrobe item の cutout をユーザーが任意で個別再処理できるようにする設計。 コード変更なし（docs-only）。
