@@ -147,6 +147,16 @@ flag 方式: CEO 決定で **env（server-only）+ page.tsx prop 経由**（`PLA
 
 検証: 93 PASS ＋ 既存 PLAN_FLAGS/PlanClient 参照テスト 143 PASS（非回帰）。tsc baseline **1112 不変**（touched files にエラー 0）。本流は **featureFlags.ts / page.tsx / PlanClient.tsx の3つのみ**。flag OFF 分岐＝既存 AddAnchorModal の JSX 完全不変（`shouldUseComposeSheet(false)=false` を unit で固定）。`createAnchorBundle` 入力は A-4a converter 限定。日跨ぎは保存除外＋警告。**実保存→/plan 反映→リロード再現 と flag OFF/ON の実モーダル開閉は A-5 smoke**（SSR では内部 addOpen を設定不可）。
 
+### A-5 smoke — functional PASS（2026-06-01・UI fidelity 未達）
+
+CEO 実機確認で **functional smoke PASS**（flag ON で2カラムシート / 作成・配置・保存 / `/plan` 反映 `anchors_length:2` / 日跨ぎ除外）。closeout: `docs/alter-plan-add-anchor-timeline-a5-smoke-closeout.md`。
+
+- ⚠️ **「UI 完成 / 理想画像到達」ではない**。
+- hardening: 「日跨ぎのみ配置 → 完了」は **API 保存を走らせず警告のみ**を `planComposeSave`（pure）で固定（unit test 済）。compose+geometry **97 PASS**。
+- Phase A 実装（A-1〜A-4b）+ A-5 functional pass 完了。**Alter 補完（Phase B）据え置き**。flag 既定 false。
+
+→ **次フェーズ = UI fidelity polish**（Phase B ではない）: ①左タイムラインをコンパクト化（1日見渡し）②右/左の余白・比率 ③シートをスマホ内に収める ④カードの浮遊感 ⑤ドラッグ中カード+ゴースト ⑥完了ボタン位置/サイズ ⑦Alter 補完カードは出さない。
+
 ---
 
 ## 1. 体験の本質と「状態モデル」

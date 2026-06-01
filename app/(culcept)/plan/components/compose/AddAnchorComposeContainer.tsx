@@ -33,7 +33,7 @@ import {
   resolvePlacement,
   visualBlock,
 } from "@/lib/plan/compose/composeTimeResolver";
-import { placedDraftsToAnchorInputs } from "@/lib/plan/compose/composeToAnchorInput";
+import { planComposeSave } from "@/lib/plan/compose/composeToAnchorInput";
 import { createAnchorBundle } from "@/lib/plan/anchor-fetch";
 import {
   DEFAULT_WINDOW_START_MIN,
@@ -237,12 +237,13 @@ export function AddAnchorComposeContainer({
   }>({ status: "idle" });
 
   async function handleComplete() {
-    const { inputs, excluded } = placedDraftsToAnchorInputs(state.drafts, dateISO);
-    if (inputs.length === 0) {
+    const plan = planComposeSave(state.drafts, dateISO);
+    // 配置なし / 日跨ぎのみ等で保存対象が空 → API を呼ばず警告のみ（CEO 2026-06-01）
+    if (plan.kind === "nothing_to_save") {
       setSaveState({
         status: "error",
         message:
-          excluded.length > 0
+          plan.excluded.length > 0
             ? "保存できる予定がありません（日跨ぎ等は除外されます）"
             : "左のタイムラインに予定を配置してください",
       });
@@ -251,7 +252,7 @@ export function AddAnchorComposeContainer({
     setSaveState({ status: "saving" });
     const r = await createAnchorBundle({
       source: { sourceType: "manual" },
-      anchors: inputs,
+      anchors: plan.inputs,
     });
     if (r.ok) {
       setSaveState({ status: "idle" });

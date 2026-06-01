@@ -4,6 +4,7 @@ import type { ComposeDraftState } from "@/lib/plan/compose/composeDraft";
 import {
   DEFAULT_RIGIDITY,
   placedDraftsToAnchorInputs,
+  planComposeSave,
 } from "@/lib/plan/compose/composeToAnchorInput";
 
 const DATE = "2026-06-01";
@@ -131,6 +132,48 @@ describe("検証失敗・対象外", () => {
     );
     expect(excluded).toHaveLength(0);
     expect(inputs).toHaveLength(1);
+  });
+});
+
+describe("planComposeSave — 保存判断（API を呼ぶか）", () => {
+  it("日跨ぎのみ配置 → nothing_to_save（API 保存を走らせない・CEO 条件）", () => {
+    const plan = planComposeSave(
+      [placed("wrap", { startMin: 1410, endMin: 30, crossesMidnight: true })],
+      DATE,
+    );
+    expect(plan.kind).toBe("nothing_to_save");
+    if (plan.kind === "nothing_to_save") {
+      expect(plan.excluded.map((e) => e.id)).toEqual(["wrap"]);
+    }
+  });
+
+  it("配置なし（空）→ nothing_to_save", () => {
+    expect(planComposeSave([], DATE).kind).toBe("nothing_to_save");
+    expect(planComposeSave([unplaced("u1")], DATE).kind).toBe("nothing_to_save");
+  });
+
+  it("有効な placed あり → save（inputs を返す）", () => {
+    const plan = planComposeSave(
+      [placed("ok", { startMin: 900, endMin: 1020 })],
+      DATE,
+    );
+    expect(plan.kind).toBe("save");
+    if (plan.kind === "save") expect(plan.inputs).toHaveLength(1);
+  });
+
+  it("有効 + 日跨ぎ混在 → save（有効分のみ、wrap は excluded）", () => {
+    const plan = planComposeSave(
+      [
+        placed("ok", { startMin: 900, endMin: 1020 }),
+        placed("wrap", { startMin: 1410, endMin: 30, crossesMidnight: true }),
+      ],
+      DATE,
+    );
+    expect(plan.kind).toBe("save");
+    if (plan.kind === "save") {
+      expect(plan.inputs).toHaveLength(1);
+      expect(plan.excluded.map((e) => e.id)).toEqual(["wrap"]);
+    }
   });
 });
 

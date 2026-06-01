@@ -96,3 +96,29 @@ export function placedDraftsToAnchorInputs(
 
   return { inputs, excluded };
 }
+
+/**
+ * 保存判断（pure・副作用なし）。container の「完了」が createAnchorBundle を呼ぶ前に使う。
+ *
+ *   - inputs が空（= 配置なし or 日跨ぎ等で全除外）→ kind:"nothing_to_save"
+ *     → container は **API を呼ばず**警告 notice のみ（CEO 2026-06-01: 日跨ぎのみ配置 → 保存走らせない）
+ *   - inputs あり → kind:"save"（container が createAnchorBundle に inputs を渡す）
+ *
+ * これにより「保存すべきか」の判断を副作用（fetch）から分離し、単体テストで固定する。
+ */
+export type ComposeSavePlan =
+  | { kind: "nothing_to_save"; excluded: ComposeExcluded[] }
+  | {
+      kind: "save";
+      inputs: CreateExternalAnchorInput[];
+      excluded: ComposeExcluded[];
+    };
+
+export function planComposeSave(
+  drafts: ComposeDraftState[],
+  dateISO: string,
+): ComposeSavePlan {
+  const { inputs, excluded } = placedDraftsToAnchorInputs(drafts, dateISO);
+  if (inputs.length === 0) return { kind: "nothing_to_save", excluded };
+  return { kind: "save", inputs, excluded };
+}
