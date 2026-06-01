@@ -56,6 +56,7 @@ function baseDeps(
     year: 2025,
     month: 7,
     daysInMonth: 31,
+    mode: "split",
     generateCrops: async () => fakeCrops(),
     callAction: async () => ({
       ok: true,
@@ -126,6 +127,69 @@ describe("runDraftExtractionSubmit — invalid_selection（crops null）", () =>
     expect(outcome).toEqual({ kind: "invalid_selection" });
     expect(callAction).not.toHaveBeenCalled();
     expect(onActionStart).not.toHaveBeenCalled();
+  });
+});
+
+describe("runDraftExtractionSubmit — combined mode（9-FIX-2）", () => {
+  it("combined mode: generateCombined 経由で FormData に combined のみセット", async () => {
+    let captured: FormData | null = null;
+    const callAction = vi.fn(async (fd: FormData) => {
+      captured = fd;
+      return {
+        ok: true as const,
+        cells: CELLS,
+        chunkSummary: { perChunkCounts: [2] },
+      };
+    });
+    const outcome = await runDraftExtractionSubmit({
+      year: 2025,
+      month: 7,
+      daysInMonth: 31,
+      mode: "combined",
+      generateCombined: async () => ({
+        blob: new Blob(["combined"], { type: "image/png" }),
+      }),
+      callAction,
+    });
+    expect(outcome.kind).toBe("cells");
+    expect(captured).not.toBeNull();
+    const fd = captured as unknown as FormData;
+    expect(fd.get("combined")).toBeInstanceOf(Blob);
+    expect(fd.get("header")).toBeNull();
+    expect(fd.get("personRow")).toBeNull();
+    expect(fd.get("year")).toBe("2025");
+  });
+
+  it("combined mode + generateCombined が null → invalid_selection（callAction 未呼出）", async () => {
+    const callAction = vi.fn();
+    const outcome = await runDraftExtractionSubmit({
+      year: 2025,
+      month: 7,
+      daysInMonth: 31,
+      mode: "combined",
+      generateCombined: async () => null,
+      callAction: callAction as unknown as () => Promise<never>,
+    });
+    expect(outcome.kind).toBe("invalid_selection");
+    expect(callAction).not.toHaveBeenCalled();
+  });
+
+  it("split mode: generateCrops 経由で FormData に header/personRow のみセット（combined なし）", async () => {
+    let captured: FormData | null = null;
+    const callAction = vi.fn(async (fd: FormData) => {
+      captured = fd;
+      return {
+        ok: true as const,
+        cells: CELLS,
+        chunkSummary: { perChunkCounts: [2] },
+      };
+    });
+    const outcome = await runDraftExtractionSubmit(baseDeps({ callAction }));
+    expect(outcome.kind).toBe("cells");
+    const fd = captured as unknown as FormData;
+    expect(fd.get("header")).toBeInstanceOf(Blob);
+    expect(fd.get("personRow")).toBeInstanceOf(Blob);
+    expect(fd.get("combined")).toBeNull();
   });
 });
 

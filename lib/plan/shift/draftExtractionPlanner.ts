@@ -12,7 +12,13 @@
  *   - testは Blob を作らずに完結する。
  */
 
-import { buildHardenedDayKeyedPrompt } from "./hardenedDayKeyedPrompt";
+import {
+  buildHardenedCombinedDayKeyedPrompt,
+  buildHardenedDayKeyedPrompt,
+} from "./hardenedDayKeyedPrompt";
+
+/** VLM 画像入力モード（feature flag PLAN_SHIFT_VLM_INPUT_MODE 由来）。 */
+export type VlmInputMode = "split" | "combined";
 
 /** chunk 1 区間 [from, to]（両端含む・1-based dayNumber）。 */
 export interface ChunkRange {
@@ -45,6 +51,13 @@ export interface DraftExtractionPlanInput {
   chunkBoundaries?: number[];
   /** 任意: 本人名（prompt の対象指定に使う）。 */
   personName?: string;
+  /**
+   * 任意: VLM 画像入力モード（既定 "split"）。
+   *   - "split": 旧経路（header + personRow 2 枚）。既存 prompt。
+   *   - "combined": 新経路（上下結合 1 枚）。combined prompt（上下2段/同一縦列/前詰め禁止）。
+   * **画像本体は plan に含めない**（pure 維持）。実画像は runtime が運ぶ。
+   */
+  vlmInputMode?: VlmInputMode;
 }
 
 /** planner の出力。Blob/画像は一切含まない。 */
@@ -52,6 +65,8 @@ export interface DraftExtractionPlan {
   year: number;
   month: number;
   daysInMonth: number;
+  /** mode（runtime が adapter に投げる際の image 構造を切り替える）。既定 "split"。 */
+  vlmInputMode: VlmInputMode;
   chunks: DraftExtractionChunkPlan[];
 }
 
@@ -101,14 +116,26 @@ export function buildChunkRanges(
 export function planDraftExtraction(
   input: DraftExtractionPlanInput
 ): DraftExtractionPlan {
-  const { year, month, daysInMonth, knownCodes, chunkBoundaries, personName } = input;
+  const {
+    year,
+    month,
+    daysInMonth,
+    knownCodes,
+    chunkBoundaries,
+    personName,
+    vlmInputMode = "split",
+  } = input;
   if (!Number.isFinite(daysInMonth) || daysInMonth < 1) {
-    return { year, month, daysInMonth, chunks: [] };
+    return { year, month, daysInMonth, vlmInputMode, chunks: [] };
   }
   const ranges = buildChunkRanges(daysInMonth, chunkBoundaries);
+  const promptBuilder =
+    vlmInputMode === "combined"
+      ? buildHardenedCombinedDayKeyedPrompt
+      : buildHardenedDayKeyedPrompt;
   const chunks: DraftExtractionChunkPlan[] = ranges.map((r) => ({
     dayRange: r,
-    prompt: buildHardenedDayKeyedPrompt({
+    prompt: promptBuilder({
       year,
       month,
       daysInMonth,
@@ -117,5 +144,5 @@ export function planDraftExtraction(
       ...(personName ? { personName } : {}),
     }),
   }));
-  return { year, month, daysInMonth, chunks };
+  return { year, month, daysInMonth, vlmInputMode, chunks };
 }

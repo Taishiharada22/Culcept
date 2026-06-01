@@ -60,6 +60,43 @@ describe("planCombinedDraftImage", () => {
   });
 });
 
+describe("planCombinedDraftImage — 9-FIX-2 upscale + gridline", () => {
+  it("既定（minWidth 未指定）→ scale=1（upscale なし）/ gridline=false", () => {
+    const plan = planCombinedDraftImage(VALID)!;
+    expect(plan.scale).toBe(1);
+    expect(plan.gridline).toBe(false);
+    expect(plan.combinedWidth).toBe(1860);
+    expect(plan.combinedHeight).toBe(100);
+  });
+
+  it("minWidth=1500 で元画像 1860 → 既に十分 → scale=1（upscale なし）", () => {
+    const plan = planCombinedDraftImage(VALID, { minWidth: 1500 })!;
+    expect(plan.scale).toBe(1);
+    expect(plan.combinedWidth).toBe(1860);
+  });
+
+  it("minWidth=2000 で元画像 1860 → 不足 → scale=2（2x upscale）", () => {
+    const plan = planCombinedDraftImage(VALID, { minWidth: 2000 })!;
+    expect(plan.scale).toBe(2);
+    expect(plan.combinedWidth).toBe(1860 * 2);
+    expect(plan.combinedHeight).toBe(100 * 2);
+    expect(plan.headerDest).toEqual({ left: 0, top: 0, width: 3720, height: 80 });
+    expect(plan.personRowDest).toEqual({ left: 0, top: 80, width: 3720, height: 120 });
+  });
+
+  it("gridline=true → 上下段境界 midlineY が描画位置", () => {
+    const plan = planCombinedDraftImage(VALID, { gridline: true })!;
+    expect(plan.gridline).toBe(true);
+    expect(plan.midlineY).toBe(40); // = scaledHeaderHeight
+  });
+
+  it("CEO 補正: 3x は初期不採用（minWidth ≫ baseWidth でも scale=2 まで）", () => {
+    const plan = planCombinedDraftImage(VALID, { minWidth: 99999 })!;
+    expect(plan.scale).toBe(2);
+    expect(plan.scale).not.toBe(3);
+  });
+});
+
 describe("generateCombinedDraftImage（fake adapter）", () => {
   const fakeImage = {} as unknown as HTMLImageElement;
 

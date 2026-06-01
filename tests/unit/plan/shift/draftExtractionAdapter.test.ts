@@ -58,7 +58,7 @@ describe("runDraftExtraction — 正常系", () => {
   it("chunk を plan 順で直列実行し、merge 後 1..N の cells を返す", async () => {
     const { adapter, calls } = makeAdapter((i, input) => perfectChunk(i, input));
     const r = await runDraftExtraction(
-      { plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON },
+      { plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON },
       adapter
     );
     // chunk 数 + 直列性（calls の数と順序）
@@ -73,20 +73,22 @@ describe("runDraftExtraction — 正常系", () => {
   it("adapter に prompt / dayRange / daysInMonth / 両 Blob が渡る", async () => {
     const { adapter, calls } = makeAdapter((i, input) => perfectChunk(i, input));
     await runDraftExtraction(
-      { plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON },
+      { plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON },
       adapter
     );
-    expect(calls[0].headerBlob).toBe(HEADER);
-    expect(calls[0].personRowBlob).toBe(PERSON);
-    expect(calls[0].daysInMonth).toBe(30);
-    expect(typeof calls[0].prompt).toBe("string");
-    expect(calls[0].prompt.length).toBeGreaterThan(0);
+    const c0 = calls[0];
+    if (c0.mode !== "split") throw new Error("expected split mode");
+    expect(c0.headerBlob).toBe(HEADER);
+    expect(c0.personRowBlob).toBe(PERSON);
+    expect(c0.daysInMonth).toBe(30);
+    expect(typeof c0.prompt).toBe("string");
+    expect(c0.prompt.length).toBeGreaterThan(0);
   });
 
   it("output に Blob / base64 / dataURL / raw response が出ない", async () => {
     const { adapter } = makeAdapter((i, input) => perfectChunk(i, input));
     const r = await runDraftExtraction(
-      { plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON },
+      { plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON },
       adapter
     );
     const json = JSON.stringify({ cells: r.cells, perChunkCounts: r.perChunkCounts });
@@ -102,7 +104,7 @@ describe("runDraftExtraction — fail-hard（no repair）", () => {
       return base;
     });
     await expect(
-      runDraftExtraction({ plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON }, adapter)
+      runDraftExtraction({ plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON }, adapter)
     ).rejects.toMatchObject({
       name: "DraftExtractionError",
       kind: "chunk_range_violation",
@@ -120,7 +122,7 @@ describe("runDraftExtraction — fail-hard（no repair）", () => {
       return base;
     });
     const err = (await runDraftExtraction(
-      { plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON },
+      { plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON },
       adapter
     ).catch((e) => e)) as DraftExtractionError;
     expect(err).toBeInstanceOf(DraftExtractionError);
@@ -136,7 +138,7 @@ describe("runDraftExtraction — fail-hard（no repair）", () => {
       return base;
     });
     const err = (await runDraftExtraction(
-      { plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON },
+      { plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON },
       adapter
     ).catch((e) => e)) as DraftExtractionError;
     expect(err.kind).toBe("chunk_range_violation");
@@ -154,7 +156,7 @@ describe("runDraftExtraction — fail-hard（no repair）", () => {
       return base;
     });
     const err = (await runDraftExtraction(
-      { plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON },
+      { plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON },
       adapter
     ).catch((e) => e)) as DraftExtractionError;
     expect(err.kind).toBe("chunk_range_violation");
@@ -177,7 +179,7 @@ describe("runDraftExtraction — fail-hard（no repair）", () => {
       return [];
     });
     await expect(
-      runDraftExtraction({ plan: PLAN_30, headerBlob: HEADER, personRowBlob: PERSON }, adapter)
+      runDraftExtraction({ plan: PLAN_30, mode: "split" as const, headerBlob: HEADER, personRowBlob: PERSON }, adapter)
     ).rejects.toBe(boom);
     expect(calls).toHaveLength(1);
   });

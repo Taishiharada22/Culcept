@@ -78,6 +78,13 @@ export interface DevShiftDraftClientProps {
   defaultMonth?: number;
   /** VLM model 名（B1B_VLM_MODEL 由来）。debug summary 表示用。API key ではない。 */
   vlmModel?: string;
+  /**
+   * SR B1b-2C-9-FIX-2: VLM 画像入力モード（server-side env 由来）。
+   *   - "split"（既定）: header + personRow 2 枚で送る
+   *   - "combined": 上下結合 1 枚で送る（Z 案・Phase A FAIL 対策）
+   * 注: server action は env で再評価して FormData と照合（client は mode を主張しない）。
+   */
+  vlmInputMode?: "split" | "combined";
 }
 
 /** blob: ObjectURL から HTMLImageElement を decode（browser 専用・transient）。 */
@@ -160,6 +167,7 @@ export function DevShiftDraftClient({
   defaultYear,
   defaultMonth,
   vlmModel,
+  vlmInputMode = "split",
 }: DevShiftDraftClientProps = {}) {
   const [state, dispatch] = useReducer(devShiftDraftReducer, INITIAL_STATE);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -306,20 +314,40 @@ export function DevShiftDraftClient({
     const t0 = Date.now();
     let actionStarted = false;
     try {
-      const outcome = await runDraftExtractionSubmit({
+      // SR B1b-2C-9-FIX-2: mode で generate を切替（mode は server-side env 由来）。
+      const baseDeps = {
         year,
         month,
         daysInMonth: days,
-        generateCrops: async () => {
-          const img = await decodeImageElement(imageObjectUrl);
-          return generateAssistedCrops(img, selection);
-        },
         callAction: extractShiftDraftAction,
         onActionStart: () => {
           actionStarted = true;
           dispatch({ type: "extract_started", year, month });
         },
-      });
+      };
+      const outcome = await runDraftExtractionSubmit(
+        vlmInputMode === "combined"
+          ? {
+              ...baseDeps,
+              mode: "combined" as const,
+              generateCombined: async () => {
+                const img = await decodeImageElement(imageObjectUrl);
+                // Z 案: full-width combined / 2x upscale 既定（minWidth=1500 で薄い時のみ）
+                return generateCombinedDraftImage(img, selection, {
+                  minWidth: 1500,
+                  gridline: true,
+                });
+              },
+            }
+          : {
+              ...baseDeps,
+              mode: "split" as const,
+              generateCrops: async () => {
+                const img = await decodeImageElement(imageObjectUrl);
+                return generateAssistedCrops(img, selection);
+              },
+            }
+      );
       setLastElapsedMs(Date.now() - t0);
 
       if (outcome.kind === "invalid_selection") {

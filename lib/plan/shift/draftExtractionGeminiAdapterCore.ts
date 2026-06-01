@@ -133,19 +133,30 @@ export function createGeminiDraftExtractionAdapterCore(
       }
 
       // Blob → temporary base64（return / log / state / props に載せない）
-      let headerB64: string | null = await blobToBase64(input.headerBlob);
-      let personB64: string | null = await blobToBase64(input.personRowBlob);
+      // mode で parts 数を切り替える: combined=2 parts（text + 1 image）/ split=3 parts。
+      let imageParts: Array<{ inline_data: { mime_type: string; data: string } }> = [];
+      let b64A: string | null = null;
+      let b64B: string | null = null;
+      if (input.mode === "combined") {
+        b64A = await blobToBase64(input.combinedBlob);
+        imageParts = [
+          { inline_data: { mime_type: "image/png", data: b64A } },
+        ];
+      } else {
+        b64A = await blobToBase64(input.headerBlob);
+        b64B = await blobToBase64(input.personRowBlob);
+        imageParts = [
+          { inline_data: { mime_type: "image/png", data: b64A } },
+          { inline_data: { mime_type: "image/png", data: b64B } },
+        ];
+      }
 
       // body を組み立てたら base64 参照を切る（GC ヒント。完全消去保証ではない）
       const body = JSON.stringify({
         contents: [
           {
             role: "user",
-            parts: [
-              { text: input.prompt },
-              { inline_data: { mime_type: "image/png", data: headerB64 } },
-              { inline_data: { mime_type: "image/png", data: personB64 } },
-            ],
+            parts: [{ text: input.prompt }, ...imageParts],
           },
         ],
         generationConfig: {
@@ -154,8 +165,9 @@ export function createGeminiDraftExtractionAdapterCore(
           responseMimeType: "application/json",
         },
       });
-      headerB64 = null;
-      personB64 = null;
+      imageParts = [];
+      b64A = null;
+      b64B = null;
 
       // API key は URL に乗せず header に置く（URL ログ漏洩リスク回避）
       const url = `${GEMINI_ENDPOINT_BASE}/${encodeURIComponent(config.model)}:generateContent`;

@@ -125,4 +125,24 @@ export const PLAN_FLAGS = {
    * 本番 ON は別 patch（= CEO 判断経由、default false で merge）。
    */
   shiftImportSave: process.env.PLAN_SHIFT_IMPORT_SAVE === "true",
+
+  /**
+   * SR B1b-2C-9-FIX-2: VLM への画像入力形式（split / combined）。
+   *
+   *   - "split"（既定）: 旧経路。headerBlob + personRowBlob の **2 枚** を VLM に投げる。
+   *     既存 staging smoke / 旧 prompt と互換。
+   *   - "combined": 日付ヘッダ + 本人行を **同 X 軸で上下結合した 1 枚** を VLM に投げる。
+   *     Phase A FAIL（2026-06-01 column registration drift）対策。chunk は 1-15/16-31 を
+   *     同じ combined 画像 + 違う chunk-prompt で 2 回投げる（Z 案）。
+   *
+   * env: PLAN_SHIFT_VLM_INPUT_MODE=combined で combined 経路。未設定/その他値 → split。
+   * **server-side only**（NEXT_PUBLIC_ なし）。production 既定は split（CEO 別承認で切替）。
+   *
+   * 注: client は env を直接読まない。page.tsx（server）が解決して props で流す。
+   *      server action（extractShiftDraftAction）が env を再評価して FormData と照合
+   *      （client が mode を信用しない設計）。
+   */
+  vlmInputMode: (process.env.PLAN_SHIFT_VLM_INPUT_MODE === "combined"
+    ? "combined"
+    : "split") as "split" | "combined",
 } as const;

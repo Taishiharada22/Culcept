@@ -66,6 +66,13 @@ export interface ExtractShiftDraftEnv {
   geminiApiKey: string | undefined;
   /** B1B_VLM_MODEL */
   vlmModel: string | undefined;
+  /**
+   * SR B1b-2C-9-FIX-2: VLM 画像入力モード。
+   *   - "split"（既定）: 旧経路 header+personRow 2 枚
+   *   - "combined": 新経路 combined 1 枚
+   * **server-side only**（client が FormData に書いても信用せず、env で再評価）
+   */
+  vlmInputMode?: "split" | "combined";
 }
 
 /** adapter factory に渡す最小 config。timeout / retry は adapter 既定値を使う。 */
@@ -119,28 +126,47 @@ function fail(kind: ExtractShiftDraftErrorKind): ExtractShiftDraftFailure {
   return { ok: false, error: { kind, message: SAFE_MESSAGES[kind] } };
 }
 
-interface ParsedInput {
-  headerBlob: Blob;
-  personRowBlob: Blob;
-  year: number;
-  month: number;
-  daysInMonth: number;
+type ParsedInput =
+  | {
+      mode: "split";
+      headerBlob: Blob;
+      personRowBlob: Blob;
+      year: number;
+      month: number;
+      daysInMonth: number;
+    }
+  | {
+      mode: "combined";
+      combinedBlob: Blob;
+      year: number;
+      month: number;
+      daysInMonth: number;
+    };
+
+function isAcceptedBlob(b: unknown): b is Blob {
+  return (
+    b instanceof Blob &&
+    b.size > 0 &&
+    b.size <= MAX_FILE_SIZE &&
+    ACCEPTED_MIMES.has(b.type)
+  );
 }
 
-function parseFormData(formData: FormData): ParsedInput | null {
-  const headerFile = formData.get("header");
-  const personRowFile = formData.get("personRow");
-  if (!(headerFile instanceof Blob) || !(personRowFile instanceof Blob)) return null;
-  if (headerFile.size === 0 || personRowFile.size === 0) return null;
-  if (headerFile.size > MAX_FILE_SIZE || personRowFile.size > MAX_FILE_SIZE) return null;
-  if (!ACCEPTED_MIMES.has(headerFile.type) || !ACCEPTED_MIMES.has(personRowFile.type)) return null;
-
+/**
+ * SR B1b-2C-9-FIX-2: mode は **server 決定**。client が FormData に何を入れても、
+ *   parseFormData は server 側 mode で「期待する field のみ」を読む。**他 mode の field
+ *   が混入していたら invalid_input**（mixed input 禁止）。
+ */
+function parseFormData(
+  formData: FormData,
+  mode: "split" | "combined"
+): ParsedInput | null {
+  // metadata 共通
   const yearStr = formData.get("year");
   const monthStr = formData.get("month");
   const daysStr = formData.get("daysInMonth");
   if (typeof yearStr !== "string" || typeof monthStr !== "string" || typeof daysStr !== "string")
     return null;
-
   const year = Number(yearStr);
   const month = Number(monthStr);
   const daysInMonth = Number(daysStr);
@@ -148,7 +174,27 @@ function parseFormData(formData: FormData): ParsedInput | null {
   if (!Number.isInteger(month) || month < 1 || month > 12) return null;
   if (!Number.isInteger(daysInMonth) || daysInMonth < 28 || daysInMonth > 31) return null;
 
-  return { headerBlob: headerFile, personRowBlob: personRowFile, year, month, daysInMonth };
+  if (mode === "combined") {
+    const combinedFile = formData.get("combined");
+    if (!isAcceptedBlob(combinedFile)) return null;
+    // mixed input 禁止: split mode の field が紛れていたら拒否
+    if (formData.get("header") != null || formData.get("personRow") != null) return null;
+    return { mode: "combined", combinedBlob: combinedFile, year, month, daysInMonth };
+  }
+  // split mode
+  const headerFile = formData.get("header");
+  const personRowFile = formData.get("personRow");
+  if (!isAcceptedBlob(headerFile) || !isAcceptedBlob(personRowFile)) return null;
+  // mixed input 禁止: combined field が紛れていたら拒否
+  if (formData.get("combined") != null) return null;
+  return {
+    mode: "split",
+    headerBlob: headerFile,
+    personRowBlob: personRowFile,
+    year,
+    month,
+    daysInMonth,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -190,29 +236,37 @@ export async function runExtractShiftDraft(
     return fail("unauthenticated");
   }
 
-  // ── ⑤ FormData 検証（mime/size/metadata）──
-  const parsed = parseFormData(formData);
+  // ── ⑤ mode 決定（server-side env で再評価。client は信用しない）──
+  const vlmInputMode: "split" | "combined" =
+    deps.env.vlmInputMode === "combined" ? "combined" : "split";
+
+  // ── ⑥ FormData 検証（mime/size/metadata + mode 別 field + mixed input 禁止）──
+  const parsed = parseFormData(formData, vlmInputMode);
   if (parsed === null) return fail("invalid_input");
 
-  // ── ⑥ plan（pure・Blob 非依存）──
+  // ── ⑦ plan（pure・Blob 非依存・mode 込みで prompt 切替）──
   const plan = planDraftExtraction({
     year: parsed.year,
     month: parsed.month,
     daysInMonth: parsed.daysInMonth,
     knownCodes: KNOWN_CODES,
+    vlmInputMode,
   });
 
-  // ── ⑦ adapter 生成（cost 発生入口・全 gate 通過後にのみ） ──
+  // ── ⑧ adapter 生成（cost 発生入口・全 gate 通過後にのみ） ──
   const adapter = deps.createAdapter({ apiKey, model });
 
-  // ── ⑧ runtime（fail-hard）+ cells 変換 + safe error mapping ──
+  // ── ⑨ runtime（fail-hard）+ cells 変換 + safe error mapping ──
   try {
     const { cells, perChunkCounts } = await runDraftExtraction(
-      {
-        plan,
-        headerBlob: parsed.headerBlob,
-        personRowBlob: parsed.personRowBlob,
-      },
+      parsed.mode === "combined"
+        ? { plan, mode: "combined", combinedBlob: parsed.combinedBlob }
+        : {
+            plan,
+            mode: "split",
+            headerBlob: parsed.headerBlob,
+            personRowBlob: parsed.personRowBlob,
+          },
       adapter
     );
     const reviewCells = assistedDraftToShiftReviewCells(cells, {

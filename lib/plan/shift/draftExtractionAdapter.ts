@@ -30,13 +30,27 @@ import type { DraftExtractionPlan } from "./draftExtractionPlanner";
 // adapter contract（VLM 呼出は default 実装にのみ存在・本 module は型のみ）
 // ─────────────────────────────────────────────────────────────
 
-/** 1 chunk 分の adapter 入力。Blob は adapter 層のみで扱う。 */
-export interface DraftExtractionChunkInput {
+/** 1 chunk 分の adapter 入力（mode discriminated union）。Blob は adapter 層のみで扱う。 */
+export type DraftExtractionChunkInput =
+  | DraftExtractionChunkInputSplit
+  | DraftExtractionChunkInputCombined;
+
+/** split mode（既存・header + personRow の 2 枚を VLM に投げる）。 */
+export interface DraftExtractionChunkInputSplit {
+  mode: "split";
   headerBlob: Blob;
   personRowBlob: Blob;
   prompt: string;
   daysInMonth: number;
-  /** 両端含む 1-based dayNumber 範囲。 */
+  dayRange: { from: number; to: number };
+}
+
+/** combined mode（SR B1b-2C-9-FIX-2・上下結合 1 枚を VLM に投げる）。 */
+export interface DraftExtractionChunkInputCombined {
+  mode: "combined";
+  combinedBlob: Blob;
+  prompt: string;
+  daysInMonth: number;
   dayRange: { from: number; to: number };
 }
 
@@ -87,10 +101,22 @@ export class DraftExtractionError extends Error {
 // runtime orchestrator
 // ─────────────────────────────────────────────────────────────
 
-export interface RunDraftExtractionInput {
+/** runtime 入力。mode に応じて画像 field が変わる。 */
+export type RunDraftExtractionInput =
+  | RunDraftExtractionInputSplit
+  | RunDraftExtractionInputCombined;
+
+export interface RunDraftExtractionInputSplit {
   plan: DraftExtractionPlan;
+  mode: "split";
   headerBlob: Blob;
   personRowBlob: Blob;
+}
+
+export interface RunDraftExtractionInputCombined {
+  plan: DraftExtractionPlan;
+  mode: "combined";
+  combinedBlob: Blob;
 }
 
 export interface RunDraftExtractionResult {
@@ -156,19 +182,43 @@ export async function runDraftExtraction(
   input: RunDraftExtractionInput,
   adapter: DraftExtractionAdapter
 ): Promise<RunDraftExtractionResult> {
-  const { plan, headerBlob, personRowBlob } = input;
+  const { plan } = input;
+
+  // mode 一貫性チェック（plan と runtime input の mode が一致していること）。
+  // server がここに到達する前に env で plan.vlmInputMode を決め、同じ env を見て
+  // runtime input を作るため、ここで mismatch は host バグ → unknown。
+  if (plan.vlmInputMode !== input.mode) {
+    throw new DraftExtractionError(
+      "unknown",
+      "読み取りに失敗しました。原稿をご確認の上もう一度お試しください。"
+    );
+  }
+
   const merged = new Map<number, DayKeyedShiftCell>();
   const perChunkCounts: number[] = [];
 
   for (let i = 0; i < plan.chunks.length; i++) {
     const chunk = plan.chunks[i];
-    const cells = await adapter.extractChunk({
-      headerBlob,
-      personRowBlob,
-      prompt: chunk.prompt,
-      daysInMonth: plan.daysInMonth,
-      dayRange: chunk.dayRange,
-    });
+    // mode に応じた chunk input を組み立てる。combined は同じ 1 枚を毎 chunk で使う
+    // （Z 案: 画像 1 枚 + 違う chunk-prompt で 2 回呼ぶ）。split は header + person を毎回。
+    const chunkInput: DraftExtractionChunkInput =
+      input.mode === "combined"
+        ? {
+            mode: "combined",
+            combinedBlob: input.combinedBlob,
+            prompt: chunk.prompt,
+            daysInMonth: plan.daysInMonth,
+            dayRange: chunk.dayRange,
+          }
+        : {
+            mode: "split",
+            headerBlob: input.headerBlob,
+            personRowBlob: input.personRowBlob,
+            prompt: chunk.prompt,
+            daysInMonth: plan.daysInMonth,
+            dayRange: chunk.dayRange,
+          };
+    const cells = await adapter.extractChunk(chunkInput);
     validateChunkOutput(cells, chunk.dayRange, i);
     perChunkCounts.push(cells.length);
     for (const c of cells) {

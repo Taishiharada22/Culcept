@@ -51,6 +51,9 @@ export default async function DevShiftDraftPage() {
   // defaultYear/defaultMonth は現在月（force-dynamic のため request 時に評価）。
   // client は targetMonth state に prefill し、過去月/来月の表に変更可能（CEO 補正1）。
   const now = new Date();
+  // SR B1b-2C-9-FIX-2: server-side env で VLM 入力モード判定（client から信用しない）
+  const vlmInputMode: "split" | "combined" =
+    process.env.PLAN_SHIFT_VLM_INPUT_MODE === "combined" ? "combined" : "split";
   return (
     <DevShiftDraftClient
       saveEnabled={isShiftImportSaveEnabled()}
@@ -58,6 +61,7 @@ export default async function DevShiftDraftPage() {
       defaultMonth={now.getMonth() + 1}
       // 9-FIX: debug summary 表示用の model 名（B1B_VLM_MODEL）。API key ではない。
       vlmModel={process.env.B1B_VLM_MODEL}
+      vlmInputMode={vlmInputMode}
     />
   );
 }

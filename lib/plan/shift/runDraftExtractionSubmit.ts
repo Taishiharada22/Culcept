@@ -32,12 +32,24 @@ export interface DraftExtractionSubmitDeps {
   /** 当月日数（targetYear/month から再計算済）。 */
   daysInMonth: number;
   /**
-   * decode 済 image に束縛された crop 生成 thunk。
-   * - 実 component: `() => generateAssistedCrops(decodedImage, selection)`
-   * - test: fake（Blob 2 枚 / null を返す）
-   * - invalid selection は **null**（throw しない）。
+   * SR B1b-2C-9-FIX-2: VLM 画像入力モード。
+   *   - "split"（既定）: generateCrops の戻り（header + personRow）を 2 field で送る
+   *   - "combined": generateCombined の戻り（combined）を 1 field で送る
+   * **mode は server-side env 由来**（page.tsx 経由で client に渡る）。client は
+   * このモードに従って FormData を組み立てるが、**server 側で env から再評価**して
+   * 不一致なら invalid_input（client から mode を信用しない設計）。
    */
-  generateCrops: () => Promise<AssistedCropOutput | null>;
+  mode: "split" | "combined";
+  /**
+   * split mode 用: decode 済 image に束縛された 2 枚 crop 生成 thunk。
+   * combined mode では使わない（null 不要）。
+   */
+  generateCrops?: () => Promise<AssistedCropOutput | null>;
+  /**
+   * combined mode 用: decode 済 image に束縛された 1 枚 combined 生成 thunk。
+   * split mode では使わない。
+   */
+  generateCombined?: () => Promise<{ blob: Blob } | null>;
   /**
    * server action（DI seam）。
    * - 実 component: extractShiftDraftAction
@@ -66,23 +78,30 @@ export type DraftExtractionSubmitOutcome =
 export async function runDraftExtractionSubmit(
   deps: DraftExtractionSubmitDeps
 ): Promise<DraftExtractionSubmitOutcome> {
-  // ① crop 生成（invalid selection は null → action 未呼出）
-  const crops = await deps.generateCrops();
-  if (!crops) return { kind: "invalid_selection" };
-
-  // ② FormData（submit 内だけで作る・base64 化しない）
+  // ① crop 生成（mode 別・invalid selection は null → action 未呼出）
   const formData = new FormData();
-  formData.set("header", crops.header.blob);
-  formData.set("personRow", crops.personRow.blob);
   formData.set("year", String(deps.year));
   formData.set("month", String(deps.month));
   formData.set("daysInMonth", String(deps.daysInMonth));
 
-  // ③ extracting 合図 → action（VLM cost 入口・DI seam）
+  if (deps.mode === "combined") {
+    if (!deps.generateCombined) return { kind: "invalid_selection" };
+    const combined = await deps.generateCombined();
+    if (!combined) return { kind: "invalid_selection" };
+    formData.set("combined", combined.blob);
+  } else {
+    if (!deps.generateCrops) return { kind: "invalid_selection" };
+    const crops = await deps.generateCrops();
+    if (!crops) return { kind: "invalid_selection" };
+    formData.set("header", crops.header.blob);
+    formData.set("personRow", crops.personRow.blob);
+  }
+
+  // ② extracting 合図 → action（VLM cost 入口・DI seam）
   deps.onActionStart?.();
   const result = await deps.callAction(formData);
 
-  // ④ outcome 変換（raw / base64 を載せない）
+  // ③ outcome 変換（raw / base64 を載せない）
   if (result.ok) {
     return { kind: "cells", cells: result.cells, year: deps.year, month: deps.month };
   }

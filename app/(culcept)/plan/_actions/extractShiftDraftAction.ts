@@ -40,6 +40,11 @@ export async function extractShiftDraftAction(
         process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
       geminiApiKey: process.env.GEMINI_API_KEY,
       vlmModel: process.env.B1B_VLM_MODEL,
+      // SR B1b-2C-9-FIX-2: server-side mode 判定（client から信用しない）
+      vlmInputMode:
+        process.env.PLAN_SHIFT_VLM_INPUT_MODE === "combined"
+          ? "combined"
+          : "split",
     },
     stagingRef: STAGING_PROJECT_REF,
     productionRef: PRODUCTION_PROJECT_REF,

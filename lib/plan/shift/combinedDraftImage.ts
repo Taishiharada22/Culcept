@@ -32,18 +32,24 @@ import { DEFAULT_CROP_MIME } from "./assistedCropGenerator";
 
 /** 結合画像の計画（pure・実描画なし）。 */
 export interface CombinedDraftPlan {
-  /** 結合キャンバス幅（= 両帯の最大幅 = imageW）。 */
+  /** 結合キャンバス幅（= 両帯の最大幅 × scale）。 */
   combinedWidth: number;
-  /** 結合キャンバス高さ（= headerHeight + personRowHeight）。 */
+  /** 結合キャンバス高さ（=（headerHeight + personRowHeight）× scale）。 */
   combinedHeight: number;
-  /** 元画像から切り出す header 矩形。 */
+  /** 元画像から切り出す header 矩形（元画像座標）。 */
   headerRegion: CropRegionPx;
-  /** 元画像から切り出す personRow 矩形。 */
+  /** 元画像から切り出す personRow 矩形（元画像座標）。 */
   personRowRegion: CropRegionPx;
-  /** 結合キャンバス内の header 描画先（上段）。 */
+  /** 結合キャンバス内の header 描画先（上段・scale 適用後座標）。 */
   headerDest: CropRegionPx;
-  /** 結合キャンバス内の personRow 描画先（下段）。 */
+  /** 結合キャンバス内の personRow 描画先（下段・scale 適用後座標）。 */
   personRowDest: CropRegionPx;
+  /** 上下段の境界 y（scale 適用後・薄ガイド描画位置）。 */
+  midlineY: number;
+  /** SR B1b-2C-9-FIX-2: scale 倍率（1 = upscale なし / 2 = 2x）。 */
+  scale: number;
+  /** SR B1b-2C-9-FIX-2: 薄い上下段境界ガイドを描画するか。 */
+  gridline: boolean;
   mimeType: SupportedCropMime;
   quality?: number;
 }
@@ -51,6 +57,13 @@ export interface CombinedDraftPlan {
 export interface PlanCombinedDraftOptions {
   mimeType?: SupportedCropMime;
   quality?: number;
+  /**
+   * SR B1b-2C-9-FIX-2: target 最小幅（px）。元画像幅がこの値未満なら自動 2x upscale。
+   *   既定 0（upscale なし＝既存挙動）。**3x 以上は CEO 指示で初期不採用**。
+   */
+  minWidth?: number;
+  /** SR B1b-2C-9-FIX-2: 薄い上下段境界ガイドを描画するか。既定 false。 */
+  gridline?: boolean;
 }
 
 /**
@@ -66,23 +79,37 @@ export function planCombinedDraftImage(
   const regions = computeCropRegions(selection);
   if (!regions) return null;
 
-  const width = Math.max(regions.header.width, regions.personRow.width);
+  const baseWidth = Math.max(regions.header.width, regions.personRow.width);
   const headerHeight = regions.header.height;
   const personRowHeight = regions.personRow.height;
 
+  // SR B1b-2C-9-FIX-2: minWidth 指定時は 2x upscale を自動採用（3x は初期不採用）。
+  //   - 元画像幅が minWidth 以上 → scale=1（upscale なし）
+  //   - 未満 → scale=2 で文字・罫線が潰れないように
+  const minWidth = options?.minWidth ?? 0;
+  const scale = minWidth > 0 && baseWidth < minWidth ? 2 : 1;
+
+  const combinedWidth = baseWidth * scale;
+  const scaledHeaderHeight = headerHeight * scale;
+  const scaledPersonHeight = personRowHeight * scale;
+  const combinedHeight = scaledHeaderHeight + scaledPersonHeight;
+
   const mimeType = options?.mimeType ?? DEFAULT_CROP_MIME;
   const plan: CombinedDraftPlan = {
-    combinedWidth: width,
-    combinedHeight: headerHeight + personRowHeight,
+    combinedWidth,
+    combinedHeight,
     headerRegion: regions.header,
     personRowRegion: regions.personRow,
-    headerDest: { left: 0, top: 0, width, height: headerHeight },
+    headerDest: { left: 0, top: 0, width: combinedWidth, height: scaledHeaderHeight },
     personRowDest: {
       left: 0,
-      top: headerHeight,
-      width,
-      height: personRowHeight,
+      top: scaledHeaderHeight,
+      width: combinedWidth,
+      height: scaledPersonHeight,
     },
+    midlineY: scaledHeaderHeight,
+    scale,
+    gridline: options?.gridline ?? false,
     mimeType,
   };
   if (mimeType === "image/jpeg" && typeof options?.quality === "number") {
@@ -129,6 +156,11 @@ export const DefaultCombinedCanvasAdapter: CombinedCanvasAdapter = {
         Math.max(1, Math.round(plan.personRowDest.width)),
         Math.max(1, Math.round(plan.personRowDest.height))
       );
+      // SR B1b-2C-9-FIX-2: 薄い上下段境界ガイド（過剰修飾禁止・rgba(0,0,0,0.15) 1px）
+      if (plan.gridline) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+        ctx.fillRect(0, Math.round(plan.midlineY), w, 1);
+      }
     };
 
     if (typeof OffscreenCanvas !== "undefined") {

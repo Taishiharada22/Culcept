@@ -29,8 +29,16 @@ const fakeBlob = (data: string): Blob =>
 const HEADER = fakeBlob("HEADER_BYTES");
 const PERSON = fakeBlob("PERSON_BYTES");
 const CHUNK = {
+  mode: "split" as const,
   headerBlob: HEADER,
   personRowBlob: PERSON,
+  prompt: "test prompt content",
+  daysInMonth: 30,
+  dayRange: { from: 1, to: 15 },
+};
+const CHUNK_COMBINED = {
+  mode: "combined" as const,
+  combinedBlob: fakeBlob("COMBINED_BYTES"),
   prompt: "test prompt content",
   daysInMonth: 30,
   dayRange: { from: 1, to: 15 },

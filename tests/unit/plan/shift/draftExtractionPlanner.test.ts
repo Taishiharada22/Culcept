@@ -87,4 +87,31 @@ describe("planDraftExtraction", () => {
     const json = JSON.stringify(p);
     expect(json).not.toMatch(/blob:|data:image|base64|Blob|dataUri|dataURL/i);
   });
+
+  // ── SR B1b-2C-9-FIX-2: mode 別 prompt 切替 ──
+  it("vlmInputMode 未指定 → 既定 split / split prompt が組まれる", () => {
+    const p = planDraftExtraction(baseInput);
+    expect(p.vlmInputMode).toBe("split");
+    // split prompt は combined 専用文言を含まない
+    expect(p.chunks[0].prompt).not.toContain("上下 2 段");
+    expect(p.chunks[0].prompt).not.toContain("前詰めしない");
+  });
+
+  it("vlmInputMode='combined' → combined prompt が組まれる（上下2段 / 同一縦列 / 前詰め禁止 / 空欄保持）", () => {
+    const p = planDraftExtraction({ ...baseInput, vlmInputMode: "combined" });
+    expect(p.vlmInputMode).toBe("combined");
+    for (const c of p.chunks) {
+      expect(c.prompt).toContain("上下 2 段");
+      expect(c.prompt).toContain("同じ縦列が同じ日付に対応");
+      expect(c.prompt).toContain("前詰めしない");
+      expect(c.prompt).toContain("空欄として出力");
+      expect(c.prompt).toContain("chunk 範囲外");
+    }
+  });
+
+  it("vlmInputMode='split' → 既存 split prompt を維持（互換）", () => {
+    const p = planDraftExtraction({ ...baseInput, vlmInputMode: "split" });
+    expect(p.vlmInputMode).toBe("split");
+    expect(p.chunks[0].prompt).not.toContain("上下 2 段");
+  });
 });
