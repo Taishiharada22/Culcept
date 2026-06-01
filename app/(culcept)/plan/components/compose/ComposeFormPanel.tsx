@@ -152,6 +152,17 @@ export function ComposeFormPanel({
             )}
           </div>
         )}
+        {time.mode === "both" &&
+          time.startMin != null &&
+          time.endMin != null &&
+          time.endMin > time.startMin && (
+            <p
+              data-testid="compose-field-duration"
+              className="mt-1.5 text-[11px] text-slate-400"
+            >
+              所要 {formatDurationLabel(time.endMin - time.startMin)}
+            </p>
+          )}
       </Question>
 
       {/* 動かせなさ（既存 RIGIDITY_OPTIONS 再利用＝静的データ） */}
@@ -182,6 +193,15 @@ export function ComposeFormPanel({
       </Question>
     </div>
   );
+}
+
+/** 所要時間（分）→ 表示ラベル（読み取り専用・開始＋終了から自動算出）。 */
+function formatDurationLabel(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}分`;
+  if (m === 0) return `${h}時間`;
+  return `${h}時間${m}分`;
 }
 
 function Question({

@@ -144,7 +144,7 @@ export function DayTimelineCanvas({
                 "group absolute inset-x-0 overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
                 (isExisting
                   ? "border-slate-200/80 bg-white/85 text-slate-500"
-                  : "border-indigo-200 bg-indigo-100 text-indigo-700")
+                  : "border-indigo-300 bg-indigo-200 text-indigo-800")
               }
               style={{ top, height }}
             >

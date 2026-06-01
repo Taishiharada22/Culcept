@@ -148,12 +148,12 @@ export function AddAnchorComposeSheet({
         </div>
 
         {/* 2カラム（常時左右。左=俯瞰タイムライン / 右=作成パネル）— 理想画像準拠 */}
-        <div className="flex gap-3">
-          {/* 左: 俯瞰タイムライン（コンパクト・1日俯瞰） */}
+        <div className="flex gap-2">
+          {/* 左: 俯瞰タイムライン（コンパクト・1日俯瞰。max-w で右フォーム潰れ回避） */}
           <div
             ref={timelineRef}
             data-testid="compose-timeline-col"
-            className="w-[40%] shrink-0"
+            className="w-[44%] max-w-[280px] shrink-0"
           >
             <DayTimelineCanvas
               blocks={blocks}
@@ -166,7 +166,7 @@ export function AddAnchorComposeSheet({
           {/* 右: スクロールするフォーム + 固定の完了（高さは左タイムラインと一致） */}
           <div
             data-testid="compose-form-col"
-            className="flex min-w-0 flex-1 flex-col"
+            className="flex min-w-0 flex-1 flex-col border-l border-slate-100 pl-3"
             style={{ height: TIMELINE_HEIGHT_PX }}
           >
             <div className="flex-1 space-y-3 overflow-y-auto pr-1">
