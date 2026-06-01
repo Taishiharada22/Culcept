@@ -92,10 +92,10 @@ export function DayTimelineCanvas({
         return (
           <div key={m} className="absolute inset-x-0" style={{ top: y }}>
             <div className="flex items-start gap-1">
-              <span className="w-8 shrink-0 -translate-y-1.5 text-[9px] tabular-nums text-slate-400">
+              <span className="w-8 shrink-0 -translate-y-1.5 text-[9px] tabular-nums text-slate-300">
                 {formatMinutes(m)}
               </span>
-              <span className="mt-px h-px flex-1 bg-slate-200/60" />
+              <span className="mt-px h-px flex-1 bg-slate-200/45" />
             </div>
           </div>
         );
@@ -112,7 +112,7 @@ export function DayTimelineCanvas({
               "absolute inset-x-0 rounded-lg border-2 border-dashed px-2 py-0.5 text-[10px] leading-tight " +
               (ghost.invalid
                 ? "border-rose-300 bg-rose-50/70 text-rose-600"
-                : "border-indigo-400 bg-indigo-50/70 text-indigo-600")
+                : "border-violet-400 bg-violet-50/70 text-violet-600")
             }
             style={{
               top: minutesToY(ghost.startMin, vp),
@@ -143,8 +143,8 @@ export function DayTimelineCanvas({
               className={
                 "group absolute inset-x-0 overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
                 (isExisting
-                  ? "border-slate-200/80 bg-white/85 text-slate-500"
-                  : "border-indigo-300 bg-indigo-200 text-indigo-800")
+                  ? "border-slate-100 bg-white text-slate-500"
+                  : "border-violet-200 bg-violet-100 text-violet-700")
               }
               style={{ top, height }}
             >

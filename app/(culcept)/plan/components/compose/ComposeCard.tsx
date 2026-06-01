@@ -43,12 +43,12 @@ export function ComposeCard({ draft }: ComposeCardProps) {
       data-testid="compose-card"
       data-draft-id={draft.id}
       data-placed={placed ? "true" : "false"}
-      className="flex items-start gap-2 rounded-2xl border border-indigo-100 bg-white p-3 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-100/60"
+      className="flex items-start gap-2.5 rounded-2xl border border-violet-100 bg-violet-50 p-3 shadow-md shadow-violet-500/10"
     >
       {/* ドラッグハンドル（視覚のみ・A-3 で実装） */}
       <span
         aria-hidden="true"
-        className="mt-0.5 select-none text-slate-400"
+        className="mt-0.5 select-none text-violet-300"
         data-testid="compose-card-handle"
       >
         ⠿
@@ -62,7 +62,7 @@ export function ComposeCard({ draft }: ComposeCardProps) {
             {draft.core.locationText}
           </p>
         )}
-        <p className="mt-0.5 text-[11px] tabular-nums text-indigo-600">
+        <p className="mt-0.5 text-[11px] tabular-nums text-violet-600">
           {timeLabel(draft.time)}
         </p>
       </div>

@@ -196,7 +196,7 @@ export function AddAnchorComposeSheet({
             </div>
 
             {/* 完了（右下・full-width・purple で強く） */}
-            <div className="shrink-0 pt-2" data-testid="compose-complete-btn">
+            <div className="shrink-0 pt-3" data-testid="compose-complete-btn">
               <GlassButton
                 variant="primary"
                 fullWidth

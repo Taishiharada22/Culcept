@@ -201,7 +201,7 @@ export function AddAnchorComposeContainer({
       whileDrag={{
         scale: 1.05,
         zIndex: 60,
-        boxShadow: "0 18px 40px -12px rgba(99,102,241,0.55)",
+        boxShadow: "0 18px 42px -12px rgba(139,92,246,0.5)",
       }}
       onDrag={(e, info) => handleCardDrag(draft, e, info)}
       onDragEnd={(e, info) => handleCardDragEnd(draft, e, info)}

@@ -84,9 +84,9 @@ export function ComposeFormPanel({
         {/* A-0 補正: 候補表示領域の「枠」のみ。実検索接続は A-3 以降。 */}
         <div
           data-testid="compose-location-candidates-placeholder"
-          className="mt-1.5 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-3 py-2 text-[11px] text-slate-400"
+          className="mt-1 rounded-md border border-dashed border-slate-200/70 px-2.5 py-1 text-[10px] text-slate-300"
         >
-          場所の候補はここに表示されます（接続は後続）
+          場所の候補はここに表示されます
         </div>
       </Question>
 
@@ -165,9 +165,9 @@ export function ComposeFormPanel({
           )}
       </Question>
 
-      {/* 動かせなさ（既存 RIGIDITY_OPTIONS 再利用＝静的データ） */}
+      {/* 動かせなさ（控えめ・インラインチップ。hint は tooltip へ退避） */}
       <Question label="動かせなさ">
-        <div className="grid grid-cols-2 gap-2" data-testid="compose-field-rigidity">
+        <div className="flex gap-1.5" data-testid="compose-field-rigidity">
           {RIGIDITY_OPTIONS.map((opt) => {
             const active = core.rigidity === opt.value;
             return (
@@ -176,16 +176,16 @@ export function ComposeFormPanel({
                 type="button"
                 data-testid={`compose-rigidity-${opt.value}`}
                 aria-pressed={active}
+                title={opt.hint}
                 onClick={() => onCoreChange?.({ rigidity: opt.value })}
                 className={
-                  "rounded-lg border px-3 py-2 text-left text-sm transition " +
+                  "rounded-md border px-2.5 py-1 text-xs font-medium transition " +
                   (active
                     ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
+                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300")
                 }
               >
-                <span className="block font-medium">{opt.label}</span>
-                <span className="block text-xs text-slate-500">{opt.hint}</span>
+                {opt.label}
               </button>
             );
           })}
