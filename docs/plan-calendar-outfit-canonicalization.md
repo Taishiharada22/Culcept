@@ -23,6 +23,7 @@
 ## 2. `/calendar` は将来的に縮退/削除候補
 - 旧 `/calendar`（`app/(culcept)/calendar/`：1560 行 client + 22 components + 26 `_lib` + 9 API routes）は、UI としては `/plan` に置き換わる前提。
 - 月グリッド UI（`CalendarPageClient`/`DayCell`/`DayDetailSheet`/`WeekAtmosphereBar`）は原則**移植しない**（`/plan` の day-strip + Flow リストで代替）。
+- **【Phase 6 実施済・2026-06-01】**：`/calendar` の **画面到達を redirect で封鎖**（`page.tsx` → `redirect("/plan")`・307 一時 redirect = 可逆）。 既存 UI 導線（nav config / Home rail / AskHero CTA / widget 等 約 25 箇所）は全て `/plan` Calendar タブへ funnel。 **バック（`_lib` 推薦エンジン / `/api/calendar` / `culcept_calendar_worn_v1`）は無改修で温存**（`/plan` が facade `@/lib/shared/outfitEngine` 経由で使用継続）。 `CalendarPageClient` / `_components` / `_lib` の**物理削除は未**（Phase 7 別ゲート）。 nav ラベル（「カレンダー」表記）の掃除は任意の follow-up。
 
 ## 3. ただし `/calendar` の以下はまだ「生きている」
 削除・改変してはならない現行資産（Phase 5〜7 まで残す）:
@@ -103,8 +104,8 @@
 | **4-4b** | **style wear read-view 統合（実装済 commit `2b65b4dc`）**：readView が `origin=style` を `slot.style` に受け、 **最下位 fallback**（style 単独日だけ代表・corpus 非対象）。conflictPolicy 本体不変・`includeCanonical` で無視可。**`wearEvents.ts` mirror 配線は未（4-4c）**。 | read ゲート（通過）|
 | **4-4c** | **wearEvents canonical shadow mirror（実装済 commit `bd1597e9`）**：`saveWearEvent`/`updateWearSatisfaction` を canonical へ best-effort mirror（origin=style / source=my_style / `learningEligible` 常に false）。**同日複数 wearEvent は (date, origin=style) で 1 件に集約（最後が代表）**。old key 維持・backfill なし・server-sync 不変・learned HOLD。calendar-source の event は style として誤ラベルしないため除外。 | wearEvents write ゲート（通過）|
 | **5** | **engine reads shared WornHistory + learned 解禁**：engine の `loadWornHistory` を `getLearningCorpus` に差し替え。`/calendar` 直読み廃止。server-sync を shared に一本化。**learned 昇格はここで初解禁**（`②plan key in-place 変形は禁止`＝rollback 喪失のため）。 | engine read / learned ゲート |
-| **6** | `/calendar` redirect or hide（consumer 付け替え完了後）。 | `/calendar` 撤退ゲート |
-| **7** | `/calendar` physical removal（engine/学習を `lib/shared` へ移送済が前提）。 | 削除ゲート |
+| **6** | **`/calendar` redirect/hide（実施済 2026-06-01）**：`page.tsx` → `redirect("/plan")`（307・可逆）。 画面到達のみ封鎖、 `_lib`/`/api/calendar`/学習正本は無改修温存。 CalendarPageClient 等は物理削除せず残置（Phase 7）。 | `/calendar` 撤退ゲート（通過）|
+| **7** | `/calendar` physical removal（engine/学習を `lib/shared` へ移送済が前提）。 | 削除ゲート（未） |
 
 **Phase 3-B 方針確定（参考）**：store モデルは **③ dual-read merge**（新 key を作らず読み時に canonical へ束ねる）で確定。物理 write key（①新規）は Phase 4。②（plan key 昇格）却下。④（docs 化）= 本書。
 
