@@ -119,6 +119,17 @@ UI 内部状態を `AnchorFormState` に無理に寄せると、新 UI 固有状
 
 検証: 77 PASS。tsc baseline **1112 不変**（新規由来 0）。framer-motion は既存依存（`^12.35.1`・新規追加なし）。実ドラッグ/drop/snap の実動作は **A-5 smoke**（SSR では配線・状態遷移・ghost/placed/confirm 描画契約まで）。PlanClient / AddAnchorModal / flag / 保存 / 候補検索 / DB 未接触。次は A-4（保存接続: placed[] → createAnchorBundle + onSuccess reload + flag 分岐 + legacy 併存）。
 
+### A-4a 実装済（2026-06-01・保存境界 converter / pure のみ）
+
+CEO 指示で A-4 を A-4a（converter）/ A-4b（flag + PlanClient + 保存）に分割。本コミットは A-4a のみ。
+
+| 追加ファイル | 役割 |
+|---|---|
+| `lib/plan/compose/composeToAnchorInput.ts`（新規） | placed draft[] → `CreateExternalAnchorInput[]`。A-0-2 経路（ComposeDraft→AnchorFormState→`buildAnchorInputFromForm`）再利用。日跨ぎ除外 / rigidity 既定(soft) / 検証失敗は excluded |
+| `tests/.../composeToAnchorInput.test.ts`（新規） | 9 tests（4ケース endTime 永続 / wrap 除外 / rigidity 既定 / invalid / unplaced 無視 / 順序保持）|
+
+検証: compose+geometry 計 86 PASS。tsc baseline **1112 不変**（新規由来 0）。**PlanClient / featureFlags / 保存呼び出し / DB 未接触**（A-4b 預け）。次は A-4b（`PLAN_FLAGS.composeTimelineEnabled` 加算 + PlanClient 最小分岐 + `createAnchorBundle` 接続。**flag OFF で旧 AddAnchorModal 完全不変**）。
+
 ---
 
 ## 1. 体験の本質と「状態モデル」
