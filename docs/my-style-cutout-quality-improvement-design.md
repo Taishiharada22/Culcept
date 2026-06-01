@@ -241,6 +241,66 @@ CEO 補正 4:「精度 100% のような表示は慎重に」。 既存 UI の "
 
 ---
 
+## 10. M4 — BackgroundRemover 編集座標系補正（2026-06-01 完了）
+
+### root cause（CEO 報告から）
+M3 までは autoCrop ON 時、 cropped `processedUrl`（subject bbox + 8% padding）と uncropped `originalUrl`（resizeImage 由来）を同じ container（aspect-[4/5]）に `object-contain` で表示していた。 アスペクト比とサイズが違うため:
+
+1. **比較スライダー**: 元画像と処理後で表示サイズ・位置がズレる
+2. **消しゴム**: canvas は cropped、 比較表示で見ていた認知座標と合わない
+3. **復活ブラシ（最も致命的）**: `drawImage(originalImg, 0, 0, canvas.width, canvas.height)` で uncropped originalImg を cropped canvas 全体に stretch → ブラシで撫でた座標が「拡大された元画像」の対応点を補充 → 服が変な場所に現れる
+
+### 採用案: 案 Y（editableUrl / processedUrl 2-state 分離）
+
+| state | 役割 | サイズ |
+|---|---|---|
+| **editableUrl** | post-process 後 / crop 前の uncropped 作業用 — **比較・消しゴム・復活ブラシ・stroke commit すべてが同座標系** | originalUrl とアスペクト比一致 |
+| **processedUrl** | autoCrop 適用後の最終プレビュー / 保存候補 | cropped（subject bbox + 8% padding） |
+
+useEffect で `editableUrl + autoCrop` → `processedUrl` を race-safe に同期（alive flag）。
+
+### CEO 補正（M4）の遵守
+- ✅ imageUrl / originalUrl は読むだけ・絶対に上書きしない（書込経路ゼロ）
+- ✅ editableUrl は UI 内部状態、 保存正本ではない
+- ✅ 保存対象は cutoutUrl / cutoutStatus / cutoutMethod / cutoutConfidence のみ
+- ✅ 復活ブラシ source: `originalUrl` → `imageUrl` fallback（M2-1 順序逆転）
+- ✅ post-process は初期 auto cutout のみ（stroke commit / autoCrop 切替では再実行しない）
+- ✅ crop は保存直前 + useEffect 同期のみ
+- ✅ backgroundRemovalV1 / cutoutBrowser / /plan 無改修
+- ✅ 外部 API / package 追加なし
+
+### 適用ボタンの race-free 化
+従来は `currentDataUrl: processedUrl` を渡していたが、 stroke commit 直後の useEffect 同期中に古い processedUrl が拾われる race を回避するため、 適用ボタンは `editableUrl` を基準に `autoCrop` ON ならその場で `cropToSubject` を当てて `onApply` に渡す。
+
+### 復活ブラシの座標系一致（M3-2 の盲点解消）
+- editableUrl = uncropped、 originalUrl = uncropped → 両者**同アスペクト比**
+- canvas は editableUrl サイズで作成、 `drawImage(originalImg, 0, 0, canvas.width, canvas.height)` で同アスペクト・同範囲を補充
+- → ブラシで撫でた canvas 座標 = 元画像座標 = pixel-perfect 一致
+
+### M4 commit
+- `7546d494` M4-1 実装（editableUrl/processedUrl 分離 + getReprocessSourceUrl 順序逆転 + tests）
+- 本コミット M4-2 close docs
+
+### M4 検証
+- my-style 全: **169 PASS**（reprocessItem 23 拡充含む・退化 0）
+- eslint: clean
+- tsc: baseline 1116 維持（touched 0 error）
+- dev server: CEO 側で稼働中のため追加 instance は lock 取得失敗（既存 CEO セッションでコンパイル確認可能）
+
+### M4 実機確認手順（CEO 側で次セッション実施）
+1. closet → カテゴリ別 item を tap → 詳細モーダル
+2. 「背景をきれいにする」 → BackgroundRemover overlay
+3. 「比較」を ON → 元画像と処理後が**同サイズ・同位置**で並ぶこと
+4. 「消しゴム」を ON → canvas 上のブラシ位置が**比較で見た元画像と完全一致**することを確認
+5. 「復活」を ON → 復活ブラシで撫でた箇所が**元画像のその位置の服**として補充されることを確認（M3-2 のズレが解消）
+6. autoCrop checkbox を OFF→ON 切替 → 表示が cropped/uncropped に切り替わり、 編集中の内容は失われない（editableUrl は維持）
+7. 「適用」 → cutoutUrl が cropped 版で保存される（既存挙動維持）
+8. /plan で透過 cutout 表示
+9. リロード後も白抜き化しない（C1L-6 経路）
+10. 既存 PhotoAddWizard 新規登録フロー / 既存 item 再処理フローの両方が壊れていない
+
+---
+
 ## 文献ソース
 - [Closed-Form Solution to Natural Image Matting (Levin et al., CSAIL)](https://people.csail.mit.edu/alevin/papers/Matting-Levin-Lischinski-Weiss-CVPR06.pdf)
 - [Alpha Matte Generation from Single Input for Portrait Matting (CVPRW 2022)](https://openaccess.thecvf.com/content/CVPR2022W/NTIRE/papers/Yaman_Alpha_Matte_Generation_From_Single_Input_for_Portrait_Matting_CVPRW_2022_paper.pdf)
