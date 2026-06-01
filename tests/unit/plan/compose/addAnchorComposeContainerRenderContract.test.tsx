@@ -51,6 +51,7 @@ function render(): string {
       isOpen
       onClose={noop}
       dateLabel="6/1(月)"
+      dateISO="2026-06-01"
       existingBlocks={EXISTING}
       initialState={INITIAL}
       initialActiveId="d-active"

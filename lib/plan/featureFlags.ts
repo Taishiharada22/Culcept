@@ -82,6 +82,21 @@ export const PLAN_FLAGS = {
   personalModelIntegration: process.env.PLAN_PERSONAL_MODEL_INTEGRATION === "true",
 
   /**
+   * 予定追加 2カラム・タイムライン体験（compose sheet）を有効化するか（A-4b）。
+   *   true  : /plan の予定追加が AddAnchorComposeContainer（ドラッグ配置）になる
+   *   false : 既存 AddAnchorModal（本番デフォルト・**完全不変**）
+   *
+   * env: PLAN_COMPOSE_TIMELINE_ENABLED=true で有効化
+   *
+   * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md（A-4b）
+   *
+   * CEO 補正 (2026-06-01): PLAN_FLAGS は **server-side のみ評価**（NEXT_PUBLIC なし）。
+   *   client（openAdd）へは plan/page.tsx が server で読み取り prop で渡す
+   *   （homeSwipeEnabled と同方式）。本番有効化は CEO 承認後に env で。default false。
+   */
+  composeTimelineEnabled: process.env.PLAN_COMPOSE_TIMELINE_ENABLED === "true",
+
+  /**
    * LLM closeout 帯 Track 1: preview canary userId allowlist (= CEO 2026-05-26)
    *
    * 役割:

@@ -62,6 +62,8 @@ export interface AddAnchorComposeSheetProps {
   onUnplaceBlock?: (id: string) => void;
   /** 日付切替確認ダイアログ等の overlay */
   confirmOverlay?: ReactNode;
+  /** 完了ボタン上に出す通知（日跨ぎ警告 / 保存エラー等・A-4b） */
+  notice?: ReactNode;
 }
 
 export function AddAnchorComposeSheet({
@@ -82,6 +84,7 @@ export function AddAnchorComposeSheet({
   onRemoveBlock,
   onUnplaceBlock,
   confirmOverlay,
+  notice,
 }: AddAnchorComposeSheetProps) {
   // 配置済み draft → タイムライン block（仮長は visualBlock）。
   const placedBlocks: TimelineBlock[] = drafts
@@ -181,6 +184,8 @@ export function AddAnchorComposeSheet({
                 </p>
               </div>
             )}
+
+            {notice}
 
             <div className="flex justify-end pt-1" data-testid="compose-complete-btn">
               <GlassButton variant="primary" onClick={() => onComplete?.()}>

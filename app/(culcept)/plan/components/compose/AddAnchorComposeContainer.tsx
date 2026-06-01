@@ -33,6 +33,8 @@ import {
   resolvePlacement,
   visualBlock,
 } from "@/lib/plan/compose/composeTimeResolver";
+import { placedDraftsToAnchorInputs } from "@/lib/plan/compose/composeToAnchorInput";
+import { createAnchorBundle } from "@/lib/plan/anchor-fetch";
 import {
   DEFAULT_WINDOW_START_MIN,
   DEFAULT_WINDOW_END_MIN,
@@ -60,10 +62,12 @@ export interface AddAnchorComposeContainerProps {
   dateLabel: string;
   existingBlocks: TimelineBlock[];
   /** A-4 で対象日の再取得に接続。A-3 は gate のみ */
+  /** 保存対象日（YYYY-MM-DD）。A-4b 保存で one_off date に使う */
+  dateISO: string;
   onPrevDay?: () => void;
   onNextDay?: () => void;
-  /** A-4 で createAnchorBundle に接続。A-3 は no-op */
-  onComplete?: () => void;
+  /** 保存成功後（PlanClient: load() + close） */
+  onSaved?: () => void;
   // ── テスト / 将来の prefill 用（optional） ──
   initialState?: ComposeState;
   initialActiveId?: string;
@@ -100,10 +104,11 @@ export function AddAnchorComposeContainer({
   isOpen,
   onClose,
   dateLabel,
+  dateISO,
   existingBlocks,
   onPrevDay,
   onNextDay,
-  onComplete,
+  onSaved,
   initialState,
   initialActiveId,
   initialNextId,
@@ -225,6 +230,56 @@ export function AddAnchorComposeContainer({
   };
   const handleCancel = () => setConfirm({ open: false, dir: null });
 
+  // ── 完了 = 保存（A-4b。A-4a converter → createAnchorBundle → onSaved） ──
+  const [saveState, setSaveState] = useState<{
+    status: "idle" | "saving" | "error";
+    message?: string;
+  }>({ status: "idle" });
+
+  async function handleComplete() {
+    const { inputs, excluded } = placedDraftsToAnchorInputs(state.drafts, dateISO);
+    if (inputs.length === 0) {
+      setSaveState({
+        status: "error",
+        message:
+          excluded.length > 0
+            ? "保存できる予定がありません（日跨ぎ等は除外されます）"
+            : "左のタイムラインに予定を配置してください",
+      });
+      return;
+    }
+    setSaveState({ status: "saving" });
+    const r = await createAnchorBundle({
+      source: { sourceType: "manual" },
+      anchors: inputs,
+    });
+    if (r.ok) {
+      setSaveState({ status: "idle" });
+      onSaved?.();
+    } else {
+      setSaveState({ status: "error", message: r.error });
+    }
+  }
+
+  // 日跨ぎ警告（保存しない・A-0-1）+ 保存エラーの notice
+  const wrapCount = state.drafts.filter(
+    (d) => d.placement.status === "placed" && d.placement.crossesMidnight,
+  ).length;
+  const notice =
+    wrapCount > 0 || saveState.status === "error" ? (
+      <div
+        data-testid="compose-notice"
+        className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700"
+      >
+        {wrapCount > 0 && (
+          <p>日跨ぎの予定が {wrapCount} 件あります（保存されません）。</p>
+        )}
+        {saveState.status === "error" && saveState.message && (
+          <p>{saveState.message}</p>
+        )}
+      </div>
+    ) : null;
+
   return (
     <AddAnchorComposeSheet
       isOpen={isOpen}
@@ -237,7 +292,8 @@ export function AddAnchorComposeContainer({
       onNextDay={() => requestDateChange("next")}
       onCoreChange={handleCoreChange}
       onTimeChange={handleTimeChange}
-      onComplete={onComplete}
+      onComplete={() => void handleComplete()}
+      notice={notice}
       ghost={ghost}
       timelineRef={timelineRef}
       renderCard={renderCard}

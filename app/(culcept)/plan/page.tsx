@@ -49,5 +49,9 @@ export default async function PlanPage() {
   }
 
   // 3. Hand-off to client
-  return <PlanClient />;
+  //    A-4b: compose flag は server-only（PLAN_FLAGS）。ここで読み取り prop で client に渡す
+  //    （homeSwipeEnabled と同方式。client 直読みは不可）。
+  return (
+    <PlanClient composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled} />
+  );
 }
