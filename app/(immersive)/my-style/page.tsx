@@ -653,7 +653,7 @@ const WardrobeOverviewTab = React.memo(function WardrobeOverviewTab({
             )}
 
             {/* ── カテゴリ別 (WardrobeTab) ── */}
-            <WardrobeTab state={state} setState={setState} onAddToSetup={onAddToSetup} />
+            <WardrobeTab state={state} setState={setState} onAddToSetup={onAddToSetup} onSelectItem={onSelectItem} />
 
             {/* ── 足りない1点 ── */}
             {missingPiece && (
