@@ -16,6 +16,7 @@ import { describe, it, expect } from "vitest";
 import {
   INITIAL_STATE,
   currentImageObjectUrl,
+  currentObjectUrls,
   devShiftDraftReducer,
   outcomeToAction,
   type DevShiftDraftAction,
@@ -89,6 +90,36 @@ const ERRORED: DevShiftDraftState = {
   month: 7,
   message: "読み取りに失敗しました。",
 };
+
+const HURL = "blob:http://localhost/header-1";
+const PURL = "blob:http://localhost/person-1";
+const CURL = "blob:http://localhost/combined-1";
+const CROP_META = {
+  header: { width: 1860, height: 40, sizeBytes: 1000 },
+  personRow: { width: 1860, height: 60, sizeBytes: 1500 },
+  combined: { width: 1860, height: 100, sizeBytes: 2400 },
+};
+const CROP_REVIEW: DevShiftDraftState = {
+  kind: "crop_review",
+  imageObjectUrl: URL1,
+  imageMeta: META,
+  selection: SELECTION,
+  year: 2025,
+  month: 7,
+  headerCropUrl: HURL,
+  personRowCropUrl: PURL,
+  combinedCropUrl: CURL,
+  cropMeta: CROP_META,
+};
+const cropsPrepared = (): DevShiftDraftAction => ({
+  type: "crops_prepared",
+  year: 2025,
+  month: 7,
+  headerCropUrl: HURL,
+  personRowCropUrl: PURL,
+  combinedCropUrl: CURL,
+  cropMeta: CROP_META,
+});
 
 describe("devShiftDraftReducer — INITIAL_STATE / shape", () => {
   it("INITIAL_STATE は kind=idle", () => {
@@ -293,8 +324,8 @@ describe("currentImageObjectUrl helper", () => {
 // ─────────────────────────────────────────────────────────────
 
 describe("devShiftDraftReducer — extract_started", () => {
-  it("row_selected → extracting（targetMonth を持ち込む）", () => {
-    const next = devShiftDraftReducer(ROW_SELECTED, {
+  it("crop_review → extracting（targetMonth を持ち込む）", () => {
+    const next = devShiftDraftReducer(CROP_REVIEW, {
       type: "extract_started",
       year: 2025,
       month: 7,
@@ -307,6 +338,12 @@ describe("devShiftDraftReducer — extract_started", () => {
       year: 2025,
       month: 7,
     });
+  });
+
+  it("9-FIX: row_selected からの extract_started は no-op（crop_review を経由必須）", () => {
+    expect(
+      devShiftDraftReducer(ROW_SELECTED, { type: "extract_started", year: 2025, month: 7 })
+    ).toBe(ROW_SELECTED);
   });
 
   it("idle / image_loaded / extracting / error からの extract_started は no-op", () => {
@@ -323,6 +360,80 @@ describe("devShiftDraftReducer — extract_started", () => {
     expect(
       devShiftDraftReducer(ERRORED, { type: "extract_started", year: 2025, month: 7 })
     ).toBe(ERRORED);
+  });
+});
+
+describe("devShiftDraftReducer — crops_prepared / back_to_row_select（9-FIX）", () => {
+  it("row_selected → crop_review（crop URL + meta + targetMonth を持ち込む）", () => {
+    const next = devShiftDraftReducer(ROW_SELECTED, cropsPrepared());
+    expect(next).toEqual({
+      kind: "crop_review",
+      imageObjectUrl: URL1,
+      imageMeta: META,
+      selection: SELECTION,
+      year: 2025,
+      month: 7,
+      headerCropUrl: HURL,
+      personRowCropUrl: PURL,
+      combinedCropUrl: CURL,
+      cropMeta: CROP_META,
+    });
+  });
+
+  it("row_selected 以外からの crops_prepared は no-op", () => {
+    expect(devShiftDraftReducer(INITIAL_STATE, cropsPrepared())).toBe(INITIAL_STATE);
+    expect(devShiftDraftReducer(CROP_REVIEW, cropsPrepared())).toBe(CROP_REVIEW);
+  });
+
+  it("crop_review → row_selected（行指定に戻る）", () => {
+    const next = devShiftDraftReducer(CROP_REVIEW, { type: "back_to_row_select" });
+    expect(next).toEqual({
+      kind: "row_selected",
+      imageObjectUrl: URL1,
+      imageMeta: META,
+      selection: SELECTION,
+    });
+  });
+
+  it("crop_review 以外からの back_to_row_select は no-op", () => {
+    expect(devShiftDraftReducer(ROW_SELECTED, { type: "back_to_row_select" })).toBe(ROW_SELECTED);
+    expect(devShiftDraftReducer(EXTRACTING, { type: "back_to_row_select" })).toBe(EXTRACTING);
+  });
+
+  it("crop_review + cancel → idle", () => {
+    expect(devShiftDraftReducer(CROP_REVIEW, { type: "cancel" })).toEqual({ kind: "idle" });
+  });
+});
+
+describe("currentObjectUrls — multi-URL revoke 用（9-FIX）", () => {
+  it("crop_review は 元画像 + 3 crop の 4 本を返す", () => {
+    expect(currentObjectUrls(CROP_REVIEW)).toEqual([URL1, HURL, PURL, CURL]);
+  });
+  it("row_selected / extracting / cells_loaded は 元画像 1 本", () => {
+    expect(currentObjectUrls(ROW_SELECTED)).toEqual([URL1]);
+    expect(currentObjectUrls(EXTRACTING)).toEqual([URL1]);
+  });
+  it("idle / saved は 0 本（全 revoke）", () => {
+    expect(currentObjectUrls(INITIAL_STATE)).toEqual([]);
+    expect(
+      currentObjectUrls({ kind: "saved", year: 2025, month: 7, cellCount: 3 })
+    ).toEqual([]);
+  });
+  it("crop_review → extracting で crop 3 本が set から消える（= revoke 対象）", () => {
+    const before = new Set(currentObjectUrls(CROP_REVIEW));
+    const after = new Set(currentObjectUrls(EXTRACTING));
+    const revoked = [...before].filter((u) => !after.has(u));
+    expect(revoked.sort()).toEqual([CURL, HURL, PURL].sort());
+    expect(after.has(URL1)).toBe(true); // 元画像は持ち越し
+  });
+
+  it("9-FIX 整合: row_selected → crops_prepared → crop_review → extract_started → extracting → succeeded → cells_loaded で year/month 不変", () => {
+    const a = devShiftDraftReducer(ROW_SELECTED, cropsPrepared());
+    expect(a.kind === "crop_review" && a.year).toBe(2025);
+    const b = devShiftDraftReducer(a, { type: "extract_started", year: 2025, month: 7 });
+    expect(b.kind === "extracting" && b.month).toBe(7);
+    const c = devShiftDraftReducer(b, { type: "extract_succeeded", cells: CELLS });
+    expect(c.kind === "cells_loaded" && c.year === 2025 && c.month === 7).toBe(true);
   });
 });
 

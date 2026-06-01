@@ -39,8 +39,16 @@ import { AssistedRowSelector } from "@/app/(culcept)/plan/components/AssistedRow
 import { ShiftImportModal } from "@/app/(culcept)/plan/components/ShiftImportModal";
 import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
 import { generateAssistedCrops } from "@/lib/plan/shift/assistedCropGenerator";
+import { generateCombinedDraftImage } from "@/lib/plan/shift/combinedDraftImage";
 import { runDraftExtractionSubmit } from "@/lib/plan/shift/runDraftExtractionSubmit";
-import { selectImportModalProps } from "@/lib/plan/shift/devShiftDraftModalSelector";
+import {
+  selectImportModalProps,
+  DEV_SHIFT_DRAFT_CHUNK_BOUNDARIES,
+} from "@/lib/plan/shift/devShiftDraftModalSelector";
+import {
+  buildDevShiftDraftDebugSummary,
+  type DevShiftDraftDebugInput,
+} from "@/lib/plan/shift/devShiftDraftDebugSummary";
 import {
   daysInMonth,
   formatMonthInput,
@@ -50,7 +58,7 @@ import {
 import { extractShiftDraftAction } from "../_actions/extractShiftDraftAction";
 import {
   INITIAL_STATE,
-  currentImageObjectUrl,
+  currentObjectUrls,
   devShiftDraftReducer,
   outcomeToAction,
   type DevShiftDraftAction,
@@ -68,6 +76,8 @@ export interface DevShiftDraftClientProps {
   defaultYear?: number;
   /** server が算出した既定月 1..12。 */
   defaultMonth?: number;
+  /** VLM model 名（B1B_VLM_MODEL 由来）。debug summary 表示用。API key ではない。 */
+  vlmModel?: string;
 }
 
 /** blob: ObjectURL から HTMLImageElement を decode（browser 専用・transient）。 */
@@ -108,10 +118,48 @@ const SAFE_SELECTION_NOTICE = "選択範囲をご確認ください。";
 const SAFE_MONTH_NOTICE = "対象の年月を選んでください。";
 const SAFE_RUNTIME_FAIL = "読み取りに失敗しました。もう一度お試しください。";
 
+/** 安全な debug summary の表示（raw / base64 / key を含まない数値・座標のみ）。 */
+function DebugSummaryView({
+  summary,
+}: {
+  summary: import("@/lib/plan/shift/devShiftDraftDebugSummary").DevShiftDraftDebugSummary;
+}) {
+  const fmtCrop = (c: { width: number; height: number; sizeBytes: number } | null) =>
+    c ? `${c.width}×${c.height} / ${Math.round(c.sizeBytes / 1024)}KB` : "—";
+  const rows: Array<[string, string]> = [
+    ["画像", `${summary.imageW}×${summary.imageH}`],
+    ["対象", `${summary.targetYear}-${String(summary.targetMonth).padStart(2, "0")} / ${summary.daysInMonth}日`],
+    ["header band", `${summary.headerBandTop}–${summary.headerBandBottom}`],
+    ["person band", `${summary.personRowBandTop}–${summary.personRowBandBottom}`],
+    ["header crop", fmtCrop(summary.headerCrop)],
+    ["person crop", fmtCrop(summary.personRowCrop)],
+    ["combined", fmtCrop(summary.combinedCrop)],
+    ["chunks", summary.chunkRanges.map((r) => `${r.from}-${r.to}`).join(", ")],
+    ["model", summary.model ?? "—"],
+    ["elapsed", summary.elapsedMs != null ? `${summary.elapsedMs}ms` : "—"],
+    ["cells", summary.cellsCount != null ? String(summary.cellsCount) : "—"],
+    ["blank", summary.blankCount != null ? String(summary.blankCount) : "—"],
+  ];
+  return (
+    <dl
+      data-testid="dev-shift-draft-debug-summary"
+      className="grid grid-cols-2 gap-x-2 gap-y-0.5 rounded-lg border border-slate-200 bg-slate-50 p-2 text-[10px] text-slate-500"
+    >
+      {rows.map(([k, v]) => (
+        <div key={k} className="flex justify-between gap-2">
+          <dt className="text-slate-400">{k}</dt>
+          <dd className="font-mono text-slate-600">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function DevShiftDraftClient({
   saveEnabled,
   defaultYear,
   defaultMonth,
+  vlmModel,
 }: DevShiftDraftClientProps = {}) {
   const [state, dispatch] = useReducer(devShiftDraftReducer, INITIAL_STATE);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -122,26 +170,27 @@ export function DevShiftDraftClient({
   );
   // 軽い inline 通知（invalid selection / decode 失敗 / 月未選択）。画像本体ではない。
   const [notice, setNotice] = useState<string | null>(null);
+  // 抽出 elapsed ms（debug 表示用・数値のみ）。
+  const [lastElapsedMs, setLastElapsedMs] = useState<number | null>(null);
 
-  // ── ObjectURL revoke 監視（差替・cancel）と unmount cleanup ──
-  // cells_loaded への遷移では同一 URL を引き継ぐため自動 revoke は発火しない（CEO 補正）。
-  const prevObjectUrlRef = useRef<string | null>(null);
+  // ── ObjectURL revoke 監視（multi-URL set 差分）と unmount cleanup ──
+  // crop_review は元画像 + 3 crop URL を持つ。crop_review を離れると 3 crop URL が
+  // set から消え、ここで revoke される（元画像は持ち越し）。saved は全 URL を revoke。
+  // cells_loaded への遷移では元画像 URL を持ち越すため自動 revoke は発火しない（CEO 補正）。
+  const prevUrlsRef = useRef<string[]>([]);
   useEffect(() => {
-    const currentUrl = currentImageObjectUrl(state);
-    const prevUrl = prevObjectUrlRef.current;
-    if (prevUrl && prevUrl !== currentUrl) {
-      URL.revokeObjectURL(prevUrl);
+    const next = currentObjectUrls(state);
+    const nextSet = new Set(next);
+    for (const url of prevUrlsRef.current) {
+      if (!nextSet.has(url)) URL.revokeObjectURL(url);
     }
-    prevObjectUrlRef.current = currentUrl;
+    prevUrlsRef.current = next;
   }, [state]);
 
   useEffect(() => {
     return () => {
-      const url = prevObjectUrlRef.current;
-      if (url) {
-        URL.revokeObjectURL(url);
-        prevObjectUrlRef.current = null;
-      }
+      for (const url of prevUrlsRef.current) URL.revokeObjectURL(url);
+      prevUrlsRef.current = [];
     };
   }, []);
 
@@ -181,11 +230,12 @@ export function DevShiftDraftClient({
   }, []);
 
   /**
-   * 下書きを取り出す（row_selected → crop → action → cells_loaded/error）。
-   * - month 未選択 / crop null → extracting に入らず inline 通知（row_selected 維持）。
-   * - crop 成功 → onActionStart で extracting → action → outcome を dispatch。
+   * 9-FIX: クロップを確認（row_selected → crop_review）。VLM は呼ばない。
+   * - month 未選択 / crop null → crop_review に入らず inline 通知（row_selected 維持）。
+   * - header / personRow / combined（VLM に渡す予定の結合画像）を生成して preview。
+   * - Blob は state に持たず、ObjectURL（string）+ 寸法のみ crop_review に載せる。
    */
-  const handleExtract = useCallback(async () => {
+  const handlePrepareCrops = useCallback(async () => {
     if (state.kind !== "row_selected") return;
     const { selection, imageObjectUrl } = state;
 
@@ -194,15 +244,71 @@ export function DevShiftDraftClient({
       setNotice(SAFE_MONTH_NOTICE);
       return;
     }
-    const days = daysInMonth(parsed.year, parsed.month);
+    setNotice(null);
+    try {
+      const img = await decodeImageElement(imageObjectUrl);
+      const cropsOut = await generateAssistedCrops(img, selection);
+      const combinedOut = await generateCombinedDraftImage(img, selection);
+      if (!cropsOut || !combinedOut) {
+        setNotice(SAFE_SELECTION_NOTICE);
+        return;
+      }
+      // Blob.size を読んでから ObjectURL 化（Blob は変数を抜けると ObjectURL が保持）。
+      const headerCropUrl = URL.createObjectURL(cropsOut.header.blob);
+      const personRowCropUrl = URL.createObjectURL(cropsOut.personRow.blob);
+      const combinedCropUrl = URL.createObjectURL(combinedOut.blob);
+      dispatch({
+        type: "crops_prepared",
+        year: parsed.year,
+        month: parsed.month,
+        headerCropUrl,
+        personRowCropUrl,
+        combinedCropUrl,
+        cropMeta: {
+          header: {
+            width: cropsOut.header.region.width,
+            height: cropsOut.header.region.height,
+            sizeBytes: cropsOut.header.blob.size,
+          },
+          personRow: {
+            width: cropsOut.personRow.region.width,
+            height: cropsOut.personRow.region.height,
+            sizeBytes: cropsOut.personRow.blob.size,
+          },
+          combined: {
+            width: combinedOut.plan.combinedWidth,
+            height: combinedOut.plan.combinedHeight,
+            sizeBytes: combinedOut.blob.size,
+          },
+        },
+      });
+    } catch {
+      setNotice(SAFE_DECODE_NOTICE);
+    }
+  }, [state, targetMonthValue]);
+
+  const onBackToRowSelect = useCallback(
+    () => dispatch({ type: "back_to_row_select" }),
+    []
+  );
+
+  /**
+   * この画像で読み取る（crop_review → 再crop → action → cells_loaded/error）。
+   * - crop_review の year/month を使う（targetMonth は crops_prepared 時に確定済）。
+   * - submit 時に再 crop（Blob を state に持たないため）。VLM は server action 経由のみ。
+   */
+  const handleExtract = useCallback(async () => {
+    if (state.kind !== "crop_review") return;
+    const { selection, imageObjectUrl, year, month } = state;
+    const days = daysInMonth(year, month);
     setNotice(null);
 
-    // crop 成功（onActionStart 発火）後に extracting へ入ったか追跡（stale closure 回避）。
+    const t0 = Date.now();
     let actionStarted = false;
     try {
       const outcome = await runDraftExtractionSubmit({
-        year: parsed.year,
-        month: parsed.month,
+        year,
+        month,
         daysInMonth: days,
         generateCrops: async () => {
           const img = await decodeImageElement(imageObjectUrl);
@@ -211,25 +317,26 @@ export function DevShiftDraftClient({
         callAction: extractShiftDraftAction,
         onActionStart: () => {
           actionStarted = true;
-          dispatch({ type: "extract_started", year: parsed.year, month: parsed.month });
+          dispatch({ type: "extract_started", year, month });
         },
       });
+      setLastElapsedMs(Date.now() - t0);
 
       if (outcome.kind === "invalid_selection") {
-        setNotice(SAFE_SELECTION_NOTICE); // extracting に入っていない（row_selected 維持）
+        setNotice(SAFE_SELECTION_NOTICE);
         return;
       }
       const action = outcomeToAction(outcome);
       if (action) dispatch(action);
     } catch {
-      // decode / canvas / 予期せぬ例外。extracting に入った後なら error、前なら inline 通知。
+      setLastElapsedMs(Date.now() - t0);
       if (actionStarted) {
         dispatch({ type: "extract_failed", message: SAFE_RUNTIME_FAIL });
       } else {
         setNotice(SAFE_DECODE_NOTICE);
       }
     }
-  }, [state, targetMonthValue]);
+  }, [state]);
 
   const onRetry = useCallback(() => dispatch({ type: "extract_retry" }), []);
 
@@ -351,13 +458,104 @@ export function DevShiftDraftClient({
             {state.kind === "row_selected" && (
               <button
                 type="button"
-                data-testid="dev-shift-draft-extract"
-                onClick={() => void handleExtract()}
+                data-testid="dev-shift-draft-prepare-crops"
+                onClick={() => void handlePrepareCrops()}
                 className="w-full rounded-lg bg-indigo-600 px-3 py-2 text-[12px] font-medium text-white"
               >
-                下書きを取り出す
+                クロップを確認
               </button>
             )}
+          </div>
+        )}
+
+        {/* 9-FIX: crop_review — VLM に渡す予定の画像を確認（VLM はまだ呼ばない）。 */}
+        {state.kind === "crop_review" && (
+          <div
+            data-testid="dev-shift-draft-crop-review"
+            className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 text-[12px] text-slate-600"
+          >
+            {/* targetMonth 整合（画像の月と一致しているか目視確認） */}
+            <div
+              data-testid="dev-shift-draft-month-integrity"
+              className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-800"
+            >
+              対象の年月: <b>{`${state.year}年${state.month}月`}</b>
+              {`（日数 ${daysInMonth(state.year, state.month)}）。`}
+              <br />
+              元画像の年月と一致していますか？ ズレていると日付変換が崩れます。
+            </div>
+
+            <p className="font-medium">VLM に渡す予定の画像</p>
+            {/* combined = 実際に渡したい 1 枚（header 上 + 本人行 下、同 X 軸）。 */}
+            <figure className="space-y-1">
+              <figcaption className="text-[11px] text-slate-500">
+                結合画像（日付ヘッダ＋本人行・同じ横幅で上下結合）
+              </figcaption>
+              <img
+                data-testid="dev-shift-draft-combined-preview"
+                src={state.combinedCropUrl}
+                alt="結合プレビュー"
+                className="w-full rounded border border-slate-300"
+              />
+            </figure>
+            <div className="grid grid-cols-2 gap-2">
+              <figure className="space-y-1">
+                <figcaption className="text-[11px] text-slate-500">日付ヘッダ</figcaption>
+                <img
+                  data-testid="dev-shift-draft-header-preview"
+                  src={state.headerCropUrl}
+                  alt="ヘッダ"
+                  className="w-full rounded border border-slate-300"
+                />
+              </figure>
+              <figure className="space-y-1">
+                <figcaption className="text-[11px] text-slate-500">本人行</figcaption>
+                <img
+                  data-testid="dev-shift-draft-person-row-preview"
+                  src={state.personRowCropUrl}
+                  alt="本人行"
+                  className="w-full rounded border border-slate-300"
+                />
+              </figure>
+            </div>
+
+            <DebugSummaryView
+              summary={buildDevShiftDraftDebugSummary({
+                imageW: state.imageMeta.width,
+                imageH: state.imageMeta.height,
+                year: state.year,
+                month: state.month,
+                daysInMonth: daysInMonth(state.year, state.month),
+                headerBand: state.selection.headerBand,
+                personRowBand: state.selection.personRowBand,
+                crops: {
+                  header: state.cropMeta.header,
+                  personRow: state.cropMeta.personRow,
+                  combined: state.cropMeta.combined,
+                },
+                chunkBoundaries: DEV_SHIFT_DRAFT_CHUNK_BOUNDARIES,
+                model: vlmModel,
+              })}
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="dev-shift-draft-back-to-select"
+                onClick={onBackToRowSelect}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[11px] text-slate-700"
+              >
+                行指定に戻る
+              </button>
+              <button
+                type="button"
+                data-testid="dev-shift-draft-extract"
+                onClick={() => void handleExtract()}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-[12px] font-medium text-white"
+              >
+                この画像で読み取る
+              </button>
+            </div>
           </div>
         )}
 
@@ -389,6 +587,23 @@ export function DevShiftDraftClient({
                 </li>
               ))}
             </ul>
+
+            <DebugSummaryView
+              summary={buildDevShiftDraftDebugSummary({
+                imageW: state.imageMeta.width,
+                imageH: state.imageMeta.height,
+                year: state.year,
+                month: state.month,
+                daysInMonth: daysInMonth(state.year, state.month),
+                headerBand: state.selection.headerBand,
+                personRowBand: state.selection.personRowBand,
+                chunkBoundaries: DEV_SHIFT_DRAFT_CHUNK_BOUNDARIES,
+                model: vlmModel,
+                elapsedMs: lastElapsedMs ?? undefined,
+                cells: state.cells,
+              })}
+            />
+
             {/* CEO 補正: Modal は自動 open せず、必ず CTA を挟む */}
             <div className="flex items-center gap-2">
               <button

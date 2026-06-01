@@ -34,6 +34,20 @@ export interface ImageMeta {
   sizeBytes: number;
 }
 
+/** crop 1 枚分の寸法 trace（Blob 本体は持たない・数値のみ）。 */
+export interface CropDimsMeta {
+  width: number;
+  height: number;
+  sizeBytes: number;
+}
+
+/** crop_review が持つ 3 crop の寸法（preview 用・Blob/base64 は持たない）。 */
+export interface DraftCropMeta {
+  header: CropDimsMeta;
+  personRow: CropDimsMeta;
+  combined: CropDimsMeta;
+}
+
 /** State machine — 6 種。imageObjectUrl は image_loaded 以降ずっと同一値を引き継ぐ。 */
 export type DevShiftDraftState =
   | { kind: "idle" }
@@ -47,6 +61,21 @@ export type DevShiftDraftState =
       imageObjectUrl: string;
       imageMeta: ImageMeta;
       selection: AssistedRowSelection;
+    }
+  | {
+      // 9-FIX: VLM 入力 preview。row_selected → crop_review → extracting の必須ゲート。
+      // crop URL（string）と寸法のみ保持。**Blob/base64 は持たない**（preview は ObjectURL）。
+      kind: "crop_review";
+      imageObjectUrl: string;
+      imageMeta: ImageMeta;
+      selection: AssistedRowSelection;
+      year: number;
+      month: number;
+      headerCropUrl: string;
+      personRowCropUrl: string;
+      /** header+personRow を上下結合した「VLM に渡す予定」の画像。 */
+      combinedCropUrl: string;
+      cropMeta: DraftCropMeta;
     }
   | {
       kind: "extracting";
@@ -102,9 +131,24 @@ export type DevShiftDraftAction =
       type: "row_selected";
       selection: AssistedRowSelection;
     }
-  // ── 8-c-3: 抽出 ──
+  // ── 9-FIX: crop preview ──
   | {
-      // row_selected → extracting。targetMonth を持ち込む（extracting/cells_loaded で使う）。
+      // row_selected → crop_review。crop URL + 寸法 + targetMonth を持ち込む。
+      type: "crops_prepared";
+      year: number;
+      month: number;
+      headerCropUrl: string;
+      personRowCropUrl: string;
+      combinedCropUrl: string;
+      cropMeta: DraftCropMeta;
+    }
+  | {
+      // crop_review → row_selected（行指定に戻る）。crop URL は useEffect で revoke。
+      type: "back_to_row_select";
+    }
+  // ── 8-c-3 → 9-FIX: 抽出 ──
+  | {
+      // crop_review → extracting。targetMonth を持ち込む（extracting/cells_loaded で使う）。
       type: "extract_started";
       year: number;
       month: number;
@@ -174,9 +218,37 @@ export function devShiftDraftReducer(
       };
     }
 
-    case "extract_started": {
-      // row_selected からのみ。targetMonth を持ち込んで extracting へ。
+    case "crops_prepared": {
+      // row_selected からのみ。crop URL + 寸法 + targetMonth を持ち込んで crop_review へ。
       if (state.kind !== "row_selected") return state;
+      return {
+        kind: "crop_review",
+        imageObjectUrl: state.imageObjectUrl,
+        imageMeta: state.imageMeta,
+        selection: state.selection,
+        year: action.year,
+        month: action.month,
+        headerCropUrl: action.headerCropUrl,
+        personRowCropUrl: action.personRowCropUrl,
+        combinedCropUrl: action.combinedCropUrl,
+        cropMeta: action.cropMeta,
+      };
+    }
+
+    case "back_to_row_select": {
+      // crop_review からのみ。row_selected へ戻す（crop URL は useEffect が revoke）。
+      if (state.kind !== "crop_review") return state;
+      return {
+        kind: "row_selected",
+        imageObjectUrl: state.imageObjectUrl,
+        imageMeta: state.imageMeta,
+        selection: state.selection,
+      };
+    }
+
+    case "extract_started": {
+      // crop_review からのみ（9-FIX: crop preview を確認してから VLM）。
+      if (state.kind !== "crop_review") return state;
       return {
         kind: "extracting",
         imageObjectUrl: state.imageObjectUrl,
@@ -297,9 +369,39 @@ export function currentImageObjectUrl(
       return null;
     case "image_loaded":
     case "row_selected":
+    case "crop_review":
     case "extracting":
     case "cells_loaded":
     case "error":
       return state.imageObjectUrl;
+  }
+}
+
+/**
+ * state が保持する **全** ObjectURL（元画像 + crop preview）。
+ * client の useEffect が「前回 set に有り・今回 set に無い」URL を revoke するために使う。
+ *   - crop_review: 元画像 + header/personRow/combined crop の 4 本
+ *   - その他: 元画像 1 本（idle/saved は 0 本）
+ * crop_review を離れる（extracting / row_selected / cancel）と crop URL が set から消え、
+ * useEffect が 3 本の crop URL を revoke する（元画像は持ち越し）。
+ */
+export function currentObjectUrls(state: DevShiftDraftState): string[] {
+  switch (state.kind) {
+    case "idle":
+    case "saved":
+      return [];
+    case "image_loaded":
+    case "row_selected":
+    case "extracting":
+    case "cells_loaded":
+    case "error":
+      return [state.imageObjectUrl];
+    case "crop_review":
+      return [
+        state.imageObjectUrl,
+        state.headerCropUrl,
+        state.personRowCropUrl,
+        state.combinedCropUrl,
+      ];
   }
 }

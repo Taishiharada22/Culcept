@@ -56,6 +56,8 @@ export default async function DevShiftDraftPage() {
       saveEnabled={isShiftImportSaveEnabled()}
       defaultYear={now.getFullYear()}
       defaultMonth={now.getMonth() + 1}
+      // 9-FIX: debug summary 表示用の model 名（B1B_VLM_MODEL）。API key ではない。
+      vlmModel={process.env.B1B_VLM_MODEL}
     />
   );
 }
