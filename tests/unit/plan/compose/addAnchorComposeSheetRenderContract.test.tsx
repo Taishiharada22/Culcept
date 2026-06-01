@@ -50,6 +50,13 @@ const ACTIVE_EMPTY: ComposeDraftState = {
   placement: { status: "unplaced" },
 };
 
+const ACTIVE_TITLE_ONLY: ComposeDraftState = {
+  id: "d-title",
+  core: { title: "企画書", locationText: "", rigidity: "" },
+  time: { mode: "none" },
+  placement: { status: "unplaced" },
+};
+
 const noop = (): void => undefined;
 
 function render(opts: {
@@ -111,16 +118,29 @@ describe("§4 既存予定 read-only block", () => {
 describe("§5 作成中 draft の card preview", () => {
   it("配置可能（title + 場所あり）なら ComposeCard を preview", () => {
     const html = render({ isOpen: true, active: ACTIVE_PLACEABLE });
+    expect(html).toContain('data-testid="compose-active-preview"');
     expect(html).toContain('data-testid="compose-card"');
     expect(html).toContain("企画書");
   });
 
-  it("必須未充足（空）なら card を出さない", () => {
+  it("title だけでも live preview が出る（配置はまだ不可・ヒント表示）", () => {
+    const html = render({
+      isOpen: true,
+      drafts: [ACTIVE_TITLE_ONLY],
+      active: ACTIVE_TITLE_ONLY,
+    });
+    expect(html).toContain('data-testid="compose-active-preview"');
+    expect(html).toContain('data-testid="compose-card"');
+    expect(html).toContain("「どこで？」も入れると配置できます");
+  });
+
+  it("title も空なら card / preview を出さない", () => {
     const html = render({
       isOpen: true,
       drafts: [ACTIVE_EMPTY],
       active: ACTIVE_EMPTY,
     });
     expect(html).not.toContain('data-testid="compose-card"');
+    expect(html).not.toContain('data-testid="compose-active-preview"');
   });
 });

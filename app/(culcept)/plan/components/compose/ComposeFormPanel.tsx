@@ -82,12 +82,14 @@ export function ComposeFormPanel({
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300"
         />
         {/* A-0 補正: 候補表示領域の「枠」のみ。実検索接続は A-3 以降。 */}
-        <div
-          data-testid="compose-location-candidates-placeholder"
-          className="mt-1 rounded-md border border-dashed border-slate-200/70 px-2.5 py-1 text-[10px] text-slate-300"
-        >
-          場所の候補はここに表示されます
-        </div>
+        {core.locationText.trim().length > 0 && (
+          <div
+            data-testid="compose-location-candidates-placeholder"
+            className="mt-1 rounded-md border border-dashed border-slate-200/70 px-2.5 py-1 text-[10px] text-slate-300"
+          >
+            場所の候補はここに表示されます
+          </div>
+        )}
       </Question>
 
       {/* 時間は？（最小入力。空＝未定） */}

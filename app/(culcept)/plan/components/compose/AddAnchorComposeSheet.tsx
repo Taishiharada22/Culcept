@@ -113,10 +113,18 @@ export function AddAnchorComposeSheet({
 
   const blocks = [...existingBlocks, ...placedBlocks];
 
-  // 未配置 draft（必須充足のみ）= ドラッグ配置できるカード。A-0「未配置draftの表示」。
-  const unplacedCards = drafts.filter(
-    (d) => d.placement.status === "unplaced" && isPlaceable(d),
+  // live preview = 編集中(active) draft。**title が入った時点**で「予定カード」として常時表示し、
+  // 必須(なに＋どこ)が揃ったら**ドラッグ配置可能**にする（= show と drag を分離。Pass 4）。
+  const activePlaceable = isPlaceable(activeDraft);
+  const showActivePreview = activeDraft.core.title.trim().length > 0;
+  // active 以外の未配置 placeable（戻す等）は別カードで表示（二重表示回避）。
+  const otherCards = drafts.filter(
+    (d) =>
+      d.id !== activeDraft.id &&
+      d.placement.status === "unplaced" &&
+      isPlaceable(d),
   );
+  const showCardsRegion = showActivePreview || otherCards.length > 0;
 
   return (
     <ComposeBottomSheet isOpen={isOpen} onClose={onClose}>
@@ -177,18 +185,29 @@ export function AddAnchorComposeSheet({
                 onTimeChange={onTimeChange}
               />
 
-              {unplacedCards.length > 0 && (
+              {showCardsRegion && (
                 <div data-testid="compose-unplaced-list" className="space-y-2">
-                  {unplacedCards.map((d) =>
+                  {showActivePreview && (
+                    <div data-testid="compose-active-preview" className="space-y-1">
+                      {activePlaceable && renderCard ? (
+                        renderCard(activeDraft)
+                      ) : (
+                        <ComposeCard draft={activeDraft} />
+                      )}
+                      <p className="text-[11px] text-slate-400">
+                        {activePlaceable
+                          ? "カードを左のタイムラインへドラッグして配置します"
+                          : "「どこで？」も入れると配置できます"}
+                      </p>
+                    </div>
+                  )}
+                  {otherCards.map((d) =>
                     renderCard ? (
                       <div key={d.id}>{renderCard(d)}</div>
                     ) : (
                       <ComposeCard key={d.id} draft={d} />
                     ),
                   )}
-                  <p className="text-[11px] text-slate-400">
-                    カードを左のタイムラインへドラッグして配置します
-                  </p>
                 </div>
               )}
 
