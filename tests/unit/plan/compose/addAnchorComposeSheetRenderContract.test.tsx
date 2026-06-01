@@ -1,0 +1,126 @@
+/**
+ * AddAnchorComposeSheet render contract（A-2・2カラム骨格）
+ *
+ * 検証範囲:
+ *   §1 isOpen=false → compose-sheet 無し（modal 非表示）
+ *   §2 isOpen=true → 日付ヘッダ + 左タイムライン + 右パネル + 完了
+ *   §3 配置済み draft が左タイムラインに block 描画
+ *   §4 既存予定が read-only block で残る
+ *   §5 配置可能な作成中 draft が ComposeCard で preview される
+ *
+ * 不変原則: renderToStaticMarkup のみ。LLM / API / DB / network / 候補検索 不使用。
+ * interaction（drag / 完了押下 / 日付切替の本格挙動）は A-3 / smoke。
+ */
+
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import { AddAnchorComposeSheet } from "@/app/(culcept)/plan/components/compose/AddAnchorComposeSheet";
+import type { TimelineBlock } from "@/app/(culcept)/plan/components/compose/DayTimelineCanvas";
+import type { ComposeDraftState } from "@/lib/plan/compose/composeDraft";
+
+const EXISTING: TimelineBlock[] = [
+  { id: "ex-lunch", label: "ランチ", startMin: 750, endMin: 810, tone: "existing" },
+];
+
+const PLACED: ComposeDraftState = {
+  id: "d-mtg",
+  core: { title: "クライアントMTG", locationText: "渋谷オフィス", rigidity: "hard" },
+  time: { mode: "both", startMin: 900, endMin: 1020 },
+  placement: {
+    status: "placed",
+    startMin: 900,
+    endMin: 1020,
+    crossesMidnight: false,
+    edgeClamped: false,
+  },
+};
+
+const ACTIVE_PLACEABLE: ComposeDraftState = {
+  id: "d-active",
+  core: { title: "企画書", locationText: "カフェ", rigidity: "soft" },
+  time: { mode: "start", startMin: 600 },
+  placement: { status: "unplaced" },
+};
+
+const ACTIVE_EMPTY: ComposeDraftState = {
+  id: "d-empty",
+  core: { title: "", locationText: "", rigidity: "" },
+  time: { mode: "none" },
+  placement: { status: "unplaced" },
+};
+
+const noop = (): void => undefined;
+
+function render(opts: {
+  isOpen: boolean;
+  drafts?: ComposeDraftState[];
+  active?: ComposeDraftState;
+}): string {
+  return renderToStaticMarkup(
+    <AddAnchorComposeSheet
+      isOpen={opts.isOpen}
+      onClose={noop}
+      dateLabel="6/1(月)"
+      existingBlocks={EXISTING}
+      drafts={opts.drafts ?? [PLACED, opts.active ?? ACTIVE_PLACEABLE]}
+      activeDraft={opts.active ?? ACTIVE_PLACEABLE}
+    />,
+  );
+}
+
+describe("§1 isOpen=false", () => {
+  it("compose-sheet を render しない", () => {
+    expect(render({ isOpen: false })).not.toContain('data-testid="compose-sheet"');
+  });
+});
+
+describe("§2 isOpen=true — 2カラム骨格", () => {
+  it("sheet / 日付ヘッダ / 前後矢印 / タイムライン / フォーム / 完了 が揃う", () => {
+    const html = render({ isOpen: true });
+    expect(html).toContain('data-testid="compose-sheet"');
+    expect(html).toContain('data-testid="compose-date-header"');
+    expect(html).toContain('data-testid="compose-date-prev"');
+    expect(html).toContain('data-testid="compose-date-next"');
+    expect(html).toContain('data-testid="compose-timeline-col"');
+    expect(html).toContain('data-testid="compose-timeline"');
+    expect(html).toContain('data-testid="compose-form-col"');
+    expect(html).toContain('data-testid="compose-form-panel"');
+    expect(html).toContain('data-testid="compose-complete-btn"');
+    expect(html).toContain("6/1(月)");
+    expect(html).toContain("完了");
+  });
+});
+
+describe("§3 配置済み draft → タイムライン block", () => {
+  it("placed draft が compose-block として draft tone で描画", () => {
+    const html = render({ isOpen: true });
+    expect(html).toContain('data-testid="compose-block-d-mtg"');
+    expect(html).toContain("クライアントMTG");
+  });
+});
+
+describe("§4 既存予定 read-only block", () => {
+  it("既存予定が existing tone で残る", () => {
+    const html = render({ isOpen: true });
+    expect(html).toContain('data-testid="compose-block-ex-lunch"');
+    expect(html).toContain('data-tone="existing"');
+  });
+});
+
+describe("§5 作成中 draft の card preview", () => {
+  it("配置可能（title + 場所あり）なら ComposeCard を preview", () => {
+    const html = render({ isOpen: true, active: ACTIVE_PLACEABLE });
+    expect(html).toContain('data-testid="compose-card"');
+    expect(html).toContain("企画書");
+  });
+
+  it("必須未充足（空）なら card を出さない", () => {
+    const html = render({
+      isOpen: true,
+      drafts: [ACTIVE_EMPTY],
+      active: ACTIVE_EMPTY,
+    });
+    expect(html).not.toContain('data-testid="compose-card"');
+  });
+});

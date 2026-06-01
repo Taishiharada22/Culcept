@@ -94,6 +94,18 @@ UI 内部状態を `AnchorFormState` に無理に寄せると、新 UI 固有状
 
 検証: 44/44 PASS。tsc baseline **1112 不変**（新規ファイル由来エラー 0）。既存コード非改修（additive）。UI / PlanClient / flag / DB 未接触。保存変換（ComposeDraft → CreateOneOffAnchorInput）は A-4 預け。
 
+### A-2 実装済（2026-06-01・見た目の骨格 / presentational のみ）
+
+| 追加ファイル | 役割 |
+|---|---|
+| `app/(culcept)/plan/components/compose/DayTimelineCanvas.tsx` | 俯瞰ルーラー + block 静的描画（props 駆動・drag なし） |
+| `.../compose/ComposeFormPanel.tsx` | 質問形式 UI（controlled）。場所候補は**枠のみ**（PlaceCandidatesPanel 接続は A-3 以降） |
+| `.../compose/ComposeCard.tsx` | 予定カード表示（ハンドルは視覚のみ） |
+| `.../compose/AddAnchorComposeSheet.tsx` | `GlassModal(lg)` に日付ヘッダ + 2カラム + 完了。**presentational**（useReducer は A-3 container） |
+| `tests/unit/plan/compose/*RenderContract.test.tsx` ×3 | **19 render tests PASS** |
+
+検証: compose 計 45 PASS（A-1 26 + A-2 19）。tsc baseline **1112 不変**（新規由来 0）。既存コード非改修。PlanClient / AddAnchorModal / flag / 保存 / 候補検索 未接触。A-2 補正遵守（場所候補は枠のみ）。次は A-3（状態 container + ドラッグ配置 + 吸着 + placed 削除/戻す）。
+
 ---
 
 ## 1. 体験の本質と「状態モデル」
