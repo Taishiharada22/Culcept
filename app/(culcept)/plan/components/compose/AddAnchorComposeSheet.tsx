@@ -17,7 +17,7 @@
 
 import type { ReactNode, Ref } from "react";
 
-import { GlassButton, GlassModal } from "@/components/ui/glassmorphism-design";
+import { GlassButton } from "@/components/ui/glassmorphism-design";
 import {
   type ComposeDraftCore,
   type ComposeDraftState,
@@ -28,6 +28,7 @@ import {
   visualBlock,
 } from "@/lib/plan/compose/composeTimeResolver";
 
+import { ComposeBottomSheet } from "./ComposeBottomSheet";
 import { ComposeCard } from "./ComposeCard";
 import { ComposeFormPanel } from "./ComposeFormPanel";
 import {
@@ -118,7 +119,7 @@ export function AddAnchorComposeSheet({
   );
 
   return (
-    <GlassModal isOpen={isOpen} onClose={onClose} title="予定をつくる" size="lg">
+    <ComposeBottomSheet isOpen={isOpen} onClose={onClose}>
       <div data-testid="compose-sheet" className="relative flex flex-col gap-3">
         {/* 日付ヘッダ（前後で対象日を移動） */}
         <div
@@ -211,6 +212,6 @@ export function AddAnchorComposeSheet({
         {/* 日付切替確認などの overlay（A-3） */}
         {confirmOverlay}
       </div>
-    </GlassModal>
+    </ComposeBottomSheet>
   );
 }
