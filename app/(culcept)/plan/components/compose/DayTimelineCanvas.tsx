@@ -55,13 +55,16 @@ export interface DayTimelineCanvasProps {
   onUnplaceBlock?: (id: string) => void;
 }
 
-const MIN_BLOCK_PX = 18;
+/** 俯瞰タイムラインの既定高（px）。container の drop 計算 VIEWPORT と一致させる単一ソース（UI-1）。 */
+export const TIMELINE_HEIGHT_PX = 440;
+
+const MIN_BLOCK_PX = 16;
 
 export function DayTimelineCanvas({
   blocks,
   windowStartMin = DEFAULT_WINDOW_START_MIN,
   windowEndMin = DEFAULT_WINDOW_END_MIN,
-  heightPx = 560,
+  heightPx = TIMELINE_HEIGHT_PX,
   ghost = null,
   onRemoveBlock,
   onUnplaceBlock,
@@ -89,27 +92,27 @@ export function DayTimelineCanvas({
         return (
           <div key={m} className="absolute inset-x-0" style={{ top: y }}>
             <div className="flex items-start gap-1">
-              <span className="w-10 shrink-0 -translate-y-1.5 text-[10px] tabular-nums text-slate-400">
+              <span className="w-8 shrink-0 -translate-y-1.5 text-[9px] tabular-nums text-slate-400">
                 {formatMinutes(m)}
               </span>
-              <span className="mt-px h-px flex-1 bg-slate-200/70" />
+              <span className="mt-px h-px flex-1 bg-slate-200/60" />
             </div>
           </div>
         );
       })}
 
       {/* ブロック層 */}
-      <div className="absolute inset-y-0 left-11 right-1">
+      <div className="absolute inset-y-0 left-9 right-1">
         {/* ゴースト（ドラッグ中プレビュー・A-3） */}
         {ghost && (
           <div
             data-testid="compose-ghost"
             data-invalid={ghost.invalid ? "true" : "false"}
             className={
-              "absolute inset-x-0 rounded-md border-2 border-dashed px-2 py-0.5 text-[11px] leading-tight " +
+              "absolute inset-x-0 rounded-lg border-2 border-dashed px-2 py-0.5 text-[10px] leading-tight " +
               (ghost.invalid
                 ? "border-rose-300 bg-rose-50/70 text-rose-600"
-                : "border-indigo-400 bg-indigo-50/60 text-indigo-600")
+                : "border-indigo-400 bg-indigo-50/70 text-indigo-600")
             }
             style={{
               top: minutesToY(ghost.startMin, vp),
@@ -138,10 +141,10 @@ export function DayTimelineCanvas({
               data-testid={`compose-block-${b.id}`}
               data-tone={b.tone}
               className={
-                "group absolute inset-x-0 overflow-hidden rounded-md border px-2 py-0.5 text-[11px] leading-tight " +
+                "group absolute inset-x-0 overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
                 (isExisting
-                  ? "border-slate-200 bg-white/80 text-slate-500"
-                  : "border-indigo-300 bg-indigo-50 text-indigo-700")
+                  ? "border-slate-200/80 bg-white/85 text-slate-500"
+                  : "border-indigo-200 bg-indigo-100 text-indigo-700")
               }
               style={{ top, height }}
             >

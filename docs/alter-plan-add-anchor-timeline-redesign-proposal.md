@@ -157,6 +157,21 @@ CEO 実機確認で **functional smoke PASS**（flag ON で2カラムシート /
 
 → **次フェーズ = UI fidelity polish**（Phase B ではない）: ①左タイムラインをコンパクト化（1日見渡し）②右/左の余白・比率 ③シートをスマホ内に収める ④カードの浮遊感 ⑤ドラッグ中カード+ゴースト ⑥完了ボタン位置/サイズ ⑦Alter 補完カードは出さない。
 
+### UI fidelity polish 第1パス（2026-06-01・compose 配下のみ）
+
+CEO GO。**data-testid / 保存契約 / ロジック中核 / flag は不変・render contract 97 PASS 維持**。compose 配下の見た目/レイアウト/視覚状態のみ。
+
+| 変更（CSS / レイアウト / 視覚） | 対象 |
+|---|---|
+| 2カラムを**常時左右**（左40% / 右60%）＋右フォームを左タイムラインと同高でスクロール＋完了を固定（シートを縦に収める） | `AddAnchorComposeSheet` |
+| タイムライン高を単一ソース化（`TIMELINE_HEIGHT_PX=440`）＋1日俯瞰へ圧縮・ラベル/ブロック小型化・配色強化 | `DayTimelineCanvas` / container VIEWPORT |
+| 予定カードを白＋ソフト紫シャドウの浮遊カードに | `ComposeCard` |
+| ドラッグ中カードに拡大＋紫グロー | container `whileDrag` |
+| 完了ボタンを**右下 full-width・purple** で強く | `AddAnchorComposeSheet` |
+| フォーム余白を詰める | `ComposeFormPanel` |
+
+検証: compose+geometry **97 PASS** / tsc baseline **1112 不変**。**fidelity は実機/preview 目視反復が必要**（SSR 判定不可）。残見た目課題: 比率・余白の理想画像一致／時間入力 UI の見せ方／実機での収まり（特に小型端末）／誰と欄（v1 非表示のまま）。→ **CEO スクショ判定で次パス**。
+
 ---
 
 ## 1. 体験の本質と「状態モデル」

@@ -45,14 +45,17 @@ import {
 import { AddAnchorComposeSheet } from "./AddAnchorComposeSheet";
 import { ComposeCard } from "./ComposeCard";
 import { DateChangeConfirmDialog } from "./DateChangeConfirmDialog";
-import type { TimelineBlock, TimelineGhost } from "./DayTimelineCanvas";
+import {
+  TIMELINE_HEIGHT_PX,
+  type TimelineBlock,
+  type TimelineGhost,
+} from "./DayTimelineCanvas";
 
-// 俯瞰ビューポート（DayTimelineCanvas の既定と一致させる＝drop 計算と描画の整合）。
-const CANVAS_HEIGHT = 560;
+// 俯瞰ビューポート（DayTimelineCanvas の既定高と一致させる＝drop 計算と描画の整合）。
 const VIEWPORT: TimelineViewport = {
   startMin: DEFAULT_WINDOW_START_MIN,
   endMin: DEFAULT_WINDOW_END_MIN,
-  heightPx: CANVAS_HEIGHT,
+  heightPx: TIMELINE_HEIGHT_PX,
 };
 const DROP_SNAP_GRID = 5;
 
@@ -195,7 +198,11 @@ export function AddAnchorComposeContainer({
       data-testid="compose-card-draggable"
       drag
       dragSnapToOrigin
-      whileDrag={{ scale: 1.03, zIndex: 60 }}
+      whileDrag={{
+        scale: 1.05,
+        zIndex: 60,
+        boxShadow: "0 18px 40px -12px rgba(99,102,241,0.55)",
+      }}
       onDrag={(e, info) => handleCardDrag(draft, e, info)}
       onDragEnd={(e, info) => handleCardDragEnd(draft, e, info)}
       className="cursor-grab touch-none active:cursor-grabbing"

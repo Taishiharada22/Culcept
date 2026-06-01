@@ -58,7 +58,7 @@ export function ComposeFormPanel({
   const showEnd = time.mode === "end" || time.mode === "both";
 
   return (
-    <div data-testid="compose-form-panel" className="space-y-4">
+    <div data-testid="compose-form-panel" className="space-y-3">
       {/* なにをする？ */}
       <Question label="なにをする？">
         <input

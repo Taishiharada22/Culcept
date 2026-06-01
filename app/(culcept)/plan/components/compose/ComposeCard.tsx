@@ -43,7 +43,7 @@ export function ComposeCard({ draft }: ComposeCardProps) {
       data-testid="compose-card"
       data-draft-id={draft.id}
       data-placed={placed ? "true" : "false"}
-      className="flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 shadow-sm"
+      className="flex items-start gap-2 rounded-2xl border border-indigo-100 bg-white p-3 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-100/60"
     >
       {/* ドラッグハンドル（視覚のみ・A-3 で実装） */}
       <span
