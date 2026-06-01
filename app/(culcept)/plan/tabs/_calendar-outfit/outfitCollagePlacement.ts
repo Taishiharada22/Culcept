@@ -64,14 +64,18 @@ export function shapeToSlot(shape: CalendarOutfitItemShape): OutfitSlot {
 //   - top = 中央やや上左（主役）/ bottom = その右下に少し重ねる / shoes = 下・bag = 左下 / accessory = 右上極小。
 //   - collage はカード全幅を占めるため scale を大きめに取り、 服を大きく見せる（中央に小さく固めない）。
 //   - 回転は最大 ±3°（主役はほぼ 0）。
+// 2026-06-01 調整（CEO 報告「中央密集・各アイテムをもう少し大きく + 間隔を広く」）:
+//   - 全 slot の scale を +9〜+18% 増（accessory は最大幅増、 主役は控えめに）。
+//   - 中央 cluster（outer/top/bottom）を放射方向に微小オフセットして密集を緩和。
+//   - shoes/bag/accessory も外側へ少し動かし、 上下左右の間隔を広げる。
 const SLOT_LAYOUT: Record<OutfitSlot, Omit<CollagePlacement, "id" | "slot">> = {
-  outer: { leftPct: 32, topPct: 41, scale: 0.66, rotateDeg: -3, z: 1 },
-  top: { leftPct: 40, topPct: 39, scale: 0.64, rotateDeg: 0, z: 3 },
-  bottom: { leftPct: 63, topPct: 52, scale: 0.7, rotateDeg: 2, z: 2 },
-  shoes: { leftPct: 56, topPct: 74, scale: 0.36, rotateDeg: 2, z: 4 },
-  bag: { leftPct: 31, topPct: 68, scale: 0.36, rotateDeg: -3, z: 4 },
-  accessory: { leftPct: 81, topPct: 24, scale: 0.22, rotateDeg: 0, z: 5 },
-  extra: { leftPct: 50, topPct: 50, scale: 0.48, rotateDeg: 1, z: 2 },
+  outer: { leftPct: 26, topPct: 39, scale: 0.72, rotateDeg: -3, z: 1 },
+  top: { leftPct: 42, topPct: 36, scale: 0.70, rotateDeg: 0, z: 3 },
+  bottom: { leftPct: 66, topPct: 55, scale: 0.76, rotateDeg: 2, z: 2 },
+  shoes: { leftPct: 60, topPct: 78, scale: 0.40, rotateDeg: 2, z: 4 },
+  bag: { leftPct: 24, topPct: 72, scale: 0.40, rotateDeg: -3, z: 4 },
+  accessory: { leftPct: 86, topPct: 20, scale: 0.26, rotateDeg: 0, z: 5 },
+  extra: { leftPct: 50, topPct: 50, scale: 0.54, rotateDeg: 1, z: 2 },
 };
 
 const clampPct = (v: number): number => Math.min(100, Math.max(0, v));
