@@ -1,18 +1,18 @@
 "use client";
 
 /**
- * DayTimelineCanvas — 予定追加 2カラム体験「左の俯瞰タイムライン」（A-2・静的描画のみ）。
+ * DayTimelineCanvas — 予定追加 2カラム体験「左の俯瞰タイムライン」。
  *
  * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md §4.4 / A-0-5
  *
- * 責務（A-2 = presentational・props 駆動）:
- *   - 可視窓（既定 6:00–24:00）をシート高に圧縮した俯瞰ルーラー描画
- *   - blocks（既存予定 read-only / 配置済み draft）を時刻位置に静的描画
+ * 責務（presentational・props 駆動）:
+ *   - 可視窓（既定 6:00–24:00）をシート高に圧縮した俯瞰ルーラー描画（A-2）
+ *   - blocks（既存予定 read-only / 配置済み draft）を時刻位置に描画（A-2）
+ *   - A-3 追加（すべて optional・後方互換）:
+ *       ghost: ドラッグ中の配置プレビュー（点線・crossesMidnight は警告色）
+ *       onRemoveBlock / onUnplaceBlock: 配置済み draft block の削除 / 戻す操作
  *
- * 範囲外（A-2 で触れない）:
- *   - ドラッグ / ドロップ / 吸着（A-3）
- *   - 状態保持（useReducer は A-3 の container が持つ）
- *   - 保存 / PlanClient / flag / 候補検索
+ * 範囲外: ドラッグ検知そのもの（container が担当）/ 保存 / PlanClient / 候補検索。
  */
 
 import {
@@ -32,6 +32,13 @@ export interface TimelineBlock {
   tone: "existing" | "draft";
 }
 
+export interface TimelineGhost {
+  startMin: number;
+  endMin: number;
+  /** 日跨ぎ・退化（A-0-1）。警告色で描画 */
+  invalid?: boolean;
+}
+
 export interface DayTimelineCanvasProps {
   blocks: TimelineBlock[];
   /** 可視窓開始（分・既定 6:00） */
@@ -40,6 +47,12 @@ export interface DayTimelineCanvasProps {
   windowEndMin?: number;
   /** canvas 高（px・俯瞰圧縮の基準） */
   heightPx?: number;
+  /** A-3: ドラッグ中の配置プレビュー */
+  ghost?: TimelineGhost | null;
+  /** A-3: 配置済み draft block の削除（指定時のみ ✕ ボタン描画） */
+  onRemoveBlock?: (id: string) => void;
+  /** A-3: 配置済み draft block を未配置へ戻す（指定時のみ ↩ ボタン描画） */
+  onUnplaceBlock?: (id: string) => void;
 }
 
 const MIN_BLOCK_PX = 18;
@@ -49,6 +62,9 @@ export function DayTimelineCanvas({
   windowStartMin = DEFAULT_WINDOW_START_MIN,
   windowEndMin = DEFAULT_WINDOW_END_MIN,
   heightPx = 560,
+  ghost = null,
+  onRemoveBlock,
+  onUnplaceBlock,
 }: DayTimelineCanvasProps) {
   const vp: TimelineViewport = {
     startMin: windowStartMin,
@@ -82,30 +98,83 @@ export function DayTimelineCanvas({
         );
       })}
 
-      {/* 予定ブロック（静的描画） */}
+      {/* ブロック層 */}
       <div className="absolute inset-y-0 left-11 right-1">
+        {/* ゴースト（ドラッグ中プレビュー・A-3） */}
+        {ghost && (
+          <div
+            data-testid="compose-ghost"
+            data-invalid={ghost.invalid ? "true" : "false"}
+            className={
+              "absolute inset-x-0 rounded-md border-2 border-dashed px-2 py-0.5 text-[11px] leading-tight " +
+              (ghost.invalid
+                ? "border-rose-300 bg-rose-50/70 text-rose-600"
+                : "border-indigo-400 bg-indigo-50/60 text-indigo-600")
+            }
+            style={{
+              top: minutesToY(ghost.startMin, vp),
+              height: Math.max(
+                minutesToY(ghost.endMin, vp) - minutesToY(ghost.startMin, vp),
+                MIN_BLOCK_PX,
+              ),
+            }}
+          >
+            <span className="block tabular-nums">
+              {formatMinutes(ghost.startMin)}–{formatMinutes(ghost.endMin)}
+              {ghost.invalid ? "（日跨ぎ）" : ""}
+            </span>
+          </div>
+        )}
+
+        {/* 予定ブロック */}
         {blocks.map((b) => {
           const top = minutesToY(b.startMin, vp);
-          const rawH = minutesToY(b.endMin, vp) - top;
-          const height = Math.max(rawH, MIN_BLOCK_PX);
+          const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
           const isExisting = b.tone === "existing";
+          const showControls = !isExisting && (onRemoveBlock || onUnplaceBlock);
           return (
             <div
               key={b.id}
               data-testid={`compose-block-${b.id}`}
               data-tone={b.tone}
               className={
-                "absolute inset-x-0 overflow-hidden rounded-md border px-2 py-0.5 text-[11px] leading-tight " +
+                "group absolute inset-x-0 overflow-hidden rounded-md border px-2 py-0.5 text-[11px] leading-tight " +
                 (isExisting
                   ? "border-slate-200 bg-white/80 text-slate-500"
                   : "border-indigo-300 bg-indigo-50 text-indigo-700")
               }
               style={{ top, height }}
             >
-              <span className="block truncate font-medium">{b.label}</span>
+              <span className="block truncate pr-10 font-medium">{b.label}</span>
               <span className="block tabular-nums opacity-70">
                 {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
               </span>
+              {showControls && (
+                <div className="absolute right-1 top-0.5 flex gap-0.5">
+                  {onUnplaceBlock && (
+                    <button
+                      type="button"
+                      data-testid={`compose-block-unplace-${b.id}`}
+                      aria-label="未配置に戻す"
+                      onClick={() => onUnplaceBlock(b.id)}
+                      className="rounded px-1 text-[10px] text-indigo-400 hover:bg-white/60 hover:text-indigo-600"
+                    >
+                      ↩
+                    </button>
+                  )}
+                  {onRemoveBlock && (
+                    <button
+                      type="button"
+                      data-testid={`compose-block-remove-${b.id}`}
+                      aria-label="削除"
+                      onClick={() => onRemoveBlock(b.id)}
+                      className="rounded px-1 text-[10px] text-slate-400 hover:bg-white/60 hover:text-rose-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

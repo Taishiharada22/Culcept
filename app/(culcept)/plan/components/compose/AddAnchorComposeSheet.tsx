@@ -1,23 +1,21 @@
 "use client";
 
 /**
- * AddAnchorComposeSheet — 予定追加 2カラム体験の親シート（A-2・presentational 骨格）。
+ * AddAnchorComposeSheet — 予定追加 2カラム体験の親シート（presentational 骨格）。
  *
  * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md §4.1 / §4.2 / A-0-5 / A-0-6
  *
- * 責務（A-2 = 見た目の骨格・props 駆動）:
- *   - GlassModal(size=lg) 内に「日付ヘッダ + 左タイムライン + 右作成パネル + 完了」を
- *     レスポンシブ 2カラムで配置
- *   - 配置済み draft を左タイムラインに静的描画、作成中 draft を右パネル + カードに表示
+ * 責務（presentational・props 駆動）:
+ *   - GlassModal(lg) に「日付ヘッダ + 左タイムライン + 右作成パネル + 完了」を配置（A-2）
+ *   - A-3 追加（すべて optional・後方互換）:
+ *       ghost / timelineRef / onRemoveBlock / onUnplaceBlock を DayTimelineCanvas へ委譲
+ *       renderCard で未配置 draft カードの描画を container 側（ドラッグ対応）に委譲
+ *       confirmOverlay で日付切替確認ダイアログを overlay
  *
- * 範囲外（A-2 で触れない・後続 stop gate）:
- *   - 状態保持（useReducer）・ドラッグ・吸着・placed 削除/戻す（A-3）
- *   - 保存（createAnchorBundle）・PlanClient 統合・flag 分岐・AddAnchorModal 置換（A-4）
- *   - 候補検索（PlaceCandidatesPanel）/ 日付切替ブロックの本格挙動 / Phase B/C
- *
- * → このシートは「dumb」。A-3 で useReducer(composeReducer) を持つ container が
- *   同じ props を供給し、ジェスチャを配線する。
+ * 範囲外: 状態保持（useReducer は container）/ 保存 / PlanClient / flag / 候補検索。
  */
+
+import type { ReactNode, Ref } from "react";
 
 import { GlassButton, GlassModal } from "@/components/ui/glassmorphism-design";
 import {
@@ -32,7 +30,11 @@ import {
 
 import { ComposeCard } from "./ComposeCard";
 import { ComposeFormPanel } from "./ComposeFormPanel";
-import { DayTimelineCanvas, type TimelineBlock } from "./DayTimelineCanvas";
+import {
+  DayTimelineCanvas,
+  type TimelineBlock,
+  type TimelineGhost,
+} from "./DayTimelineCanvas";
 
 export interface AddAnchorComposeSheetProps {
   isOpen: boolean;
@@ -50,6 +52,16 @@ export interface AddAnchorComposeSheetProps {
   onCoreChange?: (patch: Partial<ComposeDraftCore>) => void;
   onTimeChange?: (time: ComposeTimeConstraint) => void;
   onComplete?: () => void;
+
+  // ── A-3 追加（optional・後方互換） ──
+  ghost?: TimelineGhost | null;
+  timelineRef?: Ref<HTMLDivElement>;
+  /** 未配置 draft カードの描画委譲（container がドラッグ対応で wrap）。未指定なら静的 ComposeCard */
+  renderCard?: (draft: ComposeDraftState) => ReactNode;
+  onRemoveBlock?: (id: string) => void;
+  onUnplaceBlock?: (id: string) => void;
+  /** 日付切替確認ダイアログ等の overlay */
+  confirmOverlay?: ReactNode;
 }
 
 export function AddAnchorComposeSheet({
@@ -64,8 +76,14 @@ export function AddAnchorComposeSheet({
   onCoreChange,
   onTimeChange,
   onComplete,
+  ghost = null,
+  timelineRef,
+  renderCard,
+  onRemoveBlock,
+  onUnplaceBlock,
+  confirmOverlay,
 }: AddAnchorComposeSheetProps) {
-  // 配置済み draft → タイムライン block（仮長は visualBlock で算出）。
+  // 配置済み draft → タイムライン block（仮長は visualBlock）。
   const placedBlocks: TimelineBlock[] = drafts
     .filter((d) => d.placement.status === "placed")
     .map((d) => {
@@ -89,11 +107,15 @@ export function AddAnchorComposeSheet({
     });
 
   const blocks = [...existingBlocks, ...placedBlocks];
-  const canPreviewCard = isPlaceable(activeDraft);
+
+  // 未配置 draft（必須充足のみ）= ドラッグ配置できるカード。A-0「未配置draftの表示」。
+  const unplacedCards = drafts.filter(
+    (d) => d.placement.status === "unplaced" && isPlaceable(d),
+  );
 
   return (
     <GlassModal isOpen={isOpen} onClose={onClose} title="予定をつくる" size="lg">
-      <div data-testid="compose-sheet" className="space-y-4">
+      <div data-testid="compose-sheet" className="relative space-y-4">
         {/* 日付ヘッダ（前後で対象日を移動） */}
         <div
           data-testid="compose-date-header"
@@ -123,11 +145,20 @@ export function AddAnchorComposeSheet({
         {/* 2カラム（レスポンシブ: スマホ縦積み / md 以上で左右） */}
         <div className="flex flex-col gap-4 md:flex-row md:gap-5">
           {/* 左: 俯瞰タイムライン */}
-          <div data-testid="compose-timeline-col" className="md:w-[42%] md:shrink-0">
-            <DayTimelineCanvas blocks={blocks} />
+          <div
+            ref={timelineRef}
+            data-testid="compose-timeline-col"
+            className="md:w-[42%] md:shrink-0"
+          >
+            <DayTimelineCanvas
+              blocks={blocks}
+              ghost={ghost}
+              onRemoveBlock={onRemoveBlock}
+              onUnplaceBlock={onUnplaceBlock}
+            />
           </div>
 
-          {/* 右: 作成パネル + カード + 完了 */}
+          {/* 右: 作成パネル + 未配置カード + 完了 */}
           <div data-testid="compose-form-col" className="min-w-0 flex-1 space-y-4">
             <ComposeFormPanel
               core={activeDraft.core}
@@ -136,11 +167,17 @@ export function AddAnchorComposeSheet({
               onTimeChange={onTimeChange}
             />
 
-            {canPreviewCard && (
-              <div className="space-y-1">
-                <ComposeCard draft={activeDraft} />
+            {unplacedCards.length > 0 && (
+              <div data-testid="compose-unplaced-list" className="space-y-2">
+                {unplacedCards.map((d) =>
+                  renderCard ? (
+                    <div key={d.id}>{renderCard(d)}</div>
+                  ) : (
+                    <ComposeCard key={d.id} draft={d} />
+                  ),
+                )}
                 <p className="text-[11px] text-slate-400">
-                  左のタイムラインへドラッグして配置します（操作は後続で有効化）
+                  カードを左のタイムラインへドラッグして配置します
                 </p>
               </div>
             )}
@@ -152,6 +189,9 @@ export function AddAnchorComposeSheet({
             </div>
           </div>
         </div>
+
+        {/* 日付切替確認などの overlay（A-3） */}
+        {confirmOverlay}
       </div>
     </GlassModal>
   );

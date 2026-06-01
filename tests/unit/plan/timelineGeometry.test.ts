@@ -10,6 +10,7 @@ import {
   minutesToY,
   yToMinutes,
   snapMinutes,
+  snappedMinAtY,
   clampMin,
   formatMinutes,
   parseMinutes,
@@ -77,6 +78,20 @@ describe("snapMinutes", () => {
 
   it("grid ≤ 0 は整数丸め", () => {
     expect(snapMinutes(905.6, 0)).toBe(906);
+  });
+});
+
+describe("snappedMinAtY（drop 位置 → 配置開始分）", () => {
+  const VP: TimelineViewport = { startMin: 360, endMin: 1440, heightPx: 540 }; // 0.5px/分
+
+  it("局所Y → 窓開始 + Y/pxPerMin を grid に snap", () => {
+    expect(snappedMinAtY(0, VP, 5)).toBe(360); // 06:00
+    expect(snappedMinAtY(270, VP, 5)).toBe(900); // 15:00
+    expect(snappedMinAtY(283, VP, 5)).toBe(925); // 926 → 5分 snap → 925
+  });
+
+  it("grid=1 は分そのまま丸め", () => {
+    expect(snappedMinAtY(283, VP, 1)).toBe(926);
   });
 });
 

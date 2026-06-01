@@ -106,6 +106,19 @@ UI 内部状態を `AnchorFormState` に無理に寄せると、新 UI 固有状
 
 検証: compose 計 45 PASS（A-1 26 + A-2 19）。tsc baseline **1112 不変**（新規由来 0）。既存コード非改修。PlanClient / AddAnchorModal / flag / 保存 / 候補検索 未接触。A-2 補正遵守（場所候補は枠のみ）。次は A-3（状態 container + ドラッグ配置 + 吸着 + placed 削除/戻す）。
 
+### A-3 実装済（2026-06-01・配置体験 / container + drag）
+
+| 追加/更新ファイル | 役割 |
+|---|---|
+| `.../compose/AddAnchorComposeContainer.tsx`（新規） | `useReducer(composeReducer)` 保持・activeDraft / id 採番・drag→drop→4ケース配置・ghost・placed 削除/戻す・日付切替 gate |
+| `.../compose/DateChangeConfirmDialog.tsx`（新規） | 未保存時の日付切替確認（保存/破棄/戻る。保存は A-4・未指定 disabled） |
+| `.../compose/DayTimelineCanvas.tsx`（追加 optional） | ghost プレビュー + placed block の削除/戻すボタン |
+| `.../compose/AddAnchorComposeSheet.tsx`（追加 optional） | ghost / timelineRef / renderCard / block 操作 / confirmOverlay 委譲 + 未配置カード列 |
+| `lib/plan/timeline-geometry.ts`（追加） | `snappedMinAtY`（drop Y → 配置開始分・pure） |
+| tests ×2 新規 + 2 拡張 | compose+geometry 計 **77 PASS** |
+
+検証: 77 PASS。tsc baseline **1112 不変**（新規由来 0）。framer-motion は既存依存（`^12.35.1`・新規追加なし）。実ドラッグ/drop/snap の実動作は **A-5 smoke**（SSR では配線・状態遷移・ghost/placed/confirm 描画契約まで）。PlanClient / AddAnchorModal / flag / 保存 / 候補検索 / DB 未接触。次は A-4（保存接続: placed[] → createAnchorBundle + onSuccess reload + flag 分岐 + legacy 併存）。
+
 ---
 
 ## 1. 体験の本質と「状態モデル」

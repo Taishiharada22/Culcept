@@ -60,3 +60,50 @@ describe("ブロック静的描画", () => {
     expect(html).toContain("06:00");
   });
 });
+
+describe("ghost（A-3・ドラッグ中プレビュー）", () => {
+  it("ghost 指定で点線プレビューを描画", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={[]} ghost={{ startMin: 900, endMin: 960 }} />,
+    );
+    expect(html).toContain('data-testid="compose-ghost"');
+    expect(html).toContain("15:00–16:00");
+    expect(html).toContain('data-invalid="false"');
+  });
+
+  it("invalid ghost は data-invalid=true + 日跨ぎ表記", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={[]}
+        ghost={{ startMin: 1410, endMin: 1430, invalid: true }}
+      />,
+    );
+    expect(html).toContain('data-invalid="true"');
+    expect(html).toContain("日跨ぎ");
+  });
+
+  it("ghost 未指定なら描画しない", () => {
+    expect(render()).not.toContain('data-testid="compose-ghost"');
+  });
+});
+
+describe("placed block の削除/戻すボタン（A-3）", () => {
+  it("callback 指定時、draft block にのみ削除/戻すボタン", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={BLOCKS}
+        onRemoveBlock={() => undefined}
+        onUnplaceBlock={() => undefined}
+      />,
+    );
+    expect(html).toContain('data-testid="compose-block-remove-dr-mtg"');
+    expect(html).toContain('data-testid="compose-block-unplace-dr-mtg"');
+    // existing block には出さない
+    expect(html).not.toContain('data-testid="compose-block-remove-ex-lunch"');
+    expect(html).not.toContain('data-testid="compose-block-unplace-ex-lunch"');
+  });
+
+  it("callback 未指定ならボタンなし（A-2 静的のまま）", () => {
+    expect(render()).not.toContain('data-testid="compose-block-remove-dr-mtg"');
+  });
+});

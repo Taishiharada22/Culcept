@@ -62,6 +62,14 @@ export function snapMinutes(min: number, grid = 1): number {
   return Math.round(min / grid) * grid;
 }
 
+/**
+ * 局所 Y（canvas 上端基準・px）→ snap 済みの分。
+ * drop 位置 → 配置開始分の算出に使う pure 合成（A-3 のドラッグ配置で利用）。
+ */
+export function snappedMinAtY(localY: number, vp: TimelineViewport, grid = 1): number {
+  return snapMinutes(yToMinutes(localY, vp), grid);
+}
+
 /** 値を [lo, hi] に clamp。 */
 export function clampMin(min: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, min));
