@@ -68,6 +68,7 @@ D2 で導入された C1L 系背景除去エンジンの実機品質を、 **自
 - package 追加 / モデルダウンロード UX / 商用ライセンス確認 / bundle 影響評価が必要
 - 現 M2-3 制約「外部 API / package 追加なし」に抵触
 - 記録のみ、 本フェーズでは着手しない
+- **未達成（将来行う）記録**: `docs/my-style-cutout-deep-matting-future-audit.md` — RMBG / BiRefNet / Transformers.js / WebGPU / ライセンス / bundle size の audit 対象を整理
 
 ---
 
