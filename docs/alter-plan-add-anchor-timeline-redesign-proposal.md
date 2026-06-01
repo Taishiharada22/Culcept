@@ -1,6 +1,7 @@
 # 予定追加 体験リデザイン（2カラム・タイムライン配置）設計案
 
 - **対象**: `/plan` の「予定を追加」体験。現状 = `AddAnchorModal.tsx`（縦フォーム「Alter に教える」）。理想 = CEO 提示イメージ（左タイムライン＋右作成パネル、右で作った予定カードを左へスワイプ配置、完了後 Alter が補完）。
+- **スコープ明確化（CEO 2026-06-01）**: これは**新タブ追加ではない**。既存ボトムシートの進化であり、ユーザーが1日の予定を入力し「完了」を押すと、従来の **Calendar / List / Map タブにそのまま反映**される（保存先・表示先は既存のまま）。
 - **状態**: **方針案（実装前 stop）**。CEO レビューで **補正付き GO**。本改訂（Phase A-0 設計補正）反映後、CEO GO で **A-1 pure 層**から着手。
 - **branch**: `claude/nifty-turing-128e67`。
 - **絶対条件**: 既存 `AddAnchorModal` パスと anchor スキーマ／API 契約／downstream パイプライン（DayGraph / transport / baseline / list・calendar・map tab）を**壊さない**。新体験は **flag で併存**させ、段階的に主導線へ昇格する。
@@ -81,6 +82,17 @@ UI 内部状態を `AnchorFormState` に無理に寄せると、新 UI 固有状
 - **A-5 実機 smoke**: 作成→配置→完了→/plan 反映→**リロード後も破綻しない**→flag OFF で旧 modal 不変
 
 **立入禁止（本トラック外）**: Phase B/C・migration・transport 本格接続・ListTab 管制官化・DB schema 変更。
+
+### A-1 実装済（2026-06-01・pure 層のみ）
+
+| 追加ファイル | 役割 |
+|---|---|
+| `lib/plan/timeline-geometry.ts` | 俯瞰 viewport の時間↔Y 写像 / snap / HH:MM↔分（pure） |
+| `lib/plan/compose/composeTimeResolver.ts` | 4ケース時間条件→配置解決（60分は仮長限定・both は end−start・日跨ぎ flag）（pure） |
+| `lib/plan/compose/composeDraft.ts` | `ComposeDraftState` + reducer（add/updateCore/setTime/place/unplace/remove）（pure） |
+| `tests/unit/plan/timelineGeometry.test.ts` ＋ `compose/` 2本 | **44 tests PASS** |
+
+検証: 44/44 PASS。tsc baseline **1112 不変**（新規ファイル由来エラー 0）。既存コード非改修（additive）。UI / PlanClient / flag / DB 未接触。保存変換（ComposeDraft → CreateOneOffAnchorInput）は A-4 預け。
 
 ---
 
