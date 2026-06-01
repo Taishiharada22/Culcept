@@ -172,8 +172,72 @@ CEO 補正 4:「精度 100% のような表示は慎重に」。 既存 UI の "
 
 ## 8. GO / NO-GO
 - **Phase 1（M2-extra + M3-0）: 完了**
-- **Phase 2（M3-1 → M3-2 → M3-3）: GO**
+- **Phase 2（M3-1 → M3-2 → M3-3）: 完了**
 - **Phase 3（deep matting）: deferred**
+
+---
+
+## 9. Phase 2 実装結果（M3-3 close）
+
+### 確定した最終形
+| | commit | 概要 |
+|---|---|---|
+| **M3-1** | `f23aa601` | pure helper `cutoutPostProcess.ts`（morphology + feather、 defaults 保守的）+ 27 unit tests |
+| **M3-2** | `18d0d4db` | BackgroundRemover に「復活」ブラシ追加 + post-process を初期 auto cutout のみに適用 |
+| **M3-3** | （本コミット） | close docs + decision-log 完了エントリ |
+
+### 復活ブラシ — 最終仕様
+- toolbar 配置: `[ 消しゴム ]` の右に `[ 復活 ]`（emerald 色で区別、 排他トグル）
+- 仕組み: `ctx.clip(circle)` + `globalCompositeOperation = "destination-over"` + `drawImage(originalImg)`
+  → 既存の不透明前景は保持、 透明部分のみ original が補充される（MDN 検証済）
+- 元画像 source: `originalUrl` を Image() に decode して useRef で保持（imageUrl は読むだけ）
+- pointer ハンドラ: 既存 `handleEraserPointerDown/Move/End` を再利用、 内部 `brushDab` dispatcher が `restoreMode` で `eraseDab` / `restoreDab` を切替
+- ブラシサイズスライダーは消しゴムと共有
+- 排他制御: 「消しゴム」「復活」「比較」「元に戻す」全ての toggle が他モードを OFF にする
+
+### post-process — 最終仕様
+- 適用箇所: `processImage` 内、 V1 cutout の直後・autoCrop の前で `applyCutoutPostProcess(finalUrl)` を 1 行
+- defaults: `closeIter=1, openIter=0, bgFeatherAlpha=0`
+  → 前景の小穴 (1-2 px) を closing で埋めるだけ。 服本体は不変
+- 適用ゲート: 「**初期 auto cutout の path にのみ適用**」（stroke commit は別 path で post-process を通らない）
+  → manual 編集後の再適用なしを構造的に保証
+- fail-safe: 例外時は入力 dataURL をそのまま返す（既存 fallback 流儀）
+
+### 不変原則の遵守確認
+- ✅ `imageUrl` は読むだけ（M2-1 helper + BackgroundRemover で読み専用、 書込経路ゼロ）
+- ✅ `originalUrl` も読むだけ（復活ブラシ source、 生成・復旧・推測なし）
+- ✅ `cutoutUrl / cutoutStatus / cutoutMethod / cutoutConfidence` のみ更新（resolveApplyDraft + cutoutDraftToItemFields 経由）
+- ✅ `backgroundRemovalV1.ts` 無改修
+- ✅ `cutoutBrowser.ts` 無改修
+- ✅ `/plan` 無改修
+- ✅ success/confidence/status 判定変更なし（post-process は alpha のみ操作・signals 計算に関与しない）
+- ✅ My-Style persistence 無改修
+- ✅ IDB / localStorage / server 直接書込なし
+- ✅ 外部 API / package 追加なし
+
+### 検証総括（M3-1 + M3-2 累計）
+- 新規 unit tests: 27 cases（cutoutPostProcess.test.ts）
+- my-style 全テスト: 168 PASS（退化 0）
+- eslint: clean
+- tsc: baseline 1116 維持（touched files 0 error）
+- dev server: healthy、 /my-style コンパイルエラーなし
+
+### 実機確認手順（CEO 側で次セッション実施）
+1. `npm run dev` でログイン済みセッションで `/my-style` を開く
+2. closet タブ → ボトムス / 靴 / その他 のカテゴリ別 item を tap → 詳細モーダルが開くこと（M2-extra）
+3. モーダルの「背景をきれいにする」を押下 → BackgroundRemover overlay が開く
+4. 自動処理結果を確認（**post-process により前景の小穴 1-2 px が closing で埋まる**）
+5. 服の一部が消えている場合: 「**復活**」ボタンを ON → 該当箇所をなぞる → 元画像から透明部分のみ補充される
+6. 背景が残っている場合: 「**消しゴム**」ボタンを ON → 該当箇所をなぞる → destination-out で消える
+7. 「適用」→ cutoutUrl 等が保存 → 詳細モーダル閉じて通知
+8. `/plan` カレンダーで item が透過 cutout 表示に切り替わる（cutoutStatus=success 優先）
+9. リロード後も写真が白抜き化しないこと（C1L-6 経路の imageUrl/cutoutUrl 両方残存）
+10. 何度か手動編集→適用→再 reprocess を繰り返し、 manual 編集が auto post-process で上書きされないこと
+
+### 残課題（M3 外・記録のみ）
+- 精度文言「精度 N%」の調整（CEO 補正 4 で別スライス指定）
+- Phase 3（deep matting）— package 追加が必要・別 audit
+- opening / feather を実機で必要と判断した場合の有効化（caller 側 option 設定で可能）
 
 ---
 
