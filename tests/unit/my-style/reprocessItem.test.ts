@@ -54,20 +54,20 @@ describe("getReprocessSourceUrl / canReprocessItem", () => {
     expect(canReprocessItem(w)).toBe(false);
   });
 
-  it("③-a imageUrl(dataURL) と originalUrl(dataURL) 両方 → imageUrl を優先", () => {
+  it("③-a originalUrl(dataURL) と imageUrl(dataURL) 両方 → originalUrl を優先（M4 補正）", () => {
     const w = item({ imageUrl: DATA_IMG, originalUrl: DATA_ORIG });
-    expect(getReprocessSourceUrl(w)).toBe(DATA_IMG);
+    expect(getReprocessSourceUrl(w)).toBe(DATA_ORIG);
   });
 
-  it("③-b imageUrl 無し・originalUrl(dataURL) のみ → originalUrl を fallback 採用", () => {
-    const w = item({ originalUrl: DATA_ORIG });
-    expect(getReprocessSourceUrl(w)).toBe(DATA_ORIG);
+  it("③-b originalUrl 無し・imageUrl(dataURL) のみ → imageUrl を fallback 採用", () => {
+    const w = item({ imageUrl: DATA_IMG });
+    expect(getReprocessSourceUrl(w)).toBe(DATA_IMG);
     expect(canReprocessItem(w)).toBe(true);
   });
 
-  it("③-c imageUrl が remote URL（非 dataURL）+ originalUrl(dataURL) → originalUrl を採用", () => {
-    const w = item({ imageUrl: REMOTE, originalUrl: DATA_ORIG });
-    expect(getReprocessSourceUrl(w)).toBe(DATA_ORIG);
+  it("③-c originalUrl が remote URL（非 dataURL）+ imageUrl(dataURL) → imageUrl を fallback 採用", () => {
+    const w = item({ originalUrl: REMOTE, imageUrl: DATA_IMG });
+    expect(getReprocessSourceUrl(w)).toBe(DATA_IMG);
   });
 
   it("③-d imageUrl が remote URL のみ（dataURL なし）→ reprocess 不可（CORS 安全ゲート）", () => {
@@ -78,6 +78,13 @@ describe("getReprocessSourceUrl / canReprocessItem", () => {
 
   it("③-e 空文字 imageUrl は dataURL とみなさない", () => {
     expect(getReprocessSourceUrl(item({ imageUrl: "" }))).toBeNull();
+  });
+
+  it("③-f originalUrl 無し・imageUrl が dataURL（既存 item の典型例）→ imageUrl で reprocess 可", () => {
+    // 既存 item は originalUrl 未保存なケースが多い。 imageUrl が dataURL なら復活ブラシ source として有効。
+    const w = item({ imageUrl: DATA_IMG });
+    expect(getReprocessSourceUrl(w)).toBe(DATA_IMG);
+    expect(canReprocessItem(w)).toBe(true);
   });
 });
 

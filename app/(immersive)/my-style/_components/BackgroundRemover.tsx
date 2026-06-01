@@ -55,6 +55,11 @@ export default function BackgroundRemover({
     const [processing, setProcessing] = useState(false);
     const [progress, setProgress] = useState(0);
     const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+    // M4: 2-state 分離。
+    //   editableUrl = post-process 後 / crop 前の uncropped 作業用（比較・消しゴム・復活ブラシ・stroke commit）。
+    //   processedUrl = autoCrop 適用後の最終プレビュー / 保存候補。
+    //   editableUrl + autoCrop の変化を監視して useEffect で processedUrl を同期する。
+    const [editableUrl, setEditableUrl] = useState<string | null>(null);
     const [processedUrl, setProcessedUrl] = useState<string | null>(null);
     const [confidence, setConfidence] = useState(0);
     const [v1Status, setV1Status] = useState<CutoutStatus>("skipped"); // V1 初期処理の判定
@@ -112,17 +117,12 @@ export default function BackgroundRemover({
                 } catch {
                     /* keep finalUrl */
                 }
-                if (autoCrop) {
-                    try {
-                        finalUrl = await cropToSubject(finalUrl, 0.08);
-                    } catch {
-                        /* keep finalUrl */
-                    }
-                }
-                setProcessedUrl(finalUrl);
+                // M4: post-process 後（crop 前）の uncropped を editableUrl に保存。
+                //   processedUrl は editableUrl/autoCrop の useEffect で同期される。
+                setEditableUrl(finalUrl);
             } else {
                 // failed / skipped → 自動 cutout なし。 原画表示（displayUrl が originalUrl にフォールバック）。
-                setProcessedUrl(null);
+                setEditableUrl(null);
             }
             setProgress(100);
         } catch (err) {
@@ -132,7 +132,7 @@ export default function BackgroundRemover({
         } finally {
             setProcessing(false);
         }
-    }, [imageFile, externalImageUrl, originalUrl, autoCrop]);
+    }, [imageFile, externalImageUrl, originalUrl]);
 
     /* ── Auto-process on mount ── */
     useEffect(() => {
@@ -145,9 +145,34 @@ export default function BackgroundRemover({
 
     /* ── Re-process when options change ── */
     const handleReprocess = useCallback(() => {
+        setEditableUrl(null);
         setProcessedUrl(null);
         processImage();
     }, [processImage]);
+
+    /* ── M4: editableUrl + autoCrop → processedUrl 同期（race-safe） ──
+     *   editableUrl は uncropped 作業用、 processedUrl は cropped 最終プレビュー / 保存候補。
+     *   editableUrl が null なら processedUrl も null。 autoCrop OFF なら editableUrl をそのまま反映。 */
+    useEffect(() => {
+        if (!editableUrl) {
+            setProcessedUrl(null);
+            return;
+        }
+        if (!autoCrop) {
+            setProcessedUrl(editableUrl);
+            return;
+        }
+        let alive = true;
+        (async () => {
+            try {
+                const cropped = await cropToSubject(editableUrl, 0.08);
+                if (alive) setProcessedUrl(cropped);
+            } catch {
+                if (alive) setProcessedUrl(editableUrl);
+            }
+        })();
+        return () => { alive = false; };
+    }, [editableUrl, autoCrop]);
 
     /* ── Eraser drawing (pointer-based, interpolated, canvas-direct) ── */
     // 1 ダブ分を canvas に直接消す（transparent=destination-out / 単色=その色で塗り）。
@@ -265,7 +290,9 @@ export default function BackgroundRemover({
         setEdited(true); // 一度でも消したら manual 扱い
         if (!canvas) return;
         try {
-            setProcessedUrl(canvas.toDataURL("image/png"));
+            // M4: stroke commit は editableUrl（uncropped）を更新。
+            //   processedUrl は editableUrl/autoCrop の useEffect で自動同期される（manual 編集後に post-process は再適用しない）。
+            setEditableUrl(canvas.toDataURL("image/png"));
         } catch {
             /* keep canvas */
         }
@@ -291,9 +318,9 @@ export default function BackgroundRemover({
         [showComparison]
     );
 
-    /* ── Render brush canvas (eraser / restore 共通) ── */
+    /* ── Render brush canvas (eraser / restore 共通) — M4: editableUrl=uncropped で描画 ── */
     useEffect(() => {
-        if (!(eraserMode || restoreMode) || !processedUrl || !canvasRef.current) return;
+        if (!(eraserMode || restoreMode) || !editableUrl || !canvasRef.current) return;
         const canvas = canvasRef.current;
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
@@ -307,8 +334,8 @@ export default function BackgroundRemover({
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
         };
-        img.src = processedUrl;
-    }, [eraserMode, restoreMode, processedUrl, selectedBg]);
+        img.src = editableUrl;
+    }, [eraserMode, restoreMode, editableUrl, selectedBg]);
 
     /* ── Determine displayed image ── */
     const displayUrl = processedUrl ?? originalUrl;
@@ -388,17 +415,17 @@ export default function BackgroundRemover({
                             </div>
                         )}
 
-                        {/* Comparison mode */}
-                        {showComparison && originalUrl && processedUrl ? (
+                        {/* Comparison mode（M4: editableUrl=uncropped と originalUrl で同座標系比較） */}
+                        {showComparison && originalUrl && editableUrl ? (
                             <div
                                 className="relative w-full h-full cursor-ew-resize"
                                 onMouseMove={handleCompareMove}
                                 onTouchMove={handleCompareMove}
                             >
-                                {/* Processed (full) */}
+                                {/* Processed (full) — editableUrl: uncropped 同サイズ */}
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
-                                    src={processedUrl}
+                                    src={editableUrl}
                                     alt="処理後"
                                     className="absolute inset-0 w-full h-full object-contain"
                                     style={{
@@ -466,8 +493,8 @@ export default function BackgroundRemover({
                                     </GlassBadge>
                                 </div>
                             </div>
-                        ) : (eraserMode || restoreMode) && processedUrl ? (
-                            /* Brush canvas mode（eraser / restore 共通・pointer events + touch-action none） */
+                        ) : (eraserMode || restoreMode) && editableUrl ? (
+                            /* Brush canvas mode（eraser / restore 共通・M4: editableUrl=uncropped 基準） */
                             <canvas
                                 ref={canvasRef}
                                 className="w-full h-full object-contain cursor-crosshair"
@@ -701,14 +728,24 @@ export default function BackgroundRemover({
                         <GlassButton
                             variant="primary"
                             size="sm"
-                            disabled={!processedUrl || processing}
-                            onClick={() => {
-                                if (!processedUrl) return;
+                            disabled={!editableUrl || processing}
+                            onClick={async () => {
+                                // M4: 適用は editableUrl(uncropped) を基準にし、 autoCrop ON なら保存直前に crop を当てる。
+                                //   race（useEffect の crop 同期中）を回避し、 必ず最新の編集内容が反映される。
+                                if (!editableUrl) return;
+                                let finalUrl = editableUrl;
+                                if (autoCrop) {
+                                    try {
+                                        finalUrl = await cropToSubject(editableUrl, 0.08);
+                                    } catch {
+                                        /* fallback to uncropped */
+                                    }
+                                }
                                 onApply(
                                     resolveApplyDraft({
                                         edited,
                                         v1Status,
-                                        currentDataUrl: processedUrl,
+                                        currentDataUrl: finalUrl,
                                         confidence,
                                     }),
                                 );

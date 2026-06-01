@@ -29,14 +29,15 @@ function isUsableDataUrl(url: string | undefined | null): url is string {
 
 /**
  * 再処理に使う原画 URL を選ぶ（pure）。
- * 優先順位: imageUrl(dataURL) → originalUrl(dataURL) → null。
- * ※ originalUrl は **読むだけ**。 M2 で生成・復旧・推測しない。
+ * 優先順位: originalUrl(dataURL) → imageUrl(dataURL) → null。
+ * ※ M4 で順序を更新（originalUrl があるならそれが「処理前の正本」なので優先）。
+ * ※ どちらも **読むだけ**。 生成・復旧・推測しない。
  */
 export function getReprocessSourceUrl(item: WardrobeItem): string | null {
-  const img = item.imageUrl;
-  if (isUsableDataUrl(img)) return img;
   const orig = item.originalUrl;
   if (isUsableDataUrl(orig)) return orig;
+  const img = item.imageUrl;
+  if (isUsableDataUrl(img)) return img;
   return null;
 }
 
