@@ -15,10 +15,24 @@
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { parseMinutes } from "@/lib/plan/timeline-geometry";
 
-import type { TimelineBlock } from "./DayTimelineCanvas";
+import type { ExistingColorKey, TimelineBlock } from "./DayTimelineCanvas";
 
 /** end 無 / wrap の既存予定を表示するための既定ブロック長（表示専用）。 */
 export const EXISTING_FALLBACK_BLOCK_MIN = 60;
+
+/** 既存ブロックのパステル配色（UI-5・表示専用）。id 安定ハッシュで割当て。 */
+const EXISTING_COLOR_KEYS: readonly ExistingColorKey[] = [
+  "sky",
+  "amber",
+  "emerald",
+  "teal",
+];
+
+function colorKeyForId(id: string): ExistingColorKey {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return EXISTING_COLOR_KEYS[h % EXISTING_COLOR_KEYS.length];
+}
 
 export function anchorsToTimelineBlocks(
   anchors: ExternalAnchor[],
@@ -39,6 +53,7 @@ export function anchorsToTimelineBlocks(
       startMin,
       endMin,
       tone: "existing",
+      colorKey: colorKeyForId(a.id),
     });
   }
   return blocks.sort((x, y) => x.startMin - y.startMin);

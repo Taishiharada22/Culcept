@@ -19,9 +19,13 @@ import {
   DEFAULT_WINDOW_START_MIN,
   DEFAULT_WINDOW_END_MIN,
   formatMinutes,
+  layoutLanes,
   minutesToY,
   type TimelineViewport,
 } from "@/lib/plan/timeline-geometry";
+
+/** 既存ブロックのパステル配色キー（表示専用・UI-5。draft/placed は violet 固定で別扱い）。 */
+export type ExistingColorKey = "sky" | "amber" | "emerald" | "teal";
 
 export interface TimelineBlock {
   id: string;
@@ -30,6 +34,8 @@ export interface TimelineBlock {
   endMin: number;
   /** existing = 当日の既存予定（read-only）/ draft = 配置済みの新規 */
   tone: "existing" | "draft";
+  /** existing のパステル配色（UI-5・表示専用）。未指定は neutral 白。 */
+  colorKey?: ExistingColorKey;
 }
 
 export interface TimelineGhost {
@@ -60,6 +66,15 @@ export const TIMELINE_HEIGHT_PX = 440;
 
 const MIN_BLOCK_PX = 16;
 
+/** 既存ブロックのパステル配色（UI-5）。placed(draft)=violet と区別するため violet/rose は不使用。 */
+const EXISTING_PALETTE: Record<ExistingColorKey | "neutral", string> = {
+  sky: "border-sky-100 bg-sky-50 text-sky-700",
+  amber: "border-amber-100 bg-amber-50 text-amber-700",
+  emerald: "border-emerald-100 bg-emerald-50 text-emerald-700",
+  teal: "border-teal-100 bg-teal-50 text-teal-700",
+  neutral: "border-slate-100 bg-white text-slate-500",
+};
+
 export function DayTimelineCanvas({
   blocks,
   windowStartMin = DEFAULT_WINDOW_START_MIN,
@@ -79,6 +94,9 @@ export function DayTimelineCanvas({
   const hourMarks: number[] = [];
   const firstHour = Math.ceil(windowStartMin / 60) * 60;
   for (let m = firstHour; m <= windowEndMin; m += 60) hourMarks.push(m);
+
+  // 重なりブロックの横分割（UI-5・表示専用。X のみ＝drop 計算に非干渉）。
+  const laneMap = layoutLanes(blocks);
 
   return (
     <div
@@ -135,18 +153,29 @@ export function DayTimelineCanvas({
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
           const isExisting = b.tone === "existing";
           const showControls = !isExisting && (onRemoveBlock || onUnplaceBlock);
+          const toneClass = isExisting
+            ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
+            : "border-violet-200 bg-violet-100 text-violet-700";
+          // 重なり横分割（UI-5）。重なりなしは全幅。
+          const slot = laneMap.get(b.id) ?? { lane: 0, lanes: 1 };
+          const widthPct = 100 / slot.lanes;
+          const leftPct = widthPct * slot.lane;
           return (
             <div
               key={b.id}
               data-testid={`compose-block-${b.id}`}
               data-tone={b.tone}
+              data-lanes={slot.lanes}
               className={
-                "group absolute inset-x-0 overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
-                (isExisting
-                  ? "border-slate-100 bg-white text-slate-500"
-                  : "border-violet-200 bg-violet-100 text-violet-700")
+                "group absolute overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
+                toneClass
               }
-              style={{ top, height }}
+              style={{
+                top,
+                height,
+                left: `${leftPct}%`,
+                width: `calc(${widthPct}% - 2px)`,
+              }}
             >
               <span className="block truncate pr-10 font-medium">{b.label}</span>
               <span className="block tabular-nums opacity-70">

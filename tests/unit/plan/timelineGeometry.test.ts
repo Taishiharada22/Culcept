@@ -11,6 +11,7 @@ import {
   yToMinutes,
   snapMinutes,
   snappedMinAtY,
+  layoutLanes,
   clampMin,
   formatMinutes,
   parseMinutes,
@@ -92,6 +93,41 @@ describe("snappedMinAtY（drop 位置 → 配置開始分）", () => {
 
   it("grid=1 は分そのまま丸め", () => {
     expect(snappedMinAtY(283, VP, 1)).toBe(926);
+  });
+});
+
+describe("layoutLanes（重なり横分割）", () => {
+  it("重ならない（touching 含む）群は lanes=1（全幅）", () => {
+    const m = layoutLanes([
+      { id: "a", startMin: 540, endMin: 600 },
+      { id: "b", startMin: 600, endMin: 660 }, // touching = 非重なり
+    ]);
+    expect(m.get("a")).toEqual({ lane: 0, lanes: 1 });
+    expect(m.get("b")).toEqual({ lane: 0, lanes: 1 });
+  });
+
+  it("2件重なり → lanes=2、lane 0/1", () => {
+    const m = layoutLanes([
+      { id: "a", startMin: 540, endMin: 660 },
+      { id: "b", startMin: 600, endMin: 720 },
+    ]);
+    expect(m.get("a")).toEqual({ lane: 0, lanes: 2 });
+    expect(m.get("b")).toEqual({ lane: 1, lanes: 2 });
+  });
+
+  it("重なり解消後は別群（lanes 独立）", () => {
+    const m = layoutLanes([
+      { id: "a", startMin: 540, endMin: 660 },
+      { id: "b", startMin: 600, endMin: 720 },
+      { id: "c", startMin: 800, endMin: 860 },
+    ]);
+    expect(m.get("a")!.lanes).toBe(2);
+    expect(m.get("b")!.lanes).toBe(2);
+    expect(m.get("c")).toEqual({ lane: 0, lanes: 1 });
+  });
+
+  it("空配列は空 Map", () => {
+    expect(layoutLanes([]).size).toBe(0);
   });
 });
 

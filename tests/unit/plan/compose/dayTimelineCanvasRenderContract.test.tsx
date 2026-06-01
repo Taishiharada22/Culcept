@@ -107,3 +107,23 @@ describe("placed block の削除/戻すボタン（A-3）", () => {
     expect(render()).not.toContain('data-testid="compose-block-remove-dr-mtg"');
   });
 });
+
+describe("重なり lane 分割（UI-5）", () => {
+  it("重なる2ブロックは data-lanes=2 で描画", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={[
+          { id: "x", label: "A", startMin: 540, endMin: 660, tone: "existing" },
+          { id: "y", label: "B", startMin: 600, endMin: 720, tone: "existing" },
+        ]}
+      />,
+    );
+    expect(html).toContain('data-testid="compose-block-x"');
+    expect(html).toContain('data-testid="compose-block-y"');
+    expect(html).toContain('data-lanes="2"');
+  });
+
+  it("重ならないブロックは data-lanes=1", () => {
+    expect(render()).toContain('data-lanes="1"');
+  });
+});

@@ -27,11 +27,17 @@ function oneOff(
 }
 
 describe("anchorsToTimelineBlocks", () => {
-  it("end あり → その end、tone=existing", () => {
+  it("end あり → その end、tone=existing（colorKey 付与）", () => {
     const blocks = anchorsToTimelineBlocks([oneOff("a", "15:00", "17:00", "会議")]);
-    expect(blocks).toEqual([
-      { id: "a", label: "会議", startMin: 900, endMin: 1020, tone: "existing" },
-    ]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      id: "a",
+      label: "会議",
+      startMin: 900,
+      endMin: 1020,
+      tone: "existing",
+    });
+    expect(["sky", "amber", "emerald", "teal"]).toContain(blocks[0].colorKey);
   });
 
   it("end 無 → start + 既定長（表示専用）", () => {

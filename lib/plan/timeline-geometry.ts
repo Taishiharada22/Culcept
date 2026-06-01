@@ -70,6 +70,52 @@ export function snappedMinAtY(localY: number, vp: TimelineViewport, grid = 1): n
   return snapMinutes(yToMinutes(localY, vp), grid);
 }
 
+/** 重なりブロックの横分割（lane）スロット。lane=列 index、lanes=その重なり群の列数。 */
+export interface LaneSlot {
+  lane: number;
+  lanes: number;
+}
+
+/**
+ * 同時刻に重なるブロックを横方向の lane（列）へ貪欲割当てする（pure・表示専用・UI-5）。
+ *
+ *   - 重ならない（touching = end==start 含む）ブロックは独立群 → lanes=1（全幅）。
+ *   - 重なる群は最大同時数を lanes とし、各ブロックに lane index を与える。
+ *   - **X 方向のみ**。drop 計算（Y→分）には一切干渉しない。
+ */
+export function layoutLanes(
+  items: ReadonlyArray<{ id: string; startMin: number; endMin: number }>,
+): Map<string, LaneSlot> {
+  const sorted = [...items].sort(
+    (a, b) => a.startMin - b.startMin || a.endMin - b.endMin,
+  );
+  const out = new Map<string, LaneSlot>();
+  let group: Array<{ id: string; lane: number }> = [];
+  let groupMaxEnd = -Infinity;
+  const laneEnds: number[] = [];
+
+  const flush = () => {
+    const lanes = group.reduce((m, g) => Math.max(m, g.lane + 1), 1);
+    for (const g of group) out.set(g.id, { lane: g.lane, lanes });
+    group = [];
+  };
+
+  for (const it of sorted) {
+    if (group.length && it.startMin >= groupMaxEnd) {
+      flush();
+      laneEnds.length = 0;
+      groupMaxEnd = -Infinity;
+    }
+    let lane = laneEnds.findIndex((e) => e <= it.startMin);
+    if (lane === -1) lane = laneEnds.length;
+    laneEnds[lane] = it.endMin;
+    group.push({ id: it.id, lane });
+    groupMaxEnd = Math.max(groupMaxEnd, it.endMin);
+  }
+  if (group.length) flush();
+  return out;
+}
+
 /** 値を [lo, hi] に clamp。 */
 export function clampMin(min: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, min));
