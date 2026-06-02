@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { ComposeFormPanel } from "@/app/(culcept)/plan/components/compose/ComposeFormPanel";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
+import type { LocationHistory } from "@/lib/plan/compose/locationHistory";
 
 const CORE: ComposeDraftCore = {
   title: "クライアントミーティング",
@@ -75,5 +76,48 @@ describe("場所候補（実 PlaceCandidatesPanel 接続・当初仕様）", () 
       companions: [],
     });
     expect(html).not.toContain('data-testid="plan-place-candidates-panel"');
+  });
+});
+
+describe("④ Phase 1a 場所履歴チップ", () => {
+  const HISTORY: LocationHistory = {
+    frequent: [{ text: "渋谷オフィス", count: 5, usedAtISO: "2026-03-01" }],
+    recent: [{ text: "新宿カフェ", count: 1, usedAtISO: "2026-03-10" }],
+  };
+  const emptyLoc: ComposeDraftCore = {
+    title: "会議",
+    locationText: "",
+    rigidity: "",
+    companions: [],
+  };
+  const withHistory = (core: ComposeDraftCore, h?: LocationHistory) =>
+    renderToStaticMarkup(<ComposeFormPanel core={core} locationHistory={h} />);
+
+  it("未入力 + 履歴あり → チップ表示（よく行く/最近 + 値）", () => {
+    const html = withHistory(emptyLoc, HISTORY);
+    expect(html).toContain('data-testid="compose-location-history"');
+    expect(html).toContain("よく行く");
+    expect(html).toContain("最近");
+    expect(html).toContain("渋谷オフィス");
+    expect(html).toContain("新宿カフェ");
+    expect(html).toContain('data-testid="compose-loc-chip"');
+  });
+
+  it("入力中（locationText 非空）はチップを出さない（外部検索に委ねる）", () => {
+    expect(withHistory({ ...emptyLoc, locationText: "渋" }, HISTORY)).not.toContain(
+      'data-testid="compose-location-history"',
+    );
+  });
+
+  it("履歴 0 件ならチップなし（fail-open）", () => {
+    expect(
+      withHistory(emptyLoc, { frequent: [], recent: [] }),
+    ).not.toContain('data-testid="compose-location-history"');
+  });
+
+  it("locationHistory 未指定でも壊れない（後方互換）", () => {
+    expect(withHistory(emptyLoc)).not.toContain(
+      'data-testid="compose-location-history"',
+    );
   });
 });

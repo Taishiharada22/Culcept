@@ -124,6 +124,11 @@ import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpe
 import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
 import { AddAnchorComposeContainer } from "./components/compose/AddAnchorComposeContainer";
 import { anchorsToTimelineBlocks } from "./components/compose/anchorsToTimelineBlocks";
+import {
+  deriveLocationHistory,
+  EMPTY_LOCATION_HISTORY,
+  type LocationHistory,
+} from "@/lib/plan/compose/locationHistory";
 import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -452,6 +457,16 @@ export default function PlanClient({
       anchorsForDay([...state.anchors], composeTargetUTC),
     );
   }, [composeTargetUTC, state]);
+
+  // ④ Phase 1a: 全 anchor（既ロード）から「よく行く/最近」場所を client-side 集計。
+  // 新 endpoint / migration なし＝fail-open by construction（未ロード時は空）。
+  const composeLocationHistory = useMemo<LocationHistory>(
+    () =>
+      state.kind === "ok"
+        ? deriveLocationHistory(state.anchors)
+        : EMPTY_LOCATION_HISTORY,
+    [state],
+  );
 
   // accept callback (= 9-step transaction、 ref + state 二段防御)
   const handleProposalAccept = useCallback(
@@ -928,6 +943,7 @@ export default function PlanClient({
             dateISO={isoDate(composeTargetUTC)}
             dateLabel={formatJpDate(composeTargetUTC)}
             existingBlocks={composeExistingBlocks}
+            locationHistory={composeLocationHistory}
             onSaved={handleAddSuccess}
           />
         ) : null

@@ -16,17 +16,25 @@
 
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
+import type { LocationHistory } from "@/lib/plan/compose/locationHistory";
 
 import { PlaceCandidatesPanel } from "../PlaceCandidatesPanel";
 import { useBiasContext } from "../_useBiasContext";
 import { ActivityIcon, LocationIcon, PeopleIcon, PlusIcon } from "./composeIcons";
+import { LocationHistoryChips } from "./LocationHistoryChips";
 
 export interface ComposeFormPanelProps {
   core: ComposeDraftCore;
   onCoreChange?: (patch: Partial<ComposeDraftCore>) => void;
+  /** ④ Phase 1a: 過去 anchor から導出した「よく行く/最近」場所（client-side・任意）。 */
+  locationHistory?: LocationHistory;
 }
 
-export function ComposeFormPanel({ core, onCoreChange }: ComposeFormPanelProps) {
+export function ComposeFormPanel({
+  core,
+  onCoreChange,
+  locationHistory,
+}: ComposeFormPanelProps) {
   const { biasContext } = useBiasContext();
   const activityKey = classifyActivityIconKey(core.title);
   const companions = core.companions ?? [];
@@ -65,6 +73,19 @@ export function ComposeFormPanel({ core, onCoreChange }: ComposeFormPanelProps) 
             className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus-visible:border-slate-300"
           />
         </div>
+        {/* ④ Phase 1a: 未入力時に「よく行く/最近」を提示（外部検索の上）。1タップで text+category を確定。自動確定しない。 */}
+        {core.locationText.trim().length === 0 && locationHistory && (
+          <LocationHistoryChips
+            history={locationHistory}
+            onPick={(chip) =>
+              onCoreChange?.(
+                chip.category
+                  ? { locationText: chip.text, locationCategory: chip.category }
+                  : { locationText: chip.text },
+              )
+            }
+          />
+        )}
         {/* 当初仕様: 既存 PlaceCandidatesPanel（/api/plan/places/search）。非強制・自己 gate */}
         <PlaceCandidatesPanel
           query={core.locationText}
