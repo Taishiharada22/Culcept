@@ -66,6 +66,8 @@ export interface AddAnchorComposeSheetProps {
   onUnplaceBlock?: (id: string) => void;
   /** P4-4: placed block の移動 / 伸縮 */
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
+  /** UI-polish: 現在時刻（分）。container が対象日=今日のときのみ渡す（左タイムラインの現在線） */
+  nowMin?: number;
   /** 日付切替確認ダイアログ等の overlay */
   confirmOverlay?: ReactNode;
   /** 完了ボタン上に出す通知（日跨ぎ警告 / 保存エラー等・A-4b） */
@@ -90,6 +92,7 @@ export function AddAnchorComposeSheet({
   onRemoveBlock,
   onUnplaceBlock,
   onBlockReposition,
+  nowMin,
   confirmOverlay,
   notice,
 }: AddAnchorComposeSheetProps) {
@@ -202,6 +205,7 @@ export function AddAnchorComposeSheet({
               onRemoveBlock={onRemoveBlock}
               onUnplaceBlock={onUnplaceBlock}
               onBlockReposition={onBlockReposition}
+              nowMin={nowMin}
             />
           </div>
 

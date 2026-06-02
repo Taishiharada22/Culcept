@@ -142,3 +142,41 @@ describe("placed block の移動/伸縮ハンドル（P4-4）", () => {
     expect(render()).not.toContain('data-testid="compose-block-resize-top-dr-mtg"');
   });
 });
+
+describe("現在時刻ライン（UI-polish・対象日=今日のときのみ）", () => {
+  it("nowMin が可視窓内なら現在時刻ラインを描画", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={BLOCKS} nowMin={840} />,
+    );
+    expect(html).toContain('data-testid="compose-timeline-now"');
+  });
+
+  it("nowMin が窓外（早朝 5:00=300）なら描画しない", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={BLOCKS} nowMin={300} />,
+    );
+    expect(html).not.toContain('data-testid="compose-timeline-now"');
+  });
+
+  it("nowMin 未指定なら描画しない（後方互換）", () => {
+    expect(render()).not.toContain('data-testid="compose-timeline-now"');
+  });
+});
+
+describe("空状態ヒント（UI-polish・ドラッグ先を明示）", () => {
+  it("blocks 空 + ghost なし → ヒントを描画", () => {
+    expect(render([])).toContain('data-testid="compose-timeline-empty"');
+  });
+
+  it("blocks ありなら空状態ヒントは出さない", () => {
+    expect(render()).not.toContain('data-testid="compose-timeline-empty"');
+  });
+
+  it("blocks 空でも ghost 中はヒントを出さない（ghost 優先）", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={[]} ghost={{ startMin: 900, endMin: 960 }} />,
+    );
+    expect(html).not.toContain('data-testid="compose-timeline-empty"');
+    expect(html).toContain('data-testid="compose-ghost"');
+  });
+});

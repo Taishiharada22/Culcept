@@ -17,7 +17,7 @@
  *   - 対象日の既存予定再取得（A-4・PlanClient 依存）/ 候補検索（A-4）/ Phase B/C
  */
 
-import { useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { motion, type PanInfo } from "framer-motion";
 
 import {
@@ -132,6 +132,22 @@ export function AddAnchorComposeContainer({
   );
 
   const timelineRef = useRef<HTMLDivElement>(null);
+
+  // 現在時刻ライン用（対象日 = 今日のときだけ分を持つ）。client-only（hydration 回避）+ 1分更新。
+  const [nowMin, setNowMin] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const compute = () => {
+      const d = new Date();
+      const localISO = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      setNowMin(
+        localISO === dateISO ? d.getHours() * 60 + d.getMinutes() : undefined,
+      );
+    };
+    compute();
+    const t = setInterval(compute, 60_000);
+    return () => clearInterval(t);
+  }, [dateISO]);
 
   const activeDraft =
     state.drafts.find((d) => d.id === activeId) ?? blankDraft("draft-active");
@@ -322,6 +338,7 @@ export function AddAnchorComposeContainer({
       onRemoveBlock={handleRemoveBlock}
       onUnplaceBlock={handleUnplaceBlock}
       onBlockReposition={handleBlockReposition}
+      nowMin={nowMin}
       confirmOverlay={
         <DateChangeConfirmDialog
           isOpen={confirm.open}

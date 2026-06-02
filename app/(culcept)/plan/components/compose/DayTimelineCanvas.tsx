@@ -65,6 +65,11 @@ export interface DayTimelineCanvasProps {
   onUnplaceBlock?: (id: string) => void;
   /** P4-4: 配置済み draft block の移動 / 伸縮（指定時のみドラッグ可能化） */
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
+  /**
+   * UI-polish: 現在時刻（分・0–1440）。**対象日 = 今日のときのみ** container が渡す。
+   * 可視窓内なら現在時刻ラインを描画。未指定 / 窓外なら描画しない（後方互換）。
+   */
+  nowMin?: number;
 }
 
 const RESIZE_ZONE_PX = 8;
@@ -74,6 +79,8 @@ const DRAG_SNAP = 5;
 export const TIMELINE_HEIGHT_PX = 440;
 
 const MIN_BLOCK_PX = 16;
+/** 2 行（タイトル＋時刻・各 10px leading-tight + py）が収まる最小高。これ未満は時刻行を省く。 */
+const TIME_LINE_MIN_PX = 30;
 
 /** 既存ブロックのパステル配色（UI-5）。placed(draft)=violet と区別するため violet/rose は不使用。 */
 const EXISTING_PALETTE: Record<ExistingColorKey | "neutral", string> = {
@@ -93,6 +100,7 @@ export function DayTimelineCanvas({
   onRemoveBlock,
   onUnplaceBlock,
   onBlockReposition,
+  nowMin,
 }: DayTimelineCanvasProps) {
   const vp: TimelineViewport = {
     startMin: windowStartMin,
@@ -104,6 +112,19 @@ export function DayTimelineCanvas({
   const hourMarks: number[] = [];
   const firstHour = Math.ceil(windowStartMin / 60) * 60;
   for (let m = firstHour; m <= windowEndMin; m += 60) hourMarks.push(m);
+
+  // 30 分補助線（毎正時の :30。設計書 §4.3「薄い 15/30 分補助線」）。
+  // 俯瞰圧縮（~12px/30分）では 30 分で十分。ラベルは付けず主線に従属させる。
+  const halfHourMarks: number[] = [];
+  const firstHalf = Math.ceil(windowStartMin / 30) * 30;
+  for (let m = firstHalf; m < windowEndMin; m += 30) {
+    if (m % 60 !== 0) halfHourMarks.push(m);
+  }
+
+  // 現在時刻ライン（対象日 = 今日のときのみ・可視窓内のみ）。
+  const showNow =
+    typeof nowMin === "number" && nowMin >= windowStartMin && nowMin <= windowEndMin;
+  const noBlocks = blocks.length === 0;
 
   // 重なりブロックの横分割（UI-5・表示専用。X のみ＝drop 計算に非干渉）。
   const laneMap = layoutLanes(blocks);
@@ -177,16 +198,26 @@ export function DayTimelineCanvas({
       className="relative w-full rounded-xl border border-slate-200 bg-slate-50/60"
       style={{ height: heightPx }}
     >
-      {/* 時刻主線 + ラベル */}
+      {/* 30分補助線（薄い・ラベルなし・ブロック層に整列。設計書 §4.3） */}
+      {halfHourMarks.map((m) => (
+        <div
+          key={`half-${m}`}
+          aria-hidden="true"
+          className="absolute left-9 right-1 h-px bg-slate-200/40"
+          style={{ top: minutesToY(m, vp) }}
+        />
+      ))}
+
+      {/* 時刻主線 + ラベル（毎正時・はっきり） */}
       {hourMarks.map((m) => {
         const y = minutesToY(m, vp);
         return (
           <div key={m} className="absolute inset-x-0" style={{ top: y }}>
             <div className="flex items-start gap-1">
-              <span className="w-8 shrink-0 -translate-y-1.5 text-[9px] tabular-nums text-slate-300">
+              <span className="w-8 shrink-0 -translate-y-1.5 text-[10px] font-medium tabular-nums text-slate-400">
                 {formatMinutes(m)}
               </span>
-              <span className="mt-px h-px flex-1 bg-slate-200/45" />
+              <span className="mt-px h-px flex-1 bg-slate-200" />
             </div>
           </div>
         );
@@ -194,6 +225,19 @@ export function DayTimelineCanvas({
 
       {/* ブロック層 */}
       <div className="absolute inset-y-0 left-9 right-1">
+        {/* 空状態ヒント（予定 / 配置 / ghost いずれも無いとき・ドラッグ先を明示） */}
+        {noBlocks && !ghost && (
+          <div
+            data-testid="compose-timeline-empty"
+            className="pointer-events-none absolute inset-x-2 top-1/2 flex -translate-y-1/2 flex-col items-center gap-1 text-center text-[11px] leading-snug text-slate-300"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+              <path d="M3.5 9.5h17M8 3v4M16 3v4" strokeLinecap="round" />
+            </svg>
+            <span>右で作った予定を<br />ここへドラッグ</span>
+          </div>
+        )}
         {/* ゴースト（ドラッグ中プレビュー・A-3） */}
         {ghost && (
           <div
@@ -229,7 +273,8 @@ export function DayTimelineCanvas({
           const repositionable = !isExisting && !!onBlockReposition;
           const toneClass = isExisting
             ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
-            : "border-violet-200 bg-violet-100 text-violet-700";
+            : // placed(draft) = 主役。ring + 濃い枠 + tinted shadow で既存パステルより前に出す。
+              "border-violet-300 bg-violet-100 text-violet-800 ring-1 ring-violet-300/60 shadow-violet-200/60";
           // 重なり横分割（UI-5）。重なりなしは全幅。
           const slot = laneMap.get(b.id) ?? { lane: 0, lanes: 1 };
           const widthPct = 100 / slot.lanes;
@@ -278,9 +323,12 @@ export function DayTimelineCanvas({
                 </>
               )}
               <span className="block truncate pr-10 font-medium">{b.label}</span>
-              <span className="block tabular-nums opacity-70">
-                {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
-              </span>
+              {/* 短い block（2 行入らない高さ）は時刻を出さない＝clip 防止。 */}
+              {height >= TIME_LINE_MIN_PX && (
+                <span className="block tabular-nums opacity-70">
+                  {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
+                </span>
+              )}
               {showControls && (
                 <div className="absolute right-1 top-0.5 flex gap-0.5">
                   {onUnplaceBlock && (
@@ -311,6 +359,23 @@ export function DayTimelineCanvas({
           );
         })}
       </div>
+
+      {/* 現在時刻ライン（対象日=今日のみ・最前面・pointer 透過・hour 線に整列） */}
+      {showNow && (
+        <div
+          data-testid="compose-timeline-now"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 z-10"
+          style={{ top: minutesToY(nowMin as number, vp) }}
+        >
+          <div className="flex -translate-y-1/2 items-start gap-1">
+            <span className="w-8 shrink-0" />
+            <span className="relative mt-px h-px flex-1 bg-rose-400/80">
+              <span className="absolute -left-1 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-rose-500 shadow-sm shadow-rose-300" />
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
