@@ -219,16 +219,31 @@ export function DayTimelineCanvas({
         />
       ))}
 
-      {/* 時刻主線 + ラベル（毎正時・はっきり） */}
+      {/* 時刻ラベル（hour-only・3h アンカー=6/9/12/15/18/21/24 を濃く semibold ＝時間の流れを追いやすく。
+          :00 を省き脱クランプ＝大きくせずに視認性を上げる。右揃え + tabular-nums で整列。） */}
       {hourMarks.map((m) => {
         const y = minutesToY(m, vp);
+        const hour = Math.round(m / 60);
+        const isAnchor = hour % 3 === 0;
         return (
           <div key={m} className="absolute inset-x-0" style={{ top: y }}>
             <div className="flex items-start gap-1">
-              <span className="w-8 shrink-0 -translate-y-1.5 text-[10px] font-medium tabular-nums text-slate-400">
-                {formatMinutes(m)}
+              <span
+                data-testid={`compose-hour-${hour}`}
+                className={
+                  "w-8 shrink-0 -translate-y-1.5 pr-1 text-right text-[11px] tabular-nums " +
+                  (isAnchor
+                    ? "font-semibold text-slate-700"
+                    : "font-normal text-slate-400")
+                }
+              >
+                {hour}
               </span>
-              <span className="mt-px h-px flex-1 bg-slate-200" />
+              <span
+                className={
+                  "mt-px h-px flex-1 " + (isAnchor ? "bg-slate-300" : "bg-slate-200")
+                }
+              />
             </div>
           </div>
         );

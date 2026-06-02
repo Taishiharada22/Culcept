@@ -25,16 +25,18 @@ function render(blocks: TimelineBlock[] = BLOCKS): string {
 }
 
 describe("俯瞰ルーラー（既定 6:00–24:00）", () => {
-  it("root が render され、毎正時ラベルを含む", () => {
+  it("root が render され、毎正時ラベル（hour-only）を含む", () => {
     const html = render();
     expect(html).toContain('data-testid="compose-timeline"');
-    expect(html).toContain("06:00");
-    expect(html).toContain("12:00");
-    expect(html).toContain("24:00");
+    expect(html).toContain('data-testid="compose-hour-6"'); // 6:00 → 6
+    expect(html).toContain('data-testid="compose-hour-12"');
+    expect(html).toContain('data-testid="compose-hour-24"'); // 24:00 → 24
   });
 
-  it("窓外（早朝）の時刻ラベルは出さない", () => {
-    expect(render()).not.toContain("00:00");
+  it("窓外（早朝 0–5 時）の時刻ラベルは出さない", () => {
+    const html = render();
+    expect(html).not.toContain('data-testid="compose-hour-0"');
+    expect(html).not.toContain('data-testid="compose-hour-5"');
   });
 });
 
@@ -57,7 +59,7 @@ describe("ブロック静的描画", () => {
   it("blocks 空でもルーラーは描画される", () => {
     const html = render([]);
     expect(html).toContain('data-testid="compose-timeline"');
-    expect(html).toContain("06:00");
+    expect(html).toContain('data-testid="compose-hour-6"');
   });
 });
 
