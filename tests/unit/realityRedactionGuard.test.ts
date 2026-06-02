@@ -7,7 +7,7 @@ import {
   isAllowedAtom,
   isValidShadowLine,
 } from "@/lib/plan/reality/integration/redaction-guard";
-import { runShadow, type ShadowSummary, type ShadowInput } from "@/lib/plan/reality/integration/shadow-runner";
+import { runShadow, formatShadowLine, type ShadowSummary, type ShadowInput } from "@/lib/plan/reality/integration/shadow-runner";
 import { aggregateShadowReport } from "@/lib/plan/reality/integration/dev-report";
 import type { RealityInput } from "@/lib/plan/reality/integration/input-adapter";
 import type { BestActionCandidate, CandidateMetrics } from "@/lib/plan/reality/best-action";
@@ -162,6 +162,46 @@ describe("redaction-guard — keystone: 実 runShadow 出力は allowlist-clean"
     expect(JSON.stringify(report)).not.toContain(RAW);
     const v = assertDevReportRedacted(report);
     expect(v.clean).toBe(true);
+  });
+});
+
+describe("redaction-guard — producer/guard 整合（GPT 制約 #1: line は safe token のみ）", () => {
+  it("formatShadowLine の出力は常に isValidShadowLine を満たす（全 enum 組合せ）", () => {
+    const modes = ["build", "complete", "repair", "optimize", "none"] as const;
+    const deliveries = ["silent", "on_open", "push", "urgent_push", "permission_prompt", null] as const;
+    const risks = ["none", "low", "medium", "high"] as const;
+    for (const mode of modes) {
+      for (const deliveryMode of deliveries) {
+        for (const risk of risks) {
+          const core: Omit<ShadowSummary, "line"> = {
+            mode,
+            candidateCount: 3,
+            bestRef: "c2",
+            rejected: [{ ref: "c0", gates: ["safety"] }],
+            deliveryMode,
+            invariantViolations: ["INV-16"],
+            risk,
+          };
+          expect(isValidShadowLine(formatShadowLine(core))).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("bestRef=null は best=none に落ち、文法を満たす", () => {
+    const core: Omit<ShadowSummary, "line"> = {
+      mode: "build", candidateCount: 0, bestRef: null, rejected: [], deliveryMode: null, invariantViolations: [], risk: "none",
+    };
+    const line = formatShadowLine(core);
+    expect(line).toBe("mode=build candidates=0 best=none rejected=0 delivery=none violations=0 risk=none");
+    expect(isValidShadowLine(line)).toBe(true);
+  });
+
+  it("実 runShadow の line は producer formatter と一致し allowlist-clean", () => {
+    const s = runShadow(shadow({ candidates: [cand(RAW)], receptivity: recep() }));
+    const { line, ...core } = s;
+    expect(line).toBe(formatShadowLine(core));
+    expect(isValidShadowLine(line)).toBe(true);
   });
 });
 

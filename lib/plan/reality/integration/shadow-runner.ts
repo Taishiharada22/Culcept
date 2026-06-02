@@ -83,6 +83,19 @@ function riskFromGates(gateCount: number): RiskLevel {
   return "high";
 }
 
+/**
+ * line を **構造化フィールドのみ** から組む（GPT 監査 制約 #1: safe token からのみ生成）。
+ * 補間する値は enum（mode/deliveryMode/risk）/ count / ephemeral ref（bestRef）/ "none" のみ。
+ * raw を inline 補間する経路を構造的に塞ぐ（自由文連結でない）。redaction-guard.isValidShadowLine と対。
+ */
+export function formatShadowLine(s: Omit<ShadowSummary, "line">): string {
+  return (
+    `mode=${s.mode} candidates=${s.candidateCount} best=${s.bestRef ?? "none"} ` +
+    `rejected=${s.rejected.length} delivery=${s.deliveryMode ?? "none"} ` +
+    `violations=${s.invariantViolations.length} risk=${s.risk}`
+  );
+}
+
 /** shadow 実行（純関数）。adapter→kernel を通し redacted summary を返す。 */
 export function runShadow(shadow: ShadowInput): ShadowSummary {
   const { candidates } = shadow;
@@ -117,12 +130,8 @@ export function runShadow(shadow: ShadowInput): ShadowSummary {
   const worstReject = rejected.reduce((m, r) => Math.max(m, r.gates.length), 0);
   const risk = riskFromGates(worstReject + invariantViolations.length);
 
-  const line =
-    `mode=${shadow.input.mode} candidates=${candidates.length} best=${bestRef ?? "none"} ` +
-    `rejected=${rejected.length} delivery=${deliveryMode ?? "none"} ` +
-    `violations=${invariantViolations.length} risk=${risk}`;
-
-  return {
+  // 構造化フィールドを先に確定 → line は safe token のみから派生（raw inline 補間を構造的に塞ぐ）
+  const core: Omit<ShadowSummary, "line"> = {
     mode: shadow.input.mode,
     candidateCount: candidates.length,
     bestRef,
@@ -130,6 +139,6 @@ export function runShadow(shadow: ShadowInput): ShadowSummary {
     deliveryMode,
     invariantViolations,
     risk,
-    line,
   };
+  return { ...core, line: formatShadowLine(core) };
 }
