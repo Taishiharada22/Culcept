@@ -146,6 +146,36 @@ GPT 制約 #2/#3 を採用＋**入口側フィールド allowlist（rule ⑦ 上
 4-C    on-open 提案 surface（UX 変更・別承認）
 ```
 
+### 9.1 実装状況（2026-06-03）
+- ✅ **4-B-1 core 実装済**（`lib/plan/reality/integration/dev-runtime.ts`・pure・**実 DB 未接続**）:
+  - 多層 fail-closed gate（`evaluateSmokeGate`: production / flag-off / capability 欠落 / CEO 以外 user → no-op）
+  - 依存注入 `RealityDataSource`（**seed 読取メソッド無し**＝型で seeds 不可。返り値 `RealityInput` に title/location 無し＝型で raw 不可）
+  - 二重防御（gate pass 後のみ load／`seedTraces` 強制空）
+  - producer 自己表明（`enforceRedaction`: `assertRedacted` 通過時のみ summary 返却。違反は破棄し `offendingCount` のみ）
+  - barrel 非 export（module boundary）。supabase/route/UI を import しない
+- ✅ **証明**（`tests/unit/realityDevRuntime.test.ts`・18 tests）: production/flag-off/out-of-scope で **loadForSmoke spy 0 回**（実データ未接触）/ seeds 自由文を返しても出力に出ない / source throw→raw なし ADAPTER_DEGRADED / 実 id→ephemeral / redaction 違反→blocked / **console.log/error/warn 0 回**
+- ⏳ **未実装＝CEO の manual smoke 部分**: `RealityDataSource` の **実 column-restricted 実装**（§9.2）。私（sandbox）は実認証情報を持たず実 DB を読まない・自動実行しない
+
+### 9.2 Manual Smoke レシピ（CEO/dev が手動・単発で実行。実 DB に触れる唯一の箇所）
+`RealityDataSource.loadForSmoke` の実実装は **column-restricted read** で満たす（既存 `listAnchors` は `select("*")` ＝ raw を読むので **使わない**）:
+
+```ts
+// dev-runtime-supabase.ts（新規・server-only・barrel 非 export・flag 下でのみ import）
+import "server-only";
+// 1. column-restricted SELECT（title / location / notes を SELECT しない）
+//    .from("external_anchors")
+//    .select("id, start_time, end_time, rigidity, sensitive_category")   // ← raw 列を含めない
+//    .eq("user_id", ceoUserId)
+// 2. rows → DayNode[]（id/startMin/endMin/importance(rigidity 由来)/hard）。title/location を持ち込まない
+// 3. mode は時刻/密度から（detectMode 相当。raw 不要）
+// 4. anchors: Record<id, { governance, importance, sensitive }>（anchorGovernance/Importance/Sensitive）
+// 5. return { mode, dayNodes, anchors, seedTraces: [] }   // seeds は読まない
+```
+- 実行は **flag on＋capability＋CEO user id＋dev 環境** のときのみ（gate が他を no-op）。
+- **PlanSeed テーブルには触れない**。**title/location を SELECT しない**（読まない）。
+- 戻り値は `runRealityShadowSmoke` が `assertRedacted` を通してから返す。違反時は破棄。
+- **単発手動**。route/cron/UI から呼ばない（常時 shadow 禁止）。
+
 ---
 
 ## 10. CEO 判断ポイント
