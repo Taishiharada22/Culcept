@@ -1,40 +1,43 @@
 "use client";
 
 /**
- * LocationHistoryChips — 「どこで？」の上に出す場所履歴チップ（④ Phase 1a・表示のみ）。
+ * LocationHistoryChips — 「どこで？」の上に出す場所履歴チップ（④ Phase 1a 改・表示のみ）。
  *
- * 思想:
- *   - 自動確定しない。チップは候補提示のみ、**1 タップで選択**したときだけ確定（onPick）。
- *   - 履歴 0 件なら何も描画しない（fail-open）→ UI は外部検索だけに戻る。
- *
- * 範囲外: 集計（locationHistory.ts）/ 入力中の prefix サジェスト（Phase 2）。
+ * - 「よく行く」= 頻度上位（常時）。
+ * - 「この予定」= title 連動（予定内容に合った過去の場所・title 非空時のみ）。
+ * - 自動確定しない。1 タップ onPick で確定。両方空なら描画なし（fail-open）。
  */
 
-import type {
-  LocationChip,
-  LocationHistory,
-} from "@/lib/plan/compose/locationHistory";
+import type { LocationChip } from "@/lib/plan/compose/locationHistory";
 
 export interface LocationHistoryChipsProps {
-  history: LocationHistory;
+  frequent: LocationChip[];
+  forTitle: LocationChip[];
+  /** 「この予定」グループの見出し（例: 「勉強」の場所）。未指定は汎用文言。 */
+  forTitleLabel?: string;
   onPick: (chip: LocationChip) => void;
 }
 
 export function LocationHistoryChips({
-  history,
+  frequent,
+  forTitle,
+  forTitleLabel,
   onPick,
 }: LocationHistoryChipsProps) {
-  const { frequent, recent } = history;
-  // 履歴なし → 何も出さない（fail-open）。
-  if (frequent.length === 0 && recent.length === 0) return null;
+  if (frequent.length === 0 && forTitle.length === 0) return null;
 
   return (
     <div data-testid="compose-location-history" className="space-y-1 pt-1">
       {frequent.length > 0 && (
         <ChipRow group="frequent" label="よく行く" chips={frequent} onPick={onPick} />
       )}
-      {recent.length > 0 && (
-        <ChipRow group="recent" label="最近" chips={recent} onPick={onPick} />
+      {forTitle.length > 0 && (
+        <ChipRow
+          group="for-title"
+          label={forTitleLabel ?? "この予定でよく行く"}
+          chips={forTitle}
+          onPick={onPick}
+        />
       )}
     </div>
   );
@@ -46,7 +49,7 @@ function ChipRow({
   chips,
   onPick,
 }: {
-  group: "frequent" | "recent";
+  group: "frequent" | "for-title";
   label: string;
   chips: LocationChip[];
   onPick: (chip: LocationChip) => void;

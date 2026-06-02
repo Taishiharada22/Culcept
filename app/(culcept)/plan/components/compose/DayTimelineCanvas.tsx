@@ -195,8 +195,9 @@ export function DayTimelineCanvas({
   return (
     <div
       data-testid="compose-timeline"
-      // 角ばった四角形（CEO 指定）。時間帯のゆるい手がかり: 朝(暖)→昼(淡)→夜(寒) の極薄グラデ。
-      className="relative w-full border border-slate-200 bg-gradient-to-b from-amber-50/50 via-slate-50/40 to-indigo-50/50"
+      // 角ばった四角形（CEO 指定）。多色グラデは廃し、単色の「日中→夜」極薄トーン
+      // （白＝日中の明るさ → ごく薄い cool slate＝夜）。block の配色と競合しない中立。
+      className="relative w-full border border-slate-200 bg-gradient-to-b from-white via-slate-50/40 to-slate-100/70"
       style={{ height: heightPx }}
     >
       {/* 30分補助線（薄い・ラベルなし・ブロック層に整列。設計書 §4.3） */}

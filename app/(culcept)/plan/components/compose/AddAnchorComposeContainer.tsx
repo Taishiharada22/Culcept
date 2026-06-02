@@ -34,7 +34,7 @@ import {
   visualBlock,
 } from "@/lib/plan/compose/composeTimeResolver";
 import { planComposeSave } from "@/lib/plan/compose/composeToAnchorInput";
-import type { LocationHistory } from "@/lib/plan/compose/locationHistory";
+import type { LocationUsage } from "@/lib/plan/compose/locationHistory";
 import { createAnchorBundle } from "@/lib/plan/anchor-fetch";
 import {
   DEFAULT_WINDOW_START_MIN,
@@ -72,8 +72,8 @@ export interface AddAnchorComposeContainerProps {
   onNextDay?: () => void;
   /** 保存成功後（PlanClient: load() + close） */
   onSaved?: () => void;
-  /** ④ Phase 1a: 場所履歴チップ（PlanClient が全 anchor から client-side 集計・任意） */
-  locationHistory?: LocationHistory;
+  /** ④ Phase 1a: 場所利用ログ（PlanClient が全 anchor から抽出・任意）。panel が title 連動で集計 */
+  locationUsages?: LocationUsage[];
   // ── テスト / 将来の prefill 用（optional） ──
   initialState?: ComposeState;
   initialActiveId?: string;
@@ -116,7 +116,7 @@ export function AddAnchorComposeContainer({
   onPrevDay,
   onNextDay,
   onSaved,
-  locationHistory,
+  locationUsages,
   initialState,
   initialActiveId,
   initialNextId,
@@ -343,7 +343,7 @@ export function AddAnchorComposeContainer({
       onUnplaceBlock={handleUnplaceBlock}
       onBlockReposition={handleBlockReposition}
       nowMin={nowMin}
-      locationHistory={locationHistory}
+      locationUsages={locationUsages}
       confirmOverlay={
         <DateChangeConfirmDialog
           isOpen={confirm.open}

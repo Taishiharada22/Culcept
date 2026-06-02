@@ -125,9 +125,8 @@ import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
 import { AddAnchorComposeContainer } from "./components/compose/AddAnchorComposeContainer";
 import { anchorsToTimelineBlocks } from "./components/compose/anchorsToTimelineBlocks";
 import {
-  deriveLocationHistory,
-  EMPTY_LOCATION_HISTORY,
-  type LocationHistory,
+  extractLocationUsages,
+  type LocationUsage,
 } from "@/lib/plan/compose/locationHistory";
 import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
@@ -458,13 +457,11 @@ export default function PlanClient({
     );
   }, [composeTargetUTC, state]);
 
-  // ④ Phase 1a: 全 anchor（既ロード）から「よく行く/最近」場所を client-side 集計。
+  // ④ Phase 1a: 全 anchor（既ロード）から場所利用ログを抽出（具体的な場所のみ）。
   // 新 endpoint / migration なし＝fail-open by construction（未ロード時は空）。
-  const composeLocationHistory = useMemo<LocationHistory>(
-    () =>
-      state.kind === "ok"
-        ? deriveLocationHistory(state.anchors)
-        : EMPTY_LOCATION_HISTORY,
+  // チップ集計（よく行く / title 連動）は panel 側で title に反応して行う。
+  const composeLocationUsages = useMemo<LocationUsage[]>(
+    () => (state.kind === "ok" ? extractLocationUsages(state.anchors) : []),
     [state],
   );
 
@@ -943,7 +940,7 @@ export default function PlanClient({
             dateISO={isoDate(composeTargetUTC)}
             dateLabel={formatJpDate(composeTargetUTC)}
             existingBlocks={composeExistingBlocks}
-            locationHistory={composeLocationHistory}
+            locationUsages={composeLocationUsages}
             onSaved={handleAddSuccess}
           />
         ) : null

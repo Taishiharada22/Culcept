@@ -27,7 +27,7 @@ import {
   type ComposeTimeConstraint,
   visualBlock,
 } from "@/lib/plan/compose/composeTimeResolver";
-import type { LocationHistory } from "@/lib/plan/compose/locationHistory";
+import type { LocationUsage } from "@/lib/plan/compose/locationHistory";
 
 import { ComposeBottomSheet } from "./ComposeBottomSheet";
 import { ComposeCard } from "./ComposeCard";
@@ -69,8 +69,8 @@ export interface AddAnchorComposeSheetProps {
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
   /** UI-polish: 現在時刻（分）。container が対象日=今日のときのみ渡す（左タイムラインの現在線） */
   nowMin?: number;
-  /** ④ Phase 1a: 「どこで？」の場所履歴チップ（client-side 集計・任意） */
-  locationHistory?: LocationHistory;
+  /** ④ Phase 1a: 「どこで？」の場所利用ログ（client-side・任意）。panel が title 連動で集計 */
+  locationUsages?: LocationUsage[];
   /** 日付切替確認ダイアログ等の overlay */
   confirmOverlay?: ReactNode;
   /** 完了ボタン上に出す通知（日跨ぎ警告 / 保存エラー等・A-4b） */
@@ -96,7 +96,7 @@ export function AddAnchorComposeSheet({
   onUnplaceBlock,
   onBlockReposition,
   nowMin,
-  locationHistory,
+  locationUsages,
   confirmOverlay,
   notice,
 }: AddAnchorComposeSheetProps) {
@@ -224,7 +224,7 @@ export function AddAnchorComposeSheet({
               <ComposeFormPanel
                 core={activeDraft.core}
                 onCoreChange={onCoreChange}
-                locationHistory={locationHistory}
+                locationUsages={locationUsages}
               />
 
               {showCardsRegion && (

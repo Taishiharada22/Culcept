@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { ComposeFormPanel } from "@/app/(culcept)/plan/components/compose/ComposeFormPanel";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
-import type { LocationHistory } from "@/lib/plan/compose/locationHistory";
+import type { LocationUsage } from "@/lib/plan/compose/locationHistory";
 
 const CORE: ComposeDraftCore = {
   title: "クライアントミーティング",
@@ -79,45 +79,52 @@ describe("場所候補（実 PlaceCandidatesPanel 接続・当初仕様）", () 
   });
 });
 
-describe("④ Phase 1a 場所履歴チップ", () => {
-  const HISTORY: LocationHistory = {
-    frequent: [{ text: "渋谷オフィス", count: 5, usedAtISO: "2026-03-01" }],
-    recent: [{ text: "新宿カフェ", count: 1, usedAtISO: "2026-03-10" }],
+describe("④ Phase 1a 場所履歴チップ（具体的のみ + title 連動）", () => {
+  let n = 0;
+  const u = (text: string, title = "予定"): LocationUsage => {
+    n += 1;
+    return { text, title, usedAtISO: `2026-03-${String((n % 28) + 1).padStart(2, "0")}` };
   };
-  const emptyLoc: ComposeDraftCore = {
-    title: "会議",
+  // panel は extractLocationUsages 済（具体的のみ）の usages を受け取る前提。
+  // 渋谷オフィス×3（よく行く）/ 勉強→自習室KAKOI×2（title 連動）。
+  const USAGES: LocationUsage[] = [
+    u("渋谷オフィス", "会議"),
+    u("渋谷オフィス", "会議"),
+    u("渋谷オフィス", "会議"),
+    u("自習室 KAKOI", "勉強"),
+    u("自習室 KAKOI", "数学の勉強"),
+  ];
+  const core = (over: Partial<ComposeDraftCore> = {}): ComposeDraftCore => ({
+    title: "",
     locationText: "",
     rigidity: "",
     companions: [],
-  };
-  const withHistory = (core: ComposeDraftCore, h?: LocationHistory) =>
-    renderToStaticMarkup(<ComposeFormPanel core={core} locationHistory={h} />);
+    ...over,
+  });
+  const render2 = (c: ComposeDraftCore, usages?: LocationUsage[]) =>
+    renderToStaticMarkup(<ComposeFormPanel core={c} locationUsages={usages} />);
 
-  it("未入力 + 履歴あり → チップ表示（よく行く/最近 + 値）", () => {
-    const html = withHistory(emptyLoc, HISTORY);
+  it("未入力(title空) → 「よく行く」に固有名チップ", () => {
+    const html = render2(core(), USAGES);
     expect(html).toContain('data-testid="compose-location-history"');
     expect(html).toContain("よく行く");
-    expect(html).toContain("最近");
     expect(html).toContain("渋谷オフィス");
-    expect(html).toContain("新宿カフェ");
-    expect(html).toContain('data-testid="compose-loc-chip"');
   });
 
-  it("入力中（locationText 非空）はチップを出さない（外部検索に委ねる）", () => {
-    expect(withHistory({ ...emptyLoc, locationText: "渋" }, HISTORY)).not.toContain(
+  it("② title='勉強' → 「勉強」連動で 自習室 KAKOI を提示", () => {
+    const html = render2(core({ title: "勉強" }), USAGES);
+    expect(html).toContain("「勉強」の場所");
+    expect(html).toContain("自習室 KAKOI");
+  });
+
+  it("入力中（locationText 非空）はチップを出さない", () => {
+    expect(render2(core({ locationText: "渋" }), USAGES)).not.toContain(
       'data-testid="compose-location-history"',
     );
   });
 
-  it("履歴 0 件ならチップなし（fail-open）", () => {
-    expect(
-      withHistory(emptyLoc, { frequent: [], recent: [] }),
-    ).not.toContain('data-testid="compose-location-history"');
-  });
-
-  it("locationHistory 未指定でも壊れない（後方互換）", () => {
-    expect(withHistory(emptyLoc)).not.toContain(
-      'data-testid="compose-location-history"',
-    );
+  it("usages 無し / 空ならチップなし（fail-open・後方互換）", () => {
+    expect(render2(core())).not.toContain('data-testid="compose-location-history"');
+    expect(render2(core(), [])).not.toContain('data-testid="compose-location-history"');
   });
 });

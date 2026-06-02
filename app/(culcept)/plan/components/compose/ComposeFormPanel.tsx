@@ -14,9 +14,14 @@
  *   動かせなさは日付横の SVG トグルへ移動（本パネルから撤去）。
  */
 
+import { useMemo } from "react";
+
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
-import type { LocationHistory } from "@/lib/plan/compose/locationHistory";
+import {
+  deriveLocationChips,
+  type LocationUsage,
+} from "@/lib/plan/compose/locationHistory";
 
 import { PlaceCandidatesPanel } from "../PlaceCandidatesPanel";
 import { useBiasContext } from "../_useBiasContext";
@@ -26,18 +31,28 @@ import { LocationHistoryChips } from "./LocationHistoryChips";
 export interface ComposeFormPanelProps {
   core: ComposeDraftCore;
   onCoreChange?: (patch: Partial<ComposeDraftCore>) => void;
-  /** ④ Phase 1a: 過去 anchor から導出した「よく行く/最近」場所（client-side・任意）。 */
-  locationHistory?: LocationHistory;
+  /** ④ Phase 1a: 過去 anchor の場所利用ログ（client-side・任意）。panel が title 連動で集計。 */
+  locationUsages?: LocationUsage[];
 }
 
 export function ComposeFormPanel({
   core,
   onCoreChange,
-  locationHistory,
+  locationUsages,
 }: ComposeFormPanelProps) {
   const { biasContext } = useBiasContext();
   const activityKey = classifyActivityIconKey(core.title);
   const companions = core.companions ?? [];
+
+  // ④ Phase 1a: 「よく行く」(頻度) + 「この予定」(title 連動) を reactive に導出。
+  const { frequent, forTitle } = useMemo(
+    () => deriveLocationChips(locationUsages ?? [], { title: core.title }),
+    [locationUsages, core.title],
+  );
+  const titleTrim = core.title.trim();
+  const forTitleLabel = titleTrim
+    ? `「${titleTrim.length > 10 ? `${titleTrim.slice(0, 10)}…` : titleTrim}」の場所`
+    : undefined;
 
   return (
     <div data-testid="compose-form-panel" className="space-y-3">
@@ -73,10 +88,13 @@ export function ComposeFormPanel({
             className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus-visible:border-slate-300"
           />
         </div>
-        {/* ④ Phase 1a: 未入力時に「よく行く/最近」を提示（外部検索の上）。1タップで text+category を確定。自動確定しない。 */}
-        {core.locationText.trim().length === 0 && locationHistory && (
+        {/* ④ Phase 1a: 未入力時に「よく行く（頻度）/ この予定（title連動）」を外部検索の上に。
+            1タップで text(+category) 確定。自動確定しない。入力中は外部検索に委譲。 */}
+        {core.locationText.trim().length === 0 && (
           <LocationHistoryChips
-            history={locationHistory}
+            frequent={frequent}
+            forTitle={forTitle}
+            forTitleLabel={forTitleLabel}
             onPick={(chip) =>
               onCoreChange?.(
                 chip.category
