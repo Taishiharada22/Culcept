@@ -185,6 +185,40 @@ describe("reality/lsat — confidence safety (GPT audit)", () => {
   });
 });
 
+describe("reality/lsat — computeLsat/resolvePercentile never emit Infinity/NaN (GPT audit point 1)", () => {
+  const travel = { meanMin: 30, sdMin: 8 };
+  const badPercentiles = [0, 1, 2, -1, NaN, Infinity, -Infinity, 0.5, 0.9];
+  const badConfidences = [2, -1, NaN, Infinity, 0, 0.5, 1];
+
+  it("any percentile/confidence input yields finite LSAT result (invNormalCdf fail-loud is contained)", () => {
+    for (const p of badPercentiles) {
+      for (const c of badConfidences) {
+        const r = computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 10, percentile: p, confidence: c });
+        expect(Number.isFinite(r.departByMin)).toBe(true);
+        expect(Number.isFinite(r.bufferMin)).toBe(true);
+        expect(r.percentile).toBeGreaterThanOrEqual(0.5);
+        expect(r.percentile).toBeLessThanOrEqual(0.995);
+        expect(r.confidence).toBeGreaterThanOrEqual(0);
+        expect(r.confidence).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("resolvePercentile always returns finite ∈ [0.5,0.995] regardless of inputs", () => {
+    const tiers: ImportanceTier[] = ["catastrophic", "important", "normal", "optional", "recovery"];
+    for (const tier of tiers) {
+      for (const lr of [NaN, -1, 0, 1, 100, Infinity]) {
+        for (const eo of [undefined, NaN, -1, 0, 2, 0.7]) {
+          const p = resolvePercentile({ tier, learnedLatenessRatio: lr, eventOverridePercentile: eo });
+          expect(Number.isFinite(p)).toBe(true);
+          expect(p).toBeGreaterThanOrEqual(0.5);
+          expect(p).toBeLessThanOrEqual(0.995);
+        }
+      }
+    }
+  });
+});
+
 describe("reality/lsat — end-to-end tier→LSAT (representative scenarios)", () => {
   it("S9-like catastrophic interview departs earlier than S2-like optional cafe", () => {
     const travel = { meanMin: 50, sdMin: 15 };

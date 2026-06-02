@@ -240,6 +240,16 @@ Native 必須：到着・滞留の位置確証（Geofence/CLVisit）／逆方向
 
 ---
 
+## 実装状況（Phase 0 限定実装・additive/test-first・本番未接続）
+
+`lib/plan/reality/`（純関数＋型のみ。DB/push/native/Routes/既存 Plan 本番接続/自動変更なし）:
+- `lsat.ts` — critical-fractile / resolvePercentile(4 層+Safety Floor) / invNormalCdf(Acklam) / computeLsat（INV-3/8/21）✅
+- `authority.ts` — origin/authority/flexibility/**protectionReasons[]** / isImmovable / repairTouchOrder / promoteOnUserAdoption（INV-5/7/18/23）✅
+- `source-trace.ts` — SourceTrace / isTraceable / traceConfidence(noisy-OR) / isWeaklyGrounded / summarizeReasons（INV-4/23）✅
+- `change-set.ts` — ChangeOp / ChangeSet / invertChangeSet(atomic undo) / changeSetRequiresConfirmation / UndoEntry（INV-24/5）✅
+
+未実装（次スライス）: PRM event 型 → Best Action scoring → Receptivity Gate → Invariant checker → Golden Scenario fixtures。
+
 ## 13. CEO 判断ポイント
 1. **v4 採用可否**（二層 OS／4 モード／予定ノード起動窓／既存予定尊重・Google Maps 類比）
 2. **起動窓の粒度（§1.4）** — preflight/leave-by/post-event/linger/gap/movement のセットでよいか
