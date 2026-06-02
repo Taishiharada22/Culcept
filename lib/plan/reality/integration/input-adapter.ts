@@ -4,12 +4,17 @@
  * 既存 Plan/DayGraph 型 → Reality kernel input への **純粋変換**。
  * 設計書: docs/aneurasync-reality-control-os-connection-design.md §1.1
  *
- * 厳守（GPT 監査）:
- *   - 純関数・型のみ。route / UI / Server Action / PlanClient / runtime には接続しない。
- *   - 実 push / sendPushToUser import / plan_drift_events 保存 / DB / native / Routes なし。
- *   - **raw content を kernel input に持ち込まない**：EventNode は型レベルで sensitive→title
- *     undefined（privacy first）。本 adapter は id / 分類 / displayLabel のみ読む。
- *   - 既存型は *type-only* import（runtime 副作用なし）。
+ * 意味軸の分離（GPT 監査）— これらは *別々に* 算出する。混同しない:
+ *   - flexibility（可動性）   ← rigidity（hard→locked / soft→movable）
+ *   - origin / authority（所有・確定度）← source（user_manual / external_import）
+ *   - protectionReason（守る理由）← 外部由来 or 他人/予約 → hard_external、本人確約 → user_declared
+ *   - importance（重要度）   ← rigidity ＋ importanceHint。**sensitive では決めない**
+ *   - sensitive（秘匿性）    ← sensitiveCategory（privacy/redaction 専用。importance と無関係）
+ *
+ * 厳守: 純関数・型のみ。route / UI / Server Action / PlanClient / runtime 未接続。
+ *   実 push / sendPushToUser import / plan_drift_events 保存 / DB / native / Routes なし。
+ *   raw content を持ち込まない（EventNode は型レベルで sensitive→title undefined）。
+ *   既存型は *type-only* import。
  */
 
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
@@ -35,38 +40,61 @@ export function parseHhmmToMin(t: string): number | null {
   return h * 60 + min;
 }
 
-// ── ExternalAnchor 変換 ──
+// ── ExternalAnchor 変換（軸を分離） ──
 
-/** anchor の重要度ティア（sensitive medical/exam/legal は catastrophic） */
-export function anchorImportance(a: ExternalAnchor): ImportanceTier {
-  if (a.sensitiveCategory === "medical" || a.sensitiveCategory === "exam" || a.sensitiveCategory === "legal") {
-    return "catastrophic";
+/**
+ * adapter が必要とする外部文脈（ExternalAnchor 単体に無い情報。呼び出し側が渡す）。
+ *   - sourceKind: external_anchor_sources.source_type 由来（user_manual=本人記入 / external_import=ics等）
+ *   - involvesOthers / reservation: 他人/予約絡み → 確認必須（protectionReason hard_external）
+ *   - importanceHint: 呼び出し側が「飛行機/試験/面接=catastrophic」等を明示できる
+ */
+export interface AnchorContext {
+  readonly sourceKind?: "user_manual" | "external_import";
+  readonly involvesOthers?: boolean;
+  readonly reservation?: boolean;
+  readonly importanceHint?: ImportanceTier;
+}
+
+/** anchor → 権限モデル（origin/authority は source、flexibility は rigidity、protectionReason は別）。 */
+export function anchorGovernance(a: ExternalAnchor, ctx: AnchorContext = {}): PlanItemGovernance {
+  const hard = a.rigidity === "hard";
+  const userMade = (ctx.sourceKind ?? "external_import") === "user_manual";
+
+  const origin = userMade ? "user" : "imported";
+  const authority = userMade ? "user_owned" : "import_locked";
+  const flexibility = hard ? "locked" : "movable";
+
+  const reasons: ProtectionReason[] = [];
+  if (!userMade) reasons.push("hard_external"); // 外部カレンダー由来 → 確認必須（desync 防止）
+  if (ctx.involvesOthers || ctx.reservation) {
+    if (!reasons.includes("hard_external")) reasons.push("hard_external");
   }
+  if (reasons.length === 0) reasons.push("user_declared"); // 本人記入の確約
+  return { origin, authority, flexibility, protectionReasons: reasons };
+}
+
+/**
+ * anchor → 重要度。rigidity ＋ importanceHint から。**sensitive では決めない**。
+ * catastrophic は呼び出し側の importanceHint（飛行機/試験/面接 等の不可逆性）でのみ。
+ */
+export function anchorImportance(a: ExternalAnchor, ctx: AnchorContext = {}): ImportanceTier {
+  if (ctx.importanceHint) return ctx.importanceHint;
   return a.rigidity === "hard" ? "important" : "normal";
 }
 
-/** anchor → 権限モデル（origin=imported, hard→locked/soft→movable, sensitive→hard_external） */
-export function anchorGovernance(a: ExternalAnchor): PlanItemGovernance {
-  const hard = a.rigidity === "hard";
-  const reasons: ProtectionReason[] = [];
-  if (hard || a.sensitiveCategory) reasons.push("hard_external");
-  if (reasons.length === 0) reasons.push("user_declared"); // soft 非 sensitive も「本人の確約」
-  return {
-    origin: "imported",
-    authority: hard ? "import_locked" : "user_owned",
-    flexibility: hard ? "locked" : "movable",
-    protectionReasons: reasons,
-  };
+/** anchor の秘匿性（privacy/redaction 専用。importance と無関係）。 */
+export function anchorSensitive(a: ExternalAnchor): { readonly sensitive: boolean; readonly category?: ExternalAnchor["sensitiveCategory"] } {
+  return { sensitive: a.sensitiveCategory != null, category: a.sensitiveCategory };
 }
 
 // ── DayGraph 変換 ──
 
+/** DayNode の重要度は rigidity から（sensitive で critical にしない）。 */
 function eventImportance(n: EventNode): NodeImportance {
-  if (n.sensitive) return "critical";
   return n.rigidity === "hard" ? "high" : "normal";
 }
 
-/** EventNode → DayNode（post-event-recompute 用）。時刻不正なら null。 */
+/** EventNode → DayNode（post-event-recompute 用）。時刻不正なら null。title/location は持ち込まない。 */
 export function eventNodeToDayNode(n: EventNode): DayNode | null {
   const startMin = parseHhmmToMin(n.startTime);
   const endMin = parseHhmmToMin(n.endTime);
@@ -95,7 +123,7 @@ export function gapNodeToGapInput(
   };
 }
 
-/** DayGraph 属性から engine mode を検出（empty→build, packed→optimize, sparse→complete, overlap→repair） */
+/** DayGraph 属性から engine mode を検出。 */
 export function detectMode(graph: DayGraph): EngineMode {
   const a = graph.attributes;
   if (a.anchorCount === 0) return "build";
@@ -137,14 +165,19 @@ export function draftItemToSnapshot(item: DraftPlanItem): PlanItemSnapshot {
 
 // ── 集約 ──
 
+export interface AnchorInput {
+  readonly governance: PlanItemGovernance;
+  readonly importance: ImportanceTier;
+  /** privacy/redaction 用（importance と無関係） */
+  readonly sensitive: boolean;
+}
+
 export interface RealityInput {
   readonly mode: EngineMode;
   /** EventNode 由来（時刻 parse 可のもの） */
   readonly dayNodes: readonly DayNode[];
-  /** anchorId → 権限モデル */
-  readonly anchorGovernance: Readonly<Record<string, PlanItemGovernance>>;
-  /** anchorId → 重要度 */
-  readonly anchorImportance: Readonly<Record<string, ImportanceTier>>;
+  /** anchorId → 分離済み各軸 */
+  readonly anchors: Readonly<Record<string, AnchorInput>>;
   /** active seed → 根拠 */
   readonly seedTraces: readonly SourceTrace[];
 }
@@ -153,21 +186,25 @@ export interface RealityInput {
 export function buildRealityInput(
   graph: DayGraph,
   anchors: readonly ExternalAnchor[],
-  seeds: readonly PlanSeed[]
+  seeds: readonly PlanSeed[],
+  opts?: { readonly contextOf?: (anchorId: string) => AnchorContext }
 ): RealityInput {
   const dayNodes = graph.nodes
     .filter((n): n is EventNode => n.kind === "event")
     .map(eventNodeToDayNode)
     .filter((n): n is DayNode => n !== null);
 
-  const govMap: Record<string, PlanItemGovernance> = {};
-  const impMap: Record<string, ImportanceTier> = {};
+  const anchorMap: Record<string, AnchorInput> = {};
   for (const a of anchors) {
-    govMap[a.id] = anchorGovernance(a);
-    impMap[a.id] = anchorImportance(a);
+    const ctx = opts?.contextOf?.(a.id) ?? {};
+    anchorMap[a.id] = {
+      governance: anchorGovernance(a, ctx),
+      importance: anchorImportance(a, ctx),
+      sensitive: anchorSensitive(a).sensitive,
+    };
   }
 
   const seedTraces = seeds.filter((s) => s.status === "active").map(seedToSourceTrace);
 
-  return { mode: detectMode(graph), dayNodes, anchorGovernance: govMap, anchorImportance: impMap, seedTraces };
+  return { mode: detectMode(graph), dayNodes, anchors: anchorMap, seedTraces };
 }
