@@ -14,9 +14,10 @@
  *   - change-set.ts   変更差分・Undo（INV-24/5）
  *   - prm-event.ts    PRM 学習イベント契約（INV-12）
  *   - best-action.ts  Gate first→score の候補選定（INV-1/4/5/16/19/24）
+ *   - receptivity-gate.ts 配信判断 push/on_open/silent/urgent/permission_prompt（INV-1/9/10/14）
  *
  * 次スライス（未実装）:
- *   - Receptivity Gate（配信判断）→ Invariant checker, Golden Scenario fixtures（35）
+ *   - Invariant checker, Golden Scenario fixtures（35）
  */
 
 export * from "./lsat";
@@ -25,3 +26,4 @@ export * from "./source-trace";
 export * from "./change-set";
 export * from "./prm-event";
 export * from "./best-action";
+export * from "./receptivity-gate";

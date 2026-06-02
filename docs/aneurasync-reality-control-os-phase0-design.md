@@ -249,8 +249,9 @@ Native 必須：到着・滞留の位置確証（Geofence/CLVisit）／逆方向
 - `change-set.ts` — ChangeOp / ChangeSet / invertChangeSet(atomic undo) / validateUndoability(snapshot 完全性) / changeSetRequiresConfirmation / UndoEntry（INV-24/5）✅
 - `prm-event.ts` — PrmEvent 16 kinds / signalPolarity(edited=mixed/undo=unknown) / dedupe / ignoredReason / validatePrmEvent（INV-12, privacy）✅
 - `best-action.ts` — **Gate first→score**：evaluateGates(6: safety/permission/traceability/reversibility/whole_part/recovery_core) → scoreCandidate(ScoreBreakdown) → rankCandidates(gate 不通過は best に出さず rejected に理由付きで残す)（INV-1/4/5/16/19/24）✅
+- `receptivity-gate.ts` — **DELIVER 層の配信判断**：evaluateReceptivityGate → mode(silent/on_open/push/urgent_push/permission_prompt)。high stakes だけで push しない(stakes×actionability×confidence×receptivity×budget×source-trace×1tap)。urgent も hard block を越えない。朝 Daily Plan push は条件付き許可。no-action 通知禁止（INV-1/9/10/14）✅
 
-未実装（次スライス）: Receptivity Gate(配信判断) → Invariant checker → Golden Scenario fixtures。
+未実装（次スライス）: Invariant checker → Golden Scenario fixtures。
 
 ## 13. CEO 判断ポイント
 1. **v4 採用可否**（二層 OS／4 モード／予定ノード起動窓／既存予定尊重・Google Maps 類比）
