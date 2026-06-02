@@ -81,8 +81,8 @@ function blankDraft(id: string): ComposeDraftState {
   return {
     id,
     core: emptyDraftCore(),
-    // 時間は空白からスタート（CEO）。開始/終了/間隔ホイールで設定。
-    time: { mode: "none" },
+    // 開始/終了は空白なし＝既定 09:00–10:00（カードとホイールを整合）。間隔のみ空白可。
+    time: { mode: "both", startMin: 9 * 60, endMin: 10 * 60 },
     placement: { status: "unplaced" },
   };
 }
@@ -189,7 +189,11 @@ export function AddAnchorComposeContainer({
     // 配置した draft が現在 active なら、新しい空 draft を active にする。
     if (draft.id === activeId) {
       const newId = `draft-${nextIdRef.current++}`;
-      dispatch({ type: "add", id: newId });
+      dispatch({
+        type: "add",
+        id: newId,
+        time: { mode: "both", startMin: 9 * 60, endMin: 10 * 60 },
+      });
       setActiveId(newId);
     }
   }

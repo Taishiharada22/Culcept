@@ -1,20 +1,20 @@
 "use client";
 
 /**
- * ComposeWheel — 枠内で直接スクロールして選ぶインライン・ホイール 1 列（P4-3 改）。
+ * ComposeWheel — 枠内で直接スクロールして選ぶインライン・ホイール 1 列（P4-3 改 2）。
  *
  * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md（理想画像準拠）
  *
- * 改善（CEO「20点」フィードバック反映）:
- *   - 中央に明確な**選択枠**（border + 背景）。選択値は**太字**、近傍は薄く。
- *   - 行高を上げ可読性UP（iOS ピッカー風）。
- *   - **空白(value=null)対応**：先頭に "—" を置き、未設定からスクロールで開始。
+ * CEO フィードバック反映:
+ *   - **3段**（中央 + 上下 1 行）。
+ *   - **中央の選択値をはっきり**（大きく・太字・濃色）＋中央枠を明確化。
+ *   - 近傍も薄すぎない（slate-400）。空白(value=null) は間隔のみ（呼び出し側で制御）。
  */
 
 import { useEffect, useRef } from "react";
 
-export const WHEEL_ITEM_PX = 32;
-const VISIBLE_ROWS = 5; // 中央 + 上下 2 行
+export const WHEEL_ITEM_PX = 34;
+const VISIBLE_ROWS = 3; // 中央 + 上下 1 行
 
 export interface WheelOption {
   value: number | null;
@@ -76,20 +76,11 @@ export function ComposeWheel({
       className="relative w-full"
       style={{ height: VISIBLE_ROWS * WHEEL_ITEM_PX }}
     >
-      {/* 中央選択枠 */}
+      {/* 中央選択枠（はっきり） */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-lg border border-indigo-200 bg-indigo-50/70"
+        className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-lg border-2 border-indigo-400 bg-indigo-50"
         style={{ height: WHEEL_ITEM_PX }}
-      />
-      {/* 上下フェード */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1/3 bg-gradient-to-b from-white to-transparent"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/3 bg-gradient-to-t from-white to-transparent"
       />
       <div
         ref={ref}
@@ -97,9 +88,9 @@ export function ComposeWheel({
         role="listbox"
         aria-label={ariaLabel}
         onScroll={handleScroll}
-        className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="relative h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div style={{ height: WHEEL_ITEM_PX * 2 }} />
+        <div style={{ height: WHEEL_ITEM_PX }} />
         {options.map((o) => {
           const active = o.value === value;
           return (
@@ -109,10 +100,10 @@ export function ComposeWheel({
               role="option"
               aria-selected={active}
               className={
-                "flex snap-center items-center justify-center tabular-nums transition-all " +
+                "flex snap-center items-center justify-center tabular-nums " +
                 (active
-                  ? "text-base font-bold text-indigo-700"
-                  : "text-xs text-slate-300")
+                  ? "text-lg font-bold text-slate-900"
+                  : "text-sm text-slate-400")
               }
               style={{ height: WHEEL_ITEM_PX }}
             >
@@ -120,7 +111,7 @@ export function ComposeWheel({
             </div>
           );
         })}
-        <div style={{ height: WHEEL_ITEM_PX * 2 }} />
+        <div style={{ height: WHEEL_ITEM_PX }} />
       </div>
     </div>
   );

@@ -57,16 +57,16 @@ describe("間隔: 30分以降10分刻み＋実値（長押し前）", () => {
   });
 });
 
-describe("空白(—)からスタート（CEO）", () => {
+describe("空白(—)は間隔のみ（CEO）", () => {
   it("間隔の先頭に空白(—)がある（30 の上）", () => {
     const html = render({ mode: "both", startMin: 900, endMin: 1020 });
     expect(html).toContain('data-testid="compose-time-interval-wheel-opt-null"');
+    expect(html).toContain("—");
   });
 
-  it("未設定(none)は各ホイールが空白(—)を持つ", () => {
-    const html = render({ mode: "none" });
-    expect(html).toContain('data-testid="compose-time-start-hour-opt-null"');
-    expect(html).toContain('data-testid="compose-time-interval-wheel-opt-null"');
-    expect(html).toContain("—");
+  it("開始/終了ホイールには空白(—)が無い", () => {
+    const html = render({ mode: "both", startMin: 900, endMin: 1020 });
+    expect(html).not.toContain('data-testid="compose-time-start-hour-opt-null"');
+    expect(html).not.toContain('data-testid="compose-time-end-min-opt-null"');
   });
 });
