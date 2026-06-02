@@ -144,3 +144,30 @@ describe("§5 作成中 draft の card preview", () => {
     expect(html).not.toContain('data-testid="compose-active-preview"');
   });
 });
+
+describe("§6 ②-1 placed draft の再編集", () => {
+  it("active が placed draft → 編集バー + 新しい予定ボタン、ドラッグカードは出さない", () => {
+    const html = render({ isOpen: true, drafts: [PLACED], active: PLACED });
+    expect(html).toContain('data-testid="compose-editing-bar"');
+    expect(html).toContain("クライアントMTG");
+    expect(html).toContain("を編集中");
+    expect(html).toContain('data-testid="compose-new-draft"');
+    // 既に配置済みなので「ドラッグして配置」カードは出さない
+    expect(html).not.toContain('data-testid="compose-active-preview"');
+  });
+
+  it("activeBlockId 指定で左ブロックが data-active ハイライト", () => {
+    const html = renderToStaticMarkup(
+      <AddAnchorComposeSheet
+        isOpen
+        onClose={noop}
+        dateLabel="6/1(月)"
+        existingBlocks={EXISTING}
+        drafts={[PLACED]}
+        activeDraft={PLACED}
+        activeBlockId="d-mtg"
+      />,
+    );
+    expect(html).toContain('data-active="true"');
+  });
+});

@@ -145,6 +145,38 @@ describe("placed block の移動/伸縮ハンドル（P4-4）", () => {
   });
 });
 
+describe("②-1 クリック編集（onBlockSelect / activeBlockId）", () => {
+  it("activeBlockId 一致の draft block は data-active ハイライト", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={BLOCKS}
+        onBlockSelect={() => undefined}
+        activeBlockId="dr-mtg"
+      />,
+    );
+    expect(html).toContain('data-active="true"');
+  });
+
+  it("activeBlockId 無しなら data-active は付かない", () => {
+    expect(
+      renderToStaticMarkup(
+        <DayTimelineCanvas blocks={BLOCKS} onBlockSelect={() => undefined} />,
+      ),
+    ).not.toContain('data-active="true"');
+  });
+
+  it("既存(existing)ブロックは active ハイライト対象外", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={BLOCKS}
+        onBlockSelect={() => undefined}
+        activeBlockId="ex-lunch"
+      />,
+    );
+    expect(html).not.toContain('data-active="true"');
+  });
+});
+
 describe("現在時刻ライン（UI-polish・対象日=今日のときのみ）", () => {
   it("nowMin が可視窓内なら現在時刻ラインを描画", () => {
     const html = renderToStaticMarkup(

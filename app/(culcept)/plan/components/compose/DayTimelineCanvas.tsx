@@ -65,6 +65,10 @@ export interface DayTimelineCanvasProps {
   onUnplaceBlock?: (id: string) => void;
   /** P4-4: 配置済み draft block の移動 / 伸縮（指定時のみドラッグ可能化） */
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
+  /** ②-1: placed draft block の**クリック（非ドラッグ）→ 右フォーム再編集**。draft のみ対象。 */
+  onBlockSelect?: (id: string) => void;
+  /** ②-1: 編集中（active）の placed draft block id。ハイライト表示用。 */
+  activeBlockId?: string;
   /**
    * UI-polish: 現在時刻（分・0–1440）。**対象日 = 今日のときのみ** container が渡す。
    * 可視窓内なら現在時刻ラインを描画。未指定 / 窓外なら描画しない（後方互換）。
@@ -74,6 +78,8 @@ export interface DayTimelineCanvasProps {
 
 const RESIZE_ZONE_PX = 8;
 const DRAG_SNAP = 5;
+/** クリック（編集選択）と drag（移動）の閾値 px。これ未満の移動はクリック扱い。 */
+const CLICK_THRESHOLD_PX = 4;
 
 /** 俯瞰タイムラインの既定高（px）。container の drop 計算 VIEWPORT と一致させる単一ソース（UI-1）。 */
 export const TIMELINE_HEIGHT_PX = 440;
@@ -100,6 +106,8 @@ export function DayTimelineCanvas({
   onRemoveBlock,
   onUnplaceBlock,
   onBlockReposition,
+  onBlockSelect,
+  activeBlockId,
   nowMin,
 }: DayTimelineCanvasProps) {
   const vp: TimelineViewport = {
@@ -137,13 +145,20 @@ export function DayTimelineCanvas({
     startClientY: number;
     origStart: number;
     origEnd: number;
+    /** 閾値超えの移動が起きたか（true=drag, false のまま離せば click=編集選択）。 */
+    moved: boolean;
   } | null>(null);
 
   const handleBlockPointerDown = (
     b: TimelineBlock,
     e: React.PointerEvent<HTMLDivElement>,
   ) => {
-    if (!onBlockReposition || (e.target as HTMLElement).closest("button")) return;
+    // reposition も select も無ければ無反応。button（✕/↩）上は無視。
+    if (
+      (!onBlockReposition && !onBlockSelect) ||
+      (e.target as HTMLElement).closest("button")
+    )
+      return;
     const rect = e.currentTarget.getBoundingClientRect();
     const offY = e.clientY - rect.top;
     const mode =
@@ -163,12 +178,18 @@ export function DayTimelineCanvas({
       startClientY: e.clientY,
       origStart: b.startMin,
       origEnd: b.endMin,
+      moved: false,
     };
   };
 
   const handleBlockPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const dg = dragRef.current;
-    if (!dg || !onBlockReposition || ppm === 0) return;
+    if (!dg) return;
+    // 閾値内はまだクリック圏内（block を動かさない＝誤移動防止 + click 検出）。
+    if (!dg.moved && Math.abs(e.clientY - dg.startClientY) < CLICK_THRESHOLD_PX)
+      return;
+    dg.moved = true;
+    if (!onBlockReposition || ppm === 0) return;
     const deltaMin = snapMinutes((e.clientY - dg.startClientY) / ppm, DRAG_SNAP);
     if (dg.mode === "move") {
       const dur = dg.origEnd - dg.origStart;
@@ -184,12 +205,15 @@ export function DayTimelineCanvas({
   };
 
   const endBlockDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const dg = dragRef.current;
     dragRef.current = null;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       /* noop */
     }
+    // 動いていない = クリック → その placed draft を右フォーム編集対象に。
+    if (dg && !dg.moved) onBlockSelect?.(dg.id);
   };
 
   return (
@@ -295,12 +319,18 @@ export function DayTimelineCanvas({
           const top = minutesToY(b.startMin, vp);
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
           const isExisting = b.tone === "existing";
+          const isActive = !isExisting && b.id === activeBlockId;
           const showControls = !isExisting && (onRemoveBlock || onUnplaceBlock);
           const repositionable = !isExisting && !!onBlockReposition;
+          // ②-1: クリックで編集（draft のみ）。reposition か select があれば interactive。
+          const interactive = !isExisting && (repositionable || !!onBlockSelect);
           const toneClass = isExisting
             ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
-            : // placed(draft) = 主役。ring + 濃い枠 + tinted shadow で既存パステルより前に出す。
-              "border-violet-300 bg-violet-100 text-violet-800 ring-1 ring-violet-300/60 shadow-violet-200/60";
+            : isActive
+              ? // 編集中（active）= indigo ring で「これを編集している」と明示。
+                "border-indigo-400 bg-violet-100 text-violet-900 ring-2 ring-indigo-400 shadow-violet-200/60"
+              : // placed(draft) = 主役。ring + 濃い枠 + tinted shadow で既存パステルより前に出す。
+                "border-violet-300 bg-violet-100 text-violet-800 ring-1 ring-violet-300/60 shadow-violet-200/60";
           // 重なり横分割（UI-5）。重なりなしは全幅。
           const slot = laneMap.get(b.id) ?? { lane: 0, lanes: 1 };
           const widthPct = 100 / slot.lanes;
@@ -311,16 +341,19 @@ export function DayTimelineCanvas({
               data-testid={`compose-block-${b.id}`}
               data-tone={b.tone}
               data-lanes={slot.lanes}
+              data-active={isActive ? "true" : undefined}
               onPointerDown={
-                repositionable ? (e) => handleBlockPointerDown(b, e) : undefined
+                interactive ? (e) => handleBlockPointerDown(b, e) : undefined
               }
-              onPointerMove={repositionable ? handleBlockPointerMove : undefined}
-              onPointerUp={repositionable ? endBlockDrag : undefined}
+              onPointerMove={interactive ? handleBlockPointerMove : undefined}
+              onPointerUp={interactive ? endBlockDrag : undefined}
               className={
                 "group absolute overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
                 toneClass +
-                (repositionable
-                  ? " cursor-grab touch-none select-none active:cursor-grabbing"
+                (interactive
+                  ? repositionable
+                    ? " cursor-grab touch-none select-none active:cursor-grabbing"
+                    : " cursor-pointer touch-none select-none"
                   : "")
               }
               style={{

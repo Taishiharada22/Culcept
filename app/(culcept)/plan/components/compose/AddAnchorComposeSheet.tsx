@@ -67,6 +67,12 @@ export interface AddAnchorComposeSheetProps {
   onUnplaceBlock?: (id: string) => void;
   /** P4-4: placed block の移動 / 伸縮 */
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
+  /** ②-1: placed draft クリック → 右フォーム再編集 */
+  onBlockSelect?: (id: string) => void;
+  /** ②-1: 編集中の placed draft id（左ブロックのハイライト + 編集バー表示） */
+  activeBlockId?: string;
+  /** ②-1: 「＋ 新しい予定」= 編集を終えて新しい空 draft を active に */
+  onNewDraft?: () => void;
   /** UI-polish: 現在時刻（分）。container が対象日=今日のときのみ渡す（左タイムラインの現在線） */
   nowMin?: number;
   /** P5-Height: タイムライン高さ(px)。canvas 描画と右フォーム列の高さに使う（drop は実測値＝同値） */
@@ -97,6 +103,9 @@ export function AddAnchorComposeSheet({
   onRemoveBlock,
   onUnplaceBlock,
   onBlockReposition,
+  onBlockSelect,
+  activeBlockId,
+  onNewDraft,
   nowMin,
   heightPx = TIMELINE_HEIGHT_PX,
   locationUsages,
@@ -131,7 +140,10 @@ export function AddAnchorComposeSheet({
   // live preview = 編集中(active) draft。**title が入った時点**で「予定カード」として常時表示し、
   // 必須(なに＋どこ)が揃ったら**ドラッグ配置可能**にする（= show と drag を分離。Pass 4）。
   const activePlaceable = isPlaceable(activeDraft);
-  const showActivePreview = activeDraft.core.title.trim().length > 0;
+  // ②-1: placed draft を編集中はドラッグカードを出さない（既に配置済＝「ドラッグして配置」は不適）。
+  const isEditingPlaced = activeDraft.placement.status === "placed";
+  const showActivePreview =
+    activeDraft.core.title.trim().length > 0 && !isEditingPlaced;
   // active 以外の未配置 placeable（戻す等）は別カードで表示（二重表示回避）。
   const otherCards = drafts.filter(
     (d) =>
@@ -139,7 +151,8 @@ export function AddAnchorComposeSheet({
       d.placement.status === "unplaced" &&
       isPlaceable(d),
   );
-  const showCardsRegion = showActivePreview || otherCards.length > 0;
+  const showCardsRegion =
+    showActivePreview || otherCards.length > 0 || isEditingPlaced;
 
   return (
     <ComposeBottomSheet isOpen={isOpen} onClose={onClose}>
@@ -212,6 +225,8 @@ export function AddAnchorComposeSheet({
               onRemoveBlock={onRemoveBlock}
               onUnplaceBlock={onUnplaceBlock}
               onBlockReposition={onBlockReposition}
+              onBlockSelect={onBlockSelect}
+              activeBlockId={activeBlockId}
               nowMin={nowMin}
               heightPx={heightPx}
             />
@@ -233,6 +248,25 @@ export function AddAnchorComposeSheet({
 
               {showCardsRegion && (
                 <div data-testid="compose-unplaced-list" className="space-y-2">
+                  {/* ②-1: placed draft 編集中バー（左ブロック click で起動）。新しい予定へ戻れる。 */}
+                  {isEditingPlaced && (
+                    <div
+                      data-testid="compose-editing-bar"
+                      className="flex items-center justify-between gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2"
+                    >
+                      <span className="min-w-0 truncate text-xs text-indigo-700">
+                        「{activeDraft.core.title || "（無題）"}」を編集中
+                      </span>
+                      <button
+                        type="button"
+                        data-testid="compose-new-draft"
+                        onClick={() => onNewDraft?.()}
+                        className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-100"
+                      >
+                        ＋ 新しい予定
+                      </button>
+                    </div>
+                  )}
                   {showActivePreview && (
                     <div data-testid="compose-active-preview" className="space-y-1">
                       {activePlaceable && renderCard ? (

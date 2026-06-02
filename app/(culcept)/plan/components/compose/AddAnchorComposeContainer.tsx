@@ -180,8 +180,23 @@ export function AddAnchorComposeContainer({
   // ── 編集 ──
   const handleCoreChange = (patch: Partial<ComposeDraftCore>) =>
     dispatch({ type: "updateCore", id: activeId, patch });
-  const handleTimeChange = (time: ComposeTimeConstraint) =>
-    dispatch({ type: "setTime", id: activeId, time });
+  const handleTimeChange = (time: ComposeTimeConstraint) => {
+    // ②-1: 配置済み draft の時間編集はブロックも動かす（placement と同期＝左へ即反映）。
+    if (
+      activeDraft.placement.status === "placed" &&
+      time.startMin != null &&
+      time.endMin != null
+    ) {
+      dispatch({
+        type: "reposition",
+        id: activeId,
+        startMin: time.startMin,
+        endMin: time.endMin,
+      });
+    } else {
+      dispatch({ type: "setTime", id: activeId, time });
+    }
+  };
 
   // ── ドラッグ → 配置 ──
   function pointerToDropMin(
@@ -235,15 +250,18 @@ export function AddAnchorComposeContainer({
     if (dropMin == null) return; // 範囲外 → dragSnapToOrigin で戻る
     dispatch({ type: "place", id: draft.id, dropStartMin: dropMin });
     // 配置した draft が現在 active なら、新しい空 draft を active にする。
-    if (draft.id === activeId) {
-      const newId = `draft-${nextIdRef.current++}`;
-      dispatch({
-        type: "add",
-        id: newId,
-        time: { mode: "both", startMin: 9 * 60, endMin: 10 * 60 },
-      });
-      setActiveId(newId);
-    }
+    if (draft.id === activeId) createNewActiveDraft();
+  }
+
+  // 新しい空 draft を作って active に（配置後 / 「＋ 新しい予定」で使う）。
+  function createNewActiveDraft() {
+    const newId = `draft-${nextIdRef.current++}`;
+    dispatch({
+      type: "add",
+      id: newId,
+      time: { mode: "both", startMin: 9 * 60, endMin: 10 * 60 },
+    });
+    setActiveId(newId);
   }
 
   const renderCard = (draft: ComposeDraftState) => (
@@ -267,6 +285,8 @@ export function AddAnchorComposeContainer({
   // ── placed の削除 / 戻す（A-0-4） ──
   const handleRemoveBlock = (id: string) => dispatch({ type: "remove", id });
   const handleUnplaceBlock = (id: string) => dispatch({ type: "unplace", id });
+  // ②-1: placed draft をクリック → 右フォーム編集対象に（compose state 内で完結・保存契約不変）。
+  const handleBlockSelect = (id: string) => setActiveId(id);
   // P4-4: 左 timeline で移動/伸縮 → placement+time 更新 ＋ その予定を編集対象に（ホイール同期）。
   const handleBlockReposition = (
     id: string,
@@ -370,6 +390,11 @@ export function AddAnchorComposeContainer({
       onRemoveBlock={handleRemoveBlock}
       onUnplaceBlock={handleUnplaceBlock}
       onBlockReposition={handleBlockReposition}
+      onBlockSelect={handleBlockSelect}
+      activeBlockId={
+        activeDraft.placement.status === "placed" ? activeDraft.id : undefined
+      }
+      onNewDraft={createNewActiveDraft}
       nowMin={nowMin}
       heightPx={heightPx}
       locationUsages={locationUsages}
