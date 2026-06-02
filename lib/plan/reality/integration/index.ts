@@ -13,3 +13,4 @@
 
 export * from "./input-adapter";
 export * from "./shadow-runner";
+export * from "./dev-report";

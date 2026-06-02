@@ -54,7 +54,7 @@ describe("shadow-runner — redaction (no raw content)", () => {
     expect(s.line).not.toContain("super_secret");
     expect(JSON.stringify(s)).not.toContain("super_secret");
     // ShadowSummary 型に title/location は無い
-    expect(Object.keys(s).sort()).toEqual(["bestRef", "candidateCount", "deliveryMode", "invariantViolations", "line", "mode", "rejected"]);
+    expect(Object.keys(s).sort()).toEqual(["bestRef", "candidateCount", "deliveryMode", "invariantViolations", "line", "mode", "rejected", "risk"]);
   });
 
   it("line is counts/enums only", () => {
@@ -63,8 +63,9 @@ describe("shadow-runner — redaction (no raw content)", () => {
 });
 
 describe("shadow-runner — deriveImportance (structured signals only, NOT raw title)", () => {
-  it("user-declared wins", () => {
-    expect(deriveImportance({ rigidity: "soft", userDeclared: "critical" })).toBe("critical");
+  it("user-declared wins (本人宣言は構造化シグナルとして catastrophic も許可)", () => {
+    expect(deriveImportance({ rigidity: "soft", userDeclared: "catastrophic" })).toBe("catastrophic");
+    expect(deriveImportance({ rigidity: "soft", userDeclared: "important" })).toBe("important");
   });
   it("catastrophic ONLY from structured irreversibility (hardDeadline + reservation/payment/external)", () => {
     expect(deriveImportance({ rigidity: "hard", hardDeadline: true, reservation: true })).toBe("catastrophic");

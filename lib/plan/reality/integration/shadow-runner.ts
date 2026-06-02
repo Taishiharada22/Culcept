@@ -42,6 +42,7 @@ export interface StructuredImportanceSignals {
 }
 
 export function deriveImportance(s: StructuredImportanceSignals): ImportanceTier {
+  // 本人の明示宣言は構造化シグナルとして最優先（raw 推測でない。catastrophic/important も可）
   if (s.userDeclared) return s.userDeclared;
   // 不可逆 + 外部/予約/支払い → catastrophic（raw 推測ではなく構造化根拠）
   if (s.hardDeadline && (s.reservation || s.payment || s.externalDependency)) return "catastrophic";
@@ -55,11 +56,12 @@ export type RiskLevel = "none" | "low" | "medium" | "high";
 export interface ShadowSummary {
   readonly mode: EngineMode;
   readonly candidateCount: number;
-  /** redacted ref（"c{index}"。raw id を出さない） */
+  /** **report-local ephemeral** ref（"c{index}"。raw/anchor/source/location id を出さず、永続化しない） */
   readonly bestRef: string | null;
   readonly rejected: readonly { readonly ref: string; readonly gates: readonly GateKind[] }[];
   readonly deliveryMode: DeliveryMode | null;
   readonly invariantViolations: readonly InvariantId[];
+  readonly risk: RiskLevel;
   /** counts/enum のみの 1 行（raw を含まない） */
   readonly line: string;
 }
@@ -127,6 +129,7 @@ export function runShadow(shadow: ShadowInput): ShadowSummary {
     rejected,
     deliveryMode,
     invariantViolations,
+    risk,
     line,
   };
 }
