@@ -52,13 +52,17 @@ import {
   type TimelineGhost,
 } from "./DayTimelineCanvas";
 
-// 俯瞰ビューポート（DayTimelineCanvas の既定高と一致させる＝drop 計算と描画の整合）。
-const VIEWPORT: TimelineViewport = {
+// 可視窓（6:00–24:00 固定・range は不変）。
+const WINDOW = {
   startMin: DEFAULT_WINDOW_START_MIN,
   endMin: DEFAULT_WINDOW_END_MIN,
-  heightPx: TIMELINE_HEIGHT_PX,
 };
 const DROP_SNAP_GRID = 5;
+// P5-Height: タイムライン高さを端末で可変化（clamp(360px, 56dvh, 520px) 相当）。
+// **描画(canvas/form 列) は heightPx を、drop 計算は実測 rect.height を使う＝同一 source。**
+const TIMELINE_MIN_H = 360;
+const TIMELINE_MAX_H = 520;
+const TIMELINE_VH_FRACTION = 0.56;
 
 export interface AddAnchorComposeContainerProps {
   isOpen: boolean;
@@ -153,6 +157,23 @@ export function AddAnchorComposeContainer({
     return () => clearInterval(t);
   }, [dateISO]);
 
+  // P5-Height: タイムライン高さを端末に合わせ可変化（clamp(360, 56dvh, 520) 相当・JS 算出）。
+  // この heightPx を canvas 描画と右フォーム列の高さに使う。drop は実測 rect.height（= 同値）。
+  const [heightPx, setHeightPx] = useState<number>(TIMELINE_HEIGHT_PX);
+  useEffect(() => {
+    const compute = () => {
+      const vh = window.innerHeight;
+      if (!vh || vh <= 0) return;
+      const h = Math.round(
+        Math.max(TIMELINE_MIN_H, Math.min(TIMELINE_MAX_H, vh * TIMELINE_VH_FRACTION)),
+      );
+      setHeightPx(h);
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, []);
+
   const activeDraft =
     state.drafts.find((d) => d.id === activeId) ?? blankDraft("draft-active");
 
@@ -175,7 +196,14 @@ export function AddAnchorComposeContainer({
       pt.y >= rect.top &&
       pt.y <= rect.bottom;
     if (!inside) return null;
-    return snappedMinAtY(pt.y - rect.top, VIEWPORT, DROP_SNAP_GRID);
+    // drop 計算の height は**実測 rect.height**＝描画された高さそのもの。
+    // canvas は heightPx で描くので rect.height === heightPx となり、見た目と drop が一致する。
+    const vp: TimelineViewport = {
+      startMin: WINDOW.startMin,
+      endMin: WINDOW.endMin,
+      heightPx: rect.height,
+    };
+    return snappedMinAtY(pt.y - rect.top, vp, DROP_SNAP_GRID);
   }
 
   function handleCardDrag(
@@ -343,6 +371,7 @@ export function AddAnchorComposeContainer({
       onUnplaceBlock={handleUnplaceBlock}
       onBlockReposition={handleBlockReposition}
       nowMin={nowMin}
+      heightPx={heightPx}
       locationUsages={locationUsages}
       confirmOverlay={
         <DateChangeConfirmDialog

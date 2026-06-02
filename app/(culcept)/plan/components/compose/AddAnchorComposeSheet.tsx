@@ -69,6 +69,8 @@ export interface AddAnchorComposeSheetProps {
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
   /** UI-polish: 現在時刻（分）。container が対象日=今日のときのみ渡す（左タイムラインの現在線） */
   nowMin?: number;
+  /** P5-Height: タイムライン高さ(px)。canvas 描画と右フォーム列の高さに使う（drop は実測値＝同値） */
+  heightPx?: number;
   /** ④ Phase 1a: 「どこで？」の場所利用ログ（client-side・任意）。panel が title 連動で集計 */
   locationUsages?: LocationUsage[];
   /** 日付切替確認ダイアログ等の overlay */
@@ -96,6 +98,7 @@ export function AddAnchorComposeSheet({
   onUnplaceBlock,
   onBlockReposition,
   nowMin,
+  heightPx = TIMELINE_HEIGHT_PX,
   locationUsages,
   confirmOverlay,
   notice,
@@ -210,14 +213,15 @@ export function AddAnchorComposeSheet({
               onUnplaceBlock={onUnplaceBlock}
               onBlockReposition={onBlockReposition}
               nowMin={nowMin}
+              heightPx={heightPx}
             />
           </div>
 
-          {/* 右: スクロールするフォーム + 固定の完了（高さは左タイムラインと一致） */}
+          {/* 右: スクロールするフォーム + 固定の完了（高さは左タイムラインと一致＝同一 heightPx） */}
           <div
             data-testid="compose-form-col"
             className="flex min-w-0 flex-1 flex-col border-l border-slate-100 pl-3"
-            style={{ height: TIMELINE_HEIGHT_PX }}
+            style={{ height: heightPx }}
           >
             <div className="flex-1 space-y-3 overflow-y-auto pr-1">
               {/* ①②③ なに / どこ / 誰と */}

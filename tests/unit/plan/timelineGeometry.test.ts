@@ -96,6 +96,39 @@ describe("snappedMinAtY（drop 位置 → 配置開始分）", () => {
   });
 });
 
+describe("P5-Height: 高さ非依存の正しさ（render=drop を単一 height source にする前提を固定）", () => {
+  const HEIGHTS = [360, 440, 472, 520]; // clamp(360, 56dvh, 520) の代表値
+  for (const h of HEIGHTS) {
+    const vp: TimelineViewport = { startMin: 360, endMin: 1440, heightPx: h };
+    it(`height=${h}: 窓開始 Y=0 / 窓末端 Y=height（range 6:00–24:00 不変）`, () => {
+      expect(minutesToY(360, vp)).toBe(0);
+      expect(minutesToY(1440, vp)).toBeCloseTo(h, 6);
+    });
+    it(`height=${h}: round-trip 分→Y→分`, () => {
+      for (const m of [360, 540, 720, 905, 1320, 1439]) {
+        expect(yToMinutes(minutesToY(m, vp), vp)).toBeCloseTo(m, 6);
+      }
+    });
+    it(`height=${h}: drop Y→分→Y round-trip（22時以降も作れる）`, () => {
+      for (const y of [0, h * 0.25, h * 0.5, h * 0.75, h]) {
+        expect(minutesToY(yToMinutes(y, vp), vp)).toBeCloseTo(y, 6);
+      }
+      expect(yToMinutes(0, vp)).toBe(360); // 06:00
+      expect(yToMinutes(h, vp)).toBeCloseTo(1440, 6); // 24:00
+      // 22:00 (=1320) は窓内に必ず位置する
+      const y22 = minutesToY(1320, vp);
+      expect(y22).toBeGreaterThan(0);
+      expect(y22).toBeLessThan(h);
+    });
+  }
+  it("同一 Y でも height が違えば別の分（= render≠drop height だとズレる、の明示）", () => {
+    const y = 200;
+    const m360 = yToMinutes(y, { startMin: 360, endMin: 1440, heightPx: 360 });
+    const m520 = yToMinutes(y, { startMin: 360, endMin: 1440, heightPx: 520 });
+    expect(Math.abs(m360 - m520)).toBeGreaterThan(60); // 1時間以上ズレる→必ず同一 source に
+  });
+});
+
 describe("layoutLanes（重なり横分割）", () => {
   it("重ならない（touching 含む）群は lanes=1（全幅）", () => {
     const m = layoutLanes([
