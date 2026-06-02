@@ -156,25 +156,18 @@ GPT 制約 #2/#3 を採用＋**入口側フィールド allowlist（rule ⑦ 上
 - ✅ **証明**（`tests/unit/realityDevRuntime.test.ts`・18 tests）: production/flag-off/out-of-scope で **loadForSmoke spy 0 回**（実データ未接触）/ seeds 自由文を返しても出力に出ない / source throw→raw なし ADAPTER_DEGRADED / 実 id→ephemeral / redaction 違反→blocked / **console.log/error/warn 0 回**
 - ⏳ **未実装＝CEO の manual smoke 部分**: `RealityDataSource` の **実 column-restricted 実装**（§9.2）。私（sandbox）は実認証情報を持たず実 DB を読まない・自動実行しない
 
-### 9.2 Manual Smoke レシピ（CEO/dev が手動・単発で実行。実 DB に触れる唯一の箇所）
-`RealityDataSource.loadForSmoke` の実実装は **column-restricted read** で満たす（既存 `listAnchors` は `select("*")` ＝ raw を読むので **使わない**）:
+### 9.2 Stage 4-B-1A: Column-Restricted Adapter Skeleton（**実装済・実 Supabase 未接続**・commit 後述）
+GPT 監査「実 DB read の前に column-restricted adapter を mock 検証せよ」を実装。既存 `listAnchors`（`select("*")`）も `buildDayGraph`（`ExternalAnchor[]`＝raw を運ぶ）も **使わない**。
 
-```ts
-// dev-runtime-supabase.ts（新規・server-only・barrel 非 export・flag 下でのみ import）
-import "server-only";
-// 1. column-restricted SELECT（title / location / notes を SELECT しない）
-//    .from("external_anchors")
-//    .select("id, start_time, end_time, rigidity, sensitive_category")   // ← raw 列を含めない
-//    .eq("user_id", ceoUserId)
-// 2. rows → DayNode[]（id/startMin/endMin/importance(rigidity 由来)/hard）。title/location を持ち込まない
-// 3. mode は時刻/密度から（detectMode 相当。raw 不要）
-// 4. anchors: Record<id, { governance, importance, sensitive }>（anchorGovernance/Importance/Sensitive）
-// 5. return { mode, dayNodes, anchors, seedTraces: [] }   // seeds は読まない
-```
-- 実行は **flag on＋capability＋CEO user id＋dev 環境** のときのみ（gate が他を no-op）。
-- **PlanSeed テーブルには触れない**。**title/location を SELECT しない**（読まない）。
-- 戻り値は `runRealityShadowSmoke` が `assertRedacted` を通してから返す。違反時は破棄。
-- **単発手動**。route/cron/UI から呼ばない（常時 shadow 禁止）。
+- ✅ `lib/plan/reality/integration/dev-runtime-adapter.ts`（pure・**実 Supabase 非 import**・barrel 非 export）:
+  - `ALLOWED_ANCHOR_COLUMNS`（id/start_time/end_time/rigidity/sensitive_category）/ `FORBIDDEN_ANCHOR_COLUMNS`（title/location_text/location_category/external_uid/source_id/notes）
+  - `ColumnRestrictedAnchorRow` 型（許可列のみ。title/location は **型に存在しない**）
+  - `SafeDayGraphProjection` 型（raw なし最小 dayNodes + mode。**real DayGraph を読まない**）
+  - `SupabaseLikeClient` 最小 interface（実 Supabase を import せず注入可能に）
+  - `projectToRealityInput`：許可列 → RealityInput（title/location 不在・seedTraces 空）
+  - `createColumnRestrictedAnchorSource(client)`：SELECT は **ANCHOR_COLUMNS_SQL 固定**（"*"・raw 列を渡せない）/ table は **external_anchors 固定**（plan_seeds 不可）
+- ✅ 証明（`tests/unit/realityDevRuntimeAdapter.test.ts`・13 tests）: ALLOWED∩FORBIDDEN=∅ / select 引数は許可列のみ・"*" でない・raw 列なし（mock spy）/ raw 混入 row でも projection は無視（「渋谷」不在）/ 実 id→ephemeral / seed メソッド不在 / adapter 出力が smoke→assertRedacted-clean
+- ⏳ **未実装＝次段（要承認）**: `SupabaseLikeClient` の **実 client 注入**（実 column-restricted DB read）。`import "server-only"`、flag on＋capability＋CEO user＋dev のときのみ、**単発手動**（route/cron/UI から呼ばない＝常時 shadow 禁止）。start_time の実フォーマット（ISO 等）対応もここ。
 
 ---
 
