@@ -1,8 +1,9 @@
 # companions migration SQL Audit（apply 前・2026-06-02）
 
 対象: `supabase/migrations/20260602100000_external_anchors_companions.sql`
-commit: `5d592e2f`（PASS 済）
 判定: **静的監査 + ローカル実機検証ともに apply 安全**。ただし apply は CEO gate（本書は apply 可否判断の材料）。
+
+> **補正履歴**: 初版（commit `5d592e2f` / 監査 `bd62b4d1`）では companions 抽出が非 string 要素を text 強制していた。CEO 指示により **defensive string-only 抽出**へ補正（jsonb string 要素のみ採用・number/boolean/object/array/null は無視・有効 string 0 件なら NULL）。本書は補正版を反映。
 
 > **本監査では remote DB を一切変更していない。** ローカル検証は port 54322 のローカル Supabase（PG 17.6）に対し、全操作を単一トランザクション内で実行し **ROLLBACK**（永続化ゼロ）。migration の apply はしていない。
 
@@ -37,7 +38,7 @@ commit: `5d592e2f`（PASS 済）
 ```
 + ALTER TABLE ... ADD COLUMN companions  (前段)
   INSERT 列リスト: ... exception_dates  →  ... exception_dates, companions
-  SELECT: exception_dates CASE の後に companions CASE を追加（::text[]）
+  SELECT: exception_dates CASE の後に companions CASE を追加（string-only 抽出サブクエリ）
   COMMENT 文言更新
 ```
 - signature `(p_user_id uuid, p_source jsonb, p_anchors jsonb) RETURNS jsonb` 不変（実機 `pg_proc` で確認）。
@@ -48,24 +49,40 @@ commit: `5d592e2f`（PASS 済）
 - diff は exception_dates CASE を 1 行も変更せず、その後に companions CASE を追加するだけ。
 - 実機 TEST A: 同一 anchor に `companions:["佐藤","鈴木"]` ＋ `exception_dates:["2026-06-09"]` → 両方正しく永続（`{佐藤,鈴木}` / `{2026-06-09}`）。
 
-## 5. companions が jsonb array 以外なら無視/empty — ✅
-抽出ロジック: `CASE WHEN a ? 'companions' AND jsonb_typeof(a->'companions')='array' THEN ARRAY(...) ELSE NULL END`。実機 TEST B/C/E:
+## 5. companions が jsonb array 以外なら無視 — ✅
+抽出ロジック（**defensive string-only**）:
+```sql
+CASE WHEN a ? 'companions' AND jsonb_typeof(a->'companions') = 'array' THEN (
+  SELECT array_agg(elem #>> '{}' ORDER BY ord)
+  FROM jsonb_array_elements(a->'companions') WITH ORDINALITY AS t(elem, ord)
+  WHERE jsonb_typeof(elem) = 'string'
+) ELSE NULL END
+```
+実機（1 bundle・9 ケース・全 `pass=t`）:
 
 | 入力 | 結果 |
 |---|---|
+| `["佐藤","鈴木"]` | `{佐藤,鈴木}` |
 | key 欠落 | NULL |
-| `"佐藤"`（string） | NULL |
-| `123`（number） | NULL |
+| `"佐藤"`（string scalar・非 array） | NULL |
 | `{"a":1}`（object） | NULL |
-| `null`（json null） | NULL |
-| `[]`（空配列） | `{}`（空配列・NULL ではない／card=0） |
+| `[]`（空配列） | **NULL**（有効 string 0 件）|
 
-→ array 以外は全て NULL（無視）。error なし。
+→ array 以外は NULL。array でも有効 string が 0 件なら NULL（空配列にしない）。
 
-## 6. non-string 要素で SQL error にならない — ✅
-実機 TEST D: `companions:["佐藤",1,true,null]` → `{佐藤,1,true,NULL}`、**error なし**。
-`jsonb_array_elements_text` は非 string scalar を text 強制（number/bool→文字列、json null→SQL NULL）。
-※ アプリ層 validation（`external-anchor-input.ts`）が非 string 要素を `invalid_format` で弾くため、正常系では常に string[]。SQL はその上で防御的に安全。
+## 6. non-string 要素の扱い — ✅（補正: string のみ採用）
+**CEO 指示の補正**: companions は参加者「名」配列。DB function 側でも defensive に **jsonb string 要素のみ採用**し、number / boolean / object / array / null 要素は**無視**。
+
+実機（全 `pass=t`）:
+
+| 入力 | 補正前 | 補正後 |
+|---|---|---|
+| `["佐藤",1,true,null]` | `{佐藤,1,true,NULL}` | **`{佐藤}`** |
+| `[1,true,null]`（string 0 件） | （非 string も text 化） | **NULL** |
+| `["佐藤",{"x":1},["y"],"鈴木"]` | （object/array も text 化） | **`{佐藤,鈴木}`**（順序保持） |
+
+仕組み: `WHERE jsonb_typeof(elem)='string'` で型フィルタ → `elem #>> '{}'` で jsonb string scalar を unquote → `array_agg`（0 件→NULL）。SQL error は発生しない。
+※ アプリ層 validation（`external-anchor-input.ts`）も非 string 要素を `invalid_format` で弾く。**二層で一致**（非 string は永続化されない）。
 
 ## 7. RPC / direct insert 両経路で migration 未適用環境を壊さない — ✅（運用制約 1 件）
 **前提（grep 実測）**: plan ドメインで companions を非空にセットするのは **compose フローのみ**（`composeDraft` / `ComposeFormPanel` / converter / form builder）。legacy modal・ics・calendar 同期は `emptyAnchorFormState()`＝`companions:[]` のままで、builder の `length>0` ガードにより payload に **含まれない**。`alter-morning`/`coalter` の companions は別ドメイン（external_anchors 非接触）。
@@ -88,7 +105,7 @@ commit: `5d592e2f`（PASS 済）
 
 ## 10. 付随観測（スコープ外・今回いじらない）
 1. **external_uid は RPC 経路で永続化されない（既存 gap）**: `20260526100000` が `external_uid` 列を追加したが function を更新しなかったため、現行 RPC は external_uid を INSERT しない（direct insert 経路のみ persist）。本 migration も external_uid を**追加しない**＝**現行挙動と一致・回帰なし**。スコープ拡大しない方針に従い触らない（別途 CEO 判断）。
-2. **明示的 `companions:[]` は空配列として persist**（NULL ではない）。アプリは `length>0` で空配列を payload から除外するため正常系では発生しないが、SQL を直叩きすれば `{}` が入る。無害。
+2. **明示的 `companions:[]` / string 0 件の array は NULL**（補正後・空配列 persist しない）。アプリは `length>0` で空配列を payload から除外するため正常系でも発生しない。
 
 ---
 

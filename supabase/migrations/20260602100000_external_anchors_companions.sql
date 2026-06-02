@@ -10,7 +10,9 @@
 -- 不変原則:
 --   1. companions TEXT[] は **NULL 許容**（既存行 / 未指定は NULL = 後方互換）。
 --   2. create_external_anchor_bundle RPC を companions 対応に CREATE OR REPLACE（冪等）。
---      exception_dates と同じ array 抽出パターン。
+--      参加者「名」配列なので defensive 抽出: jsonb array かつ要素が jsonb string の
+--      もののみ text[] 化。number / boolean / object / array / null 要素は無視。
+--      有効 string が 0 件なら NULL（空配列にしない）。
 --   3. アプリ層は companions が present の時だけ列に書く（本 migration 未適用環境でも
 --      legacy 保存を壊さない）。
 --
@@ -116,8 +118,14 @@ BEGIN
       ELSE NULL
     END,
     CASE
-      WHEN a ? 'companions' AND jsonb_typeof(a->'companions') = 'array'
-        THEN ARRAY(SELECT jsonb_array_elements_text(a->'companions'))::text[]
+      WHEN a ? 'companions' AND jsonb_typeof(a->'companions') = 'array' THEN (
+        -- 参加者「名」配列なので defensive: jsonb string 要素のみ採用。
+        -- number / boolean / object / array / null 要素は無視。
+        -- 有効 string が 0 件なら array_agg は NULL を返す（空配列にしない）。
+        SELECT array_agg(elem #>> '{}' ORDER BY ord)
+        FROM jsonb_array_elements(a->'companions') WITH ORDINALITY AS t(elem, ord)
+        WHERE jsonb_typeof(elem) = 'string'
+      )
       ELSE NULL
     END
   FROM jsonb_array_elements(p_anchors) a;
