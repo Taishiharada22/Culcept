@@ -195,11 +195,20 @@ export function DayTimelineCanvas({
   return (
     <div
       data-testid="compose-timeline"
-      // 角ばった四角形（CEO 指定）。多色グラデは廃し、単色の「日中→夜」極薄トーン
-      // （白＝日中の明るさ → ごく薄い cool slate＝夜）。block の配色と競合しない中立。
-      className="relative w-full border border-slate-200 bg-gradient-to-b from-white via-slate-50/40 to-slate-100/70"
+      // 角ばった四角形（CEO 指定）。背景は白で清潔に（グラデ撤去）。時間帯の手がかりは
+      // 「今より前をごく薄く dim」で機能的に（今日のみ・block 配色と競合しない）。
+      className="relative w-full border border-slate-200 bg-white"
       style={{ height: heightPx }}
     >
+      {/* 今より前を淡く dim（今日のみ・ごく薄い中立グレー・block の下＝読みやすさ不変） */}
+      {showNow && (
+        <div
+          data-testid="compose-timeline-past"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 bg-slate-500/[0.06]"
+          style={{ height: minutesToY(nowMin as number, vp) }}
+        />
+      )}
       {/* 30分補助線（薄い・ラベルなし・ブロック層に整列。設計書 §4.3） */}
       {halfHourMarks.map((m) => (
         <div

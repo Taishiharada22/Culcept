@@ -161,6 +161,17 @@ describe("現在時刻ライン（UI-polish・対象日=今日のときのみ）
   it("nowMin 未指定なら描画しない（後方互換）", () => {
     expect(render()).not.toContain('data-testid="compose-timeline-now"');
   });
+
+  it("nowMin あり → 過去 dim（compose-timeline-past）を描画", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={BLOCKS} nowMin={840} />,
+    );
+    expect(html).toContain('data-testid="compose-timeline-past"');
+  });
+
+  it("nowMin なし → 過去 dim なし（今日以外は dim しない）", () => {
+    expect(render()).not.toContain('data-testid="compose-timeline-past"');
+  });
 });
 
 describe("空状態ヒント（UI-polish・ドラッグ先を明示）", () => {
