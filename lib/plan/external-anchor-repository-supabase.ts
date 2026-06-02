@@ -135,6 +135,11 @@ interface ExternalAnchorRow {
    * source_type='ics' の anchor のみ持つ。
    */
   external_uid: string | null;
+  /**
+   * 誰と (P4・2026-06-02): 参加者名の配列（NULL 許容）。
+   * migration 20260602100000 未適用環境では select に含まれず undefined になる（後方互換）。
+   */
+  companions?: string[] | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -190,6 +195,10 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
     }
     // P3 W3 (= 2026-05-26): externalUid mapping (= .ics VEVENT UID)
     if (row.external_uid !== null) oneOff.externalUid = row.external_uid;
+    // P4 (= 2026-06-02): companions mapping（列 absent 環境では undefined → skip）
+    if (row.companions != null && row.companions.length > 0) {
+      oneOff.companions = row.companions;
+    }
     return oneOff;
   }
 
@@ -218,6 +227,10 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
   }
   // P3 W3 (= 2026-05-26): externalUid mapping (= .ics VEVENT UID)
   if (row.external_uid !== null) recurring.externalUid = row.external_uid;
+  // P4 (= 2026-06-02): companions mapping（列 absent 環境では undefined → skip）
+  if (row.companions != null && row.companions.length > 0) {
+    recurring.companions = row.companions;
+  }
   return recurring;
 }
 
@@ -257,7 +270,7 @@ function anchorInsertPayload(
   nowIso: string
 ): Record<string, unknown> {
   const isOneOff = input.anchorKind === "one_off";
-  return {
+  const payload: Record<string, unknown> = {
     user_id: userId,
     source_id: sourceId,
     title: input.title,
@@ -278,6 +291,12 @@ function anchorInsertPayload(
     // P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType='ics' のみ設定、 他は NULL)
     external_uid: input.externalUid ?? null,
   };
+  // P4 (= 2026-06-02): companions は migration 適用後にのみ列が存在する。
+  // present の時だけ含め、直接 insert fallback が migration 未適用環境を壊さないようにする。
+  if (input.companions && input.companions.length > 0) {
+    payload.companions = input.companions;
+  }
+  return payload;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -315,7 +334,7 @@ function anchorInsertPayloadForRpc(
   input: CreateExternalAnchorInput
 ): Record<string, unknown> {
   const isOneOff = input.anchorKind === "one_off";
-  return {
+  const payload: Record<string, unknown> = {
     title: input.title,
     start_time: input.startTime,
     end_time: input.endTime ?? null,
@@ -333,6 +352,12 @@ function anchorInsertPayloadForRpc(
     // P3 W3 (= 2026-05-26): .ics VEVENT UID (= sourceType='ics' のみ設定、 他は NULL)
     external_uid: input.externalUid ?? null,
   };
+  // P4 (= 2026-06-02): companions は新 function が array を読む。present 時だけ含める。
+  // （旧 function は未知キーを無視するため、 migration 未適用でも安全）
+  if (input.companions && input.companions.length > 0) {
+    payload.companions = input.companions;
+  }
+  return payload;
 }
 
 /**

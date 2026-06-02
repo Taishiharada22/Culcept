@@ -18,6 +18,7 @@ function placed(
     startMin: number;
     endMin: number | null;
     crossesMidnight?: boolean;
+    companions?: string[];
   },
 ): ComposeDraftState {
   return {
@@ -26,6 +27,7 @@ function placed(
       title: opts.title ?? "予定",
       locationText: opts.locationText ?? "カフェ",
       rigidity: opts.rigidity ?? "hard",
+      ...(opts.companions !== undefined ? { companions: opts.companions } : {}),
     },
     time: { mode: "none" }, // converter は placement を正とするため mode 非依存
     placement: {
@@ -174,6 +176,33 @@ describe("planComposeSave — 保存判断（API を呼ぶか）", () => {
       expect(plan.inputs).toHaveLength(1);
       expect(plan.excluded.map((e) => e.id)).toEqual(["wrap"]);
     }
+  });
+});
+
+describe("誰と (P4) の保存境界写像", () => {
+  it("companions あり → input.companions に保持される", () => {
+    const { inputs } = placedDraftsToAnchorInputs(
+      [placed("d1", { startMin: 900, endMin: 1020, companions: ["佐藤", "鈴木"] })],
+      DATE,
+    );
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].companions).toEqual(["佐藤", "鈴木"]);
+  });
+
+  it("companions 未指定 → input.companions は undefined（空配列は列に書かない）", () => {
+    const { inputs } = placedDraftsToAnchorInputs(
+      [placed("d1", { startMin: 900, endMin: 1020 })],
+      DATE,
+    );
+    expect(inputs[0].companions).toBeUndefined();
+  });
+
+  it("companions 空配列 → input.companions は undefined（present 判定は length>0）", () => {
+    const { inputs } = placedDraftsToAnchorInputs(
+      [placed("d1", { startMin: 900, endMin: 1020, companions: [] })],
+      DATE,
+    );
+    expect(inputs[0].companions).toBeUndefined();
   });
 });
 

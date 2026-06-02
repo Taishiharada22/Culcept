@@ -62,6 +62,11 @@ interface CreateExternalAnchorInputBase {
    * - 他 sourceType では undefined (= NULL persist)
    */
   externalUid?: string;
+  /**
+   * 誰と (P4・2026-06-02): 参加者名の配列（任意）。
+   * present の時だけ DB 列に書く（migration 未適用環境でも legacy 保存を壊さない）。
+   */
+  companions?: string[];
 }
 
 /** 単発予定の入力 */
@@ -318,6 +323,20 @@ export function validateCreateExternalAnchorInput(
         field: "sensitiveCategory",
         code: "not_allowed_value",
         message: `sensitiveCategory must be one of: ${ALLOWED_SENSITIVE.join(", ")}`,
+      });
+    }
+  }
+
+  // companions（optional・P4: 誰と）
+  if (obj.companions !== undefined) {
+    if (
+      !Array.isArray(obj.companions) ||
+      obj.companions.some((c) => typeof c !== "string")
+    ) {
+      errors.push({
+        field: "companions",
+        code: "invalid_format",
+        message: "companions must be an array of strings",
       });
     }
   }

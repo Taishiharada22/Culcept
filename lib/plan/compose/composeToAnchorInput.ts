@@ -60,6 +60,8 @@ export function placedDraftToFormState(
     rigidity: draft.core.rigidity === "" ? DEFAULT_RIGIDITY : draft.core.rigidity,
     locationText: draft.core.locationText,
     locationCategory: draft.core.locationCategory ?? "",
+    // 誰と (P4): draft.core.companions → 保存境界。空/未指定は []（builder が列に書かない）。
+    companions: draft.core.companions ?? [],
     sourceType: "manual",
   };
 }

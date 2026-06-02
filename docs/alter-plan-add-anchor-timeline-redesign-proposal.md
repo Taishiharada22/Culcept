@@ -395,3 +395,46 @@ CEO GO。**data-testid / 保存契約 / ロジック中核 / flag は不変・re
 - branch `claude/nifty-turing-128e67` に本 doc を commit して停止。
 - **GO の場合**: §0.5 A-0-7 の順（A-1 pure 層 → A-2 骨格 → A-3 配置 → A-4 保存 → A-5 smoke）で additive 実装。各サブフェーズ末で tsc/test 検証＋ stop。
 - Phase B / C・migration・transport 本格接続・ListTab 管制官化・staging・merge・remote・本番有効化は引き続き **CEO gate**。
+
+---
+
+## 13. P4 — 「誰と?」(companions) 永続化（2026-06-02・migration draft）
+
+A-5 smoke クローズ後、CEO 選択タスク「誰と? を保存可能に（migration 設計）」を実装。
+これまで `companions` は compose draft の表示専用で、保存されず button(履歴) は no-op だった。
+本作業で **draft → 保存境界 → DB** の全経路に companions を貫通させた。
+
+### 13.1 不変原則（安全設計）
+- **migration は draft のみ。apply は CEO 承認後**（本番/dev とも CEO が適用）。実行禁止（CLAUDE.md §1）。
+- **present の時だけ列に書く**: `companions.length > 0` の時のみ payload に含める。
+  → migration 未適用環境でも legacy 保存（direct insert fallback）が壊れない。
+- **読込は防御的**: 列 absent 環境では `row.companions` が undefined → skip（後方互換）。
+- 保存契約（`createAnchorBundle` の呼び出し形・既存列）は **1ビットも変えず**、companions を additive に追加。
+
+### 13.2 変更ファイル（8 + migration 1）
+| 層 | ファイル | 変更 |
+|---|---|---|
+| migration | `supabase/migrations/20260602100000_external_anchors_companions.sql` | **新規・draft**。`ADD COLUMN companions TEXT[]`（NULL 許容）＋ `create_external_anchor_bundle` を `CREATE OR REPLACE`（INSERT に companions 列＋`exception_dates` と同じ jsonb array 抽出）。冪等。 |
+| 型 | `lib/plan/external-anchor.ts` | `ExternalAnchorBase.companions?: string[]` |
+| 型 | `lib/plan/external-anchor-input.ts` | `CreateExternalAnchorInputBase.companions?: string[]` ＋ validation（optional・string 配列）。validator は obj 透過なので候補に含まれれば input へ流れる。 |
+| form | `lib/plan/anchor-input-form.ts` | `AnchorFormState.companions: string[]` ＋ `emptyAnchorFormState` ＋ builder `commonOptional`（length>0 時のみ） |
+| repo(mem) | `lib/plan/external-anchor-repository-memory.ts` | build one_off/recurring に `companions` 透過 |
+| repo(sb) | `lib/plan/external-anchor-repository-supabase.ts` | `ExternalAnchorRow.companions?: string[]｜null`、`rowToAnchor` 読込（両 kind・列 absent skip）、direct/RPC payload とも **present 時のみ** companions 付与 |
+| converter | `lib/plan/compose/composeToAnchorInput.ts` | `placedDraftToFormState` で `draft.core.companions ?? []` を form へ写像 |
+
+### 13.3 経路（draft → DB）
+`ComposeDraftCore.companions` → `placedDraftToFormState` → `AnchorFormState.companions`
+→ `buildAnchorInputFromForm`（length>0 時のみ `commonOptional`）→ `validateCreateExternalAnchorInput`（透過）
+→ `CreateExternalAnchorInput.companions` → repo payload（present 時のみ）
+→ RPC `create_external_anchor_bundle`（**migration 適用後**に array 抽出）/ direct insert fallback。
+
+### 13.4 検証
+- vitest: 既存 + 新規で plan unit 全 PASS。companions 専用テスト追加:
+  - `composeToAnchorInput.test.ts`: companions あり→保持 / 未指定→undefined / 空配列→undefined。
+  - `externalAnchorInput.test.ts`: 未指定 valid / string 配列 valid＋透過 / 空配列 valid / 非配列 invalid / 非 string 要素 invalid / recurring も valid。
+- tsc: baseline 1112 維持・自分のファイル 0 error。
+
+### 13.5 残（CEO gate）
+- **migration の apply**（本 draft）。compose flag を ON にする環境は本 migration 適用が前提。
+- compose UI 側の companions 入力（既に no-op button あり）→ 保存接続の実画面検証は flag ON 後。
+- Phase B（Alter 補完）/ merge / PR / flag 有効化は引き続き未着手。

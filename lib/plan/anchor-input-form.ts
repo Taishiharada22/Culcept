@@ -56,6 +56,9 @@ export interface AnchorFormState {
   sensitiveCategory: AnchorSensitiveCategory | "";
   sourceType: "manual" | "template" | "";
 
+  /** 誰と (P4): 参加者名の配列。空配列なら未指定。保存対象（present 時のみ列に書く） */
+  companions: string[];
+
   /** one_off 専用 */
   date: string; // YYYY-MM-DD
 
@@ -82,6 +85,7 @@ export function emptyAnchorFormState(): AnchorFormState {
     locationText: "",
     sensitiveCategory: "",
     sourceType: "",
+    companions: [],
     date: "",
     validFrom: "",
     validUntil: "",
@@ -367,8 +371,12 @@ export function buildAnchorInputFromForm(
     locationText: string;
     locationCategory: LocationCategory;
     sensitiveCategory: AnchorSensitiveCategory;
+    companions: string[];
   }> = {};
   if (state.endTime) commonOptional.endTime = state.endTime;
+  if (state.companions && state.companions.length > 0) {
+    commonOptional.companions = [...state.companions];
+  }
   if (state.locationText && state.locationText.trim().length > 0) {
     commonOptional.locationText = state.locationText.trim();
   }
