@@ -1,7 +1,9 @@
 # companions migration SQL Audit（apply 前・2026-06-02）
 
 対象: `supabase/migrations/20260602100000_external_anchors_companions.sql`
-判定: **静的監査 + ローカル実機検証ともに apply 安全**。ただし apply は CEO gate（本書は apply 可否判断の材料）。
+判定: **SQL 単体としては静的監査 + ローカル実機検証ともに apply 安全**。ただし apply は CEO gate（本書は apply 可否判断の材料）。
+
+> **⛔ remote apply 見送り（2026-06-02・decision-log 参照）**: remote apply の pre-check で前提崩壊を検出し STOP。① `.env.local` で compose flag が ON かつ remote project 接続、② remote に `external_anchors` テーブル本体（20260430100100）と RPC function（20260519100000）含む plan DB チェーン 8 本が**未適用**。companions は当該チェーン最後のリンクのため**単独 apply 不可**（`supabase db push` は pending 全体を適用）。本書の「apply 安全」は **SQL/migration 単体の正しさ**を指し、remote 適用準備が整ったことを意味しない。詳細: `docs/decision-log.md` 2026-06-02 エントリ。
 
 > **補正履歴**: 初版（commit `5d592e2f` / 監査 `bd62b4d1`）では companions 抽出が非 string 要素を text 強制していた。CEO 指示により **defensive string-only 抽出**へ補正（jsonb string 要素のみ採用・number/boolean/object/array/null は無視・有効 string 0 件なら NULL）。本書は補正版を反映。
 
