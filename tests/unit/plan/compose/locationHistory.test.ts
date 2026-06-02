@@ -140,6 +140,27 @@ describe("deriveLocationChips — forTitle（② 予定内容連動）", () => {
   });
 });
 
+describe("① 長押し詳細用 sampleTitles", () => {
+  it("その場所で使った最近の予定タイトルを最大2件（直近順・空除外）", () => {
+    const { frequent } = deriveLocationChips(
+      usages([
+        oneOff({ title: "会議", locationText: "渋谷オフィス", date: "2026-01-01" }),
+        oneOff({ title: "打ち合わせ", locationText: "渋谷オフィス", date: "2026-03-01" }),
+        oneOff({ title: "面談", locationText: "渋谷オフィス", date: "2026-02-01" }),
+      ]),
+    );
+    const chip = frequent.find((c) => c.text === "渋谷オフィス");
+    expect(chip?.sampleTitles).toEqual(["打ち合わせ", "面談"]); // 3/1, 2/1 の直近2件
+  });
+
+  it("タイトル無しの場所は sampleTitles 未設定", () => {
+    const { frequent } = deriveLocationChips(
+      usages([oneOff({ title: "", locationText: "渋谷オフィス" })]),
+    );
+    expect(frequent[0]?.sampleTitles).toBeUndefined();
+  });
+});
+
 describe("空・limit", () => {
   it("空 usages → 空チップ", () => {
     expect(deriveLocationChips([])).toEqual({ frequent: [], forTitle: [] });

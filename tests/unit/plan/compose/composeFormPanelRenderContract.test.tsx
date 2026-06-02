@@ -117,6 +117,10 @@ describe("④ Phase 1a 場所履歴チップ（具体的のみ + title 連動）
     expect(html).toContain("自習室 KAKOI");
   });
 
+  it("① 長押し詳細は初期表示では出ない（長押し操作時のみ）", () => {
+    expect(render2(core(), USAGES)).not.toContain('data-testid="compose-loc-detail"');
+  });
+
   it("入力中（locationText 非空）はチップを出さない", () => {
     expect(render2(core({ locationText: "渋" }), USAGES)).not.toContain(
       'data-testid="compose-location-history"',

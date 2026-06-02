@@ -33,6 +33,8 @@ export interface LocationChip {
   category?: LocationCategory;
   count: number;
   usedAtISO: string;
+  /** ① 長押し詳細用: この場所で使った最近の予定タイトル（直近・最大 2 件・重複/空除外）。 */
+  sampleTitles?: string[];
 }
 
 export interface LocationChips {
@@ -117,6 +119,8 @@ function aggregateAll(
     catUsedAt: string;
     count: number;
     usedAtISO: string;
+    /** title → その title で最後に使った日時（最近タイトル抽出用）。 */
+    titleAt: Map<string, string>;
   }
   const map = new Map<string, Agg>();
   for (const u of usages) {
@@ -124,7 +128,13 @@ function aggregateAll(
     if (key.length === 0) continue;
     let agg = map.get(key);
     if (!agg) {
-      agg = { displayCounts: new Map(), catUsedAt: "", count: 0, usedAtISO: u.usedAtISO };
+      agg = {
+        displayCounts: new Map(),
+        catUsedAt: "",
+        count: 0,
+        usedAtISO: u.usedAtISO,
+        titleAt: new Map(),
+      };
       map.set(key, agg);
     }
     agg.count += 1;
@@ -133,6 +143,11 @@ function aggregateAll(
     if (u.category && u.usedAtISO >= agg.catUsedAt) {
       agg.category = u.category;
       agg.catUsedAt = u.usedAtISO;
+    }
+    const t = u.title.trim();
+    if (t.length > 0) {
+      const prev = agg.titleAt.get(t);
+      if (!prev || u.usedAtISO > prev) agg.titleAt.set(t, u.usedAtISO);
     }
   }
   const chips: LocationChip[] = [...map.values()].map((agg) => {
@@ -146,6 +161,11 @@ function aggregateAll(
     }
     const chip: LocationChip = { text: best, count: agg.count, usedAtISO: agg.usedAtISO };
     if (agg.category) chip.category = agg.category;
+    const sampleTitles = [...agg.titleAt.entries()]
+      .sort((a, b) => cmpDesc(a[1], b[1]))
+      .slice(0, 2)
+      .map(([title]) => title);
+    if (sampleTitles.length > 0) chip.sampleTitles = sampleTitles;
     return chip;
   });
   return chips.sort(
