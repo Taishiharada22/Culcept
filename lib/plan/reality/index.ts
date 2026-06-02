@@ -13,10 +13,10 @@
  *   - source-trace.ts 根拠追跡（INV-4/23）
  *   - change-set.ts   変更差分・Undo（INV-24/5）
  *   - prm-event.ts    PRM 学習イベント契約（INV-12）
+ *   - best-action.ts  Gate first→score の候補選定（INV-1/4/5/16/19/24）
  *
  * 次スライス（未実装）:
- *   - Best Action 評価関数（scoring）→ Receptivity Gate
- *   - Invariant checker, Golden Scenario fixtures（35）
+ *   - Receptivity Gate（配信判断）→ Invariant checker, Golden Scenario fixtures（35）
  */
 
 export * from "./lsat";
@@ -24,3 +24,4 @@ export * from "./authority";
 export * from "./source-trace";
 export * from "./change-set";
 export * from "./prm-event";
+export * from "./best-action";
