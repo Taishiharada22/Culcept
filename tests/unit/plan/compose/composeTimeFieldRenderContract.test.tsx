@@ -1,7 +1,7 @@
 /**
- * ComposeTimeField render contract（P4・開始 / 終了 / 間隔 3列・理想画像）
+ * ComposeTimeField render contract（P4-3・開始/終了/間隔 スクロールホイール）
  *
- * 旧「未定 / 開始だけ / 終了だけ / 開始と終了」モード選択は撤去済み。
+ * 旧「未定/開始だけ/…」モードと input[type=time] は撤去。枠内スクロール（ComposeWheel）。
  */
 
 import { describe, expect, it } from "vitest";
@@ -14,39 +14,45 @@ function render(time: ComposeTimeConstraint): string {
   return renderToStaticMarkup(<ComposeTimeField time={time} />);
 }
 
-describe("開始 / 終了 / 間隔 の3列", () => {
-  it("3列が出る（モード選択は無い）", () => {
-    const html = render({ mode: "none" });
+describe("スクロールホイール構成（時+分 ×開始/終了、間隔）", () => {
+  it("5つのホイールと 3列ラベルが出る", () => {
+    const html = render({ mode: "both", startMin: 900, endMin: 1020 });
     expect(html).toContain('data-testid="compose-time-field"');
-    expect(html).toContain('data-testid="compose-time-start"');
-    expect(html).toContain('data-testid="compose-time-end"');
-    expect(html).toContain('data-testid="compose-time-interval"');
+    expect(html).toContain('data-testid="compose-time-start-hour"');
+    expect(html).toContain('data-testid="compose-time-start-min"');
+    expect(html).toContain('data-testid="compose-time-end-hour"');
+    expect(html).toContain('data-testid="compose-time-end-min"');
+    expect(html).toContain('data-testid="compose-time-interval-wheel"');
     expect(html).toContain("開始");
     expect(html).toContain("終了");
     expect(html).toContain("間隔");
-    expect(html).not.toContain('data-testid="compose-field-time-mode"');
   });
 
-  it("間隔のクイック選択肢（30/60/120）", () => {
-    const html = render({ mode: "none" });
-    expect(html).toContain('data-testid="compose-interval-30"');
-    expect(html).toContain('data-testid="compose-interval-60"');
-    expect(html).toContain('data-testid="compose-interval-120"');
+  it("旧モード選択・ネイティブ time input は無い", () => {
+    const html = render({ mode: "both", startMin: 900, endMin: 1020 });
+    expect(html).not.toContain('data-testid="compose-field-time-mode"');
+    expect(html).not.toContain('type="time"');
+  });
+
+  it("各ホイールに選択値の option が描画される（15:00–17:00）", () => {
+    const html = render({ mode: "both", startMin: 900, endMin: 1020 });
+    expect(html).toContain('data-testid="compose-time-start-hour-opt-15"');
+    expect(html).toContain('data-testid="compose-time-end-hour-opt-17"');
+    expect(html).toContain('data-testid="compose-time-interval-wheel-opt-120"');
   });
 });
 
-describe("値・所要表示", () => {
-  it("開始＋終了で時刻値と所要を表示", () => {
-    const html = render({ mode: "both", startMin: 900, endMin: 1020 });
-    expect(html).toContain('value="15:00"');
-    expect(html).toContain('value="17:00"');
-    expect(html).toContain('data-testid="compose-time-duration"');
-    expect(html).toContain("所要 2時間");
+describe("間隔: 30分以降10分刻み＋実値（長押し前）", () => {
+  it("34分（開始40分でない端数）は実値が選択肢に挿入される", () => {
+    const html = render({ mode: "both", startMin: 540, endMin: 574 }); // 34分
+    expect(html).toContain('data-testid="compose-time-interval-wheel-opt-30"');
+    expect(html).toContain('data-testid="compose-time-interval-wheel-opt-40"');
+    expect(html).toContain('data-testid="compose-time-interval-wheel-opt-34"');
   });
 
-  it("空なら所要は出さない", () => {
-    expect(render({ mode: "none" })).not.toContain(
-      'data-testid="compose-time-duration"',
-    );
+  it("間隔セルは長押し用に data-fine=false 初期", () => {
+    const html = render({ mode: "both", startMin: 900, endMin: 1020 });
+    expect(html).toContain('data-testid="compose-time-interval"');
+    expect(html).toContain('data-fine="false"');
   });
 });

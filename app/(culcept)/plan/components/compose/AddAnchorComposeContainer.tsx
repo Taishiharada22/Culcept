@@ -81,7 +81,9 @@ function blankDraft(id: string): ComposeDraftState {
   return {
     id,
     core: emptyDraftCore(),
-    time: { mode: "none" },
+    // P4-3: 時間ホイールが常に値を持つよう既定 09:00–10:00（理想画像準拠）。
+    // 配置は typed time に吸着（resolvePlacement both）。timeline 上での調整は P4-4。
+    time: { mode: "both", startMin: 9 * 60, endMin: 10 * 60 },
     placement: { status: "unplaced" },
   };
 }
@@ -188,7 +190,12 @@ export function AddAnchorComposeContainer({
     // 配置した draft が現在 active なら、新しい空 draft を active にする。
     if (draft.id === activeId) {
       const newId = `draft-${nextIdRef.current++}`;
-      dispatch({ type: "add", id: newId });
+      // 新規 draft も既定 09:00–10:00（時間ホイールが常に値を持つ・P4-3）。
+      dispatch({
+        type: "add",
+        id: newId,
+        time: { mode: "both", startMin: 9 * 60, endMin: 10 * 60 },
+      });
       setActiveId(newId);
     }
   }
