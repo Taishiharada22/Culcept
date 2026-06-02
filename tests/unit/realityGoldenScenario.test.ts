@@ -5,6 +5,7 @@ import type { ChangeSet } from "@/lib/plan/reality/change-set";
 import type { SourceTrace } from "@/lib/plan/reality/source-trace";
 import type { ReceptivityInput, DeliveryAction } from "@/lib/plan/reality/receptivity-gate";
 import type { PlanItemGovernance } from "@/lib/plan/reality/authority";
+import { effectivePolarity, validatePrmEvent, computeDedupeKey, type PrmEvent } from "@/lib/plan/reality/prm-event";
 
 const strongTrace: SourceTrace[] = [
   { kind: "seed", ref: "seed_1", reason: "企画が目的", confidence: 0.8 },
@@ -189,25 +190,76 @@ const FIXTURES: ScenarioFixture[] = [
     receptivity: recep({ stakes: "high", pushPermission: false, allowedActions: ["one_tap_confirm", "request_permission"] }),
     expect: { bestId: "s35_plan", deliveryMode: "permission_prompt" },
   },
+  // --- 移動/Repair 系 ---
+  { id: "S1", title: "遠方重要 → push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s1")], receptivity: recep({ allowedActions: ["leave_now"] }), expect: { bestId: "s1", deliveryMode: "push" } },
+  { id: "S2", title: "近場任意 → on_open", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s2")], receptivity: recep({ stakes: "low", allowedActions: ["open_plan"], receptivity: 0.6 }), expect: { bestId: "s2", deliveryMode: "on_open" } },
+  { id: "S3", title: "数分前未到着 Final Check → urgent_push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s3")], receptivity: recep({ isFinalCheck: true, timeCritical: true, allowedActions: ["mark_arrived", "leave_now"] }), expect: { bestId: "s3", deliveryMode: "urgent_push" } },
+  { id: "S4", title: "前予定長引き → push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s4")], receptivity: recep({ allowedActions: ["one_tap_confirm", "leave_now"] }), expect: { bestId: "s4", deliveryMode: "push" } },
+  { id: "S5", title: "雨で徒歩遅延 → push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s5")], receptivity: recep(), expect: { bestId: "s5", deliveryMode: "push" } },
+  { id: "S6", title: "電車遅延 cascade（無視案 whole_part reject）", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s6_ignore", { metrics: metrics({ wholePartCoherent: false }) }), cand("s6_replan")], receptivity: recep({ timeCritical: true, allowedActions: ["one_tap_confirm", "view_alternative"] }), expect: { bestId: "s6_replan", rejectedGates: { s6_ignore: "whole_part" }, deliveryMode: "urgent_push" } },
+  { id: "S7", title: "駅構内移動 → push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s7")], receptivity: recep(), expect: { bestId: "s7", deliveryMode: "push" } },
+  { id: "S8", title: "病院予約 → push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s8")], receptivity: recep({ allowedActions: ["one_tap_confirm"] }), expect: { bestId: "s8", deliveryMode: "push" } },
+  { id: "S9", title: "面接 catastrophic → urgent_push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s9")], receptivity: recep({ stakes: "critical", timeCritical: true }), expect: { bestId: "s9", deliveryMode: "urgent_push" } },
+  { id: "S10", title: "空港 catastrophic → urgent_push", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s10")], receptivity: recep({ stakes: "critical", timeCritical: true }), expect: { bestId: "s10", deliveryMode: "urgent_push" } },
+  // --- 状態/Optimize 系 ---
+  { id: "S11", title: "食事消失（食事削る案 recovery reject）", mode: "optimize", intervened: true, conditionPresent: true, candidates: [cand("s11_cutmeal", { metrics: metrics({ recoveryProtected: false }) }), cand("s11_protect")], expect: { bestId: "s11_protect", rejectedGates: { s11_cutmeal: "recovery_core" } } },
+  { id: "S12", title: "休息消失（休息削る案 recovery reject）", mode: "optimize", intervened: true, conditionPresent: true, candidates: [cand("s12_cutrest", { metrics: metrics({ recoveryProtected: false }) }), cand("s12_protect")], expect: { bestId: "s12_protect", rejectedGates: { s12_cutrest: "recovery_core" } } },
+  { id: "S19", title: "低confidence → on_open（push しない）", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s19")], receptivity: recep({ confidence: 0.3, receptivity: 0.35 }), expect: { bestId: "s19", deliveryMode: "on_open" } },
+  { id: "S20", title: "cascade 連鎖破綻（放置案 whole_part reject）", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s20_cascade", { metrics: metrics({ wholePartCoherent: false }) }), cand("s20_repair")], receptivity: recep({ timeCritical: true, allowedActions: ["one_tap_confirm"] }), expect: { bestId: "s20_repair", rejectedGates: { s20_cascade: "whole_part" }, deliveryMode: "urgent_push" } },
+  { id: "S21", title: "1つだけ Complete → on_open", mode: "complete", intervened: true, conditionPresent: true, candidates: [cand("s21")], receptivity: recep({ stakes: "low", allowedActions: ["one_tap_confirm", "open_plan"], receptivity: 0.6 }), expect: { bestId: "s21", deliveryMode: "on_open" } },
+  { id: "S23", title: "前夜疲労→翌日軽く（multi-day Optimize）", mode: "optimize", intervened: true, conditionPresent: true, candidates: [cand("s23")], receptivity: recep({ stakes: "low", allowedActions: ["one_tap_confirm"], receptivity: 0.6 }), expect: { bestId: "s23", deliveryMode: "on_open" } },
+  { id: "S24", title: "前予定が早く終了（opportunity）", mode: "complete", intervened: true, conditionPresent: true, candidates: [cand("s24")], receptivity: recep({ stakes: "low", allowedActions: ["one_tap_confirm", "open_plan"], receptivity: 0.6 }), expect: { bestId: "s24", deliveryMode: "on_open" } },
+  // --- Degradation 系 ---
+  { id: "S29", title: "通信なし（channel down → on_open + local fallback）", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s29")], receptivity: recep({ degradationMode: "no_network", allowedActions: ["one_tap_confirm"] }), expect: { bestId: "s29", deliveryMode: "on_open", dayGraphChange: "ローカル事前計算で leave-by 提示" } },
+  { id: "S30", title: "低電力（低 stakes 抑制 → on_open）", mode: "repair", intervened: true, conditionPresent: true, candidates: [cand("s30")], receptivity: recep({ degradationMode: "low_battery", stakes: "low", allowedActions: ["one_tap_confirm"] }), expect: { bestId: "s30", deliveryMode: "on_open" } },
 ];
 
-describe("reality/golden-scenario — 11 representative fixtures (GPT 必須)", () => {
-  it("all fixtures pass their executable expectations", () => {
+describe("reality/golden-scenario — 30 decision fixtures (S1–S15, S19–S35)", () => {
+  it("all decision fixtures pass their executable expectations", () => {
     const results = runScenarios(FIXTURES);
     const failed = results.filter((r) => !r.ok);
     expect(failed.map((f) => `${f.id}: ${f.failures.join("; ")}`)).toEqual([]);
-    expect(results).toHaveLength(11);
+    expect(results).toHaveLength(30);
   });
 
-  it("covers Daily-Plan, whole×part, and degradation families", () => {
+  it("covers all 30 decision scenario ids (S16/17/18/22/31 = learning, below)", () => {
     const ids = new Set(FIXTURES.map((f) => f.id));
-    for (const dp of ["S13", "S33", "S14", "S15", "S27"]) expect(ids.has(dp)).toBe(true);
-    for (const wp of ["S25", "S26", "S32", "S34"]) expect(ids.has(wp)).toBe(true);
-    for (const dg of ["S28", "S35"]) expect(ids.has(dg)).toBe(true);
+    const decision = [
+      "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10",
+      "S11", "S12", "S13", "S14", "S15", "S19", "S20", "S21", "S23", "S24",
+      "S25", "S26", "S27", "S28", "S29", "S30", "S32", "S33", "S34", "S35",
+    ];
+    for (const id of decision) expect(ids.has(id), `missing ${id}`).toBe(true);
+    expect(ids.size).toBe(30);
   });
 
   it("runScenario reports failures for a wrong expectation (self-check)", () => {
     const broken: ScenarioFixture = { ...FIXTURES[0], expect: { ...FIXTURES[0].expect, bestId: "wrong" } };
     expect(runScenario(broken).ok).toBe(false);
+  });
+});
+
+describe("reality/golden-scenario — learning scenarios (PRM event level: S16/17/18/22/31)", () => {
+  const ev = (p: Partial<PrmEvent> & Pick<PrmEvent, "kind">): PrmEvent => ({ eventId: `e_${p.kind}`, occurredAt: 540, ...p });
+
+  it("S16 通知無視 → negative; S31 朝提案無視 dedupe 安定", () => {
+    const s16 = ev({ kind: "proposal_ignored", proposalId: "p1", ignoredReason: "seen_no_action" });
+    expect(effectivePolarity(s16)).toBe("negative");
+    expect(validatePrmEvent(s16).ok).toBe(true);
+    const s31a = ev({ kind: "proposal_ignored", eventId: "a", proposalId: "morning" });
+    const s31b = ev({ kind: "proposal_ignored", eventId: "b", proposalId: "morning" });
+    expect(computeDedupeKey(s31a)).toBe(computeDedupeKey(s31b)); // 二重学習しない
+  });
+
+  it("S17 採用 → positive + valid", () => {
+    const s17 = ev({ kind: "proposal_adopted", itemId: "p1", sourceTraces: [{ kind: "seed", ref: "s", reason: "目的", confidence: 0.8 }] });
+    expect(effectivePolarity(s17)).toBe("positive");
+    expect(validatePrmEvent(s17).ok).toBe(true);
+  });
+
+  it("S18 別案 / S22 部分修正 → mixed（単純 negative にしない）+ valid", () => {
+    const edited = ev({ kind: "proposal_edited", itemId: "p1", editedFields: ["startMin"] });
+    expect(effectivePolarity(edited)).toBe("mixed");
+    expect(validatePrmEvent(edited).ok).toBe(true);
   });
 });

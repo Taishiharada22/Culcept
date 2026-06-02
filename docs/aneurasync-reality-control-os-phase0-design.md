@@ -251,9 +251,9 @@ Native 必須：到着・滞留の位置確証（Geofence/CLVisit）／逆方向
 - `best-action.ts` — **Gate first→score**：evaluateGates(6: safety/permission/traceability/reversibility/whole_part/recovery_core) → scoreCandidate(ScoreBreakdown) → rankCandidates(gate 不通過は best に出さず rejected に理由付きで残す)（INV-1/4/5/16/19/24）✅
 - `receptivity-gate.ts` — **DELIVER 層の配信判断**：evaluateReceptivityGate → mode(silent/on_open/push/urgent_push/permission_prompt)。high stakes だけで push しない。urgent も hard block を越えない。朝 Daily Plan push は条件付き許可。no-action 通知禁止。permission_prompt 乱発禁止（予算/受容性 gate）（INV-1/9/10/14）✅
 - `invariant-check.ts` — **決定時 Invariant の fail 可能チェック**：DecisionContext → checkAllInvariants。INV-1/4/5/7/15/**16/19/22/23/24** を pass/fail/reason で判定（説明文でなく合否基準）。モデル時 INV(3/8/12/21) は各 module test で担保 ✅
-- `golden-scenario.ts` — **シナリオ fixture + runner**：runScenario が best-action/receptivity-gate/invariant-check を実行し input→expected を照合。代表 11 fixture（S13/33/14/15/27 Daily Plan、**S25/26/32/34 全体×一部**、S28/35 degradation）✅
+- `golden-scenario.ts` — **シナリオ fixture + runner**：runScenario が best-action/receptivity-gate/invariant-check を実行し input→expected を照合。**35/35 シナリオ fixture 化**（決定 30 + 学習 5）。カバレッジ表は golden-scenarios.md Part D ✅
 
-**Phase 0 判断 OS 純粋核 完成**（9 module・131 tests・tsc クリーン）。次フェーズ（要 CEO 承認）＝本番接続（既存 Plan/DayGraph/PRM 永続化/push/native）。
+**Phase 0 判断 OS 純粋核：35 シナリオ全 fixture 化・18/24 INV 自動検証**（9 module・tsc クリーン）。残り 6 INV（INV-2/6/9/13/17/20）は producing engine（live 監視ループ等）未実装ゆえ design-level → 本番接続フェーズで auto 化。次フェーズ（要 CEO 承認）＝本番接続（既存 Plan/DayGraph/PRM 永続化/push/native/Routes）。
 
 ## 13. CEO 判断ポイント
 1. **v4 採用可否**（二層 OS／4 モード／予定ノード起動窓／既存予定尊重・Google Maps 類比）
