@@ -249,9 +249,10 @@ Native 必須：到着・滞留の位置確証（Geofence/CLVisit）／逆方向
 - `change-set.ts` — ChangeOp / ChangeSet / invertChangeSet(atomic undo) / validateUndoability(snapshot 完全性) / changeSetRequiresConfirmation / UndoEntry（INV-24/5）✅
 - `prm-event.ts` — PrmEvent 16 kinds / signalPolarity(edited=mixed/undo=unknown) / dedupe / ignoredReason / validatePrmEvent（INV-12, privacy）✅
 - `best-action.ts` — **Gate first→score**：evaluateGates(6: safety/permission/traceability/reversibility/whole_part/recovery_core) → scoreCandidate(ScoreBreakdown) → rankCandidates(gate 不通過は best に出さず rejected に理由付きで残す)（INV-1/4/5/16/19/24）✅
-- `receptivity-gate.ts` — **DELIVER 層の配信判断**：evaluateReceptivityGate → mode(silent/on_open/push/urgent_push/permission_prompt)。high stakes だけで push しない(stakes×actionability×confidence×receptivity×budget×source-trace×1tap)。urgent も hard block を越えない。朝 Daily Plan push は条件付き許可。no-action 通知禁止（INV-1/9/10/14）✅
+- `receptivity-gate.ts` — **DELIVER 層の配信判断**：evaluateReceptivityGate → mode(silent/on_open/push/urgent_push/permission_prompt)。high stakes だけで push しない。urgent も hard block を越えない。朝 Daily Plan push は条件付き許可。no-action 通知禁止。permission_prompt 乱発禁止（予算/受容性 gate）（INV-1/9/10/14）✅
+- `invariant-check.ts` — **決定時 Invariant の fail 可能チェック**：DecisionContext → checkAllInvariants。INV-1/4/5/7/15/**16/19/22/23/24** を pass/fail/reason で判定（説明文でなく合否基準）。モデル時 INV(3/8/12/21) は各 module test で担保 ✅
 
-未実装（次スライス）: Invariant checker → Golden Scenario fixtures。
+未実装（次スライス 2E-B）: Golden Scenario fixtures + runner（35 シナリオの自動検証）。
 
 ## 13. CEO 判断ポイント
 1. **v4 採用可否**（二層 OS／4 モード／予定ノード起動窓／既存予定尊重・Google Maps 類比）

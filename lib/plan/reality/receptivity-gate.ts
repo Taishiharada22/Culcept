@@ -34,6 +34,20 @@ export type DeliveryAction =
   | "view_alternative"
   | "adjust";
 
+/**
+ * 将来拡張: allowedActions を richer な descriptor にする想定（今は kind union を使用）。
+ * 1tap action が「何に紐づくか」を持てるようにする（additive・未使用）。
+ */
+export interface DeliveryActionDescriptor {
+  readonly actionId: string;
+  readonly kind: DeliveryAction;
+  readonly label: string;
+  readonly requiresConfirmation: boolean;
+  readonly targetChangeSetId?: string;
+  readonly targetProposalId?: string;
+  readonly permissionBoundary?: boolean;
+}
+
 export type DeliveryReason =
   | "low_actionability"
   | "high_stakes"
@@ -157,8 +171,21 @@ function decide(a: ReceptivityInput): Decision {
         if (finalCheckPush) reasons.push("final_check_required");
       }
     }
-  } else if (noPushPerm && !manual && highStakes && a.actionable && a.allowedActions.includes("request_permission")) {
-    // push 権限が無いが重要かつ行動可能 → 権限要請（best-effort、死守でない）
+  } else if (
+    // permission_prompt 乱発禁止（GPT 監査）: 権限が *唯一の* block で、かつ予算・受容性・
+    // 価値説明(request_permission action)が揃う時のみ。budget/dismiss/noAction/weakTrace が
+    // 原因の時は prompt しない（on_open で説明）。
+    noPushPerm &&
+    !manual &&
+    !noAction &&
+    !weakTrace &&
+    !dismissed &&
+    !budgetOut &&
+    highStakes &&
+    a.actionable &&
+    a.allowedActions.includes("request_permission") &&
+    a.receptivity >= PUSH_RECEPTIVITY_MIN
+  ) {
     chain.push("permission_prompt");
   }
 

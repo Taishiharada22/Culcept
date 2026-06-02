@@ -122,4 +122,11 @@ describe("reality/receptivity-gate — structural invariants", () => {
   it("high stakes alone (low confidence + low receptivity) does NOT push", () => {
     expect(["push", "urgent_push"]).not.toContain(mode({ stakes: "high", confidence: 0.2, receptivity: 0.2 }));
   });
+
+  it("permission_prompt is gated (no spam): low receptivity / budget → on_open instead", () => {
+    const base = { pushPermission: false, allowedActions: ["one_tap_confirm", "request_permission"] as const };
+    expect(mode({ ...base })).toBe("permission_prompt"); // 揃えば prompt
+    expect(mode({ ...base, receptivity: 0.2 })).toBe("on_open"); // 受容性低→prompt しない
+    expect(mode({ ...base, budget: { remaining: 0, recentDismissals: 0, trust: 0.9 } })).toBe("on_open"); // 予算切れ→prompt しない
+  });
 });
