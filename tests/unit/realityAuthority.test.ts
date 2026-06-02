@@ -1,13 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
   flexibilityRank,
+  hasProtection,
+  primaryProtectionReason,
   isTentative,
   isProtected,
   isImmovable,
   isRepairTouchable,
   repairTouchOrder,
   promoteOnUserAdoption,
+  PROTECTION_PRIORITY,
   type PlanItemGovernance,
+  type ProtectionReason,
 } from "@/lib/plan/reality/authority";
 
 function gov(p: Partial<PlanItemGovernance>): PlanItemGovernance {
@@ -15,7 +19,7 @@ function gov(p: Partial<PlanItemGovernance>): PlanItemGovernance {
     origin: "user",
     authority: "user_owned",
     flexibility: "movable",
-    protectionReason: "user_declared",
+    protectionReasons: ["user_declared"],
     ...p,
   };
 }
@@ -50,16 +54,40 @@ describe("reality/authority — flexibility ordering (INV-7)", () => {
 });
 
 describe("reality/authority — tentative & protection (INV-23)", () => {
-  it("proposed OR tentative protectionReason ⇒ tentative", () => {
+  it("proposed OR no-non-tentative-reason ⇒ tentative", () => {
     expect(isTentative(gov({ authority: "proposed" }))).toBe(true);
-    expect(isTentative(gov({ protectionReason: "tentative" }))).toBe(true);
-    expect(isTentative(gov({ authority: "user_owned", protectionReason: "user_declared" }))).toBe(false);
+    expect(isTentative(gov({ protectionReasons: ["tentative"] }))).toBe(true);
+    expect(isTentative(gov({ protectionReasons: [] }))).toBe(true);
+    expect(isTentative(gov({ authority: "user_owned", protectionReasons: ["user_declared"] }))).toBe(false);
   });
 
-  it("isProtected true unless tentative", () => {
-    expect(isProtected(gov({ protectionReason: "recovery_core" }))).toBe(true);
-    expect(isProtected(gov({ protectionReason: "hard_external" }))).toBe(true);
-    expect(isProtected(gov({ protectionReason: "tentative" }))).toBe(false);
+  it("isProtected true unless only tentative/empty", () => {
+    expect(isProtected(gov({ protectionReasons: ["recovery_core"] }))).toBe(true);
+    expect(isProtected(gov({ protectionReasons: ["hard_external"] }))).toBe(true);
+    expect(isProtected(gov({ protectionReasons: ["tentative"] }))).toBe(false);
+    expect(isProtected(gov({ protectionReasons: [] }))).toBe(false);
+  });
+});
+
+describe("reality/authority — composite protection reasons (GPT audit)", () => {
+  it("a plan item can hold multiple reasons (recovery_core ∧ cascade_guard)", () => {
+    const g = gov({ protectionReasons: ["recovery_core", "cascade_guard"] });
+    expect(hasProtection(g, "recovery_core")).toBe(true);
+    expect(hasProtection(g, "cascade_guard")).toBe(true);
+    expect(hasProtection(g, "hard_external")).toBe(false);
+  });
+
+  it("primaryProtectionReason returns the strongest by priority", () => {
+    expect(primaryProtectionReason(gov({ protectionReasons: ["cascade_guard", "recovery_core"] }))).toBe("recovery_core");
+    expect(primaryProtectionReason(gov({ protectionReasons: ["recovery_core", "hard_external"] }))).toBe("hard_external");
+    expect(primaryProtectionReason(gov({ protectionReasons: [] }))).toBe("tentative");
+  });
+
+  it("priority ordering is total and hard_external strongest, tentative weakest", () => {
+    const order: ProtectionReason[] = ["hard_external", "user_declared", "recovery_core", "cascade_guard", "tentative"];
+    for (let i = 0; i < order.length - 1; i++) {
+      expect(PROTECTION_PRIORITY[order[i]]).toBeGreaterThan(PROTECTION_PRIORITY[order[i + 1]]);
+    }
   });
 });
 
@@ -68,8 +96,8 @@ describe("reality/authority — immovability (INV-5 / INV-7)", () => {
     expect(isImmovable(gov({ authority: "import_locked", flexibility: "movable" }))).toBe(true);
   });
 
-  it("hard_external (others/reservation/payment) is immovable", () => {
-    expect(isImmovable(gov({ protectionReason: "hard_external", flexibility: "movable" }))).toBe(true);
+  it("hard_external (others/reservation/payment) is immovable even amid composite reasons", () => {
+    expect(isImmovable(gov({ protectionReasons: ["recovery_core", "hard_external"], flexibility: "movable" }))).toBe(true);
   });
 
   it("user_owned ∧ locked is immovable", () => {
@@ -78,36 +106,39 @@ describe("reality/authority — immovability (INV-5 / INV-7)", () => {
 
   it("AI proposal (proposed) is NOT immovable even if locked (it is only a proposal)", () => {
     expect(
-      isImmovable(gov({ origin: "alter_generated", authority: "proposed", flexibility: "locked", protectionReason: "tentative" }))
+      isImmovable(gov({ origin: "alter_generated", authority: "proposed", flexibility: "locked", protectionReasons: ["tentative"] }))
     ).toBe(false);
   });
 
   it("a plain movable user item is touchable", () => {
-    const g = gov({ flexibility: "movable", protectionReason: "user_declared" });
+    const g = gov({ flexibility: "movable", protectionReasons: ["user_declared"] });
     expect(isImmovable(g)).toBe(false);
     expect(isRepairTouchable(g)).toBe(true);
   });
 });
 
 describe("reality/authority — promoteOnUserAdoption (Part A-3)", () => {
-  it("adopting an AI tentative proposal promotes authority and protectionReason, keeps origin", () => {
-    const proposal = gov({ origin: "alter_generated", authority: "proposed", flexibility: "shortenable", protectionReason: "tentative" });
+  it("adopting an AI tentative proposal promotes authority and reason, keeps origin", () => {
+    const proposal = gov({ origin: "alter_generated", authority: "proposed", flexibility: "shortenable", protectionReasons: ["tentative"] });
     const adopted = promoteOnUserAdoption(proposal);
     expect(adopted.origin).toBe("alter_generated"); // history preserved
     expect(adopted.authority).toBe("user_owned");
-    expect(adopted.protectionReason).toBe("user_declared");
+    expect(adopted.protectionReasons).toEqual(["user_declared"]);
     expect(isTentative(adopted)).toBe(false);
   });
 
-  it("adopting as recovery core marks recovery_core (AI-generated recovery becomes protected)", () => {
-    const proposal = gov({ origin: "alter_generated", authority: "proposed", protectionReason: "tentative" });
+  it("adopting as recovery core composes recovery_core (AI walk becomes protected)", () => {
+    const proposal = gov({ origin: "alter_generated", authority: "proposed", protectionReasons: ["tentative", "cascade_guard"] });
     const adopted = promoteOnUserAdoption(proposal, { asRecoveryCore: true });
-    expect(adopted.protectionReason).toBe("recovery_core");
+    expect(adopted.protectionReasons).toContain("recovery_core");
+    expect(adopted.protectionReasons).toContain("cascade_guard"); // kept
+    expect(adopted.protectionReasons).not.toContain("tentative"); // dropped
     expect(isProtected(adopted)).toBe(true);
   });
 
-  it("does not downgrade an already-strong protectionReason", () => {
-    const g = gov({ authority: "proposed", protectionReason: "hard_external" });
-    expect(promoteOnUserAdoption(g).protectionReason).toBe("hard_external");
+  it("does not drop an already-strong reason and removes tentative", () => {
+    const g = gov({ authority: "proposed", protectionReasons: ["hard_external", "tentative"] });
+    const adopted = promoteOnUserAdoption(g);
+    expect(adopted.protectionReasons).toEqual(["hard_external"]);
   });
 });

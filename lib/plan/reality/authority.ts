@@ -6,10 +6,14 @@
  * 既存予定の尊重を hard/soft の 2 値でなく 4 軸で判定する純関数群。
  * 既存コードに素地あり（ExternalAnchor.rigidity, DraftPlanItem.origin）。
  *
- *   origin           = 誰が作ったか（履歴として保持）
- *   authority        = 所有・確定度
- *   flexibility      = Repair/Optimize が触ってよい度合い
- *   protectionReason = 守る理由（AI 生成でも承認・回復核化で守るべき予定へ昇格）
+ *   origin            = 誰が作ったか（履歴として保持）
+ *   authority         = 所有・確定度
+ *   flexibility       = Repair/Optimize が触ってよい度合い
+ *   protectionReasons = 守る理由（複合可。AI 生成でも承認・回復核化で守るべき予定へ昇格）
+ *
+ * 複合理由（GPT 監査）: 1 つの予定が複数理由で守られうる。
+ *   例: 承認された AI 散歩 = recovery_core ∧ cascade_guard。
+ *   → protectionReasons は配列、優先順位 PROTECTION_PRIORITY 付き。
  *
  * 関連 Invariant:
  *   INV-5  自動実行の境界（他人/予約/支払い/hard は確認必須）
@@ -33,11 +37,21 @@ export type ProtectionReason =
   | "cascade_guard" // これを動かすと後続が連鎖破綻するため保護
   | "tentative"; // 未承認・根拠薄（守る対象でない）
 
+/** protectionReason の強さ（大きいほど強い保護）。複合時の代表選択・比較に使う。 */
+export const PROTECTION_PRIORITY: Record<ProtectionReason, number> = {
+  hard_external: 4,
+  user_declared: 3,
+  recovery_core: 2,
+  cascade_guard: 1,
+  tentative: 0,
+};
+
 export interface PlanItemGovernance {
   readonly origin: PlanItemOrigin;
   readonly authority: PlanItemAuthority;
   readonly flexibility: PlanItemFlexibility;
-  readonly protectionReason: ProtectionReason;
+  /** 守る理由（複合可）。空配列は tentative と同義に扱う。 */
+  readonly protectionReasons: readonly ProtectionReason[];
 }
 
 /** Repair が触る順（小さいほど先に触ってよい）: droppable → shortenable → movable → locked */
@@ -52,29 +66,43 @@ export function flexibilityRank(f: PlanItemFlexibility): number {
   return FLEXIBILITY_RANK[f];
 }
 
+/** 指定の保護理由を持つか */
+export function hasProtection(g: PlanItemGovernance, reason: ProtectionReason): boolean {
+  return g.protectionReasons.includes(reason);
+}
+
+/** 複合理由のうち最も強い理由を返す（空なら tentative） */
+export function primaryProtectionReason(g: PlanItemGovernance): ProtectionReason {
+  if (g.protectionReasons.length === 0) return "tentative";
+  return g.protectionReasons.reduce((best, r) =>
+    PROTECTION_PRIORITY[r] > PROTECTION_PRIORITY[best] ? r : best
+  );
+}
+
 /**
  * tentative か（INV-23）。
  * tentative は push せず on-open/確認へ降格すべき提案。
+ * = AI 未承認(proposed)、または tentative 以外の保護理由を 1 つも持たない。
  */
 export function isTentative(g: PlanItemGovernance): boolean {
-  return g.authority === "proposed" || g.protectionReason === "tentative";
+  return g.authority === "proposed" || !g.protectionReasons.some((r) => r !== "tentative");
 }
 
-/** 守るべき予定か（protectionReason が tentative 以外 = 何らかの守る理由を持つ） */
+/** 守るべき予定か（tentative 以外の保護理由を 1 つ以上持つ） */
 export function isProtected(g: PlanItemGovernance): boolean {
-  return g.protectionReason !== "tentative";
+  return g.protectionReasons.some((r) => r !== "tentative");
 }
 
 /**
  * 動かしてはいけない（INV-5 / INV-7）。
  *   - user_owned ∧ locked
  *   - import_locked（外部カレンダー由来）
- *   - protectionReason = hard_external（他人/予約/支払い）
+ *   - protectionReasons に hard_external（他人/予約/支払い）
  * 注: proposed（AI 未承認提案）は locked でも「提案」にすぎないので immovable ではない。
  */
 export function isImmovable(g: PlanItemGovernance): boolean {
   if (g.authority === "import_locked") return true;
-  if (g.protectionReason === "hard_external") return true;
+  if (hasProtection(g, "hard_external")) return true;
   if (g.flexibility === "locked" && g.authority === "user_owned") return true;
   return false;
 }
@@ -86,7 +114,7 @@ export function isRepairTouchable(g: PlanItemGovernance): boolean {
 
 /**
  * Repair が触る順に並べ替える（flexibility 昇順）。
- * droppable を先に、locked を最後に検討する（INV-7）。安定ソート。
+ * droppable を先に、locked を最後に検討する（INV-7）。安定ソート・非破壊。
  */
 export function repairTouchOrder<T extends { readonly governance: PlanItemGovernance }>(
   items: readonly T[]
@@ -94,7 +122,8 @@ export function repairTouchOrder<T extends { readonly governance: PlanItemGovern
   return items
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
-      const r = flexibilityRank(a.item.governance.flexibility) - flexibilityRank(b.item.governance.flexibility);
+      const r =
+        flexibilityRank(a.item.governance.flexibility) - flexibilityRank(b.item.governance.flexibility);
       return r !== 0 ? r : a.index - b.index;
     })
     .map((x) => x.item);
@@ -104,17 +133,20 @@ export function repairTouchOrder<T extends { readonly governance: PlanItemGovern
  * AI 生成提案を user が承認した時の昇格（Part A-3）。
  *   - origin は履歴として保持（alter_generated のまま）。
  *   - authority → user_owned。
- *   - protectionReason: tentative → user_declared（recovery 文脈なら recovery_core）。
- * 既に user_declared/recovery_core 等であればそれを保持。
+ *   - protectionReasons: tentative を除去し、空になれば user_declared を付与。
+ *     asRecoveryCore 指定時は recovery_core を追加（複合可）。
  */
 export function promoteOnUserAdoption(
   g: PlanItemGovernance,
   opts?: { readonly asRecoveryCore?: boolean }
 ): PlanItemGovernance {
-  const protectionReason: ProtectionReason = opts?.asRecoveryCore
-    ? "recovery_core"
-    : g.protectionReason === "tentative"
-      ? "user_declared"
-      : g.protectionReason;
-  return { ...g, authority: "user_owned", protectionReason };
+  const kept = g.protectionReasons.filter((r) => r !== "tentative");
+  const next = new Set<ProtectionReason>(kept);
+  if (opts?.asRecoveryCore) next.add("recovery_core");
+  if (next.size === 0) next.add("user_declared");
+  // 優先度降順で安定化
+  const protectionReasons = [...next].sort(
+    (a, b) => PROTECTION_PRIORITY[b] - PROTECTION_PRIORITY[a]
+  );
+  return { ...g, authority: "user_owned", protectionReasons };
 }

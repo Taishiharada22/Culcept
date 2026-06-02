@@ -74,18 +74,36 @@ describe("reality/lsat — resolvePercentile (4-layer + Safety Floor INV-3)", ()
   });
 });
 
-describe("reality/lsat — invNormalCdf (Acklam)", () => {
+describe("reality/lsat — invNormalCdf (Acklam) precision (GPT audit: 手実装の数学関数)", () => {
   it("matches known z-values within tolerance", () => {
     expect(invNormalCdf(0.5)).toBeCloseTo(0, 6);
     expect(invNormalCdf(0.8)).toBeCloseTo(0.8416, 3);
     expect(invNormalCdf(0.9)).toBeCloseTo(1.2816, 3);
     expect(invNormalCdf(0.975)).toBeCloseTo(1.95996, 3);
     expect(invNormalCdf(0.98)).toBeCloseTo(2.0537, 3);
+    expect(invNormalCdf(0.99)).toBeCloseTo(2.3263, 3);
   });
 
-  it("is monotincreasing in p", () => {
-    expect(invNormalCdf(0.6)).toBeLessThan(invNormalCdf(0.7));
-    expect(invNormalCdf(0.9)).toBeLessThan(invNormalCdf(0.99));
+  it("is symmetric about 0.5", () => {
+    expect(invNormalCdf(0.2)).toBeCloseTo(-invNormalCdf(0.8), 6);
+    expect(invNormalCdf(0.1)).toBeCloseTo(-invNormalCdf(0.9), 6);
+  });
+
+  it("is strictly monotone increasing across a sweep", () => {
+    let prev = -Infinity;
+    for (let p = 0.05; p < 1; p += 0.05) {
+      const z = invNormalCdf(p);
+      expect(z).toBeGreaterThan(prev);
+      prev = z;
+    }
+  });
+
+  it("out-of-range never returns a plausible-but-wrong finite z (fail-loud)", () => {
+    expect(invNormalCdf(0)).toBe(-Infinity);
+    expect(invNormalCdf(1)).toBe(Infinity);
+    expect(Number.isFinite(invNormalCdf(1.5))).toBe(false);
+    expect(Number.isFinite(invNormalCdf(-0.2))).toBe(false);
+    expect(Number.isNaN(invNormalCdf(NaN))).toBe(true);
   });
 });
 
@@ -136,6 +154,34 @@ describe("reality/lsat — computeLsat", () => {
     });
     expect(Number.isFinite(r.departByMin)).toBe(true);
     expect(r.bufferMin).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("reality/lsat — confidence safety (GPT audit)", () => {
+  const travel = { meanMin: 40, sdMin: 10 };
+
+  it("result.confidence is clamped to [0,1] for any input", () => {
+    expect(computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 0, percentile: 0.9, confidence: 2 }).confidence).toBe(1);
+    expect(computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 0, percentile: 0.9, confidence: -1 }).confidence).toBe(0);
+    expect(computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 0, percentile: 0.9, confidence: NaN }).confidence).toBe(0);
+  });
+
+  it("high confidence ⇒ baseline buffer (no inflation); never NaN/Infinity", () => {
+    const r = computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 10, percentile: 0.9, confidence: 1 });
+    expect(r.bufferMin).toBeCloseTo(40 + invNormalCdf(0.9) * 10, 6);
+    expect(Number.isFinite(r.departByMin)).toBe(true);
+    expect(Number.isFinite(r.bufferMin)).toBe(true);
+  });
+
+  it("low confidence only widens the buffer (the number) — it does NOT itself decide delivery", () => {
+    // 設計境界: lsat は「数値」だけを計算する。通知昇格は confidence×stakes×actionability×
+    // receptivity で別モジュール(Receptivity Gate, 未実装)が決める。よって低 confidence 単独で
+    // 通知が昇格することは構造的にありえない（lsat は配信判断を持たない）。
+    const sure = computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 10, percentile: 0.9, confidence: 1 });
+    const unsure = computeLsat({ arrivalDeadlineMin: 600, travel, prepMin: 10, percentile: 0.9, confidence: 0.2 });
+    expect(unsure.bufferMin).toBeGreaterThan(sure.bufferMin);
+    // LsatResult に配信フラグが存在しないことを型/構造で担保
+    expect(Object.keys(sure).sort()).toEqual(["bufferMin", "confidence", "departByMin", "percentile"]);
   });
 });
 
