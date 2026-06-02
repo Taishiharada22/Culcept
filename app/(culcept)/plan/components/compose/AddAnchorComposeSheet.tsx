@@ -73,6 +73,8 @@ export interface AddAnchorComposeSheetProps {
   activeBlockId?: string;
   /** ②-1: 「＋ 新しい予定」= 編集を終えて新しい空 draft を active に */
   onNewDraft?: () => void;
+  /** ②-2: 既存(保存済)予定 block クリック → 編集（PlanClient が EditAnchorModal を開く） */
+  onExistingSelect?: (id: string) => void;
   /** UI-polish: 現在時刻（分）。container が対象日=今日のときのみ渡す（左タイムラインの現在線） */
   nowMin?: number;
   /** P5-Height: タイムライン高さ(px)。canvas 描画と右フォーム列の高さに使う（drop は実測値＝同値） */
@@ -106,6 +108,7 @@ export function AddAnchorComposeSheet({
   onBlockSelect,
   activeBlockId,
   onNewDraft,
+  onExistingSelect,
   nowMin,
   heightPx = TIMELINE_HEIGHT_PX,
   locationUsages,
@@ -227,6 +230,7 @@ export function AddAnchorComposeSheet({
               onBlockReposition={onBlockReposition}
               onBlockSelect={onBlockSelect}
               activeBlockId={activeBlockId}
+              onExistingSelect={onExistingSelect}
               nowMin={nowMin}
               heightPx={heightPx}
             />

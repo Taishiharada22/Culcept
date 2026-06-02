@@ -177,6 +177,31 @@ describe("②-1 クリック編集（onBlockSelect / activeBlockId）", () => {
   });
 });
 
+describe("②-2 既存予定のクリック編集（onExistingSelect）", () => {
+  it("onExistingSelect 指定で既存ブロックが data-clickable に", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={BLOCKS} onExistingSelect={() => undefined} />,
+    );
+    // ex-lunch（existing）が clickable
+    expect(html).toContain('data-clickable="true"');
+  });
+
+  it("onExistingSelect 無しなら data-clickable は付かない", () => {
+    expect(render()).not.toContain('data-clickable="true"');
+  });
+
+  it("draft block は onExistingSelect の対象外（既存のみ）", () => {
+    // draft(dr-mtg) に onExistingSelect は効かない（reposition/select は別経路）
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={[{ id: "d1", label: "X", startMin: 900, endMin: 960, tone: "draft" }]}
+        onExistingSelect={() => undefined}
+      />,
+    );
+    expect(html).not.toContain('data-clickable="true"');
+  });
+});
+
 describe("現在時刻ライン（UI-polish・対象日=今日のときのみ）", () => {
   it("nowMin が可視窓内なら現在時刻ラインを描画", () => {
     const html = renderToStaticMarkup(

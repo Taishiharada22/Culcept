@@ -76,6 +76,8 @@ export interface AddAnchorComposeContainerProps {
   onNextDay?: () => void;
   /** 保存成功後（PlanClient: load() + close） */
   onSaved?: () => void;
+  /** ②-2: 既存(保存済)予定 block クリック → 編集（PlanClient が anchor を引いて EditAnchorModal を開く） */
+  onEditExisting?: (anchorId: string) => void;
   /** ④ Phase 1a: 場所利用ログ（PlanClient が全 anchor から抽出・任意）。panel が title 連動で集計 */
   locationUsages?: LocationUsage[];
   // ── テスト / 将来の prefill 用（optional） ──
@@ -120,6 +122,7 @@ export function AddAnchorComposeContainer({
   onPrevDay,
   onNextDay,
   onSaved,
+  onEditExisting,
   locationUsages,
   initialState,
   initialActiveId,
@@ -395,6 +398,7 @@ export function AddAnchorComposeContainer({
         activeDraft.placement.status === "placed" ? activeDraft.id : undefined
       }
       onNewDraft={createNewActiveDraft}
+      onExistingSelect={onEditExisting}
       nowMin={nowMin}
       heightPx={heightPx}
       locationUsages={locationUsages}

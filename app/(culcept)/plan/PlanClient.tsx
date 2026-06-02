@@ -942,6 +942,14 @@ export default function PlanClient({
             existingBlocks={composeExistingBlocks}
             locationUsages={composeLocationUsages}
             onSaved={handleAddSuccess}
+            onEditExisting={(id) => {
+              // ②-2: 既存予定 block クリック → 既存 EditAnchorModal（更新経路再利用）。
+              const a =
+                state.kind === "ok"
+                  ? state.anchors.find((x) => x.id === id)
+                  : undefined;
+              if (a) openEdit(a);
+            }}
           />
         ) : null
       ) : (

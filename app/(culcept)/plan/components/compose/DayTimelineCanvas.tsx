@@ -69,6 +69,8 @@ export interface DayTimelineCanvasProps {
   onBlockSelect?: (id: string) => void;
   /** ②-1: 編集中（active）の placed draft block id。ハイライト表示用。 */
   activeBlockId?: string;
+  /** ②-2: 既存(保存済)予定 block の**クリック → 編集**（PlanClient が EditAnchorModal を開く）。 */
+  onExistingSelect?: (id: string) => void;
   /**
    * UI-polish: 現在時刻（分・0–1440）。**対象日 = 今日のときのみ** container が渡す。
    * 可視窓内なら現在時刻ラインを描画。未指定 / 窓外なら描画しない（後方互換）。
@@ -108,6 +110,7 @@ export function DayTimelineCanvas({
   onBlockReposition,
   onBlockSelect,
   activeBlockId,
+  onExistingSelect,
   nowMin,
 }: DayTimelineCanvasProps) {
   const vp: TimelineViewport = {
@@ -324,6 +327,8 @@ export function DayTimelineCanvas({
           const repositionable = !isExisting && !!onBlockReposition;
           // ②-1: クリックで編集（draft のみ）。reposition か select があれば interactive。
           const interactive = !isExisting && (repositionable || !!onBlockSelect);
+          // ②-2: 既存(保存済)予定は単純クリックで編集（drag なし）。
+          const existingClickable = isExisting && !!onExistingSelect;
           const toneClass = isExisting
             ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
             : isActive
@@ -342,11 +347,15 @@ export function DayTimelineCanvas({
               data-tone={b.tone}
               data-lanes={slot.lanes}
               data-active={isActive ? "true" : undefined}
+              data-clickable={existingClickable ? "true" : undefined}
               onPointerDown={
                 interactive ? (e) => handleBlockPointerDown(b, e) : undefined
               }
               onPointerMove={interactive ? handleBlockPointerMove : undefined}
               onPointerUp={interactive ? endBlockDrag : undefined}
+              onClick={
+                existingClickable ? () => onExistingSelect?.(b.id) : undefined
+              }
               className={
                 "group absolute overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
                 toneClass +
@@ -354,7 +363,9 @@ export function DayTimelineCanvas({
                   ? repositionable
                     ? " cursor-grab touch-none select-none active:cursor-grabbing"
                     : " cursor-pointer touch-none select-none"
-                  : "")
+                  : existingClickable
+                    ? " cursor-pointer transition hover:brightness-95"
+                    : "")
               }
               style={{
                 top,
