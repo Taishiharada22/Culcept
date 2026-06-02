@@ -48,6 +48,7 @@ import {
 } from "./_helpers";
 import {
   useGoogleMapsScript,
+  type GmapsApi,
   type GmapsLatLng,
   type GmapsMap,
   type GmapsMarker,
@@ -451,42 +452,53 @@ function PlanMapView({
       map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // ── route polyline (時刻順 pin を「道路沿い」の破線で connect、CEO mockup 整合) ──
+    // ── route polyline (時刻順 pin を「道路沿い」で connect、移動 OS 風の階層表示) ──
     //
-    // 設計 (Reality Control OS — 地図の線を道路沿いに、 v1):
+    // 設計 (Reality Control OS — v2.1 情報設計: 全部主張ではなく "次に動く区間" を立てる):
     //   - sortedPins は anchor.startTime ascending、pin.kind 不問
     //   - 1 pin 以下 / 全 pin 同点 は polyline 描画しない
     //   - 順番は固定 (= "1 から順"、 並べ替え/TSP はしない)
-    //   - progressive enhancement:
-    //       (1) まず直線で即描画 (= fail-open baseline、 旧挙動と同一)
-    //       (2) DirectionsService で各区間 (連続 pin ペア) の道路 path を取得でき次第、
-    //           道路沿いの破線へ差し替える。失敗区間は直線で補完。
-    //   - 移動手段は DRIVING 固定 (= 最も確実に道路線が返る v1)。 mode 別は将来 (transport field 既存)。
-    //   - dashed style: strokeOpacity=0 で solid 線を隠し、icons で dashed pattern を repeat (共通 const)
-    //   - polyline は pin marker の下層 (z-index 自動、marker が上に重なる)
+    //   - 階層 (= 全体は俯瞰、 焦点は 1 つ):
+    //       past   = 細い・薄い・グレー・点線 (引く)
+    //       future = 中細・mode 色・点線 (控えめ・アニメ無し)
+    //       next   = 太い・mode 色・solid + 白 casing + 控えめ flow animation (主役)
+    //   - 移動手段で色分け (resolveTransportMode)。 現状 mode source 無 → 全 leg "unknown" 中立色。
+    //   - progressive enhancement: まず中立の直線 → 道路 path 取得でき次第 区間別 style へ差し替え。
+    //   - polyline は pin marker の下層 (marker が上に重なる)
     //
     // 注: baseline pin が混在すると line が baseline 経由になる (= "今日この順で動く" 視覚化)。
-    // CEO 補正「予定→pin guarantee」 整合: baseline pin も日程の一部として line に含める。
     const sortedPins = [...pins].sort((a, b) =>
       a.anchor.startTime.localeCompare(b.anchor.startTime),
     );
     const routePolylines: GmapsPolyline[] = [];
+    const routeAnimationTimers: number[] = [];
     let routeCancelled = false;
     if (
       sortedPins.length >= 2 &&
       !isSamePointCluster(sortedPins.map((p) => p.coord))
     ) {
       const coords = sortedPins.map((p) => p.coord);
+      // 焦点区間 (= 次に動くべき leg) を現在時刻から決定
+      const now = new Date();
+      const focusLegIndex = resolveFocusLegIndex(
+        sortedPins,
+        now.getHours() * 60 + now.getMinutes(),
+      );
+      // 区間ごとの表示 ViewModel (= 表示の器)。 state/mode をここで確定し、 描画は ViewModel を消費する
+      const legViewModels = buildRouteLegViewModels(sortedPins, focusLegIndex);
 
-      // (1) 直線を即描画 — ルート解決前 / DirectionsService 不可 / 失敗時の確実な表示
-      const straightLine = new maps.Polyline({
+      // (1) 中立の直線を即描画 — ルート解決前 / DirectionsService 不可 / 失敗時の確実な表示
+      let straightFallback: GmapsPolyline | null = new maps.Polyline({
         map,
         path: coords,
-        ...DASHED_ROUTE_POLYLINE_STYLE,
-      });
-      routePolylines.push(straightLine);
+        strokeColor: ROUTE_MODE_COLORS.unknown,
+        strokeOpacity: 0.6,
+        strokeWeight: 4,
+        clickable: false,
+      } as RoutePolylineOptions);
+      routePolylines.push(straightFallback);
 
-      // (2) DirectionsService が使える場合のみ、道路ルートで差し替え (fail-open)
+      // (2) DirectionsService が使える場合のみ、区間ごとの道路ルート + 階層 style へ差し替え (fail-open)
       const directionsService = createDirectionsService(maps);
       if (directionsService) {
         const travelMode = drivingTravelMode(maps);
@@ -501,31 +513,39 @@ function PlanMapView({
         )
           .then((segmentPaths) => {
             if (routeCancelled) return;
-            // 道路 path を連結 (失敗区間は [from,to] 直線で補完、 接合点の重複は除去)
-            const roadPath: GmapsLatLng[] = [];
-            for (let i = 0; i < pairs.length; i += 1) {
-              const seg = segmentPaths[i] ?? [pairs[i]![0], pairs[i]![1]];
-              if (seg.length === 0) continue;
-              if (roadPath.length === 0) roadPath.push(...seg);
-              else roadPath.push(...seg.slice(1));
-            }
-            // 道路区間が 1 つも解決しなかった → 直線のまま (ちらつき回避)
-            const anyRoadResolved = segmentPaths.some((p) => p != null && p.length > 0);
-            if (!anyRoadResolved || roadPath.length < 2) return;
-            // 直線を消して道路沿いの破線へ差し替え
-            straightLine.setMap(null);
-            const idx = routePolylines.indexOf(straightLine);
-            if (idx >= 0) routePolylines.splice(idx, 1);
-            routePolylines.push(
-              new maps.Polyline({
-                map,
-                path: roadPath,
-                ...DASHED_ROUTE_POLYLINE_STYLE,
-              }),
+            const anyRoadResolved = segmentPaths.some(
+              (p) => p != null && p.length > 0,
             );
+            if (!anyRoadResolved) return; // 全失敗 → 中立の直線のまま (ちらつき回避)
+
+            // 直線 fallback を消して、区間ごとの階層 style へ差し替え
+            straightFallback?.setMap(null);
+            if (straightFallback) {
+              const fi = routePolylines.indexOf(straightFallback);
+              if (fi >= 0) routePolylines.splice(fi, 1);
+              straightFallback = null;
+            }
+
+            for (let i = 0; i < legViewModels.length; i += 1) {
+              const vm = legViewModels[i]!;
+              // 道路 path が取れた区間はそれを、 取れない区間は from→to 直線で補完
+              const legPath = segmentPaths[i] ?? [vm.from, vm.to];
+              if (legPath.length < 2) continue;
+              // 描画は ViewModel を消費 (state + displayMode)。 displayMode は実 data 無→unknown 中立色
+              const style = getRouteStyleForLeg(vm.state, vm.displayMode);
+              for (const line of buildRouteLegLines(maps, map, legPath, style)) {
+                routePolylines.push(line);
+              }
+              // current(今→次) のみ: 「ゆっくり静かに呼吸する」glow を重ねる
+              if (shouldAnimateLeg(vm.state)) {
+                const glow = createRouteGlowAnimation(maps, map, legPath, style.color);
+                routePolylines.push(glow.polyline);
+                routeAnimationTimers.push(glow.timerId);
+              }
+            }
           })
           .catch(() => {
-            // fail-open: 直線のまま (= 旧挙動)
+            // fail-open: 中立の直線のまま
           });
       }
     }
@@ -586,8 +606,9 @@ function PlanMapView({
     }
 
     return () => {
-      // pin / baseline / selected 変化で markers + route polyline 破棄、Map instance は keep alive
+      // pin / baseline / selected 変化で markers + route polyline + flow animation 破棄、Map instance は keep alive
       routeCancelled = true; // 進行中の道路ルート差し替えを無効化 (cleanup 後の描画防止)
+      for (const t of routeAnimationTimers) clearInterval(t);
       for (const m of markers) m.setMap(null);
       for (const pl of routePolylines) pl.setMap(null);
     };
@@ -895,23 +916,344 @@ function isSamePointCluster(coords: GmapsLatLng[]): boolean {
 //   - 区間 timeout (= DIRECTIONS_SEGMENT_TIMEOUT_MS) で hang を打ち切り、 該区間は直線で補完。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** 道路ルート線 / 直線 fallback 共通の破線スタイル (CEO mockup 整合、 slate-400 dashed)。 */
-const DASHED_ROUTE_POLYLINE_STYLE: GmapsPolylineOptions = {
-  strokeOpacity: 0, // solid 線を隠す
-  strokeColor: "#94a3b8", // slate-400 (subtle)
-  icons: [
+// ── 経路の視覚設計 (Reality Control OS — 移動 OS 風の階層表示 v2.3) ──
+//
+// 思想 (CEO 2026-06): 全体は俯瞰しつつ "今 → 次" の移動だけが主役。
+//   done(2 個前以前)=波線 / prev(一個前→今)=細い実線 / current(今→次)=太い実線+静かに呼吸する光 /
+//   ahead(次より先)=細い実線(控えめ)。 mode 色は実 transportMode がある区間のみ点灯、 無ければ中立色
+//   (★距離からの mode 推定はしない。 CEO: 距離判定は誤判定が多く Plan OS の信頼を落とす)。
+//
+// 関心の分離 (= 巨大条件分岐にしない):
+//   resolveFocusLegIndex / resolveLegState / resolveTransportMode /
+//   getRouteStyleForLeg / shouldAnimateLeg / buildRouteLegLines / createRouteGlowAnimation
+
+// 移動手段 (CEO: 電車/新幹線/車/タクシー/徒歩/バス/自転車/飛行機/不明)
+type RouteTransportMode =
+  | "walk"
+  | "car"
+  | "taxi"
+  | "train"
+  | "shinkansen"
+  | "bus"
+  | "bicycle"
+  | "flight"
+  | "unknown";
+
+// leg の時間的状態 (= 今を中心とした階層)
+//   done=2 個前以前(波線) / previous=一個前→今(細実線) / current=今→次(太実線+glow) / ahead=次より先(細実線)
+type RouteLegState = "done" | "previous" | "current" | "ahead";
+
+// 1 区間の表示用 ViewModel (= 表示の器)。 ★正本型 RouteLeg は別 Phase で lib/shared に作る (今は作らない)。
+//   移動手段の candidate/selected/actual を「器」として保持。 実 data 接続まで [] / null / unknown。
+//   displayMode は ★距離推定をせず、 selectedMode があればそれ、 無ければ unknown。
+interface RouteLegViewModel {
+  index: number;
+  from: GmapsLatLng;
+  to: GmapsLatLng;
+  state: RouteLegState;
+  candidateModes: RouteTransportMode[]; // ユーザーが許可した候補 (現状 [])
+  selectedMode: RouteTransportMode | null; // 今表示・採用 (現状 null)
+  actualMode: RouteTransportMode | null; // 実際に使った実績 (現状 null)
+  displayMode: RouteTransportMode; // 描画に使う mode (= selectedMode ?? "unknown")
+}
+
+// 1 区間の解決済み視覚スタイル
+interface RouteLegStyle {
+  color: string;
+  weight: number;
+  opacity: number;
+  dashed: boolean;
+  casing: boolean;
+  zIndex: number;
+}
+
+// 移動手段別の色 (mode-aware)。 transport mode source が来たら即 light up する。
+//   現状: ExternalAnchor / 親 PlanClient に mode field 無 → 全 leg "unknown" (中立色) で描画。
+const ROUTE_MODE_COLORS: Record<RouteTransportMode, string> = {
+  walk: "#2e9e5b", // 徒歩 = グリーン
+  car: "#1a73e8", // 車 = ブルー
+  taxi: "#f4b400", // タクシー = イエロー寄り
+  train: "#1565c0", // 電車 = 鉄道系ブルー
+  shinkansen: "#0b3d91", // 新幹線 = 濃紺系ブルー
+  bus: "#8e24aa", // バス = パープル
+  bicycle: "#00897b", // 自転車 = ティール
+  flight: "#00acc1", // 飛行機 = シアン/空色
+  unknown: "#64748b", // 不明 = 中立スレート
+};
+
+const ROUTE_DONE_COLOR = "#94a3b8"; // done(2 個前以前) = 薄いグレー波線で de-emphasize
+const ROUTE_FOCUS_CASING_COLOR = "#ffffff"; // current 区間 casing = 白 (= どの mode 色でも浮く)
+const ROUTE_FOCUS_WEIGHT = 6; // current(今→次) 本線の太さ(px)
+
+// glow animation (CEO「ゆっくり静かに呼吸」): current 区間の下に色 halo を敷き opacity を緩く脈動。
+//   流れる dash ではなく "静かに呼吸する光"。 まだ速いとの指摘 → 1 脈動 ≈ 10 秒・かなり低主張。
+//   = 「動いている線」ではなく「次に向かう区間が静かに呼吸している」程度。
+const ROUTE_GLOW_PERIOD_MS = 10000; // 1 脈動 ≈ 10 秒
+const ROUTE_GLOW_FRAME_MS = 80; // 更新間隔
+const ROUTE_GLOW_MIN_OPACITY = 0.1;
+const ROUTE_GLOW_MAX_OPACITY = 0.3;
+const ROUTE_GLOW_EXTRA_WEIGHT = 9; // halo は本線より +9px 太く
+
+// z-index: done < ahead < previous < glow < casing < main。 current を常に前面へ。
+const ROUTE_Z_DONE = 1;
+const ROUTE_Z_AHEAD = 2;
+const ROUTE_Z_PREVIOUS = 3;
+const ROUTE_Z_GLOW = 4;
+const ROUTE_Z_FOCUS_CASING = 5;
+const ROUTE_Z_FOCUS_MAIN = 6;
+
+// GmapsPolylineOptions に zIndex/clickable + 太い symbol(icons) を足した local 拡張
+//   (googleMapsLoader.ts は frozen のため本 file 側で型を広げる)
+interface RouteSymbol {
+  path: string | number;
+  strokeColor?: string;
+  strokeOpacity?: number;
+  strokeWeight?: number;
+  scale?: number;
+}
+type RoutePolylineOptions = Omit<GmapsPolylineOptions, "icons"> & {
+  zIndex?: number;
+  clickable?: boolean;
+  icons?: Array<{ icon: RouteSymbol; offset?: string; repeat?: string }>;
+};
+type GmapsPolylineWithSetOptions = GmapsPolyline & {
+  setOptions(opts: RoutePolylineOptions): void;
+};
+
+/** "HH:mm" → 0 時からの分。 parse 不能なら null。 */
+function parseStartTimeToMinutes(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  return h * 60 + min;
+}
+
+/**
+ * 焦点区間 (= 「次に動くべき leg」) を現在時刻から決定。
+ *   - leg は pin[i] → pin[i+1] (index 0..pins.length-2)
+ *   - 次の目的地 = startTime が現在時刻より後の最初の pin → その pin に到着する leg (= nextStop-1)
+ *   - 開始前 (= 最初の pin も未来) → 最初の leg(0)
+ *   - 全て過去 → 最後の leg (= 当日の最終移動を focus、 閲覧時も焦点ゼロにしない)
+ *   - pin が 2 未満なら -1 (focus なし)
+ *   注 (CEO): 「全て過去ならアニメ無し」も可。 焦点ゼロだと地図が伝わらないため常に 1 区間 focus。
+ *             切替は本 function 1 箇所で可能。
+ */
+function resolveFocusLegIndex(
+  pins: AnchorWithCoord[],
+  nowMinutes: number,
+): number {
+  if (pins.length < 2) return -1;
+  const nextStop = pins.findIndex((p) => {
+    const t = parseStartTimeToMinutes(p.anchor.startTime);
+    return t != null && t > nowMinutes;
+  });
+  if (nextStop > 0) return nextStop - 1; // 次の目的地へ到着する区間
+  if (nextStop === 0) return 0; // 開始前 → 最初の区間
+  return pins.length - 2; // 全て過去 → 最終区間
+}
+
+/** leg index → 状態 (current=今→次 を中心に、 前=previous/done、 後=ahead)。 */
+function resolveLegState(legIndex: number, focusLegIndex: number): RouteLegState {
+  if (focusLegIndex < 0) return "ahead";
+  if (legIndex === focusLegIndex) return "current"; // 今 → 次
+  if (legIndex === focusLegIndex - 1) return "previous"; // 一個前 → 今
+  if (legIndex < focusLegIndex - 1) return "done"; // 2 個前以前
+  return "ahead"; // 次より先
+}
+
+/**
+ * leg の表示 mode を解決 (= 差し替え口/seam)。 ★距離からの推定は一切しない
+ *   (CEO: 距離で walk/train/car/bus/taxi/bicycle/flight を当てるのは誤判定が多く Plan OS の信頼を落とす)。
+ *
+ * 現状: 実 selectedMode が無い (予定追加側の transportMode 候補生成は別 Phase/別セッション) → "unknown"。
+ *   → getRouteStyleForLeg で unknown は中立スレート色 (= 距離等で色を変えない)。
+ * 次フェーズ: 予定作成時に transportMode (徒歩/車/タクシー/電車/新幹線/バス/自転車/飛行機) を持たせ、
+ *   leg.selectedMode に流せば その区間だけ ROUTE_MODE_COLORS で正確に着色 (差し替えは本 function のみ)。
+ *   flight は別途 道路ルートにせず arc/破線 fallback とする (= 実 mode data 到着後に対応)。
+ */
+function resolveTransportMode(leg: {
+  selectedMode: RouteTransportMode | null;
+}): RouteTransportMode {
+  return leg.selectedMode ?? "unknown";
+}
+
+/**
+ * sortedPins → 区間ごとの表示 ViewModel (= 表示の器)。
+ *   - state は今を中心とした階層 (done/previous/current/ahead)
+ *   - candidate/selected/actual は実 data 接続まで空 (器のみ)。 ★距離推定はしない
+ *   - displayMode = selectedMode ?? "unknown"
+ */
+function buildRouteLegViewModels(
+  pins: AnchorWithCoord[],
+  focusLegIndex: number,
+): RouteLegViewModel[] {
+  const legs: RouteLegViewModel[] = [];
+  for (let i = 0; i < pins.length - 1; i += 1) {
+    const selectedMode: RouteTransportMode | null = null; // 実 data 接続まで null
+    legs.push({
+      index: i,
+      from: pins[i]!.coord,
+      to: pins[i + 1]!.coord,
+      state: resolveLegState(i, focusLegIndex),
+      candidateModes: [],
+      selectedMode,
+      actualMode: null,
+      displayMode: resolveTransportMode({ selectedMode }),
+    });
+  }
+  return legs;
+}
+
+/** (state, mode) → 視覚スタイル。 done=波線で引く / previous・ahead=細い実線 / current=太い実線(主役)。 */
+function getRouteStyleForLeg(
+  state: RouteLegState,
+  mode: RouteTransportMode,
+): RouteLegStyle {
+  if (state === "done") {
+    // 2 個前以前 = 薄いグレー波線 (引く)
+    return {
+      color: ROUTE_DONE_COLOR,
+      weight: 2,
+      opacity: 0.3,
+      dashed: true,
+      casing: false,
+      zIndex: ROUTE_Z_DONE,
+    };
+  }
+  if (state === "previous") {
+    // 一個前 → 今 = 細い実線 (mode 色)
+    return {
+      color: ROUTE_MODE_COLORS[mode],
+      weight: 3,
+      opacity: 0.8,
+      dashed: false,
+      casing: false,
+      zIndex: ROUTE_Z_PREVIOUS,
+    };
+  }
+  if (state === "ahead") {
+    // 次より先 = 細い実線 (控えめ)
+    return {
+      color: ROUTE_MODE_COLORS[mode],
+      weight: 3,
+      opacity: 0.55,
+      dashed: false,
+      casing: false,
+      zIndex: ROUTE_Z_AHEAD,
+    };
+  }
+  // current = 今 → 次 = 太い実線 + 白 casing (+ glow は effect 側で重ねる) = 主役
+  return {
+    color: ROUTE_MODE_COLORS[mode],
+    weight: ROUTE_FOCUS_WEIGHT,
+    opacity: 1,
+    dashed: false,
+    casing: true,
+    zIndex: ROUTE_Z_FOCUS_MAIN,
+  };
+}
+
+/** glow animation するのは current (= 今→次、 主役) 区間のみ。 */
+function shouldAnimateLeg(state: RouteLegState): boolean {
+  return state === "current";
+}
+
+/** 点線 icons (= past / future 区間用)。 weight/scale で太さ・長さを制御。 */
+function dashedRouteIcons(color: string, opacity: number, weight: number) {
+  return [
     {
       icon: {
-        path: "M 0,-1 0,1", // 1px の縦線
-        strokeOpacity: 0.8,
-        strokeColor: "#94a3b8",
+        path: "M 0,-1 0,1",
+        strokeColor: color,
+        strokeOpacity: opacity,
+        strokeWeight: Math.max(2, weight),
         scale: 3,
       },
       offset: "0",
-      repeat: "12px", // 12px 毎に縦線を打つ → dashed 風
+      repeat: "16px",
     },
-  ],
-};
+  ];
+}
+
+/** 1 区間を style に従って描画 (next のみ白 casing、 本線は solid/dashed)。 */
+function buildRouteLegLines(
+  maps: GmapsApi,
+  map: GmapsMap,
+  path: GmapsLatLng[],
+  style: RouteLegStyle,
+): GmapsPolyline[] {
+  const lines: GmapsPolyline[] = [];
+  if (style.casing) {
+    lines.push(
+      new maps.Polyline({
+        map,
+        path,
+        strokeColor: ROUTE_FOCUS_CASING_COLOR,
+        strokeOpacity: 0.9,
+        strokeWeight: style.weight + 3,
+        zIndex: ROUTE_Z_FOCUS_CASING,
+        clickable: false,
+      } as RoutePolylineOptions),
+    );
+  }
+  lines.push(
+    style.dashed
+      ? new maps.Polyline({
+          map,
+          path,
+          strokeOpacity: 0, // 本線は透明、 dash symbol だけ見せる
+          icons: dashedRouteIcons(style.color, style.opacity, style.weight),
+          zIndex: style.zIndex,
+          clickable: false,
+        } as RoutePolylineOptions)
+      : new maps.Polyline({
+          map,
+          path,
+          strokeColor: style.color,
+          strokeOpacity: style.opacity,
+          strokeWeight: style.weight,
+          zIndex: style.zIndex,
+          clickable: false,
+        } as RoutePolylineOptions),
+  );
+  return lines;
+}
+
+/**
+ * current 区間に重ねる "ゆっくり光る" glow animation (CEO 指示)。
+ *   - 本線の下に mode 色の太い halo polyline を敷き、 strokeOpacity を sin で緩く脈動させる
+ *   - 流れる dash ではなく "呼吸する光" (= 約 2.6 秒で 1 脈動、 低主張、 主役を邪魔しない)
+ *   - 戻り値の timerId は effect cleanup で clearInterval する
+ */
+function createRouteGlowAnimation(
+  maps: GmapsApi,
+  map: GmapsMap,
+  path: GmapsLatLng[],
+  color: string,
+): { polyline: GmapsPolyline; timerId: number } {
+  const glow = new maps.Polyline({
+    map,
+    path,
+    strokeColor: color,
+    strokeOpacity: ROUTE_GLOW_MIN_OPACITY,
+    strokeWeight: ROUTE_FOCUS_WEIGHT + ROUTE_GLOW_EXTRA_WEIGHT,
+    zIndex: ROUTE_Z_GLOW,
+    clickable: false,
+  } as RoutePolylineOptions);
+  const mid = (ROUTE_GLOW_MIN_OPACITY + ROUTE_GLOW_MAX_OPACITY) / 2;
+  const amp = (ROUTE_GLOW_MAX_OPACITY - ROUTE_GLOW_MIN_OPACITY) / 2;
+  const stepRad = (2 * Math.PI) / (ROUTE_GLOW_PERIOD_MS / ROUTE_GLOW_FRAME_MS);
+  let phase = 0;
+  const timerId = window.setInterval(() => {
+    phase += stepRad;
+    (glow as GmapsPolylineWithSetOptions).setOptions({
+      strokeOpacity: mid + amp * Math.sin(phase),
+    });
+  }, ROUTE_GLOW_FRAME_MS);
+  return { polyline: glow, timerId };
+}
 
 const DIRECTIONS_SEGMENT_TIMEOUT_MS = 5000;
 const ROUTE_CACHE_COORD_DIGITS = 5; // ≒ 1.1m 解像度で区間 key を量子化
