@@ -31,6 +31,8 @@ import {
 import { ComposeBottomSheet } from "./ComposeBottomSheet";
 import { ComposeCard } from "./ComposeCard";
 import { ComposeFormPanel } from "./ComposeFormPanel";
+import { ComposeTimeField } from "./ComposeTimeField";
+import { FixedIcon, MovableIcon } from "./composeIcons";
 import {
   DayTimelineCanvas,
   TIMELINE_HEIGHT_PX,
@@ -153,6 +155,34 @@ export function AddAnchorComposeSheet({
           >
             ›
           </button>
+          {/* 動かせる / 動かせない トグル（日付横・SVG。クリックで切替） */}
+          <button
+            type="button"
+            data-testid="compose-rigidity-toggle"
+            aria-pressed={activeDraft.core.rigidity === "hard"}
+            aria-label={
+              activeDraft.core.rigidity === "hard"
+                ? "動かせない（クリックで動かせるに）"
+                : "動かせる（クリックで動かせないに）"
+            }
+            title={
+              activeDraft.core.rigidity === "hard" ? "動かせない" : "動かせる"
+            }
+            onClick={() =>
+              onCoreChange?.({
+                rigidity:
+                  activeDraft.core.rigidity === "hard" ? "soft" : "hard",
+              })
+            }
+            className={
+              "ml-1 flex h-7 w-7 items-center justify-center rounded-full transition " +
+              (activeDraft.core.rigidity === "hard"
+                ? "bg-rose-50 text-rose-500 hover:bg-rose-100"
+                : "text-slate-400 hover:bg-slate-100 hover:text-slate-600")
+            }
+          >
+            {activeDraft.core.rigidity === "hard" ? <FixedIcon /> : <MovableIcon />}
+          </button>
         </div>
 
         {/* 2カラム（常時左右。左=俯瞰タイムライン / 右=作成パネル）— 理想画像準拠 */}
@@ -178,11 +208,10 @@ export function AddAnchorComposeSheet({
             style={{ height: TIMELINE_HEIGHT_PX }}
           >
             <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+              {/* ①②③ なに / どこ / 誰と */}
               <ComposeFormPanel
                 core={activeDraft.core}
-                time={activeDraft.time}
                 onCoreChange={onCoreChange}
-                onTimeChange={onTimeChange}
               />
 
               {showCardsRegion && (
@@ -210,6 +239,12 @@ export function AddAnchorComposeSheet({
                   )}
                 </div>
               )}
+
+              {/* ⑤ 時間（開始 / 終了 / 間隔） */}
+              <ComposeTimeField
+                time={activeDraft.time}
+                onTimeChange={onTimeChange}
+              />
 
               {notice}
             </div>

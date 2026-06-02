@@ -24,6 +24,8 @@ export interface ComposeDraftCore {
   locationText: string;
   rigidity: AnchorRigidity | "";
   locationCategory?: LocationCategory;
+  /** 誰と（P4・draft 表示専用・任意）。保存は migration 後（現状は未永続化＝保存時に除外）。 */
+  companions?: string[];
 }
 
 export type ComposePlacement =
@@ -53,7 +55,7 @@ export function emptyComposeState(): ComposeState {
 }
 
 export function emptyDraftCore(): ComposeDraftCore {
-  return { title: "", locationText: "", rigidity: "" };
+  return { title: "", locationText: "", rigidity: "", companions: [] };
 }
 
 /** 配置可能か = title 非空 + 場所文言 非空（CEO 必須 = 何を + どこで）。 */

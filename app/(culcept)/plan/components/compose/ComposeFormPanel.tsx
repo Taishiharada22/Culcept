@@ -1,97 +1,71 @@
 "use client";
 
 /**
- * ComposeFormPanel — 右の「質問形式」予定作成パネル（A-2・controlled / presentational）。
+ * ComposeFormPanel — 右の「質問形式」予定作成パネル（P4・理想画像順序）。
  *
- * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md §4.5 / §4.3
+ * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md（理想画像準拠）
  *
- * 責務（A-2）:
- *   - 質問形式 UI: なにをする？ / どこで？ / 時間は？ / 動かせなさ
- *   - 場所欄の下に「候補表示領域の枠」だけを置く（A-0 補正: PlaceCandidatesPanel の
- *     本格検索接続は A-3 以降。A-2 は見た目の枠のみ）
- *   - props 経由の controlled。状態保持は A-3 の container（useReducer）が持つ
+ * 順序（理想画像）: ① なにをする？ ② どこで？ ③ 誰と？
+ *   - ① 右端に内容別アイコン（activityIcon 推定・表示専用）
+ *   - ② 左に location アイコン ＋ 実候補検索（PlaceCandidatesPanel・当初仕様）
+ *   - ③ 左に people アイコン、右に ＋（履歴呼び出しは後続）。companions は draft 表示専用
  *
- * 範囲外（A-2）: PlaceCandidatesPanel 接続 / bias context / 検索 API / 保存 / ドラッグ。
+ * 範囲外（このパネル）: ④ 予定カード / ⑤ 時間（ComposeTimeField） / ⑥ 完了（sheet）。
+ *   動かせなさは日付横の SVG トグルへ移動（本パネルから撤去）。
  */
 
-import { RIGIDITY_OPTIONS } from "@/lib/plan/anchor-input-form";
-import { formatMinutes, parseMinutes } from "@/lib/plan/timeline-geometry";
+import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
-import type {
-  ComposeTimeConstraint,
-  TimeConstraintMode,
-} from "@/lib/plan/compose/composeTimeResolver";
 
 import { PlaceCandidatesPanel } from "../PlaceCandidatesPanel";
 import { useBiasContext } from "../_useBiasContext";
+import { ActivityIcon, LocationIcon, PeopleIcon, PlusIcon } from "./composeIcons";
 
 export interface ComposeFormPanelProps {
   core: ComposeDraftCore;
-  time: ComposeTimeConstraint;
   onCoreChange?: (patch: Partial<ComposeDraftCore>) => void;
-  onTimeChange?: (time: ComposeTimeConstraint) => void;
 }
 
-const MODE_OPTIONS: ReadonlyArray<{ value: TimeConstraintMode; label: string }> = [
-  { value: "none", label: "未定" },
-  { value: "start", label: "開始だけ" },
-  { value: "end", label: "終了だけ" },
-  { value: "both", label: "開始と終了" },
-];
-
-/** mode 切替時に不要な時刻を落とす（保持すべき軸のみ残す）。 */
-function switchMode(
-  prev: ComposeTimeConstraint,
-  mode: TimeConstraintMode,
-): ComposeTimeConstraint {
-  return {
-    mode,
-    startMin: mode === "start" || mode === "both" ? prev.startMin : undefined,
-    endMin: mode === "end" || mode === "both" ? prev.endMin : undefined,
-  };
-}
-
-export function ComposeFormPanel({
-  core,
-  time,
-  onCoreChange,
-  onTimeChange,
-}: ComposeFormPanelProps) {
-  const showStart = time.mode === "start" || time.mode === "both";
-  const showEnd = time.mode === "end" || time.mode === "both";
+export function ComposeFormPanel({ core, onCoreChange }: ComposeFormPanelProps) {
   const { biasContext } = useBiasContext();
+  const activityKey = classifyActivityIconKey(core.title);
+  const companions = core.companions ?? [];
 
   return (
     <div data-testid="compose-form-panel" className="space-y-3">
-      {/* なにをする？ */}
+      {/* ① なにをする？ — 右端に内容別アイコン */}
       <Question label="なにをする？">
-        <input
-          type="text"
-          data-testid="compose-field-title"
-          value={core.title}
-          onChange={(e) => onCoreChange?.({ title: e.target.value })}
-          placeholder="クライアントミーティング / 企画書 等"
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300"
-        />
+        <div className="relative">
+          <input
+            type="text"
+            data-testid="compose-field-title"
+            value={core.title}
+            onChange={(e) => onCoreChange?.({ title: e.target.value })}
+            placeholder="クライアントミーティング / 企画書 等"
+            className="w-full rounded-lg border border-slate-200 py-2 pl-3 pr-9 text-sm focus:outline-none focus-visible:border-slate-300"
+          />
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-indigo-400">
+            <ActivityIcon iconKey={activityKey} />
+          </span>
+        </div>
       </Question>
 
-      {/* どこで？（「カフェ」だけでも可。候補は枠のみ・A-2） */}
+      {/* ② どこで？ — 左に location アイコン ＋ 実候補検索 */}
       <Question label="どこで？">
-        <input
-          type="text"
-          data-testid="compose-field-location"
-          value={core.locationText}
-          onChange={(e) => onCoreChange?.({ locationText: e.target.value })}
-          placeholder="例: 渋谷オフィス 会議室B / カフェ"
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300"
-        />
-        {/* A-0 補正: 候補表示領域の「枠」のみ。実検索接続は A-3 以降。 */}
-        {/*
-         * 実候補検索（当初仕様）: 既存 PlaceCandidatesPanel を接続。
-         * 予定名(title) + 場所(locationText) を /api/plan/places/search に投げ、候補 3-5 件を提示。
-         * 非強制（候補を選ばず「カフェ」だけでも保存可）。tap で canonical text に更新。
-         * panel は intent が曖昧（なに・どこ 共に空）なら自己 gate で非表示。保存契約は不変。
-         */}
+        <div className="relative">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+            <LocationIcon />
+          </span>
+          <input
+            type="text"
+            data-testid="compose-field-location"
+            value={core.locationText}
+            onChange={(e) => onCoreChange?.({ locationText: e.target.value })}
+            placeholder="例: 渋谷オフィス 会議室B / カフェ"
+            className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus-visible:border-slate-300"
+          />
+        </div>
+        {/* 当初仕様: 既存 PlaceCandidatesPanel（/api/plan/places/search）。非強制・自己 gate */}
         <PlaceCandidatesPanel
           query={core.locationText}
           title={core.title}
@@ -104,118 +78,40 @@ export function ComposeFormPanel({
         />
       </Question>
 
-      {/* 時間は？（最小入力。空＝未定） */}
-      <Question label="時間は？">
-        <div className="flex flex-wrap gap-1" data-testid="compose-field-time-mode">
-          {MODE_OPTIONS.map((o) => {
-            const active = time.mode === o.value;
-            return (
-              <button
-                key={o.value}
-                type="button"
-                data-testid={`compose-time-mode-${o.value}`}
-                aria-pressed={active}
-                onClick={() => onTimeChange?.(switchMode(time, o.value))}
-                className={
-                  "rounded-md border px-2.5 py-1 text-xs font-medium transition " +
-                  (active
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300")
-                }
-              >
-                {o.label}
-              </button>
-            );
-          })}
-        </div>
-        {(showStart || showEnd) && (
-          <div className="mt-2 flex gap-2">
-            {showStart && (
-              <label className="flex-1 space-y-1">
-                <span className="text-[10px] text-slate-400">開始</span>
-                <input
-                  type="time"
-                  data-testid="compose-field-start"
-                  value={time.startMin != null ? formatMinutes(time.startMin) : ""}
-                  onChange={(e) =>
-                    onTimeChange?.({
-                      ...time,
-                      startMin: parseMinutes(e.target.value) ?? undefined,
-                    })
-                  }
-                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus-visible:border-slate-300"
-                />
-              </label>
-            )}
-            {showEnd && (
-              <label className="flex-1 space-y-1">
-                <span className="text-[10px] text-slate-400">終了</span>
-                <input
-                  type="time"
-                  data-testid="compose-field-end"
-                  value={time.endMin != null ? formatMinutes(time.endMin) : ""}
-                  onChange={(e) =>
-                    onTimeChange?.({
-                      ...time,
-                      endMin: parseMinutes(e.target.value) ?? undefined,
-                    })
-                  }
-                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm focus:outline-none focus-visible:border-slate-300"
-                />
-              </label>
-            )}
-          </div>
-        )}
-        {time.mode === "both" &&
-          time.startMin != null &&
-          time.endMin != null &&
-          time.endMin > time.startMin && (
-            <p
-              data-testid="compose-field-duration"
-              className="mt-1.5 text-[11px] text-slate-400"
-            >
-              所要 {formatDurationLabel(time.endMin - time.startMin)}
-            </p>
-          )}
-      </Question>
-
-      {/* 動かせなさ（控えめ・インラインチップ。hint は tooltip へ退避） */}
-      <Question label="動かせなさ">
-        <div className="flex gap-1.5" data-testid="compose-field-rigidity">
-          {RIGIDITY_OPTIONS.map((opt) => {
-            const active = core.rigidity === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                data-testid={`compose-rigidity-${opt.value}`}
-                aria-pressed={active}
-                title={opt.hint}
-                onClick={() => onCoreChange?.({ rigidity: opt.value })}
-                className={
-                  "rounded-md border px-2.5 py-1 text-xs font-medium transition " +
-                  (active
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300")
-                }
-              >
-                {opt.label}
-              </button>
-            );
-          })}
+      {/* ③ 誰と？ — 左に people アイコン、右に ＋（任意・draft 表示専用） */}
+      <Question label="誰と？">
+        <div className="relative">
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">
+            <PeopleIcon />
+          </span>
+          <input
+            type="text"
+            data-testid="compose-field-companions"
+            value={companions.join("、")}
+            onChange={(e) =>
+              onCoreChange?.({
+                companions: e.target.value
+                  .split(/[、,]/)
+                  .map((s) => s.trim())
+                  .filter((s) => s.length > 0),
+              })
+            }
+            placeholder="田中さん、山本さん 等（任意）"
+            className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-9 text-sm focus:outline-none focus-visible:border-slate-300"
+          />
+          <button
+            type="button"
+            data-testid="compose-companions-add"
+            aria-label="よく入れる人から追加"
+            title="よく入れる人から追加（履歴は後続）"
+            className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <PlusIcon />
+          </button>
         </div>
       </Question>
     </div>
   );
-}
-
-/** 所要時間（分）→ 表示ラベル（読み取り専用・開始＋終了から自動算出）。 */
-function formatDurationLabel(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}分`;
-  if (m === 0) return `${h}時間`;
-  return `${h}時間${m}分`;
 }
 
 function Question({

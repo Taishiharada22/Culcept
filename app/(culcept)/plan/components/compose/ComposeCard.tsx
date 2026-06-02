@@ -62,6 +62,14 @@ export function ComposeCard({ draft }: ComposeCardProps) {
             {draft.core.locationText}
           </p>
         )}
+        {(draft.core.companions ?? []).length > 0 && (
+          <p
+            data-testid="compose-card-companions"
+            className="truncate text-xs text-slate-500"
+          >
+            {(draft.core.companions ?? []).join("、")}
+          </p>
+        )}
         <p className="mt-0.5 text-[11px] tabular-nums text-violet-600">
           {timeLabel(draft.time)}
         </p>
