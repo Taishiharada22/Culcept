@@ -16,9 +16,10 @@
  *   - best-action.ts  Gate first→score の候補選定（INV-1/4/5/16/19/24）
  *   - receptivity-gate.ts 配信判断 push/on_open/silent/urgent/permission_prompt（INV-1/9/10/14）
  *   - invariant-check.ts  決定時 Invariant の fail 可能チェック（INV-1/4/5/7/15/16/19/22/23/24）
+ *   - golden-scenario.ts  シナリオ fixture + runner（best-action/receptivity/invariant を実行照合）
  *
- * 次スライス（未実装）:
- *   - Golden Scenario fixtures + runner（2E-B: 35 シナリオの自動検証）
+ * Phase 0 判断 OS 純粋核は完成。次フェーズ（要 CEO 承認）:
+ *   - 既存 Plan / DayGraph / PRM 永続化 / push / native への接続（本番化）
  */
 
 export * from "./lsat";
@@ -29,3 +30,4 @@ export * from "./prm-event";
 export * from "./best-action";
 export * from "./receptivity-gate";
 export * from "./invariant-check";
+export * from "./golden-scenario";
