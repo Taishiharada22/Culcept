@@ -49,11 +49,18 @@ describe("質問形式フィールド", () => {
   });
 });
 
-describe("A-0 補正: 場所候補は枠のみ（本格接続なし）", () => {
-  it("候補表示領域の枠が存在する", () => {
-    const html = render({ mode: "none" });
-    expect(html).toContain('data-testid="compose-location-candidates-placeholder"');
-    expect(html).toContain("場所の候補はここに表示されます");
+describe("場所候補（実 PlaceCandidatesPanel 接続・当初仕様）", () => {
+  it("なに＋どこ 入力時に候補パネルが出る", () => {
+    const html = render({ mode: "none" }); // CORE: title 企画書 + location カフェ
+    expect(html).toContain('data-testid="plan-place-candidates-panel"');
+  });
+
+  it("なに・どこ が両方空なら候補パネルは出ない（自己 gate）", () => {
+    const html = render(
+      { mode: "none" },
+      { title: "", locationText: "", rigidity: "" },
+    );
+    expect(html).not.toContain('data-testid="plan-place-candidates-panel"');
   });
 });
 

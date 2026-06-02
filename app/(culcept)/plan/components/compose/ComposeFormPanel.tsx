@@ -22,6 +22,9 @@ import type {
   TimeConstraintMode,
 } from "@/lib/plan/compose/composeTimeResolver";
 
+import { PlaceCandidatesPanel } from "../PlaceCandidatesPanel";
+import { useBiasContext } from "../_useBiasContext";
+
 export interface ComposeFormPanelProps {
   core: ComposeDraftCore;
   time: ComposeTimeConstraint;
@@ -56,6 +59,7 @@ export function ComposeFormPanel({
 }: ComposeFormPanelProps) {
   const showStart = time.mode === "start" || time.mode === "both";
   const showEnd = time.mode === "end" || time.mode === "both";
+  const { biasContext } = useBiasContext();
 
   return (
     <div data-testid="compose-form-panel" className="space-y-3">
@@ -82,14 +86,22 @@ export function ComposeFormPanel({
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300"
         />
         {/* A-0 補正: 候補表示領域の「枠」のみ。実検索接続は A-3 以降。 */}
-        {core.locationText.trim().length > 0 && (
-          <div
-            data-testid="compose-location-candidates-placeholder"
-            className="mt-1 rounded-md border border-dashed border-slate-200/70 px-2.5 py-1 text-[10px] text-slate-300"
-          >
-            場所の候補はここに表示されます
-          </div>
-        )}
+        {/*
+         * 実候補検索（当初仕様）: 既存 PlaceCandidatesPanel を接続。
+         * 予定名(title) + 場所(locationText) を /api/plan/places/search に投げ、候補 3-5 件を提示。
+         * 非強制（候補を選ばず「カフェ」だけでも保存可）。tap で canonical text に更新。
+         * panel は intent が曖昧（なに・どこ 共に空）なら自己 gate で非表示。保存契約は不変。
+         */}
+        <PlaceCandidatesPanel
+          query={core.locationText}
+          title={core.title}
+          biasContext={biasContext}
+          sensitive={false}
+          onSelect={(canonicalText) =>
+            onCoreChange?.({ locationText: canonicalText })
+          }
+          onSkip={() => undefined}
+        />
       </Question>
 
       {/* 時間は？（最小入力。空＝未定） */}
