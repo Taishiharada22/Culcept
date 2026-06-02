@@ -253,7 +253,9 @@ Native 必須：到着・滞留の位置確証（Geofence/CLVisit）／逆方向
 - `invariant-check.ts` — **決定時 Invariant の fail 可能チェック**：DecisionContext → checkAllInvariants。INV-1/4/5/7/15/**16/19/22/23/24** を pass/fail/reason で判定（説明文でなく合否基準）。モデル時 INV(3/8/12/21) は各 module test で担保 ✅
 - `golden-scenario.ts` — **シナリオ fixture + runner**：runScenario が best-action/receptivity-gate/invariant-check を実行し input→expected を照合。**35/35 シナリオ fixture 化**（決定 30 + 学習 5）。カバレッジ表は golden-scenarios.md Part D ✅
 
-**Phase 0 判断 OS 純粋核：35 シナリオ全 fixture 化・18/24 INV 自動検証**（9 module・tsc クリーン）。残り 6 INV（INV-2/6/9/13/17/20）は producing engine（live 監視ループ等）未実装ゆえ design-level → 本番接続フェーズで auto 化。次フェーズ（要 CEO 承認）＝本番接続（既存 Plan/DayGraph/PRM 永続化/push/native/Routes）。
+**Phase 0 判断 OS 純粋核 完成：35 シナリオ全 fixture 化・24/24 INV 純粋カバレッジ**（14 module・tsc クリーン）。
+Slice 2F で残り 6 INV を純関数化（hysteresis/monitoring/authority-escalation/gap-meaning/post-event-recompute）—— 「本番接続と不可分」とした旧主張を撤回。完全 runtime 検証のみ本番接続後。
+次フェーズ（要 CEO 承認）＝本番接続（既存 Plan/DayGraph/PRM 永続化/push/native/Routes）。
 
 ## 13. CEO 判断ポイント
 1. **v4 採用可否**（二層 OS／4 モード／予定ノード起動窓／既存予定尊重・Google Maps 類比）

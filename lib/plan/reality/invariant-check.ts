@@ -36,6 +36,7 @@ export interface DecisionContext {
 
 export type InvariantId =
   | "INV-1" // 行動可能性
+  | "INV-2" // DECIDE/DELIVER 分離
   | "INV-4" // Traceable（No Phantom）
   | "INV-5" // 自動実行の境界
   | "INV-7" // 既存予定の尊重
@@ -153,6 +154,22 @@ export function checkReversibility(ctx: DecisionContext): InvariantResult {
   if (!ctx.candidate) return na("INV-24");
   const v = validateUndoability(ctx.candidate.changeSet);
   return v.ok ? ok("INV-24") : fail("INV-24", `not undoable: ${v.errors.join("; ")}`);
+}
+
+/**
+ * INV-2 DECIDE/DELIVER 分離（構造）: score 成果物に配信フィールドが無く、
+ * delivery 成果物に score フィールドが無いこと。両層の責務混在を禁ずる。
+ * （checkAllInvariants とは別シグネチャ。score/delivery の 2 成果物を受ける）
+ */
+export function checkDecideDeliverSeparation(
+  score: Record<string, unknown>,
+  delivery: Record<string, unknown>
+): InvariantResult {
+  const scoreLeaks = "mode" in score || "chain" in score || "allowedActions" in score;
+  const deliveryLeaks = "total" in delivery || "terms" in delivery || "gates" in delivery;
+  if (scoreLeaks) return fail("INV-2", "score artifact carries a delivery field");
+  if (deliveryLeaks) return fail("INV-2", "delivery artifact carries a score field");
+  return ok("INV-2");
 }
 
 const CHECKERS: ReadonlyArray<(ctx: DecisionContext) => InvariantResult> = [
