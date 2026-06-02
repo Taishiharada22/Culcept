@@ -12,9 +12,10 @@
  *   - authority.ts    Origin / Authority / Flexibility / ProtectionReasons 権限モデル（INV-5/7/18/23）
  *   - source-trace.ts 根拠追跡（INV-4/23）
  *   - change-set.ts   変更差分・Undo（INV-24/5）
+ *   - prm-event.ts    PRM 学習イベント契約（INV-12）
  *
  * 次スライス（未実装）:
- *   - PRM event 型 → Best Action 評価関数（scoring）→ Receptivity Gate
+ *   - Best Action 評価関数（scoring）→ Receptivity Gate
  *   - Invariant checker, Golden Scenario fixtures（35）
  */
 
@@ -22,3 +23,4 @@ export * from "./lsat";
 export * from "./authority";
 export * from "./source-trace";
 export * from "./change-set";
+export * from "./prm-event";
