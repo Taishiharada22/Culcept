@@ -99,6 +99,13 @@ describe("dev-runtime-smoke — failure は fail-closed・raw なし", () => {
   });
 });
 
+describe("dev-runtime-smoke — report.limit は実効値（>50 を clamp）", () => {
+  it("deps.limit=1000 → report.limit=50（CEO 固定条件: 初回 50 以下）", async () => {
+    const r = await runRealReadSmoke(deps({ limit: 1000 }));
+    expect(r.limit).toBe(50);
+  });
+});
+
 describe("dev-runtime-smoke — 報告フィールドが GPT 許可集合に一致", () => {
   it("RealSmokeReport の全キーが許可集合の部分集合", async () => {
     const r: RealSmokeReport = await runRealReadSmoke(deps());

@@ -19,6 +19,7 @@ import "server-only";
  */
 
 import { evaluateSmokeGate, type SmokeGate, type SmokeNoopCode, type RealityDataSource } from "./dev-runtime";
+import { clampSmokeLimit } from "./dev-runtime-realsource";
 import { runShadow } from "./shadow-runner";
 import { assertRedacted } from "./redaction-guard";
 import { aggregateShadowReport, type DevReportRedacted } from "./dev-report";
@@ -76,7 +77,9 @@ function baseReport(date: string, limit: number): Omit<RealSmokeReport, "status"
  * **実 client は注入**（本 module は createClient しない）。失敗は全て fail-closed。
  */
 export async function runRealReadSmoke(deps: RealSmokeDeps): Promise<RealSmokeReport> {
-  const base = baseReport(deps.date, deps.limit);
+  // 報告 echo も実効 limit（clamp 後・>50 を読まない）に揃える
+  const effectiveLimit = clampSmokeLimit(deps.limit);
+  const base = baseReport(deps.date, effectiveLimit);
 
   // 実行時にも no-service-role を強制（GPT 点1）
   if (deps.clientContext === "service_role") return { ...base, status: "noop", code: "SERVICE_ROLE_REFUSED" };
@@ -110,5 +113,5 @@ export async function runRealReadSmoke(deps: RealSmokeDeps): Promise<RealSmokeRe
     return { ...base, status: "blocked", code: "REDACTION_BLOCKED", rowsRead, redactionPass: false };
   }
 
-  return { status: "ok", rowsRead, date: deps.date, limit: deps.limit, recurringIncluded: false, serviceRoleUsed: false, redactionPass: true, report };
+  return { status: "ok", rowsRead, date: deps.date, limit: effectiveLimit, recurringIncluded: false, serviceRoleUsed: false, redactionPass: true, report };
 }

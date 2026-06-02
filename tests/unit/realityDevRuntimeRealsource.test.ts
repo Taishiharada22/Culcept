@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   createDatedColumnRestrictedAnchorSource,
+  clampSmokeLimit,
+  MAX_SMOKE_LIMIT,
   type UserContextClient,
   type RealReadBounds,
 } from "@/lib/plan/reality/integration/dev-runtime-realsource";
@@ -77,6 +79,23 @@ describe("4-B-1C-a — query 形（column-restricted + user_id + date + limit）
     const c = cap();
     await createDatedColumnRestrictedAnchorSource(mockUserClient([row()], c), bounds).loadForSmoke(CEO);
     expect(c.table).not.toContain("seed");
+  });
+});
+
+describe("4-B-1C-a — limit ≤ MAX_SMOKE_LIMIT(50) 強制（>50 を読まない・CEO 固定条件）", () => {
+  it("clampSmokeLimit: [1,50] に clamp", () => {
+    expect(MAX_SMOKE_LIMIT).toBe(50);
+    expect(clampSmokeLimit(1000)).toBe(50);
+    expect(clampSmokeLimit(50)).toBe(50);
+    expect(clampSmokeLimit(10)).toBe(10);
+    expect(clampSmokeLimit(0)).toBe(1);
+    expect(clampSmokeLimit(-5)).toBe(1);
+    expect(clampSmokeLimit(NaN)).toBe(50);
+  });
+  it("query の .limit は 50 を超えない（limit=1000 指定でも 50）", async () => {
+    const c = cap();
+    await createDatedColumnRestrictedAnchorSource(mockUserClient([row()], c), { date: DAY, limit: 1000 }).loadForSmoke(CEO);
+    expect(c.limit).toBe(50);
   });
 });
 

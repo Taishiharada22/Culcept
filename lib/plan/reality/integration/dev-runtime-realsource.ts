@@ -40,10 +40,19 @@ export interface UserContextClient {
   from(table: string): DatedFrom<ColumnRestrictedAnchorRow>;
 }
 
+/** 初回 smoke の件数上限（CEO 固定条件: 50 以下）。これを超える指定は clamp する。 */
+export const MAX_SMOKE_LIMIT = 50;
+
+/** limit を [1, MAX_SMOKE_LIMIT] に clamp（>50 を読まない・0/負を防ぐ）。 */
+export function clampSmokeLimit(limit: number): number {
+  if (!Number.isFinite(limit)) return MAX_SMOKE_LIMIT;
+  return Math.min(Math.max(1, Math.floor(limit)), MAX_SMOKE_LIMIT);
+}
+
 export interface RealReadBounds {
   /** 単一日（YYYY-MM-DD）。全期間禁止ゆえ必須。 */
   readonly date: string;
-  /** 件数上限。必須（無制限禁止）。 */
+  /** 件数上限。必須（無制限禁止）。**MAX_SMOKE_LIMIT=50 に clamp される**。 */
   readonly limit: number;
 }
 
@@ -64,7 +73,7 @@ export function createDatedColumnRestrictedAnchorSource(
         .select(ANCHOR_COLUMNS_SQL) // "*" でない・raw 列なし（4-B-1A 固定）
         .eq("user_id", userId) // RLS + 明示 user 限定（二重防御）
         .eq("date", bounds.date) // 単一日のみ（全期間禁止）
-        .limit(bounds.limit); // 件数上限（無制限禁止）
+        .limit(clampSmokeLimit(bounds.limit)); // 件数上限（無制限禁止・>50 は clamp）
       if (error || !data) return null;
       return projectToRealityInput(data); // 許可列のみ → raw を運ばない
     },
