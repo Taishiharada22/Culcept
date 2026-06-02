@@ -1,32 +1,30 @@
 "use client";
 
 /**
- * ComposeWheel — 枠内で直接スクロールして選ぶインライン・ホイール 1 列（P4-3）。
+ * ComposeWheel — 枠内で直接スクロールして選ぶインライン・ホイール 1 列（P4-3 改）。
  *
  * 設計書: docs/alter-plan-add-anchor-timeline-redesign-proposal.md（理想画像準拠）
  *
- * CEO 指示: 時間設定は「SVG を押してからネイティブ picker」ではなく、**枠内で直接スクロール**。
- *   - CSS scroll-snap の縦リスト。中央 band が選択値。
- *   - 外部 value 変更 → scroll 位置を同期（プログラム的 scroll 中は onChange を抑制してループ防止）。
- *   - スクロール停止（debounce）で中央 index → onChange。
- *
- * SSR: 初期 markup（options + 中央 highlight）を描画。scroll/effect は client のみ。
+ * 改善（CEO「20点」フィードバック反映）:
+ *   - 中央に明確な**選択枠**（border + 背景）。選択値は**太字**、近傍は薄く。
+ *   - 行高を上げ可読性UP（iOS ピッカー風）。
+ *   - **空白(value=null)対応**：先頭に "—" を置き、未設定からスクロールで開始。
  */
 
 import { useEffect, useRef } from "react";
 
-export const WHEEL_ITEM_PX = 28;
-const VISIBLE_ROWS = 3; // 中央 + 上下 1 行
+export const WHEEL_ITEM_PX = 32;
+const VISIBLE_ROWS = 5; // 中央 + 上下 2 行
 
 export interface WheelOption {
-  value: number;
+  value: number | null;
   label: string;
 }
 
 export interface ComposeWheelProps {
   options: WheelOption[];
-  value: number;
-  onChange: (value: number) => void;
+  value: number | null;
+  onChange: (value: number | null) => void;
   testid?: string;
   ariaLabel?: string;
 }
@@ -47,7 +45,6 @@ export function ComposeWheel({
     options.findIndex((o) => o.value === value),
   );
 
-  // 外部 value → scroll 位置を同期（プログラム的 scroll は onChange を出さない）。
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -57,7 +54,7 @@ export function ComposeWheel({
       el.scrollTop = target;
       const t = setTimeout(() => {
         programmatic.current = false;
-      }, 80);
+      }, 90);
       return () => clearTimeout(t);
     }
   }, [idx]);
@@ -69,8 +66,8 @@ export function ComposeWheel({
     debounce.current = setTimeout(() => {
       const i = Math.round(el.scrollTop / WHEEL_ITEM_PX);
       const clamped = Math.max(0, Math.min(options.length - 1, i));
-      const v = options[clamped]?.value;
-      if (v != null && v !== value) onChange(v);
+      const o = options[clamped];
+      if (o && o.value !== value) onChange(o.value);
     }, 110);
   };
 
@@ -79,11 +76,20 @@ export function ComposeWheel({
       className="relative w-full"
       style={{ height: VISIBLE_ROWS * WHEEL_ITEM_PX }}
     >
-      {/* 中央 band（選択域） */}
+      {/* 中央選択枠 */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-md bg-indigo-50"
+        className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-lg border border-indigo-200 bg-indigo-50/70"
         style={{ height: WHEEL_ITEM_PX }}
+      />
+      {/* 上下フェード */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1/3 bg-gradient-to-b from-white to-transparent"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/3 bg-gradient-to-t from-white to-transparent"
       />
       <div
         ref={ref}
@@ -93,18 +99,20 @@ export function ComposeWheel({
         onScroll={handleScroll}
         className="h-full snap-y snap-mandatory overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div style={{ height: WHEEL_ITEM_PX }} />
+        <div style={{ height: WHEEL_ITEM_PX * 2 }} />
         {options.map((o) => {
           const active = o.value === value;
           return (
             <div
-              key={o.value}
+              key={String(o.value)}
               data-testid={testid ? `${testid}-opt-${o.value}` : undefined}
               role="option"
               aria-selected={active}
               className={
-                "flex snap-center items-center justify-center text-sm tabular-nums transition-colors " +
-                (active ? "font-semibold text-indigo-700" : "text-slate-300")
+                "flex snap-center items-center justify-center tabular-nums transition-all " +
+                (active
+                  ? "text-base font-bold text-indigo-700"
+                  : "text-xs text-slate-300")
               }
               style={{ height: WHEEL_ITEM_PX }}
             >
@@ -112,7 +120,7 @@ export function ComposeWheel({
             </div>
           );
         })}
-        <div style={{ height: WHEEL_ITEM_PX }} />
+        <div style={{ height: WHEEL_ITEM_PX * 2 }} />
       </div>
     </div>
   );
