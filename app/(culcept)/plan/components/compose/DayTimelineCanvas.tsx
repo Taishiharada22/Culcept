@@ -195,7 +195,8 @@ export function DayTimelineCanvas({
   return (
     <div
       data-testid="compose-timeline"
-      className="relative w-full rounded-xl border border-slate-200 bg-slate-50/60"
+      // 時間帯のゆるい手がかり: 朝(暖) → 昼(淡) → 夜(寒) の極薄グラデ。
+      className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-b from-amber-50/50 via-slate-50/40 to-indigo-50/50"
       style={{ height: heightPx }}
     >
       {/* 30分補助線（薄い・ラベルなし・ブロック層に整列。設計書 §4.3） */}
@@ -322,11 +323,22 @@ export function DayTimelineCanvas({
                   </span>
                 </>
               )}
-              <span className="block truncate pr-10 font-medium">{b.label}</span>
-              {/* 短い block（2 行入らない高さ）は時刻を出さない＝clip 防止。 */}
-              {height >= TIME_LINE_MIN_PX && (
-                <span className="block tabular-nums opacity-70">
-                  {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
+              {/* CEO①: 予定（タイトル）と 何時〜何時 を常に表示。高さで 2 行 / 1 行を切替え clip 回避。 */}
+              {height >= TIME_LINE_MIN_PX ? (
+                <>
+                  <span className="block truncate pr-10 font-medium">
+                    {b.label}
+                  </span>
+                  <span className="block tabular-nums opacity-70">
+                    {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
+                  </span>
+                </>
+              ) : (
+                <span className="flex items-baseline gap-1 pr-8">
+                  <span className="truncate font-medium">{b.label}</span>
+                  <span className="shrink-0 tabular-nums opacity-70">
+                    {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
+                  </span>
                 </span>
               )}
               {showControls && (
@@ -368,9 +380,11 @@ export function DayTimelineCanvas({
           className="pointer-events-none absolute inset-x-0 z-10"
           style={{ top: minutesToY(nowMin as number, vp) }}
         >
-          <div className="flex -translate-y-1/2 items-start gap-1">
-            <span className="w-8 shrink-0" />
-            <span className="relative mt-px h-px flex-1 bg-rose-400/80">
+          <div className="flex -translate-y-1/2 items-center gap-1">
+            <span className="w-8 shrink-0 pr-0.5 text-right text-[9px] font-bold leading-none text-rose-500">
+              今
+            </span>
+            <span className="relative h-px flex-1 bg-rose-400/80">
               <span className="absolute -left-1 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-rose-500 shadow-sm shadow-rose-300" />
             </span>
           </div>
