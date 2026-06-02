@@ -52,6 +52,7 @@ import {
   type GmapsMap,
   type GmapsMarker,
   type GmapsPolyline,
+  type GmapsPolylineOptions,
 } from "@/lib/shared/googleMapsLoader";
 import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
 import { usePlanGeocode } from "./_usePlanGeocode";
@@ -450,12 +451,18 @@ function PlanMapView({
       map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // ── route polyline (時刻順 pin を dashed 線で connect、CEO mockup 整合) ──
+    // ── route polyline (時刻順 pin を「道路沿い」の破線で connect、CEO mockup 整合) ──
     //
-    // 設計:
-    //   - sortedPath は anchor.startTime ascending、pin.kind 不問
-    //   - 1 pin 以下は polyline 描画しない
-    //   - dashed style: strokeOpacity=0 で solid 線を隠し、icons で dashed pattern を repeat
+    // 設計 (Reality Control OS — 地図の線を道路沿いに、 v1):
+    //   - sortedPins は anchor.startTime ascending、pin.kind 不問
+    //   - 1 pin 以下 / 全 pin 同点 は polyline 描画しない
+    //   - 順番は固定 (= "1 から順"、 並べ替え/TSP はしない)
+    //   - progressive enhancement:
+    //       (1) まず直線で即描画 (= fail-open baseline、 旧挙動と同一)
+    //       (2) DirectionsService で各区間 (連続 pin ペア) の道路 path を取得でき次第、
+    //           道路沿いの破線へ差し替える。失敗区間は直線で補完。
+    //   - 移動手段は DRIVING 固定 (= 最も確実に道路線が返る v1)。 mode 別は将来 (transport field 既存)。
+    //   - dashed style: strokeOpacity=0 で solid 線を隠し、icons で dashed pattern を repeat (共通 const)
     //   - polyline は pin marker の下層 (z-index 自動、marker が上に重なる)
     //
     // 注: baseline pin が混在すると line が baseline 経由になる (= "今日この順で動く" 視覚化)。
@@ -463,26 +470,64 @@ function PlanMapView({
     const sortedPins = [...pins].sort((a, b) =>
       a.anchor.startTime.localeCompare(b.anchor.startTime),
     );
-    let polyline: GmapsPolyline | null = null;
-    if (sortedPins.length >= 2 && !isSamePointCluster(sortedPins.map((p) => p.coord))) {
-      polyline = new maps.Polyline({
+    const routePolylines: GmapsPolyline[] = [];
+    let routeCancelled = false;
+    if (
+      sortedPins.length >= 2 &&
+      !isSamePointCluster(sortedPins.map((p) => p.coord))
+    ) {
+      const coords = sortedPins.map((p) => p.coord);
+
+      // (1) 直線を即描画 — ルート解決前 / DirectionsService 不可 / 失敗時の確実な表示
+      const straightLine = new maps.Polyline({
         map,
-        path: sortedPins.map((p) => p.coord),
-        strokeOpacity: 0, // solid 線を隠す
-        strokeColor: "#94a3b8", // slate-400 (subtle)
-        icons: [
-          {
-            icon: {
-              path: "M 0,-1 0,1", // 1px の縦線
-              strokeOpacity: 0.8,
-              strokeColor: "#94a3b8",
-              scale: 3,
-            },
-            offset: "0",
-            repeat: "12px", // 12px 毎に縦線を打つ → dashed 風
-          },
-        ],
+        path: coords,
+        ...DASHED_ROUTE_POLYLINE_STYLE,
       });
+      routePolylines.push(straightLine);
+
+      // (2) DirectionsService が使える場合のみ、道路ルートで差し替え (fail-open)
+      const directionsService = createDirectionsService(maps);
+      if (directionsService) {
+        const travelMode = drivingTravelMode(maps);
+        const pairs: Array<[GmapsLatLng, GmapsLatLng]> = [];
+        for (let i = 0; i < coords.length - 1; i += 1) {
+          pairs.push([coords[i]!, coords[i + 1]!]);
+        }
+        Promise.all(
+          pairs.map(([from, to]) =>
+            fetchRoadSegmentPath(directionsService, from, to, travelMode),
+          ),
+        )
+          .then((segmentPaths) => {
+            if (routeCancelled) return;
+            // 道路 path を連結 (失敗区間は [from,to] 直線で補完、 接合点の重複は除去)
+            const roadPath: GmapsLatLng[] = [];
+            for (let i = 0; i < pairs.length; i += 1) {
+              const seg = segmentPaths[i] ?? [pairs[i]![0], pairs[i]![1]];
+              if (seg.length === 0) continue;
+              if (roadPath.length === 0) roadPath.push(...seg);
+              else roadPath.push(...seg.slice(1));
+            }
+            // 道路区間が 1 つも解決しなかった → 直線のまま (ちらつき回避)
+            const anyRoadResolved = segmentPaths.some((p) => p != null && p.length > 0);
+            if (!anyRoadResolved || roadPath.length < 2) return;
+            // 直線を消して道路沿いの破線へ差し替え
+            straightLine.setMap(null);
+            const idx = routePolylines.indexOf(straightLine);
+            if (idx >= 0) routePolylines.splice(idx, 1);
+            routePolylines.push(
+              new maps.Polyline({
+                map,
+                path: roadPath,
+                ...DASHED_ROUTE_POLYLINE_STYLE,
+              }),
+            );
+          })
+          .catch(() => {
+            // fail-open: 直線のまま (= 旧挙動)
+          });
+      }
     }
 
     // 9 closeout cleanup: orderById Map / markerSpec 削除済み
@@ -541,9 +586,10 @@ function PlanMapView({
     }
 
     return () => {
-      // pin / baseline / selected 変化で markers + polyline 破棄、Map instance は keep alive
+      // pin / baseline / selected 変化で markers + route polyline 破棄、Map instance は keep alive
+      routeCancelled = true; // 進行中の道路ルート差し替えを無効化 (cleanup 後の描画防止)
       for (const m of markers) m.setMap(null);
-      polyline?.setMap(null);
+      for (const pl of routePolylines) pl.setMap(null);
     };
   }, [pins, baselineCoords, selectedAnchorId]);
 
@@ -829,4 +875,155 @@ function isSamePointCluster(coords: GmapsLatLng[]): boolean {
       c.lat.toFixed(SAME_POINT_TOLERANCE_DIGITS) === fLat &&
       c.lng.toFixed(SAME_POINT_TOLERANCE_DIGITS) === fLng,
   );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 道路ルート描画 helpers (Reality Control OS — 地図の線を道路沿いに、 v1)
+//
+// 役割: 地図の接続線を「直線」→「道路沿いの折れ線」へ。順番は固定 (= "1 から順")。
+//   client-side DirectionsService で各区間 (連続 pin ペア) の overview_path を取得し描画する。
+//   geometry 取得元は将来サーバ Routes API + 永続 cache へ差し替え可 (描画側は LatLng[] を消費するだけ)。
+//
+// 不変原則 (既存制約遵守):
+//   - googleMapsLoader.ts は不触。 DirectionsService の型は本 file で local 宣言 (= MapWithListener 同 pattern)。
+//   - 新 env / migration / dep すべて 0。
+//
+// Fail-open / コスト:
+//   - DirectionsService 不在 / REQUEST_DENIED (= Directions API 未有効) → 直線へ無劣化 fallback。
+//     REQUEST_DENIED を一度観測したら session 中は試行停止 (= console / quota の無駄打ち防止)。
+//   - 区間結果は module cache で memo 化 (= pin 選択で Effect 2 が再実行されても再課金しない)。
+//   - 区間 timeout (= DIRECTIONS_SEGMENT_TIMEOUT_MS) で hang を打ち切り、 該区間は直線で補完。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 道路ルート線 / 直線 fallback 共通の破線スタイル (CEO mockup 整合、 slate-400 dashed)。 */
+const DASHED_ROUTE_POLYLINE_STYLE: GmapsPolylineOptions = {
+  strokeOpacity: 0, // solid 線を隠す
+  strokeColor: "#94a3b8", // slate-400 (subtle)
+  icons: [
+    {
+      icon: {
+        path: "M 0,-1 0,1", // 1px の縦線
+        strokeOpacity: 0.8,
+        strokeColor: "#94a3b8",
+        scale: 3,
+      },
+      offset: "0",
+      repeat: "12px", // 12px 毎に縦線を打つ → dashed 風
+    },
+  ],
+};
+
+const DIRECTIONS_SEGMENT_TIMEOUT_MS = 5000;
+const ROUTE_CACHE_COORD_DIGITS = 5; // ≒ 1.1m 解像度で区間 key を量子化
+
+// ── 最小 DirectionsService 型 (googleMapsLoader.ts 不触のための local 宣言) ──
+interface GmapsLatLngObj {
+  lat(): number;
+  lng(): number;
+}
+interface GmapsDirectionsResult {
+  routes?: Array<{ overview_path?: GmapsLatLngObj[] }>;
+}
+interface GmapsDirectionsService {
+  route(
+    request: { origin: GmapsLatLng; destination: GmapsLatLng; travelMode: string },
+    callback: (result: GmapsDirectionsResult | null, status: string) => void,
+  ): void;
+}
+
+/** 区間ルート cache (key=from|to|mode)。値: 道路 path / null=確定失敗 (= 再試行しない)。 */
+const roadSegmentPathCache = new Map<string, GmapsLatLng[] | null>();
+/** 同一区間の in-flight request 合流 (重複 API call 防止)。 */
+const roadSegmentInflight = new Map<string, Promise<GmapsLatLng[] | null>>();
+/** REQUEST_DENIED (= Directions API 未有効/制限) を観測したら session 中は試行停止。 */
+let directionsApiUnavailable = false;
+
+function roadSegmentKey(from: GmapsLatLng, to: GmapsLatLng, mode: string): string {
+  const q = (n: number) => n.toFixed(ROUTE_CACHE_COORD_DIGITS);
+  return `${q(from.lat)},${q(from.lng)}|${q(to.lat)},${q(to.lng)}|${mode}`;
+}
+
+/** DRIVING の travelMode 値を取得 (enum があれば優先、 無ければ文字列 fallback)。 */
+function drivingTravelMode(maps: unknown): string {
+  const tm = (maps as { TravelMode?: { DRIVING?: string } }).TravelMode;
+  return tm?.DRIVING ?? "DRIVING";
+}
+
+/** DirectionsService instance を生成 (不可なら null = 直線 fallback)。 */
+function createDirectionsService(maps: unknown): GmapsDirectionsService | null {
+  if (directionsApiUnavailable) return null;
+  const ctor = (maps as { DirectionsService?: new () => GmapsDirectionsService })
+    .DirectionsService;
+  if (typeof ctor !== "function") return null;
+  try {
+    return new ctor();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 1 区間 (from→to) の道路 path を取得。 cache / in-flight 合流 / timeout / fail-open 込み。
+ * 戻り値: 道路沿い LatLng[] / null (= 該区間は呼び出し側で直線補完)。
+ */
+function fetchRoadSegmentPath(
+  service: GmapsDirectionsService,
+  from: GmapsLatLng,
+  to: GmapsLatLng,
+  travelMode: string,
+): Promise<GmapsLatLng[] | null> {
+  const key = roadSegmentKey(from, to, travelMode);
+  if (roadSegmentPathCache.has(key)) {
+    return Promise.resolve(roadSegmentPathCache.get(key) ?? null);
+  }
+  const existing = roadSegmentInflight.get(key);
+  if (existing) return existing;
+
+  const promise = new Promise<GmapsLatLng[] | null>((resolve) => {
+    let settled = false;
+    // cache=true は「確定結果」(成功 path or 確定失敗) のみ。 transient/timeout は cache せず次回再試行可。
+    const settle = (value: GmapsLatLng[] | null, cache: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (cache) roadSegmentPathCache.set(key, value);
+      resolve(value);
+    };
+    const timer = setTimeout(() => settle(null, false), DIRECTIONS_SEGMENT_TIMEOUT_MS);
+    try {
+      service.route(
+        { origin: from, destination: to, travelMode },
+        (result, status) => {
+          clearTimeout(timer);
+          if (status === "OK") {
+            const path = result?.routes?.[0]?.overview_path;
+            if (path && path.length > 0) {
+              settle(path.map((pt) => ({ lat: pt.lat(), lng: pt.lng() })), true);
+            } else {
+              settle(null, true); // OK だが path 無し → 確定失敗扱い
+            }
+            return;
+          }
+          if (status === "REQUEST_DENIED") {
+            directionsApiUnavailable = true; // Directions API 未有効 → 以後 session 中は試行しない
+            settle(null, false);
+            return;
+          }
+          if (status === "ZERO_RESULTS" || status === "NOT_FOUND") {
+            settle(null, true); // 経路なし → 確定失敗、 再試行しない
+            return;
+          }
+          // OVER_QUERY_LIMIT / UNKNOWN_ERROR 等 transient → cache せず直線補完
+          settle(null, false);
+        },
+      );
+    } catch {
+      clearTimeout(timer);
+      settle(null, false);
+    }
+  }).finally(() => {
+    roadSegmentInflight.delete(key);
+  });
+
+  roadSegmentInflight.set(key, promise);
+  return promise;
 }
