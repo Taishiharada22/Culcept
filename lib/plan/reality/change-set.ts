@@ -101,6 +101,45 @@ export function changeSetRequiresConfirmation(cs: ChangeSet): boolean {
   });
 }
 
+// --- Snapshot 完全性 / undo 可能性検証 (INV-24) ---
+
+/**
+ * 復元に十分な snapshot か。最低限 itemId と timing(startMin/endMin) を要求。
+ * これが欠けると元に戻せない（特に remove の before）。
+ */
+export function isSnapshotRestorable(s: PlanItemSnapshot): boolean {
+  return (
+    typeof s.itemId === "string" &&
+    s.itemId.length > 0 &&
+    typeof s.startMin === "number" &&
+    Number.isFinite(s.startMin) &&
+    typeof s.endMin === "number" &&
+    Number.isFinite(s.endMin)
+  );
+}
+
+/** op を undo するのに必要な snapshot が揃っているか。欠けていれば理由を返す。 */
+export function opUndoIssues(op: ChangeOp): string[] {
+  const errs: string[] = [];
+  if (op.kind === "add") {
+    if (!isSnapshotRestorable(op.after)) errs.push(`add ${op.itemId}: after snapshot incomplete`);
+  } else if (op.kind === "remove") {
+    if (!isSnapshotRestorable(op.before)) {
+      errs.push(`remove ${op.itemId}: before snapshot incomplete (cannot restore)`);
+    }
+  } else {
+    if (!isSnapshotRestorable(op.before)) errs.push(`update ${op.itemId}: before snapshot incomplete`);
+    if (!isSnapshotRestorable(op.after)) errs.push(`update ${op.itemId}: after snapshot incomplete`);
+  }
+  return errs;
+}
+
+/** change-set 全体が atomic に undo 可能か（全 op に必要な snapshot が揃うか）。 */
+export function validateUndoability(cs: ChangeSet): { ok: boolean; errors: string[] } {
+  const errors = cs.ops.flatMap(opUndoIssues);
+  return { ok: errors.length === 0, errors };
+}
+
 // --- Undo entry / window (INV-24: 5min 最低保証, bulk は session 復元) ---
 
 export const DEFAULT_MIN_UNDO_WINDOW_MIN = 5;

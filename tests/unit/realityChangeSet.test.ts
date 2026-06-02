@@ -7,6 +7,8 @@ import {
   changeSetRequiresConfirmation,
   makeUndoEntry,
   isUndoable,
+  isSnapshotRestorable,
+  validateUndoability,
   DEFAULT_MIN_UNDO_WINDOW_MIN,
   type ChangeOp,
   type ChangeSet,
@@ -155,5 +157,40 @@ describe("reality/change-set — Undo window (INV-24: 5min min, bulk session)", 
     const set = cs("s", [{ kind: "add", itemId: "a", after: snap("a") }]);
     const entry = makeUndoEntry(set, 0);
     expect(entry.inverted.ops[0].kind).toBe("remove");
+  });
+});
+
+describe("reality/change-set — snapshot completeness (GPT audit: undo は snapshot 完全性が命)", () => {
+  it("isSnapshotRestorable requires itemId + timing", () => {
+    expect(isSnapshotRestorable(snap("a"))).toBe(true);
+    expect(isSnapshotRestorable({ itemId: "a" })).toBe(false); // timing 欠落
+    expect(isSnapshotRestorable({ itemId: "a", startMin: 540 })).toBe(false); // endMin 欠落
+    expect(isSnapshotRestorable({ itemId: "", startMin: 1, endMin: 2 })).toBe(false); // id 欠落
+  });
+
+  it("complete change-set is undoable", () => {
+    const set = cs("s", [
+      { kind: "add", itemId: "a", after: snap("a") },
+      { kind: "remove", itemId: "b", before: snap("b") },
+      { kind: "update", itemId: "c", before: snap("c", { startMin: 1, endMin: 2 }), after: snap("c", { startMin: 3, endMin: 4 }) },
+    ]);
+    expect(validateUndoability(set).ok).toBe(true);
+  });
+
+  it("remove with incomplete before snapshot CANNOT be undone (fail)", () => {
+    const set = cs("s", [{ kind: "remove", itemId: "b", before: { itemId: "b" } }]);
+    const res = validateUndoability(set);
+    expect(res.ok).toBe(false);
+    expect(res.errors[0]).toContain("cannot restore");
+  });
+
+  it("add with incomplete after snapshot CANNOT be undone (fail)", () => {
+    const set = cs("s", [{ kind: "add", itemId: "a", after: { itemId: "a" } }]);
+    expect(validateUndoability(set).ok).toBe(false);
+  });
+
+  it("update missing either side fails", () => {
+    const set = cs("s", [{ kind: "update", itemId: "c", before: { itemId: "c" }, after: snap("c") }]);
+    expect(validateUndoability(set).ok).toBe(false);
   });
 });
