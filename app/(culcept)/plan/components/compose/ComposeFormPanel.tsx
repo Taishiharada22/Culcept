@@ -14,7 +14,7 @@
  *   動かせなさは日付横の SVG トグルへ移動（本パネルから撤去）。
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
@@ -44,19 +44,22 @@ export function ComposeFormPanel({
   const activityKey = classifyActivityIconKey(core.title);
   const companions = core.companions ?? [];
 
-  // ④ Phase 1a: 「よく行く」(頻度) + 「この予定」(title 連動) を reactive に導出。
+  // 「よく行く」(頻度・どこで欄に常時) + 「この予定」(title 連動・活動SVG クリックで) を reactive に導出。
   const { frequent, forTitle } = useMemo(
     () => deriveLocationChips(locationUsages ?? [], { title: core.title }),
     [locationUsages, core.title],
   );
   const titleTrim = core.title.trim();
-  const forTitleLabel = titleTrim
-    ? `「${titleTrim.length > 10 ? `${titleTrim.slice(0, 10)}…` : titleTrim}」の場所`
-    : undefined;
+  // ① 活動SVG クリックで「この予定なら、ここでは？」候補を出す popover の開閉。
+  const [showPlaces, setShowPlaces] = useState(false);
+  const titleShort = titleTrim.length > 12 ? `${titleTrim.slice(0, 12)}…` : titleTrim;
+  const pickLocation = (text: string, category?: ComposeDraftCore["locationCategory"]) => {
+    onCoreChange?.(category ? { locationText: text, locationCategory: category } : { locationText: text });
+  };
 
   return (
     <div data-testid="compose-form-panel" className="space-y-3">
-      {/* ① なにをする？ — 右端に内容別アイコン */}
+      {/* ① なにをする？ — 右端の内容別アイコンを**クリック → この予定の場所候補** */}
       <Question label="なにをする？">
         <div className="relative">
           <input
@@ -67,10 +70,64 @@ export function ComposeFormPanel({
             placeholder="クライアントミーティング / 企画書 等"
             className="w-full rounded-lg border border-slate-200 py-2 pl-3 pr-9 text-sm focus:outline-none focus-visible:border-slate-300"
           />
-          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-indigo-400">
+          <button
+            type="button"
+            data-testid="compose-activity-places-trigger"
+            data-enabled={titleTrim ? "true" : "false"}
+            aria-label="この予定の場所候補"
+            aria-expanded={showPlaces}
+            title={
+              titleTrim
+                ? "この予定でよく行く場所"
+                : "予定を入力すると候補が出ます"
+            }
+            disabled={!titleTrim}
+            onClick={() => setShowPlaces((v) => !v)}
+            className={
+              "absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full transition " +
+              (titleTrim
+                ? "text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
+                : "cursor-not-allowed text-slate-300")
+            }
+          >
             <ActivityIcon iconKey={activityKey} />
-          </span>
+          </button>
         </div>
+        {/* 活動SVG クリック → 予定内容連動の場所候補（「この予定なら、ここでは？」）。
+            1タップで「どこで？」に反映。自動確定なし・外部検索なし・履歴 derive。 */}
+        {showPlaces && titleTrim && (
+          <div
+            data-testid="compose-activity-places"
+            className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2"
+          >
+            <p className="mb-1 text-[11px] font-medium text-indigo-500">
+              「{titleShort}」でよく行く
+            </p>
+            {forTitle.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {forTitle.map((c) => (
+                  <button
+                    key={c.text}
+                    type="button"
+                    data-testid="compose-activity-place-chip"
+                    onClick={() => {
+                      pickLocation(c.text, c.category);
+                      setShowPlaces(false);
+                    }}
+                    title={c.text}
+                    className="max-w-[160px] truncate rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
+                  >
+                    {c.text}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400">
+                この予定の場所履歴はまだありません
+              </p>
+            )}
+          </div>
+        )}
       </Question>
 
       {/* ② どこで？ — 左に location アイコン ＋ 実候補検索 */}
@@ -88,20 +145,13 @@ export function ComposeFormPanel({
             className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus-visible:border-slate-300"
           />
         </div>
-        {/* ④ Phase 1a: 未入力時に「よく行く（頻度）/ この予定（title連動）」を外部検索の上に。
+        {/* どこで欄の補助は「よく行く（頻度）」のみ常時表示（① で「この予定」は活動SVGへ移設）。
             1タップで text(+category) 確定。自動確定しない。入力中は外部検索に委譲。 */}
         {core.locationText.trim().length === 0 && (
           <LocationHistoryChips
             frequent={frequent}
-            forTitle={forTitle}
-            forTitleLabel={forTitleLabel}
-            onPick={(chip) =>
-              onCoreChange?.(
-                chip.category
-                  ? { locationText: chip.text, locationCategory: chip.category }
-                  : { locationText: chip.text },
-              )
-            }
+            forTitle={[]}
+            onPick={(chip) => pickLocation(chip.text, chip.category)}
           />
         )}
         {/* 当初仕様: 既存 PlaceCandidatesPanel（/api/plan/places/search）。非強制・自己 gate */}

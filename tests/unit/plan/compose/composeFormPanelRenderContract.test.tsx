@@ -111,10 +111,21 @@ describe("④ Phase 1a 場所履歴チップ（具体的のみ + title 連動）
     expect(html).toContain("渋谷オフィス");
   });
 
-  it("② title='勉強' → 「勉強」連動で 自習室 KAKOI を提示", () => {
+  it("① title='勉強' → 活動SVG が有効。「この予定」候補は どこで欄に自動表示しない（SVGへ移設）", () => {
     const html = render2(core({ title: "勉強" }), USAGES);
-    expect(html).toContain("「勉強」の場所");
-    expect(html).toContain("自習室 KAKOI");
+    expect(html).toContain('data-testid="compose-activity-places-trigger"');
+    expect(html).toContain('data-enabled="true"'); // title 有 → SVG 有効
+    // クリック前なので候補 popover は出ない（SSR は showPlaces=false）
+    expect(html).not.toContain('data-testid="compose-activity-places"');
+    // 「この予定」候補(自習室 KAKOI) は どこで欄の自動チップには出さない
+    expect(html).not.toContain("自習室 KAKOI");
+  });
+
+  it("① title 空なら 活動SVG は disabled（tooltip 案内）", () => {
+    const html = render2(core({ title: "" }), USAGES);
+    expect(html).toContain('data-testid="compose-activity-places-trigger"');
+    expect(html).toContain('data-enabled="false"');
+    expect(html).toContain("予定を入力すると候補が出ます");
   });
 
   it("① 長押し詳細は初期表示では出ない（長押し操作時のみ）", () => {
