@@ -156,8 +156,9 @@ export function ComposeTimeField({ time, onTimeChange }: ComposeTimeFieldProps) 
           />
         </Column>
 
-        <div className="space-y-0.5">
-          <p className="text-center text-[10px] font-medium text-slate-500">
+        {/* 間隔 = 所要（開始/終了 から導出）。indigo tint で時刻 2 列と区別。 */}
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 px-1 pb-1 pt-0.5">
+          <p className="text-center text-[11px] font-semibold text-indigo-500">
             {fine ? "間隔(分)" : "間隔"}
           </p>
           <div
@@ -189,11 +190,11 @@ function Column({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-0.5">
-      <p className="text-center text-[10px] font-medium text-slate-500">
+    <div className="rounded-xl border border-slate-200 bg-white px-1 pb-1 pt-0.5">
+      <p className="text-center text-[11px] font-semibold text-slate-600">
         {label}
       </p>
-      <div className="flex items-center gap-0.5">{children}</div>
+      <div className="flex items-center justify-center gap-0.5">{children}</div>
     </div>
   );
 }
