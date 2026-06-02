@@ -35,7 +35,12 @@ import {
 } from "@/lib/plan/compose/composeTimeResolver";
 import { planComposeSave } from "@/lib/plan/compose/composeToAnchorInput";
 import type { LocationUsage } from "@/lib/plan/compose/locationHistory";
-import { createAnchorBundle } from "@/lib/plan/anchor-fetch";
+import {
+  type ComposeEditable,
+  buildEditPatch,
+  splitDraftsForSave,
+} from "@/lib/plan/compose/composeEdit";
+import { createAnchorBundle, updateAnchor } from "@/lib/plan/anchor-fetch";
 import {
   DEFAULT_WINDOW_START_MIN,
   DEFAULT_WINDOW_END_MIN,
@@ -76,8 +81,9 @@ export interface AddAnchorComposeContainerProps {
   onNextDay?: () => void;
   /** 保存成功後（PlanClient: load() + close） */
   onSaved?: () => void;
-  /** ②-2: 既存(保存済)予定 block クリック → 編集（PlanClient が anchor を引いて EditAnchorModal を開く） */
-  onEditExisting?: (anchorId: string) => void;
+  /** ②-3: 既存(保存済)予定の編集ロード用データ（PlanClient が当日 anchor から抽出）。
+   * 既存 block クリック → これを右フォームにロードしてインライン編集 → 完了で PATCH。 */
+  existingEditable?: Record<string, ComposeEditable>;
   /** ④ Phase 1a: 場所利用ログ（PlanClient が全 anchor から抽出・任意）。panel が title 連動で集計 */
   locationUsages?: LocationUsage[];
   // ── テスト / 将来の prefill 用（optional） ──
@@ -122,7 +128,7 @@ export function AddAnchorComposeContainer({
   onPrevDay,
   onNextDay,
   onSaved,
-  onEditExisting,
+  existingEditable,
   locationUsages,
   initialState,
   initialActiveId,
@@ -290,6 +296,31 @@ export function AddAnchorComposeContainer({
   const handleUnplaceBlock = (id: string) => dispatch({ type: "unplace", id });
   // ②-1: placed draft をクリック → 右フォーム編集対象に（compose state 内で完結・保存契約不変）。
   const handleBlockSelect = (id: string) => setActiveId(id);
+  // ②-3: 既存(保存済)予定をクリック → 右フォームにインライン編集ロード（完了で PATCH 振り分け）。
+  const handleExistingSelect = (anchorId: string) => {
+    const already = state.drafts.find((d) => d.editingAnchorId === anchorId);
+    if (already) {
+      setActiveId(already.id);
+      return;
+    }
+    const e = existingEditable?.[anchorId];
+    if (!e) return;
+    const id = `edit-${anchorId}`;
+    dispatch({
+      type: "loadEdit",
+      id,
+      core: e.core,
+      startMin: e.startMin,
+      endMin: e.endMin,
+      editingAnchorId: anchorId,
+    });
+    setActiveId(id);
+  };
+  // ②-3: 編集キャンセル → 編集 draft を破棄（既存ブロック復帰）し新規作成に戻す。
+  const handleCancelEdit = (id: string) => {
+    dispatch({ type: "remove", id });
+    createNewActiveDraft();
+  };
   // P4-4: 左 timeline で移動/伸縮 → placement+time 更新 ＋ その予定を編集対象に（ホイール同期）。
   const handleBlockReposition = (
     id: string,
@@ -329,9 +360,11 @@ export function AddAnchorComposeContainer({
   }>({ status: "idle" });
 
   async function handleComplete() {
-    const plan = planComposeSave(state.drafts, dateISO);
-    // 配置なし / 日跨ぎのみ等で保存対象が空 → API を呼ばず警告のみ（CEO 2026-06-01）
-    if (plan.kind === "nothing_to_save") {
+    // ②-3: 編集 draft(editingAnchorId 有) と 新規 draft を分離（保存契約安全の核）。
+    const { edits, news } = splitDraftsForSave(state.drafts);
+    // **新規分だけ** planComposeSave（編集 draft を絶対に POST しない＝重複作成・契約破壊防止）。
+    const plan = planComposeSave(news, dateISO);
+    if (edits.length === 0 && plan.kind === "nothing_to_save") {
       setSaveState({
         status: "error",
         message:
@@ -342,16 +375,31 @@ export function AddAnchorComposeContainer({
       return;
     }
     setSaveState({ status: "saving" });
-    const r = await createAnchorBundle({
-      source: { sourceType: "manual" },
-      anchors: plan.inputs,
-    });
-    if (r.ok) {
-      setSaveState({ status: "idle" });
-      onSaved?.();
-    } else {
-      setSaveState({ status: "error", message: r.error });
+    // ② 編集分は PATCH（updateAnchor・既存経路再利用。新規契約なし）。
+    for (const ed of edits) {
+      if (!ed.editingAnchorId) continue;
+      const r = await updateAnchor(ed.editingAnchorId, buildEditPatch(ed));
+      if (!r.ok) {
+        setSaveState({
+          status: "error",
+          message: r.error ?? "予定の更新に失敗しました",
+        });
+        return;
+      }
     }
+    // 新規分は POST（従来）。
+    if (plan.kind === "save") {
+      const r = await createAnchorBundle({
+        source: { sourceType: "manual" },
+        anchors: plan.inputs,
+      });
+      if (!r.ok) {
+        setSaveState({ status: "error", message: r.error });
+        return;
+      }
+    }
+    setSaveState({ status: "idle" });
+    onSaved?.();
   }
 
   // 日跨ぎ警告（保存しない・A-0-1）+ 保存エラーの notice
@@ -398,7 +446,11 @@ export function AddAnchorComposeContainer({
         activeDraft.placement.status === "placed" ? activeDraft.id : undefined
       }
       onNewDraft={createNewActiveDraft}
-      onExistingSelect={onEditExisting}
+      onExistingSelect={handleExistingSelect}
+      editingAnchorIds={state.drafts
+        .filter((d) => d.editingAnchorId)
+        .map((d) => d.editingAnchorId as string)}
+      onCancelEdit={handleCancelEdit}
       nowMin={nowMin}
       heightPx={heightPx}
       locationUsages={locationUsages}

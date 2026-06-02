@@ -171,3 +171,49 @@ describe("§6 ②-1 placed draft の再編集", () => {
     expect(html).toContain('data-active="true"');
   });
 });
+
+describe("§7 ②-3 既存予定のインライン編集", () => {
+  const EDITING: ComposeDraftState = {
+    id: "edit-ex-lunch",
+    core: { title: "ランチ会", locationText: "渋谷", rigidity: "hard" },
+    time: { mode: "both", startMin: 750, endMin: 810 },
+    placement: {
+      status: "placed",
+      startMin: 750,
+      endMin: 810,
+      crossesMidnight: false,
+      edgeClamped: false,
+    },
+    editingAnchorId: "ex-lunch",
+  };
+  const renderEditing = () =>
+    renderToStaticMarkup(
+      <AddAnchorComposeSheet
+        isOpen
+        onClose={noop}
+        dateLabel="6/1(月)"
+        existingBlocks={EXISTING}
+        drafts={[EDITING]}
+        activeDraft={EDITING}
+        editingAnchorIds={["ex-lunch"]}
+        onCancelEdit={noop}
+      />,
+    );
+
+  it("既存編集中 → amber バー(existing) + キャンセル、＋新しい予定は出さない", () => {
+    const html = renderEditing();
+    expect(html).toContain('data-testid="compose-editing-bar"');
+    expect(html).toContain('data-mode="existing"');
+    expect(html).toContain("既存の予定");
+    expect(html).toContain('data-testid="compose-cancel-edit"');
+    expect(html).not.toContain('data-testid="compose-new-draft"');
+  });
+
+  it("編集中の既存ブロックは隠す（編集 draft と二重表示しない）", () => {
+    const html = renderEditing();
+    // ex-lunch（既存）は editingAnchorIds に含まれ非表示
+    expect(html).not.toContain('data-testid="compose-block-ex-lunch"');
+    // 代わりに編集 draft ブロックが出る
+    expect(html).toContain('data-testid="compose-block-edit-ex-lunch"');
+  });
+});

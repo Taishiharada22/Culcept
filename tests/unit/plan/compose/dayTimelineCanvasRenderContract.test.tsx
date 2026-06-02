@@ -202,6 +202,31 @@ describe("②-2 既存予定のクリック編集（onExistingSelect）", () => 
   });
 });
 
+describe("②-3 既存編集中の amber + 脈動", () => {
+  it("activeBlockId + activeIsEditing → 脈動リング（compose-block-editing-pulse）", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={BLOCKS}
+        onBlockSelect={() => undefined}
+        activeBlockId="dr-mtg"
+        activeIsEditing
+      />,
+    );
+    expect(html).toContain('data-testid="compose-block-editing-pulse"');
+  });
+
+  it("activeIsEditing 無し（新規 active）は脈動なし", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas
+        blocks={BLOCKS}
+        onBlockSelect={() => undefined}
+        activeBlockId="dr-mtg"
+      />,
+    );
+    expect(html).not.toContain('data-testid="compose-block-editing-pulse"');
+  });
+});
+
 describe("現在時刻ライン（UI-polish・対象日=今日のときのみ）", () => {
   it("nowMin が可視窓内なら現在時刻ラインを描画", () => {
     const html = renderToStaticMarkup(

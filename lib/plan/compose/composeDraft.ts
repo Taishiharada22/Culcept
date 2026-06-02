@@ -44,6 +44,12 @@ export interface ComposeDraftState {
   core: ComposeDraftCore;
   time: ComposeTimeConstraint;
   placement: ComposePlacement;
+  /**
+   * ②-3: 保存済 anchor のインライン編集中なら、その anchor id。
+   * - 設定時、「完了」は新規作成(POST)ではなく **PATCH(updateAnchor)** に振り分ける。
+   * - 編集 draft を絶対に POST しない＝重複作成なし・保存契約を壊さない核。
+   */
+  editingAnchorId?: string;
 }
 
 export interface ComposeState {
@@ -84,7 +90,19 @@ export type ComposeAction =
   | { type: "unplace"; id: string }
   | { type: "remove"; id: string }
   /** P4-4: 左 timeline での移動 / 伸縮。placement と time を同時更新（ホイールと同期）。 */
-  | { type: "reposition"; id: string; startMin: number; endMin: number };
+  | { type: "reposition"; id: string; startMin: number; endMin: number }
+  /**
+   * ②-3: 既存 anchor をインライン編集用に**配置済み draft として一括ロード**。
+   * core + 時刻(both) + placement(placed) + editingAnchorId を一発で作る。
+   */
+  | {
+      type: "loadEdit";
+      id: string;
+      core: ComposeDraftCore;
+      startMin: number;
+      endMin: number;
+      editingAnchorId: string;
+    };
 
 /**
  * pure reducer。id は外部生成（Date.now / Math.random を内部で使わず決定論的）。
@@ -152,6 +170,28 @@ export function composeReducer(
           },
         };
       });
+    case "loadEdit": {
+      if (state.drafts.some((d) => d.id === action.id)) return state; // 冪等
+      const startMin = Math.max(0, Math.min(1439, Math.round(action.startMin)));
+      const endMin = Math.max(
+        startMin + 5,
+        Math.min(1439, Math.round(action.endMin)),
+      );
+      const draft: ComposeDraftState = {
+        id: action.id,
+        core: { ...emptyDraftCore(), ...action.core },
+        time: { mode: "both", startMin, endMin },
+        placement: {
+          status: "placed",
+          startMin,
+          endMin,
+          crossesMidnight: false,
+          edgeClamped: false,
+        },
+        editingAnchorId: action.editingAnchorId,
+      };
+      return { drafts: [...state.drafts, draft] };
+    }
     case "remove":
       return { drafts: state.drafts.filter((d) => d.id !== action.id) };
   }

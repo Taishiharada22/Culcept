@@ -69,6 +69,8 @@ export interface DayTimelineCanvasProps {
   onBlockSelect?: (id: string) => void;
   /** ②-1: 編集中（active）の placed draft block id。ハイライト表示用。 */
   activeBlockId?: string;
+  /** ②-3: active block が「既存予定のインライン編集」なら true（amber + 脈動の編集アクセント）。 */
+  activeIsEditing?: boolean;
   /** ②-2: 既存(保存済)予定 block の**クリック → 編集**（PlanClient が EditAnchorModal を開く）。 */
   onExistingSelect?: (id: string) => void;
   /**
@@ -110,6 +112,7 @@ export function DayTimelineCanvas({
   onBlockReposition,
   onBlockSelect,
   activeBlockId,
+  activeIsEditing,
   onExistingSelect,
   nowMin,
 }: DayTimelineCanvasProps) {
@@ -323,6 +326,8 @@ export function DayTimelineCanvas({
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
           const isExisting = b.tone === "existing";
           const isActive = !isExisting && b.id === activeBlockId;
+          // ②-3: 既存予定のインライン編集中（amber + 脈動）。新規 draft の active(indigo) と区別。
+          const isActiveEdit = isActive && !!activeIsEditing;
           const showControls = !isExisting && (onRemoveBlock || onUnplaceBlock);
           const repositionable = !isExisting && !!onBlockReposition;
           // ②-1: クリックで編集（draft のみ）。reposition か select があれば interactive。
@@ -331,11 +336,14 @@ export function DayTimelineCanvas({
           const existingClickable = isExisting && !!onExistingSelect;
           const toneClass = isExisting
             ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
-            : isActive
-              ? // 編集中（active）= indigo ring で「これを編集している」と明示。
-                "border-indigo-400 bg-violet-100 text-violet-900 ring-2 ring-indigo-400 shadow-violet-200/60"
-              : // placed(draft) = 主役。ring + 濃い枠 + tinted shadow で既存パステルより前に出す。
-                "border-violet-300 bg-violet-100 text-violet-800 ring-1 ring-violet-300/60 shadow-violet-200/60";
+            : isActiveEdit
+              ? // ②-3 既存予定を編集中 = amber 編集アクセント（既存データを変更中の注意喚起）。
+                "border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400 shadow-amber-200/60"
+              : isActive
+                ? // ②-1 新規 draft を編集中（active）= indigo ring。
+                  "border-indigo-400 bg-violet-100 text-violet-900 ring-2 ring-indigo-400 shadow-violet-200/60"
+                : // placed(draft) = 主役。ring + 濃い枠 + tinted shadow で既存パステルより前に出す。
+                  "border-violet-300 bg-violet-100 text-violet-800 ring-1 ring-violet-300/60 shadow-violet-200/60";
           // 重なり横分割（UI-5）。重なりなしは全幅。
           const slot = laneMap.get(b.id) ?? { lane: 0, lanes: 1 };
           const widthPct = 100 / slot.lanes;
@@ -374,6 +382,14 @@ export function DayTimelineCanvas({
                 width: `calc(${widthPct}% - 2px)`,
               }}
             >
+              {/* ②-3: 既存編集中の脈動リング（ゆっくり明滅＝いま編集中の生きた焦点・操作非干渉）。 */}
+              {isActiveEdit && (
+                <span
+                  data-testid="compose-block-editing-pulse"
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 animate-pulse rounded-lg ring-2 ring-amber-400"
+                />
+              )}
               {repositionable && (
                 <>
                   <span

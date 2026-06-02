@@ -128,6 +128,10 @@ import {
   extractLocationUsages,
   type LocationUsage,
 } from "@/lib/plan/compose/locationHistory";
+import {
+  anchorsToComposeEditable,
+  type ComposeEditable,
+} from "@/lib/plan/compose/composeEdit";
 import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -453,6 +457,14 @@ export default function PlanClient({
   const composeExistingBlocks = useMemo<TimelineBlock[]>(() => {
     if (!composeTargetUTC || state.kind !== "ok") return [];
     return anchorsToTimelineBlocks(
+      anchorsForDay([...state.anchors], composeTargetUTC),
+    );
+  }, [composeTargetUTC, state]);
+
+  // ②-3: 当日既存予定 → インライン編集ロード用（block id=anchor id で対応）。
+  const composeEditable = useMemo<Record<string, ComposeEditable>>(() => {
+    if (!composeTargetUTC || state.kind !== "ok") return {};
+    return anchorsToComposeEditable(
       anchorsForDay([...state.anchors], composeTargetUTC),
     );
   }, [composeTargetUTC, state]);
@@ -942,14 +954,7 @@ export default function PlanClient({
             existingBlocks={composeExistingBlocks}
             locationUsages={composeLocationUsages}
             onSaved={handleAddSuccess}
-            onEditExisting={(id) => {
-              // ②-2: 既存予定 block クリック → 既存 EditAnchorModal（更新経路再利用）。
-              const a =
-                state.kind === "ok"
-                  ? state.anchors.find((x) => x.id === id)
-                  : undefined;
-              if (a) openEdit(a);
-            }}
+            existingEditable={composeEditable}
           />
         ) : null
       ) : (
