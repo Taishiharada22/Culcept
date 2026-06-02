@@ -132,6 +132,54 @@ describe("unplace / remove", () => {
   });
 });
 
+describe("reposition（P4-4・左 timeline の移動/伸縮）", () => {
+  function placed(id: string) {
+    let s = withDraft(id, { title: "会議", locationText: "渋谷" });
+    return composeReducer(s, { type: "place", id, dropStartMin: 900 });
+  }
+
+  it("placement と time を同時更新（ホイール同期）", () => {
+    let s = placed("d1");
+    s = composeReducer(s, {
+      type: "reposition",
+      id: "d1",
+      startMin: 960,
+      endMin: 1080,
+    });
+    const d = s.drafts[0];
+    expect(d.placement).toMatchObject({
+      status: "placed",
+      startMin: 960,
+      endMin: 1080,
+    });
+    expect(d.time).toEqual({ mode: "both", startMin: 960, endMin: 1080 });
+  });
+
+  it("終了<開始は最低5分に矯正", () => {
+    let s = placed("d1");
+    s = composeReducer(s, {
+      type: "reposition",
+      id: "d1",
+      startMin: 1000,
+      endMin: 980,
+    });
+    const p = s.drafts[0].placement;
+    expect(p.status).toBe("placed");
+    if (p.status === "placed") expect(p.endMin).toBe(p.startMin + 5);
+  });
+
+  it("unplaced には無効（placed のみ対象）", () => {
+    let s = withDraft("d1", { title: "会議", locationText: "渋谷" });
+    s = composeReducer(s, {
+      type: "reposition",
+      id: "d1",
+      startMin: 600,
+      endMin: 660,
+    });
+    expect(s.drafts[0].placement.status).toBe("unplaced");
+  });
+});
+
 describe("hasUnsavedPlaced（日付切替ブロック判定・A-0-3）", () => {
   it("placed が 1 件でもあれば true", () => {
     let s = withDraft("d1", { title: "会議", locationText: "渋谷" });

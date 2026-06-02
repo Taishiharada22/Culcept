@@ -127,3 +127,18 @@ describe("重なり lane 分割（UI-5）", () => {
     expect(render()).toContain('data-lanes="1"');
   });
 });
+
+describe("placed block の移動/伸縮ハンドル（P4-4）", () => {
+  it("onBlockReposition 指定時、draft block にのみ resize ハンドル", () => {
+    const html = renderToStaticMarkup(
+      <DayTimelineCanvas blocks={BLOCKS} onBlockReposition={() => undefined} />,
+    );
+    expect(html).toContain('data-testid="compose-block-resize-top-dr-mtg"');
+    expect(html).toContain('data-testid="compose-block-resize-bottom-dr-mtg"');
+    expect(html).not.toContain('data-testid="compose-block-resize-top-ex-lunch"');
+  });
+
+  it("未指定ならハンドルなし", () => {
+    expect(render()).not.toContain('data-testid="compose-block-resize-top-dr-mtg"');
+  });
+});

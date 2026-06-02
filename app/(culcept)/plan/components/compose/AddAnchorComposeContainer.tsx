@@ -221,6 +221,15 @@ export function AddAnchorComposeContainer({
   // ── placed の削除 / 戻す（A-0-4） ──
   const handleRemoveBlock = (id: string) => dispatch({ type: "remove", id });
   const handleUnplaceBlock = (id: string) => dispatch({ type: "unplace", id });
+  // P4-4: 左 timeline で移動/伸縮 → placement+time 更新 ＋ その予定を編集対象に（ホイール同期）。
+  const handleBlockReposition = (
+    id: string,
+    startMin: number,
+    endMin: number,
+  ) => {
+    dispatch({ type: "reposition", id, startMin, endMin });
+    setActiveId(id);
+  };
 
   // ── 日付切替（A-0-3・未保存があれば確認） ──
   const requestDateChange = (dir: "prev" | "next") => {
@@ -314,6 +323,7 @@ export function AddAnchorComposeContainer({
       renderCard={renderCard}
       onRemoveBlock={handleRemoveBlock}
       onUnplaceBlock={handleUnplaceBlock}
+      onBlockReposition={handleBlockReposition}
       confirmOverlay={
         <DateChangeConfirmDialog
           isOpen={confirm.open}

@@ -15,12 +15,16 @@
  * 範囲外: ドラッグ検知そのもの（container が担当）/ 保存 / PlanClient / 候補検索。
  */
 
+import { useRef } from "react";
+
 import {
   DEFAULT_WINDOW_START_MIN,
   DEFAULT_WINDOW_END_MIN,
   formatMinutes,
   layoutLanes,
   minutesToY,
+  pxPerMin,
+  snapMinutes,
   type TimelineViewport,
 } from "@/lib/plan/timeline-geometry";
 
@@ -59,7 +63,12 @@ export interface DayTimelineCanvasProps {
   onRemoveBlock?: (id: string) => void;
   /** A-3: 配置済み draft block を未配置へ戻す（指定時のみ ↩ ボタン描画） */
   onUnplaceBlock?: (id: string) => void;
+  /** P4-4: 配置済み draft block の移動 / 伸縮（指定時のみドラッグ可能化） */
+  onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
 }
+
+const RESIZE_ZONE_PX = 8;
+const DRAG_SNAP = 5;
 
 /** 俯瞰タイムラインの既定高（px）。container の drop 計算 VIEWPORT と一致させる単一ソース（UI-1）。 */
 export const TIMELINE_HEIGHT_PX = 440;
@@ -83,6 +92,7 @@ export function DayTimelineCanvas({
   ghost = null,
   onRemoveBlock,
   onUnplaceBlock,
+  onBlockReposition,
 }: DayTimelineCanvasProps) {
   const vp: TimelineViewport = {
     startMin: windowStartMin,
@@ -97,6 +107,69 @@ export function DayTimelineCanvas({
 
   // 重なりブロックの横分割（UI-5・表示専用。X のみ＝drop 計算に非干渉）。
   const laneMap = layoutLanes(blocks);
+
+  // ── P4-4: placed block の移動 / 伸縮（Y のみ・drop 配置とは別経路） ──
+  const ppm = pxPerMin(vp);
+  const dragRef = useRef<{
+    id: string;
+    mode: "move" | "resize-top" | "resize-bottom";
+    startClientY: number;
+    origStart: number;
+    origEnd: number;
+  } | null>(null);
+
+  const handleBlockPointerDown = (
+    b: TimelineBlock,
+    e: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    if (!onBlockReposition || (e.target as HTMLElement).closest("button")) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offY = e.clientY - rect.top;
+    const mode =
+      offY < RESIZE_ZONE_PX
+        ? "resize-top"
+        : offY > rect.height - RESIZE_ZONE_PX
+          ? "resize-bottom"
+          : "move";
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+    dragRef.current = {
+      id: b.id,
+      mode,
+      startClientY: e.clientY,
+      origStart: b.startMin,
+      origEnd: b.endMin,
+    };
+  };
+
+  const handleBlockPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const dg = dragRef.current;
+    if (!dg || !onBlockReposition || ppm === 0) return;
+    const deltaMin = snapMinutes((e.clientY - dg.startClientY) / ppm, DRAG_SNAP);
+    if (dg.mode === "move") {
+      const dur = dg.origEnd - dg.origStart;
+      const ns = Math.max(0, Math.min(1439 - dur, dg.origStart + deltaMin));
+      onBlockReposition(dg.id, ns, ns + dur);
+    } else if (dg.mode === "resize-top") {
+      const ns = Math.max(0, Math.min(dg.origEnd - 5, dg.origStart + deltaMin));
+      onBlockReposition(dg.id, ns, dg.origEnd);
+    } else {
+      const ne = Math.max(dg.origStart + 5, Math.min(1439, dg.origEnd + deltaMin));
+      onBlockReposition(dg.id, dg.origStart, ne);
+    }
+  };
+
+  const endBlockDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+  };
 
   return (
     <div
@@ -153,6 +226,7 @@ export function DayTimelineCanvas({
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
           const isExisting = b.tone === "existing";
           const showControls = !isExisting && (onRemoveBlock || onUnplaceBlock);
+          const repositionable = !isExisting && !!onBlockReposition;
           const toneClass = isExisting
             ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
             : "border-violet-200 bg-violet-100 text-violet-700";
@@ -166,9 +240,17 @@ export function DayTimelineCanvas({
               data-testid={`compose-block-${b.id}`}
               data-tone={b.tone}
               data-lanes={slot.lanes}
+              onPointerDown={
+                repositionable ? (e) => handleBlockPointerDown(b, e) : undefined
+              }
+              onPointerMove={repositionable ? handleBlockPointerMove : undefined}
+              onPointerUp={repositionable ? endBlockDrag : undefined}
               className={
                 "group absolute overflow-hidden rounded-lg border px-2 py-0.5 text-[10px] leading-tight shadow-sm " +
-                toneClass
+                toneClass +
+                (repositionable
+                  ? " cursor-grab touch-none select-none active:cursor-grabbing"
+                  : "")
               }
               style={{
                 top,
@@ -177,6 +259,24 @@ export function DayTimelineCanvas({
                 width: `calc(${widthPct}% - 2px)`,
               }}
             >
+              {repositionable && (
+                <>
+                  <span
+                    data-testid={`compose-block-resize-top-${b.id}`}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 top-0 flex h-2 items-start justify-center"
+                  >
+                    <span className="mt-px h-0.5 w-5 rounded-full bg-violet-300/70" />
+                  </span>
+                  <span
+                    data-testid={`compose-block-resize-bottom-${b.id}`}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 flex h-2 items-end justify-center"
+                  >
+                    <span className="mb-px h-0.5 w-5 rounded-full bg-violet-300/70" />
+                  </span>
+                </>
+              )}
               <span className="block truncate pr-10 font-medium">{b.label}</span>
               <span className="block tabular-nums opacity-70">
                 {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}

@@ -82,7 +82,9 @@ export type ComposeAction =
   | { type: "setTime"; id: string; time: ComposeTimeConstraint }
   | { type: "place"; id: string; dropStartMin: number }
   | { type: "unplace"; id: string }
-  | { type: "remove"; id: string };
+  | { type: "remove"; id: string }
+  /** P4-4: 左 timeline での移動 / 伸縮。placement と time を同時更新（ホイールと同期）。 */
+  | { type: "reposition"; id: string; startMin: number; endMin: number };
 
 /**
  * pure reducer。id は外部生成（Date.now / Math.random を内部で使わず決定論的）。
@@ -129,6 +131,27 @@ export function composeReducer(
         ...d,
         placement: { status: "unplaced" },
       }));
+    case "reposition":
+      return mapDraft(state, action.id, (d) => {
+        if (d.placement.status !== "placed") return d;
+        const startMin = Math.max(0, Math.min(1439, Math.round(action.startMin)));
+        const endMin = Math.max(
+          startMin + 5,
+          Math.min(1439, Math.round(action.endMin)),
+        );
+        return {
+          ...d,
+          // 左 timeline の移動/伸縮を time（ホイール）にも反映＝双方向同期。
+          time: { mode: "both", startMin, endMin },
+          placement: {
+            status: "placed",
+            startMin,
+            endMin,
+            crossesMidnight: false,
+            edgeClamped: d.placement.edgeClamped,
+          },
+        };
+      });
     case "remove":
       return { drafts: state.drafts.filter((d) => d.id !== action.id) };
   }

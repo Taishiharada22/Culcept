@@ -64,6 +64,8 @@ export interface AddAnchorComposeSheetProps {
   renderCard?: (draft: ComposeDraftState) => ReactNode;
   onRemoveBlock?: (id: string) => void;
   onUnplaceBlock?: (id: string) => void;
+  /** P4-4: placed block の移動 / 伸縮 */
+  onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
   /** 日付切替確認ダイアログ等の overlay */
   confirmOverlay?: ReactNode;
   /** 完了ボタン上に出す通知（日跨ぎ警告 / 保存エラー等・A-4b） */
@@ -87,6 +89,7 @@ export function AddAnchorComposeSheet({
   renderCard,
   onRemoveBlock,
   onUnplaceBlock,
+  onBlockReposition,
   confirmOverlay,
   notice,
 }: AddAnchorComposeSheetProps) {
@@ -198,6 +201,7 @@ export function AddAnchorComposeSheet({
               ghost={ghost}
               onRemoveBlock={onRemoveBlock}
               onUnplaceBlock={onUnplaceBlock}
+              onBlockReposition={onBlockReposition}
             />
           </div>
 
