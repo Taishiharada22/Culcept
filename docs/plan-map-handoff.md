@@ -41,6 +41,7 @@
 - ルート線: **ガラス質ホログラム3層**（外側グロー + 半透明本体 + 白い芯）`buildGlassyLegLines` + `getRouteStyleForLeg`。
 - アニメ: 「中央を走る光」廃止 → `createRouteAuraAnimation`＝①current グローの**発光呼吸**（位置不動）+ ②次の目的地の**ノード発光鼓動**（拡大+フェード）。past=丸点線 `dottedRouteIcons`（純正 CIRCLE）。
 - frozen loader 不触のため local 型拡張: `RouteSymbol`(fill 追加)/`RouteRingIcon`(strokeOpacity)/`GmapsMarkerWithSetIcon`。
+- **設計決定の経緯（CEO の選択。再提案防止）**: アイコン=「手描き SVG」却下→Lucide 採用。線/動き=「中央を光が走る(flowing-light)」「ネオン発光チューブ」「呼吸のみ」を却下→**ガラス質ホログラム + ノード発光鼓動 + 発光呼吸**を採用。「速すぎるアニメ」「距離からの mode 推定」も明示的に却下済み。
 
 ### 1.2 S1-A 永続化（`8298642e`）
 - key: `plan-map:selectedModeByLeg:v1:${dayKey}`（`dayKey = selectedDate.toISOString().slice(0,10)`、当日スコープ）。
@@ -189,6 +190,7 @@
 - **検証コマンド**:
   - ESLint: `NODE_OPTIONS=--max-old-space-size=2048 npx eslint "app/(culcept)/plan/tabs/MapTab.tsx"`
   - tsc(全体・MapTab だけ抽出): `NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit -p tsconfig.json 2>&1 | grep MapTab.tsx`（**8192 必須・2048 では OOM**。dev server と同時実行はメモリ逼迫で crash 既往 → 単独で回す）。
+- **Google Directions API（運用前提）**: ルート線・所要時間比較は client `DirectionsService` の実呼び出しに依存。**未有効化だと `REQUEST_DENIED` → `directionsApiUnavailable=true` で session 中は試行停止し、線は直線 fallback・duration は「—」**になる（本セッション初期に GCP で Directions API 有効化済み。"急に出なくなった" 時は GCP キー/有効化/課金/リファラ制限を疑う）。browser key = `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY`。
 - **目視確認の限界**: /plan は認証壁。Playwright は別セッション（未ログイン）で実 localStorage/カードを見られない。runtime はユーザー実機確認に依存。
 
 ---
