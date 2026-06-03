@@ -156,11 +156,15 @@ export function MapTab({
   // 9 closeout: selectedDate は 「今日」 固定 (= DaySwitcher 削除済み)
   //   将来 day 切替再導入時は新設計で作り直す (= CEO Q3 判定)
   const selectedDate = todayDate;
+  // S1-A: 移動手段選択の永続化スコープ = 当日 (YYYY-MM-DD)。 別日に漏れないための日別キー。
+  //   utcMidnight 由来なので toISOString().slice(0,10) で安定した日付文字列になる。
+  const dayKey = selectedDate.toISOString().slice(0, 10);
 
   // ── selectedPinId state (= 旧 newSelectedPinId、 9 closeout で rename) ──
   //   default null = 8 場面表 #1 「初期 selected なし」
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
-  // v1 Step 2a: leg ごとのユーザー選択移動手段 (local state のみ、 DB 保存なし)
+  // S1-A: leg ごとのユーザー選択移動手段。 localStorage に当日スコープで永続化 (DB/Supabase なし)。
+  //   初期値は {} (= SSR と一致)、 復元は下の useEffect で mount 後に行う (hydration 不整合回避)。
   const [selectedModeByLeg, setSelectedModeByLeg] = useState<
     Record<string, RouteTransportMode>
   >({});
@@ -168,6 +172,11 @@ export function MapTab({
   const [openMobilityLegKey, setOpenMobilityLegKey] = useState<string | null>(
     null,
   );
+  // S1-A: 当日の保存済み移動手段を復元 (mount 後 client のみ)。 dayKey 変化で各日のスコープを読む。
+  //   破損/未保存/SSR は loadPersistedLegModes が {} を返す (fail-open)。
+  useEffect(() => {
+    setSelectedModeByLeg(loadPersistedLegModes(dayKey));
+  }, [dayKey]);
 
   // ── 当日 anchor 取得 (= recurring 展開 + exception_dates 全継承) ──
   const dayAnchors = useMemo(
@@ -305,9 +314,15 @@ export function MapTab({
   );
   const handleSelectLegMode = useCallback(
     (legKey: string, mode: RouteTransportMode) => {
-      setSelectedModeByLeg((prev) => ({ ...prev, [legKey]: mode }));
+      // S1-A: 選択を即 localStorage へ永続化 (best-effort)。 updater 内 save は冪等
+      //   (StrictMode の二重実行でも同一 JSON を書くだけ)。 reactive effect の初回上書きを避ける狙い。
+      setSelectedModeByLeg((prev) => {
+        const next = { ...prev, [legKey]: mode };
+        savePersistedLegModes(dayKey, next);
+        return next;
+      });
     },
-    [],
+    [dayKey],
   );
 
   // 開いている leg の card data (= from/to title + selectedMode + 過去判定 readOnly)
@@ -1321,6 +1336,62 @@ const MOBILITY_MODE_META: Record<RouteTransportMode, { label: string; note?: str
 /** 区間の安定キー (= from/to anchor id の組)。 selectedMode の保持と tap 識別に使う。 */
 function legKeyOf(fromAnchorId: string, toAnchorId: string): string {
   return `${fromAnchorId}__${toAnchorId}`;
+}
+
+/**
+ * S1-A: 移動手段選択 (selectedModeByLeg) の localStorage 永続化。
+ *   - key: `plan-map:selectedModeByLeg:v1:${dayKey}` (= 当日スコープ。 別日に漏れない)
+ *   - value: { [legKey]: RouteTransportMode } (legKey = legKeyOf。 anchorsForDay が元 anchor を返すため
+ *     anchor id は再 fetch をまたいで安定 → id ベース legKey で復元が成立。 id 不安定 source は現状なし)
+ *   - fail-open: SSR / JSON 破損 / 書込失敗 は握りつぶし UI を壊さない (= best-effort persistence)
+ *   - 範囲: localStorage のみ。 DB / Supabase / shared 型 / observation / weather / 学習 は持たない (S1-A)
+ *   - schema 進化時は新 key version (`:v2:`) + migration で吸収する想定 (今は v1 固定)
+ */
+const MOBILITY_PERSIST_KEY_PREFIX = "plan-map:selectedModeByLeg:v1:";
+
+/** 当日の leg→mode を localStorage から復元 (未保存・破損・SSR は {} で fail-open)。 */
+function loadPersistedLegModes(
+  dayKey: string,
+): Record<string, RouteTransportMode> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(
+      `${MOBILITY_PERSIST_KEY_PREFIX}${dayKey}`,
+    );
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const out: Record<string, RouteTransportMode> = {};
+    for (const [legKey, mode] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      // 既知の mode 値のみ採用 (= 破損値は捨てる → fail-open で unknown 扱い)
+      if (typeof mode === "string" && mode in ROUTE_MODE_COLORS) {
+        out[legKey] = mode as RouteTransportMode;
+      }
+    }
+    return out;
+  } catch {
+    return {}; // JSON 破損 / getItem 例外 → 未保存扱い
+  }
+}
+
+/** 当日の leg→mode を localStorage へ保存 (書込失敗 = QuotaExceeded / private mode 等は握りつぶす)。 */
+function savePersistedLegModes(
+  dayKey: string,
+  modes: Record<string, RouteTransportMode>,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      `${MOBILITY_PERSIST_KEY_PREFIX}${dayKey}`,
+      JSON.stringify(modes),
+    );
+  } catch {
+    // best-effort: 失敗しても state はメモリに残り UI は継続 (= fail-open)
+  }
 }
 
 const ROUTE_DONE_COLOR = "#94a3b8"; // done(2 個前以前) = 薄いグレーの丸点線で de-emphasize
