@@ -14973,3 +14973,19 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: **CEO**（defer 判断）。ステータス: P1A-1/2a/2b 完了・P1A-3 defer。docs/decision-log 追記のみ・実装なし。
 
 ---
+
+### [2026-06-03] [Build] ③ containment band は existing のみ・draft の band 化は見送り（案A・CEO 判断）
+
+実機（draft の「仕事 9-22 ＋ 会議 14-16」）が横並び lane で表示される件の判断。
+
+- **原因**: 当該「仕事」は draft（紫＋↩✕コントロール）。③ containment band は v1 で **existing（保存済み）文脈予定のみ** band 化する設計（補正4）のため、draft は従来 lane（横並び）＝**仕様どおり・非バグ**。
+- **決定（案A）**: **band = 保存済み(existing) 文脈予定のみ**。draft は従来 lane を維持。**draft の band 化は見送り**。
+- 見送り理由: ①安全優先 ②GPT「read-only・今は drag に手を入れない」方針に沿う ③draft は ↩/✕/ドラッグを持ち、band 化すると操作面（drag vs child）に触れてしまう。
+- 代替案B（draft も band・既存操作を band 上に維持）は **保留**。作成フローで構造表示が必要になれば再検討（Step5 相当）。
+- 現状挙動が案A そのもののため **コード変更なし**（記録のみ）。
+- 併せて: 既存予定インライン編集バーに「完了」ボタンを追加（`b2735b68`・キャンセルと対）。
+
+関連 commit: ③ pure helper `418ab6db` / ③ render `028257e2` / 編集バー完了ボタン `b2735b68`。
+承認: **CEO**（案A 採用）。ステータス: ③ containment read-only（existing-only）完了・draft band 見送り・priority-4(Step5) 保留。
+
+---
