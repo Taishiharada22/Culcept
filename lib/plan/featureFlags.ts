@@ -145,4 +145,23 @@ export const PLAN_FLAGS = {
   vlmInputMode: (process.env.PLAN_SHIFT_VLM_INPUT_MODE === "combined"
     ? "combined"
     : "split") as "split" | "combined",
+
+  /**
+   * Plan 月ビュー Phase 2-A+: CalendarTab の week ⇄ month grid toggle を出すか。
+   *   true  : CalendarTab に「週 | 月」segmented toggle を表示
+   *   false : 既存 week strip のみ（本番デフォルト・toggle 非表示・UI 完全不変）
+   *
+   * **client-side const**（process.env でない）:
+   *   - CalendarTab は "use client"。client bundle で非 NEXT_PUBLIC_ env は undefined に
+   *     inlining されるため、client から確実に読める plain const にする（8a UI flag 前例踏襲）。
+   *   - default OFF。M3-b visual smoke 時のみ手動 true、commit は必ず false に戻す。
+   *
+   * 段階:
+   *   - M3-a（本コミット）: flag + 「週 | 月」toggle shell のみ。month grid 本体は描画しない
+   *     （viewMode が month でも body は week strip 維持）。
+   *   - M3-b: MonthGridView を month mode に接続。
+   *
+   * 設計: Plan 月ビュー mini design + M3 mini design（2026-06-03 CEO chat 承認）。
+   */
+  calendarMonthGridEnabled: false,
 } as const;

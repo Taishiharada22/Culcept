@@ -75,6 +75,14 @@ import {
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
+// Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import {
+  DEFAULT_CALENDAR_VIEW_MODE,
+  shouldShowCalendarViewToggle,
+  type CalendarViewMode,
+} from "@/lib/plan/calendarViewMode";
+import { CalendarViewToggle } from "../components/CalendarViewToggle";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -143,6 +151,14 @@ export function CalendarTab({
   // ── state ──
   const [currentMonth, setCurrentMonth] = useState<Date>(() => todayMonthStart);
   const [selectedDate, setSelectedDate] = useState<string>(todayIso);
+  // M3-a: week ⇄ month view（既定 week）。本コミットでは body は week strip のみ
+  // （viewMode が month でも month grid は描画しない）。MonthGridView 接続は M3-b。
+  const [viewMode, setViewMode] = useState<CalendarViewMode>(
+    DEFAULT_CALENDAR_VIEW_MODE
+  );
+  const showViewToggle = shouldShowCalendarViewToggle(
+    PLAN_FLAGS.calendarMonthGridEnabled
+  );
   /** 月送り animation の方向 (-1 = 前月、+1 = 翌月、0 = 初回) */
   const [slideDirection, setSlideDirection] = useState<-1 | 0 | 1>(0);
 
@@ -321,6 +337,14 @@ export function CalendarTab({
           </svg>
         </button>
       </header>
+
+      {/* ── M3-a: week ⇄ month toggle（flag ON 時のみ。月 grid 本体は M3-b。
+            flag OFF では非表示 = 既存 week strip と完全同一）── */}
+      {showViewToggle && (
+        <div className="flex justify-end px-2 mb-2">
+          <CalendarViewToggle viewMode={viewMode} onChange={setViewMode} />
+        </div>
+      )}
 
       {/* ── Weekday labels (Sun-first、日 = 赤、土 = 青、日本標準) ── */}
       <div className="grid grid-cols-7 mb-2 px-2">
