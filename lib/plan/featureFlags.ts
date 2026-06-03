@@ -166,17 +166,22 @@ export const PLAN_FLAGS = {
    *   true  : CalendarTab に「週 | 月」segmented toggle を表示
    *   false : 既存 week strip のみ（本番デフォルト・toggle 非表示・UI 完全不変）
    *
-   * **client-side const**（process.env でない）:
+   * **client 到達のため NEXT_PUBLIC_ env 駆動**（統合 2026-06-04 CEO smoke 指示で env 制御化）:
    *   - CalendarTab は "use client"。client bundle で非 NEXT_PUBLIC_ env は undefined に
-   *     inlining されるため、client から確実に読める plain const にする（8a UI flag 前例踏襲）。
-   *   - default OFF。M3-b visual smoke 時のみ手動 true、commit は必ず false に戻す。
+   *     inlining されるため、client から確実に読むには NEXT_PUBLIC_ prefix が必須。
+   *   - **default OFF**（env 未設定 → false）。本番 / main は env を設定しない限り従来どおり
+   *     toggle 非表示・UI 完全不変（= SH 設計の「default OFF」要件を env-default-false で満たす）。
+   *   - 旧設計の「smoke 時だけ手動 true、commit は false に戻す」手動 flip footgun を env 制御で解消
+   *     （State Safety: 未コミットの true を残さない / main へ true が漏れない）。
+   *   - smoke: `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true` で dev 起動 → toggle 出現。
    *
    * 段階:
-   *   - M3-a（本コミット）: flag + 「週 | 月」toggle shell のみ。month grid 本体は描画しない
-   *     （viewMode が month でも body は week strip 維持）。
-   *   - M3-b: MonthGridView を month mode に接続。
+   *   - M3-a: flag + 「週 | 月」toggle shell。
+   *   - M3-b: MonthGridView を month mode に接続（統合済み）。
    *
-   * 設計: Plan 月ビュー mini design + M3 mini design（2026-06-03 CEO chat 承認）。
+   * 設計: Plan 月ビュー mini design + M3 mini design（2026-06-03 CEO chat 承認）、
+   *       env 制御化は 2026-06-04 CEO smoke 指示で追加。
    */
-  calendarMonthGridEnabled: false,
+  calendarMonthGridEnabled:
+    process.env.NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED === "true",
 } as const;
