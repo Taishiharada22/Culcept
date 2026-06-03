@@ -69,6 +69,8 @@ export interface AddAnchorComposeSheetProps {
   onUnplaceBlock?: (id: string) => void;
   /** P4-4: placed block の移動 / 伸縮 */
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
+  windowStartMin?: number;
+  onRepositionActive?: (active: boolean) => void;
   /** ②-1: placed draft クリック → 右フォーム再編集 */
   onBlockSelect?: (id: string) => void;
   /** ②-1: 編集中の placed draft id（左ブロックのハイライト + 編集バー表示） */
@@ -114,6 +116,8 @@ export function AddAnchorComposeSheet({
   onRemoveBlock,
   onUnplaceBlock,
   onBlockReposition,
+  windowStartMin,
+  onRepositionActive,
   onBlockSelect,
   activeBlockId,
   onNewDraft,
@@ -248,6 +252,8 @@ export function AddAnchorComposeSheet({
               onRemoveBlock={onRemoveBlock}
               onUnplaceBlock={onUnplaceBlock}
               onBlockReposition={onBlockReposition}
+              windowStartMin={windowStartMin}
+              onRepositionActive={onRepositionActive}
               onBlockSelect={onBlockSelect}
               activeBlockId={activeBlockId}
               activeIsEditing={isEditingExisting}

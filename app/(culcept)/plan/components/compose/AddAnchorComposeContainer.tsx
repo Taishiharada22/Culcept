@@ -17,7 +17,7 @@
  *   - 対象日の既存予定再取得（A-4・PlanClient 依存）/ 候補検索（A-4）/ Phase B/C
  */
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { motion, type PanInfo } from "framer-motion";
 
 import {
@@ -40,6 +40,7 @@ import { createAnchorBundle, updateAnchor } from "@/lib/plan/anchor-fetch";
 import {
   DEFAULT_WINDOW_START_MIN,
   DEFAULT_WINDOW_END_MIN,
+  computeWindowStart,
   snappedMinAtY,
   type TimelineViewport,
 } from "@/lib/plan/timeline-geometry";
@@ -179,6 +180,27 @@ export function AddAnchorComposeContainer({
     return () => window.removeEventListener("resize", compute);
   }, []);
 
+  // #16 適応窓: 早朝(6時前)の予定がある日は窓開始を下げる（クリップしない）。
+  // 対象 = existing + placed drafts（active 含む＝ホイールで早朝に変えたら見える）。
+  const effectiveWindowStart = useMemo(() => {
+    const starts: number[] = [];
+    for (const b of existingBlocks) {
+      if (Number.isFinite(b.startMin)) starts.push(b.startMin);
+    }
+    for (const d of state.drafts) {
+      if (d.placement.status === "placed") starts.push(d.placement.startMin);
+    }
+    return computeWindowStart(starts, DEFAULT_WINDOW_START_MIN);
+  }, [existingBlocks, state.drafts]);
+  // pointer-drag(reposition) 中だけ windowStart を freeze＝drag 中の rescale（ポインタ時刻ズレ）を防ぐ。
+  // 離散編集（time wheel 等）では freeze しない＝編集中の早朝予定もちゃんと適応表示される。
+  const [dragFreezeWindowStart, setDragFreezeWindowStart] = useState<number | null>(null);
+  // **単一 source**: render(canvas)・drop(pointerToDropMin) は必ずこの windowStart を使う。
+  const windowStart = dragFreezeWindowStart ?? effectiveWindowStart;
+  const handleRepositionActive = (active: boolean) => {
+    setDragFreezeWindowStart(active ? effectiveWindowStart : null);
+  };
+
   const activeDraft =
     state.drafts.find((d) => d.id === activeId) ?? blankDraft("draft-active");
 
@@ -219,7 +241,7 @@ export function AddAnchorComposeContainer({
     // drop 計算の height は**実測 rect.height**＝描画された高さそのもの。
     // canvas は heightPx で描くので rect.height === heightPx となり、見た目と drop が一致する。
     const vp: TimelineViewport = {
-      startMin: WINDOW.startMin,
+      startMin: windowStart,
       endMin: WINDOW.endMin,
       heightPx: rect.height,
     };
@@ -426,6 +448,8 @@ export function AddAnchorComposeContainer({
       onRemoveBlock={handleRemoveBlock}
       onUnplaceBlock={handleUnplaceBlock}
       onBlockReposition={handleBlockReposition}
+      windowStartMin={windowStart}
+      onRepositionActive={handleRepositionActive}
       onBlockSelect={handleBlockSelect}
       activeBlockId={
         activeDraft.placement.status === "placed" ? activeDraft.id : undefined

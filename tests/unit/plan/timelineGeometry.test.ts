@@ -13,6 +13,7 @@ import {
   snappedMinAtY,
   layoutLanes,
   clampMin,
+  computeWindowStart,
   formatMinutes,
   parseMinutes,
 } from "@/lib/plan/timeline-geometry";
@@ -217,5 +218,55 @@ describe("parseMinutes", () => {
     expect(parseMinutes("09:60")).toBeNull(); // 分 > 59
     expect(parseMinutes("25:00")).toBeNull(); // 1500 > 1440
     expect(parseMinutes("foo")).toBeNull();
+  });
+});
+
+describe("computeWindowStart（#16 適応窓・6時以前）", () => {
+  const D = DEFAULT_WINDOW_START_MIN; // 360 = 6:00
+
+  it("早朝予定なし → 既定(360)", () => {
+    expect(computeWindowStart([], D)).toBe(360);
+    expect(computeWindowStart([540, 720, 1080], D)).toBe(360); // 9/12/18 時
+    expect(computeWindowStart([360], D)).toBe(360); // ちょうど6:00
+  });
+
+  it("05:30(330) → 300（5:00 floor）", () => {
+    expect(computeWindowStart([330], D)).toBe(300);
+  });
+
+  it("04:15(255) → 240（4:00 floor）", () => {
+    expect(computeWindowStart([255], D)).toBe(240);
+  });
+
+  it("00:30(30) → 0（max(0)）", () => {
+    expect(computeWindowStart([30], D)).toBe(0);
+  });
+
+  it("不正な start(NaN) は無視", () => {
+    expect(computeWindowStart([Number.NaN, 540], D)).toBe(360);
+    expect(computeWindowStart([Number.NaN, 255], D)).toBe(240);
+  });
+
+  it("複数なら最早 start を採用（existing + placed draft を混ぜても同じ）", () => {
+    // existing 540/720 + placed draft 270(=4:30) → 最早 270 → 240
+    expect(computeWindowStart([540, 720, 270], D)).toBe(240);
+  });
+
+  it("6時以降だけの日は完全に従来通り（360）＝既存表示/drop が不変", () => {
+    expect(computeWindowStart([361, 600, 1439], D)).toBe(360);
+  });
+});
+
+describe("適応窓 startMin=240(4:00) でも y↔time round-trip", () => {
+  const VP240: TimelineViewport = { startMin: 240, endMin: 1440, heightPx: 540 };
+  it("minutesToY → yToMinutes が往復一致（早朝窓）", () => {
+    for (const m of [240, 360, 540, 900, 1440]) {
+      const y = minutesToY(m, VP240);
+      expect(yToMinutes(y, VP240)).toBeCloseTo(m, 5);
+    }
+  });
+  it("4:00 が最上端(y=0)・24:00 が最下端", () => {
+    expect(minutesToY(240, VP240)).toBeCloseTo(0, 5);
+    expect(minutesToY(1440, VP240)).toBeCloseTo(540, 5);
   });
 });

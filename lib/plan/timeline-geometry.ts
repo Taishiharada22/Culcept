@@ -122,6 +122,25 @@ export function clampMin(min: number, lo: number, hi: number): number {
 }
 
 /**
+ * 適応窓の開始分（CEO 2026-06-03・6時以前対応）。
+ *   - 既定(6:00)より早い予定がある日は、最早予定の**時(hour floor)**まで窓を下げる＝クリップしない。
+ *   - 早朝予定が無ければ既定のまま（共通ケースは安定＝6-24）。
+ *   - end は不変（24:00）。**呼び出し側はこの1値を drop と render の両方に流す＝単一ソース**。
+ * pure・副作用なし。drop 計算と描画が同じ window を使うことが安全の核。
+ */
+export function computeWindowStart(
+  starts: ReadonlyArray<number>,
+  defaultStart: number,
+): number {
+  let min = defaultStart;
+  for (const s of starts) {
+    if (Number.isFinite(s) && s < min) min = s;
+  }
+  if (min >= defaultStart) return defaultStart;
+  return Math.max(0, Math.floor(min / 60) * 60);
+}
+
+/**
  * 分（0–1440）→ "HH:MM"。範囲外は 1 日でラップして整形（pure・例外なし）。
  * 1440（24:00 ちょうど）は "24:00" を返す（俯瞰窓末端表示用）。
  */

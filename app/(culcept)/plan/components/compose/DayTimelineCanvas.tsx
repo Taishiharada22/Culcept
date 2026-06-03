@@ -73,6 +73,7 @@ export interface DayTimelineCanvasProps {
   onUnplaceBlock?: (id: string) => void;
   /** P4-4: 配置済み draft block の移動 / 伸縮（指定時のみドラッグ可能化） */
   onBlockReposition?: (id: string, startMin: number, endMin: number) => void;
+  onRepositionActive?: (active: boolean) => void;
   /** ②-1: placed draft block の**クリック（非ドラッグ）→ 右フォーム再編集**。draft のみ対象。 */
   onBlockSelect?: (id: string) => void;
   /** ②-1: 編集中（active）の placed draft block id。ハイライト表示用。 */
@@ -149,6 +150,7 @@ export function DayTimelineCanvas({
   onRemoveBlock,
   onUnplaceBlock,
   onBlockReposition,
+  onRepositionActive,
   onBlockSelect,
   activeBlockId,
   activeIsEditing,
@@ -240,6 +242,7 @@ export function DayTimelineCanvas({
     // 閾値内はまだクリック圏内（block を動かさない＝誤移動防止 + click 検出）。
     if (!dg.moved && Math.abs(e.clientY - dg.startClientY) < CLICK_THRESHOLD_PX)
       return;
+    if (!dg.moved) onRepositionActive?.(true);
     dg.moved = true;
     if (!onBlockReposition || ppm === 0) return;
     const deltaMin = snapMinutes((e.clientY - dg.startClientY) / ppm, DRAG_SNAP);
@@ -259,6 +262,7 @@ export function DayTimelineCanvas({
   const endBlockDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     const dg = dragRef.current;
     dragRef.current = null;
+    if (dg?.moved) onRepositionActive?.(false);
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
