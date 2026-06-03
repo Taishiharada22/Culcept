@@ -85,7 +85,13 @@
 ### 設計合流: nifty（予定追加）セッションとの語彙統一 ★優先・横断
 - **概要**: 本 worktree (frosty) は Map **表示**側、別セッション **nifty = 予定追加 (add-schedule UI)** 側。両者で語彙・型を揃える必要がある（本セッション初期の到達点 `20a2a59c`/`ae5e408b` で「次は nifty 合流」と申し送り済み）。
 - **揃える語彙**（共有契約 = `docs/alter-plan-time-layers-mobility-design.md`・commit `20a2a59c`）: `candidateModes` / `recommendedMode` / `selectedMode` / `actualMode`、`ContextBand` / `Anchor` / `ExcursionLeg`、`transportMode` 正本型の将来方針。
-- **現状（正直に）**: 本セッションの S1-A/S2-A/所要時間比較 は **`selectedMode` の localStorage サブセットのみ**を使用。`lib/shared` の **正本型 (canonical TransportSegment 等) は未作成 = HOLD**（CEO 指示）。`recommendedMode` は所要時間比較導入時に prop ごと撤去（推薦エンジン HOLD のため）。
+- **現状（正直に）**: 本セッションの S1-A/S2-A/所要時間比較 は **`selectedMode` の localStorage サブセットのみ**を使用。frosty は**共有正本型を新規作成していない**（CEO 指示の HOLD）。`recommendedMode` は所要時間比較導入時に prop ごと撤去（推薦エンジン HOLD のため）。
+- **正本型の現物マップ（main `@9afdcaf9` を実証・2026-06-04）**: 合流は「ゼロ作成」でなく**散在表現の reconcile**。検証結果:
+  - ✅ canonical `TransportSegment`（+ duration/source/距離 heuristic）= `lib/alter-morning/transport/types.ts` ほか `lib/alter-morning/planning/*`（W3-PR-10）。**ただし alter-morning（Home/Morning）ドメイン**で、**/plan Map(frosty)は未使用**（frosty は別経路: localStorage `selectedMode` + Google Directions duration）。
+  - ✅ `ExternalAnchor` / `anchorsForDay` = /plan の anchor 正本（`lib/plan/external-anchor.ts` / `tabs/_helpers.ts`。frosty 使用中）。
+  - ⚠️ `deriveTitlePlaceGroups`（commit `873d2ca1`・Step4「よく行く」ヘルパー）= **実在するが main 未マージ**（別 branch）。
+  - ⚠️ containment band（案B / `ContextBand`）= **main では plan-map 用を検出できず**（nifty branch か名称差の可能性・要 nifty 側確認）。
+  - → **合流の本質 = alter-morning `TransportSegment` / frosty localStorage / nifty Anchor・Step4・band を共有正本型へ一本化**。正本の置き場所（`lib/shared` か `lib/alter-morning` か）含め CEO 判断。nifty の「✅実装済(main)」は **TransportSegment は正・Step4/band は要補正**。
 - **なぜ別**: 2 worktree 間の設計合流＋正本型確定は片側だけでは決められない。**共有正本 / DB / Decision Engine 接続は合流後の別 Phase**。
 - **着手のヒント**: nifty 側の現状を読み語彙の食い違いを洗い出してから正本型を1本化。frosty 側は §4 の `selected↔actual` ガードレールを必ず引き継ぐ。
 - **関連の未捕捉機能（CEO 発案・nifty 側 deferred）**: 「**よく行く / よく使う場所**」候補提示 ＝ 予定追加時に**右端の SVG をクリック → その予定に応じた候補地**を出す UX。frequency ベースの提案で **S2-B（頻度学習）/ S3 と接続しうる**。本セッションでは未着手（nifty スコープ・HOLD）。
