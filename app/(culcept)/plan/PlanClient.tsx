@@ -113,6 +113,8 @@ import { AnchorDetailModal } from "./components/AnchorDetailModal";
 import { EditAnchorModal } from "./components/EditAnchorModal";
 // P3 W2: .ics import modal (= CEO 2026-05-26、 review/approve UI)
 import { IcsImportModal } from "./components/IcsImportModal";
+// S1: 在 app シフト表取込 入口（flag gating・NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED）
+import { PlanShiftImportEntry } from "./components/PlanShiftImportEntry";
 // P3-A-1-1-h: Google Calendar OAuth 結果 banner (= callback redirect 後の user feedback)
 import {
   CalendarConnectBanner,
@@ -834,6 +836,8 @@ export default function PlanClient({
               <span>取り込む</span>
             </button>
           )}
+          {/* S1: シフト表（画像/PDF）取込 入口。flag OFF（本番既定）なら null = UI 不変。 */}
+          {!isPane && <PlanShiftImportEntry />}
         </div>
         {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
             固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}

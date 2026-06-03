@@ -184,4 +184,19 @@ export const PLAN_FLAGS = {
    */
   calendarMonthGridEnabled:
     process.env.NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED === "true",
+
+  /**
+   * S1（PDF/画像シフト取込の本番導線・第一段）: /plan に「シフト表を取り込む」入口を出すか。
+   *   true  : /plan に取込ボタン → ShiftImportModal（確認画面）を表示
+   *   false : 入口非表示（本番デフォルト・UI 完全不変）
+   *
+   * **client 到達のため NEXT_PUBLIC_ env 駆動**（calendarMonthGridEnabled と同方式）。default OFF。
+   *
+   * 重要（gate 分離・CEO 2026-06-04）: 入口を出しても
+   *   - 保存は別 gate（`PLAN_SHIFT_IMPORT_SAVE`・server-side・OFF）→ DB write しない
+   *   - VLM live も別（S2 では cells を fixture 注入＝live 不発火）
+   *   入口 / 保存 / VLM を独立 gate に分離し、画面導線だけ先に安全に出せる。
+   */
+  shiftImportEntryEnabled:
+    process.env.NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED === "true",
 } as const;
