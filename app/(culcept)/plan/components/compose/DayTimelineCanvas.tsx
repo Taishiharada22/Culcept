@@ -328,32 +328,78 @@ export function DayTimelineCanvas({
           </div>
         )}
 
-        {/* ③ 背景バンド（container=文脈予定・全幅・最初に描画＝前景の背面・read-only 表示＋click編集） */}
+        {/* ③ 背景バンド（container=文脈予定・全幅・最初に描画＝前景の背面）。
+            existing=read-only click編集 / draft=click編集＋↩✕（タップ操作維持・drag/resize は #8）。 */}
         {blocks.map((b) => {
           if (roleOf(b.id) !== "container") return null;
           const top = minutesToY(b.startMin, vp);
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
-          const bandClickable = !!onExistingSelect;
+          const isExisting = b.tone === "existing";
+          const isActive = !isExisting && b.id === activeBlockId;
+          // existing → onExistingSelect / draft → onBlockSelect（どちらも click で右フォーム編集）。
+          const onBandClick = isExisting
+            ? onExistingSelect && (() => onExistingSelect(b.id))
+            : onBlockSelect && (() => onBlockSelect(b.id));
+          // draft バンドはタップ操作（↩戻す/✕削除）を維持＝退行防止（draft を編集/撤回できる）。
+          const showBandControls = !isExisting && (!!onRemoveBlock || !!onUnplaceBlock);
           return (
             <div
               key={`band-${b.id}`}
               data-testid={`compose-block-${b.id}`}
               data-role="container"
               data-tone={b.tone}
-              onClick={bandClickable ? () => onExistingSelect?.(b.id) : undefined}
+              data-active={isActive ? "true" : undefined}
+              onClick={onBandClick || undefined}
               className={
-                "absolute inset-x-0 overflow-hidden rounded-md border-l-2 border-slate-300 bg-slate-100/50 px-2 py-0.5 text-[10px] leading-tight text-slate-500" +
-                (bandClickable ? " cursor-pointer transition hover:bg-slate-100/80" : "")
+                "group absolute inset-x-0 overflow-hidden rounded-md border-l-2 px-2 py-0.5 text-[10px] leading-tight transition " +
+                (isExisting
+                  ? "border-slate-300 bg-slate-100/50 text-slate-500"
+                  : // draft の文脈バンド＝主役色(violet)の淡い背景。前景 child より控えめ。
+                    "border-violet-300 bg-violet-50/60 text-violet-600") +
+                (isActive ? " ring-2 ring-indigo-400" : "") +
+                (onBandClick ? " cursor-pointer hover:brightness-95" : "")
               }
               style={{ top, height }}
             >
               {/* 上端に title + time を小さく固定（child より目立たない・文脈が分かる程度） */}
-              <span className="flex items-baseline gap-1 pr-1">
+              <span className="flex items-baseline gap-1 pr-10">
                 <span className="truncate font-medium">{b.label}</span>
                 <span className="shrink-0 tabular-nums opacity-70">
                   {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
                 </span>
               </span>
+              {showBandControls && (
+                <div className="absolute right-1 top-0.5 flex gap-0.5">
+                  {onUnplaceBlock && (
+                    <button
+                      type="button"
+                      data-testid={`compose-block-unplace-${b.id}`}
+                      aria-label="未配置に戻す"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUnplaceBlock(b.id);
+                      }}
+                      className="rounded px-1 text-[10px] text-indigo-400 hover:bg-white/60 hover:text-indigo-600"
+                    >
+                      ↩
+                    </button>
+                  )}
+                  {onRemoveBlock && (
+                    <button
+                      type="button"
+                      data-testid={`compose-block-remove-${b.id}`}
+                      aria-label="削除"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveBlock(b.id);
+                      }}
+                      className="rounded px-1 text-[10px] text-slate-400 hover:bg-white/60 hover:text-rose-600"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

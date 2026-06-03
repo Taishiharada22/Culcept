@@ -14989,3 +14989,18 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: **CEO**（案A 採用）。ステータス: ③ containment read-only（existing-only）完了・draft band 見送り・priority-4(Step5) 保留。
 
 ---
+
+### [2026-06-03] [Build] ③ containment band を案B（draft も band）へ反転（CEO×GPT・前回案A を覆す）
+
+実機で draft の「仕事9-22 が 会議14-16 を内包」が横並び(lane)のままで、予定追加UIの中心体験が破綻して見える件への対応。**直前の案A（existing 限定）を CEO 判断で反転**。
+
+- **決定（案B・反転）**: existing だけでなく **draft の文脈予定も band 化**（横並び→文脈バンド）。`containerTones: ["existing","draft"]`。判定条件（内包child≥1・duration≥120・context語・非exclusive・非同時刻）は不変。exclusive（映画/フライト/試験）は引き続き band しない。
+- **退行防止の補正（GPT「表示層のみ」への前提修正）**: 純粋表示専用だと draft の ↩✕/編集が消え**退行**するため、draft バンドは **click→編集 / ↩戻す / ✕削除 のタップ操作を維持**。**drag/resize ハンドル（ポインタ物理）だけ #8 に分離**。
+- 不変: drop/range/height/Y幾何/layoutLanes 本体/既存 data-testid。
+- **状態の正直な区別**: これは **code complete + smoke pending**。CEO の実機確認まで *product complete* とは言わない。
+- 完了語彙を以後区別: `code complete / smoke pending / product complete / deferred`。
+
+関連 commit: 本反転 = （次行の feat commit）。task #6/#7（案B）= code complete・smoke pending、#8（drag/resize連動）= 未着手。
+承認: **CEO×GPT**（案B 反転）。ステータス: 案A→案B。draft band 表示は code complete・実機 smoke 待ち。
+
+---

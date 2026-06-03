@@ -84,12 +84,16 @@ export function isExclusiveLabel(label: string): boolean {
   return EXCLUSIVE_LABELS.some((k) => n.includes(k.toLowerCase()));
 }
 
-/** 既定 policy（v1: 120分・keyword 分類・existing のみ）。 */
+/**
+ * 既定 policy（120分・keyword 分類）。
+ * 案B（2026-06-03 CEO 反転）: existing だけでなく **draft の文脈予定も band 化**（横並び→文脈バンド）。
+ * draft バンドは click 編集＋↩/✕ のタップ操作を維持（退行防止）。drag/resize 連動は #8 で別途。
+ */
 export const DEFAULT_CONTAINMENT_POLICY: ContainmentPolicy = {
   minParentDurationMin: 120,
   isContextLabel,
   isExclusiveLabel,
-  containerTones: ["existing"],
+  containerTones: ["existing", "draft"],
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1. 内包関係（時間のみ）

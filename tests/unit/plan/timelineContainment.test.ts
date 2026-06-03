@@ -95,10 +95,11 @@ describe("timeline-containment — 必須9件（CEO 補正）", () => {
 });
 
 describe("timeline-containment — tone / duration / 語競合", () => {
-  it("draft container は v1 では band 化しない（existing のみ）", () => {
+  it("draft の context parent も band 化（案B・2026-06-03 反転）", () => {
+    // existing 限定（案A）から反転: draft でも文脈予定なら container・child は contained
     const r = roles([blk("w", "仕事", 540, 1080, "draft"), blk("m", "会議", 780, 840)]);
-    expect(r.get("w")).toBe("normal");
-    expect(r.get("m")).toBe("normal");
+    expect(r.get("w")).toBe("container");
+    expect(r.get("m")).toBe("contained");
   });
 
   it("duration < 120分 の context parent は band 化しない", () => {
