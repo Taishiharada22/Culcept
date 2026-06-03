@@ -1,3 +1,6 @@
+import { calendarWornRecordToEntry } from "@/lib/shared/wornHistory/converters";
+import { upsertCanonicalWornHistoryEntry } from "@/lib/shared/wornHistory/writeStore";
+
 import type { WornRecord } from "./types";
 
 const WORN_KEY = "culcept_calendar_worn_v1";
@@ -188,6 +191,22 @@ export function loadWornHistory(): WornRecord[] {
   return memoryWornHistory;
 }
 
+/**
+ * Phase 4-3 shadow mirror: /calendar の着用結果を canonical 正本（culcept_worn_history_v1）へ複製する。
+ *   - 旧 culcept_calendar_worn_v1 の保存は別に完了する。 ここは追加の影 write のみ。
+ *   - origin=calendar / source=calendar_form（converter が learningEligible を算出）。
+ *     engine はこの canonical を読まない（昇格は Phase 5）。 note は canonical に持ち越さない（privacy-minimal）。
+ *   - server-sync（/api/calendar/day）/ pendingSyncQueue / Supabase には一切触れない（localStorage canonical key のみ）。
+ *   - best-effort。 失敗しても saveWornRecord を壊さない（throw / console spam しない）。
+ */
+function mirrorCalendarWornToCanonical(record: WornRecord): void {
+  try {
+    upsertCanonicalWornHistoryEntry(calendarWornRecordToEntry(record));
+  } catch {
+    // mirror は補助。 canonical 失敗は無視（/calendar 保存は既存ロジックで完了する）。
+  }
+}
+
 export function saveWornRecord(record: WornRecord): void {
   const history = loadWornHistory();
   const idx = history.findIndex(r => r.date === record.date);
@@ -196,6 +215,9 @@ export function saveWornRecord(record: WornRecord): void {
   } else {
     history.push(record);
   }
+
+  // Phase 4-3: 旧 calendar 保存はそのまま。 着用結果を canonical へ shadow mirror（read-view はまだ旧 key も読む）。
+  mirrorCalendarWornToCanonical(record);
 
   const strategies: Array<{ maxEntries: number; noteMode: NoteMode; noteMaxLength: number }> = [
     { maxEntries: MAX_WORN_HISTORY, noteMode: "full", noteMaxLength: MAX_NOTE_LENGTH },

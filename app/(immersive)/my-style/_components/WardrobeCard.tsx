@@ -9,9 +9,11 @@ interface WardrobeCardProps {
     onEdit: () => void;
     onRemove: () => void;
     onAddToSetup?: () => void;
+    /** M2-extra: tap で詳細モーダル（activeItem）を開く。 未指定なら従来挙動（tap で何もしない）。 */
+    onSelect?: () => void;
 }
 
-export default function WardrobeCard({ item, onEdit, onRemove, onAddToSetup }: WardrobeCardProps) {
+export default function WardrobeCard({ item, onEdit, onRemove, onAddToSetup, onSelect }: WardrobeCardProps) {
     const qLabel = item.qualityScore != null ? qualityLabel(item.qualityScore) : null;
 
     return (
@@ -32,10 +34,22 @@ export default function WardrobeCard({ item, onEdit, onRemove, onAddToSetup }: W
                     </div>
                 )}
 
+                {/* M2-extra: image 全面の透明 button（onSelect 指定時のみ）。
+                  *   - badge/swatch は pointer-events-none で透過、 tap は button が受ける
+                  *   - hover overlay の 3 ボタンは DOM 後段＋ stopPropagation 済で衝突なし */}
+                {onSelect && (
+                    <button
+                        type="button"
+                        onClick={onSelect}
+                        aria-label={`${item.name} の詳細を見る`}
+                        className="absolute inset-0 z-[1] cursor-pointer bg-transparent appearance-none border-0 p-0 m-0"
+                    />
+                )}
+
                 {/* Quality badge */}
                 {qLabel && (
                     <div
-                        className={`absolute top-1.5 left-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm ${
+                        className={`pointer-events-none absolute top-1.5 left-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-black shadow-sm ${
                             item.qualityScore! >= 80
                                 ? "bg-emerald-500 text-white"
                                 : item.qualityScore! >= 50
@@ -50,14 +64,14 @@ export default function WardrobeCard({ item, onEdit, onRemove, onAddToSetup }: W
                 {/* Color swatch */}
                 {item.colorHex && (
                     <div
-                        className="absolute bottom-1.5 left-1.5 w-4 h-4 rounded-full border-2 border-white shadow-sm"
+                        className="pointer-events-none absolute bottom-1.5 left-1.5 w-4 h-4 rounded-full border-2 border-white shadow-sm"
                         style={{ backgroundColor: item.colorHex }}
                         title={item.colorName ?? item.color}
                     />
                 )}
 
-                {/* Hover overlay with edit/remove */}
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                {/* Hover overlay with edit/remove (z-[2] で M2-extra 被せ button より上、 内側ボタンは stopPropagation 済) */}
+                <div className="absolute inset-0 z-[2] bg-black/0 group-hover:bg-black/30 transition-colors duration-200 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
                     {onAddToSetup ? (
                         <button
                             type="button"

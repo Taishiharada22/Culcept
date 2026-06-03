@@ -15,6 +15,12 @@
  *   3. 現時点では既存ストレージから読み取るアダプター層を提供
  */
 
+import { wearEventToEntry } from "@/lib/shared/wornHistory/converters";
+import {
+  getCanonicalWornHistoryEntries,
+  upsertCanonicalWornHistoryEntry,
+} from "@/lib/shared/wornHistory/writeStore";
+
 /** 着用イベントの正本型 — Calendar と My-Style の共通形式 */
 export interface WearEvent {
   /** 着用日 (YYYY-MM-DD) */
@@ -51,6 +57,20 @@ const MYSTYLE_WEAR_KEY = "culcept_wear_records_v1";
 // ── 書き込み ──
 
 /**
+ * Phase 4-4c shadow mirror: My-Style / Home morning の wear を canonical 正本（culcept_worn_history_v1）へ複製。
+ *   - `origin="style"` / `source="my_style"` / `learningEligible=false`（wearEventToEntry が決める）。
+ *   - note / moodTag は載せない。 (date, origin=style) で 1 件に丸める（同日複数 wear は最後が代表）。
+ *   - best-effort。 失敗しても wearEvents の old key 保存は壊さない（throw / console spam しない）。
+ */
+function mirrorStyleWearToCanonical(date: string, itemIds: string[], satisfaction: number | undefined): void {
+  try {
+    upsertCanonicalWornHistoryEntry(wearEventToEntry({ date, itemIds, satisfaction }));
+  } catch {
+    // canonical 失敗は無視（old key 保存は別に完了している）。
+  }
+}
+
+/**
  * 着用イベントを正本ストレージに保存する。
  * 現時点では Calendar 互換形式 (culcept_calendar_worn_v1) に書き込む。
  * 将来的に style_wear_events_v1 に統一予定。
@@ -68,6 +88,11 @@ export function saveWearEvent(event: Omit<WearEvent, "source"> & { source?: Wear
     });
     localStorage.setItem(CALENDAR_WORN_KEY, JSON.stringify(records));
   } catch { /* ignore */ }
+  // Phase 4-4c: My-Style/Home wear（source=my-style）を canonical へ shadow mirror（best-effort）。
+  // calendar-source の event（現状呼出元なし）は style として誤ラベルしないため除外。
+  if ((event.source ?? "my-style") === "my-style") {
+    mirrorStyleWearToCanonical(event.date, event.itemIds, event.satisfaction);
+  }
 }
 
 /**
@@ -86,6 +111,16 @@ export function updateWearSatisfaction(date: string, satisfaction: number): void
     }
     localStorage.setItem(CALENDAR_WORN_KEY, JSON.stringify(records));
   } catch { /* ignore */ }
+  // Phase 4-4c: canonical 側に既存の style entry（=過去の saveWearEvent mirror）があれば satisfaction を反映。
+  // canonical の style entry のみ対象＝/calendar 記録を style として誤更新しない。 best-effort。
+  try {
+    const existing = getCanonicalWornHistoryEntries().find((e) => e.date === date && e.origin === "style");
+    if (existing) {
+      upsertCanonicalWornHistoryEntry(wearEventToEntry({ date, itemIds: existing.itemIds, satisfaction }));
+    }
+  } catch {
+    // best-effort
+  }
 }
 
 // ── 読み取りアダプター ──

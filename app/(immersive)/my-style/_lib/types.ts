@@ -103,6 +103,12 @@ export type WardrobeItem = {
     colorName?: string;
     colorHex?: string;
     imageUrl?: string;
+    /** Cutout v1 (C1L-1): 背景透過の保存契約。 すべて optional で既存 item を壊さない。 */
+    originalUrl?: string;
+    cutoutUrl?: string;
+    cutoutStatus?: "success" | "failed" | "skipped" | "needs_review";
+    cutoutConfidence?: number;
+    cutoutMethod?: "heuristic_v1" | "manual" | "none";
     season?: SeasonCode;
     thickness?: ThicknessCode;
     formality?: FormalityCode;

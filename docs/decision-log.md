@@ -15018,5 +15018,399 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 
 関連 commit: e1648feb。task #16 = code complete・smoke pending。
 承認: CEO（自律進行を承認）×GPT（drag-freeze 補正）。ステータス: 6:00固定窓 → 適応窓。実機 smoke 待ち。
+## [2026-05-31] [Build] /plan freeze + My-Style 永続化 + cutout 表示復旧 を 9 commits 連鎖で close [承認: CEO]
+
+CEO 観測 7 件（freeze / 永続化失敗 / 削除復活 / 追加消失 / 写真消失 / /plan 反映 / 透過反映）を、 branch `claude/loving-pike-fa227a`（**未 push**、 HEAD `a77c8933`）の **累計 9 commits** で連鎖修正し、 実機 PASS 確認後に close。
+
+- **詳細**: `docs/plan-my-style-outfit-persistence-close.md`
+- **代表 commit**:
+  - `0773f074` /plan CalendarTab anchors memoize（freeze 停止）
+  - `74d7ab68` /plan render-time cutout 停止
+  - `e4a6e168` /plan C1L-5 確定 cutout 優先表示
+  - `e1526076` My-Style: IDB cached からの heavy 画像 fields 復元
+  - `48f55a5e` bridge route 22P02 修正 + styleSummary failure を握り潰さない
+  - `80a7dcc8` localStorage quota 失敗時に main を残し IDB primary 化
+  - `71db4795` remote adoption を revision-aware 化（削除を server から受け取る）
+  - `db7aeb02` remote adopt 時に prev の画像を保持
+  - `a77c8933` IDB を正本化 + remote-load を restorationResolved gate（最終解決）
+- **残課題（別スライス）**: localStorage quota 圧迫源削減 / 既存白抜き item 一括再処理 / `/api/weather/subscription` 404 / 3 候補生成（D1）
+- **触らない**: push / deploy / DB migration / Supabase schema / server-sync 仕様 / external API / package / production canary
+- **次フェーズ**: **D1 おすすめコーデ 3 候補生成** — design gate から着手（実装はまだ進めない）
+
+---
+
+## [2026-05-31] [Build/Product] D1 おすすめコーデ 3 候補生成 design gate close [承認: CEO]
+
+CEO 判断 A 採用 + 1 点補正で D1 設計 close。 次は D1-1 から実装着手。
+
+- **詳細**: `docs/plan-outfit-three-proposals-design.md`
+- **採用方針**:
+  - engine 本体 (`generateDayProposal`, Calendar 共用) には触らない
+  - adapter 側に 3 候補保証レイヤ (pure helper `ensureThreeProposals`) を置く
+  - UI 既存 3-up 構造を再利用 (UI 再設計しない)
+  - bag/accessory は D2 へ分離 (D1 は outer/tops/bottoms/shoes の 4 カテゴリで安定化)
+- **補正 (CEO)**: 配列順を `[relaxed, main, smart]` で組み、 既存 Carousel の `initialIndex = Math.floor((count-1)/2) = 1`（count=3）が自然に **`proposals[1] = engine.main` を中央**として表示する形に整合させる。 UI 側の active 制御を変えない。
+- **commit 分割**: D1-0 (docs) / D1-1 (pure helper + test) / D1-2 (adapter 結線) / D1-3 (hook)
+- **次**: D1-0 docs commit → そのまま D1-1 実装
+
+---
+
+## [2026-06-01] [Build/Product] D2 bag/accessory engine 拡張 design gate close [承認: CEO]
+
+D1 後、 engine 提案に bag/accessory を supplemental category として追加する設計を確定。 D2-0 docs-only commit へ。
+
+- **詳細**: `docs/plan-outfit-bag-accessory-design.md`
+- **方針**: tops/bottoms/shoes 必須 / outer 条件付き / **bag・accessory は supplemental**（無くても proposal は成立する設計を維持。 主軸スコアリングと diff 判定には載せない）
+- **engine 不可触の解除（限定的）**: D1 の「engine 本体には触らない」原則を D2 のみ限定解除。 変更は `CategoryGroup` union 拡張・`categorize` return 拡張・`buildCombo` 末尾に 2 行追加。 既存 tops/bottoms/shoes/outer 選定ロジックは**完全に不変**。
+- **read-only 監査 6 項目完了**:
+  - taxonomy.ts に bag/accessory subcategory 完備（bag=4種・accessory=4種）
+  - OutfitCollage `OutfitSlot` に bag/accessory slot 配置済（無改修）
+  - scoreCandidate に NaN リスクなし（`if (item.X)` で gated）
+  - 既存 Calendar test 6 ファイルが indirect 影響範囲
+  - legacy category `"accessories"` (複数形) / `"hat"` の accessory への migration map を D2-1 で同梱
+- **commit 分割**: D2-0 (docs) / D2-1 (pools 拡張・buildCombo 未配線) / D2-2 (buildCombo 配線 + 条件選定) / D2-3 (adapter/plan 確認) / D2-4 (docs close)
+- **触らない**: UI 再設計 / My-Style persistence / cutout / quota / weather route / 既存 item 再処理 / push / deploy / migration
+- **次**: D2-0 docs commit → CEO 承認 → D2-1 着手
+
+---
+
+## [2026-06-01] [Build/Product] D2 bag/accessory engine 拡張 全実装 close [承認: CEO + 実機 PASS]
+
+D2-0〜D2-3 を完了し、 実機で wardrobe に bag + accessory を含めた /plan のおすすめコーデに supplemental として反映されることを CEO 目視確認（2026-06-01）。 D2-4 docs-only commit で close。
+
+- **詳細**: `docs/plan-outfit-bag-accessory-design.md` の「D2 close」section
+- **累計 5 commits**:
+  - `271b2dec` D2-0 design docs（read-only 監査 6 項目 + supplemental 方針確定）
+  - `6ddd1383` D2-1 CategoryGroup 拡張 + pools 6 key（buildCombo 未配線・no-op）
+  - `c8e87da4` D2-2 supplemental selection（needsBag=`work/meeting/date/party` / needsAccessory=`smart/dress`）
+  - `ba1fa183` D2-3 adapter pass-through 固定（実 import path / 実 CATEGORY_MAIN_JA で end-to-end test）
+  - 本 commit D2-4 close docs
+- **不変原則の達成**:
+  - bag/accessory は supplemental（無くても proposal 成立）
+  - `selectedItems.length < 2` 境界維持（bag/accessory のみでは null）
+  - `scoreCandidate` 未接触（D2 全体で 1 文字も変更なし）
+  - UI / adapter / hook / D1 helper / OutfitCollage は全て無改修（既存対応で十分）
+- **検証**: Calendar 236 PASS（D2 開始時 +34、 退化 0）/ plan 3501 PASS（+6、 退化 0）/ eslint clean / tsc 自分のファイル差分 0
+- **触らない**: UI 再設計 / My-Style persistence / cutout / quota / weather route / 既存 item 再処理 / migration / push / deploy
+- **D3 候補（チューニング・別ターン）**: travel bag / 寒い日 scarf 優先 / accessory 複数対応 / 雨日 bag 防水 / bag subcategory formality 整合 / diff 主軸への限定取り込み / hydrated_mock path audit / scoreCandidate への限定進出（要 CEO 判断）
+- **次**: D2-4 commit 直後に D3 詳細計画を提出
+
+---
+
+## [2026-06-01] [Build/Product] D3 bag/accessory supplemental tuning 全実装 close [承認: CEO]
+
+D2 で engine に通した bag / accessory を、 TPO・天気・季節に応じて賢く選ぶチューニングフェーズが完了。 D3-1〜D3-3 を退化 0 で実装し、 D3-4 docs-only commit で close。
+
+- **詳細**: `docs/plan-outfit-supplemental-tuning-close.md`
+- **累計 4 commits**:
+  - `a974e486` D3-1 bag tuning（travel 追加 / rain 防水 hard filter / smart-dress で backpack 後退 / `selectBagPool` pure helper）
+  - `538da0c2` D3-2 accessory tuning（cold day temp_max<15 で scarf sub-pool 優先 pick / dress 最大 2 件 / subcategory 重複禁止 / `selectAccessories` + `isColdDay`）
+  - `19423094` D3-3 hydrate path 修正（audit で hat migration gap 発見 → `slotOfWardrobe` に hat→accessory 1 行追加 / engine D2-1 と整合）
+  - 本コミット D3-4 close docs
+- **不変原則の達成**:
+  - scoreCandidate 関数本体 D3 全体で 1 文字も変更なし（CEO 補正どおり）
+  - D1 helper / outfitEngineAdapter / useCalendarOutfit / OutfitCollage / mock 構造 すべて未接触
+  - supplemental 不変（bag/accessory 無しでも proposal 成立 / selectedItems.length<2 境界維持）
+- **検証**: Calendar 269 PASS（D3 開始時 +33、 退化 0）/ plan 3514 PASS（+13、 退化 0）/ eslint clean / tsc 自分のファイル差分 0
+- **触らない**: My-Style persistence / cutout / quota / weather route / migration / push / deploy
+- **D4 以降**: D4=accessory subcategory 別 gate (hat/belt/jewelry) / D5=diff 主軸検討 / D6=scoreCandidate 限定進出 / Maintenance（quota / 既存 item / weather 404）
+
+---
+
+## [2026-06-01] [Build/Product] D4 accessory subcategory eligibility close [承認: CEO]
+
+D3 同領域・低リスクで accessory subcategory 別 gating を 1 commit + close docs で完了。 CEO 補正 5 点（hat 雨日 suppressed・outdoor は実 event_type のみ・hotSunny は temp_max>=28・belt bottoms 前提で casual 可・jewelry dress 寄り・scarf D3-2 維持）を全反映。
+
+- **詳細**: `docs/plan-outfit-accessory-subcategory-close.md`
+- **2 commits**:
+  - `57638fb8` D4 実装 — `buildAccessoryContext` + `accessorySubcategoryTier` + `selectAccessories` に `ctx` 引数
+  - 本コミット D4 close docs
+- **不変原則**: scoreCandidate / D1 helper / UI / OutfitCollage / mock 構造 すべて未接触。 hard filter なし（tier は安定 partition）→ pool 1 種なら必ず採用（補正 1/4 の核心）。 scarf cold 優先（D3-2）は最強で維持。 ctx 無し呼び出しは D3-2 完全互換。
+- **検証**: Calendar 297 PASS（D4 開始時 +28、 退化 0）/ plan 3514 PASS（退化 0）/ eslint clean / tsc 自分のファイル差分 0
+- **触らない**: My-Style persistence / cutout / quota / weather route / migration / push / deploy
+- **次**: D5 mini design 補正（CEO 推奨案 B = main-axis diff required + supplemental as tie-breaker）を再提出して STOP
+
+---
+
+## [2026-06-01] [Build/Product] D5 diff axis 分離 (main + supplemental) close [承認: CEO]
+
+D1 `diffScore` を CEO 推奨 B 案（main-axis required + supplemental as tie-breaker）+ 補正（`mainAxisDiff >= 1` ガード）で再設計。 bag/accessory が差分主軸化するリスクを構造的に排除。
+
+- **詳細**: `docs/plan-outfit-diff-axis-close.md`
+- **2 commits**:
+  - `a92f870e` D5 実装 — `mainAxisDiff` / `supplementalDiff` 純関数追加、 `diffScore` を 2 軸分離（main < 1 で supplemental 無効化）
+  - 本コミット D5 close docs
+- **採用**: B 案 + CEO 補正（`mainAxisDiff >= 1` のときだけ supplemental 加点 → outer 0.5 単独 + bag 違いでも main < 1 で通さない）
+- **既存 D1 outer 0.5 セマンティクス**は main-axis 内で完全保持（既存 outer test 1.5 そのまま PASS）
+- **D5 で発見した小事実**: D1 までの `diffScore` は bag/accessory も id 対称差に等価カウントしており、 「bag だけ違う」が 2.0 で通っていた。 D5 で構造的に 0 に。 D1 補正「bag/accessory を差分主軸にしない」が**実装上は部分的に効いていなかった**ものを D5 で完全実装。
+- **不変原則**: scoreCandidate / outfitEngine 本体 / adapter / hook / UI / OutfitCollage / mock 構造 / D2-D4 selection logic すべて未接触
+- **検証**: plan 3532 PASS（D5 開始時 +18、 退化 0）/ Calendar 297（退化 0）/ 既存 D1 ensureThreeProposals 32/32 維持 / eslint clean / tsc 自分のファイル差分 0
+- **次**: D6-0 設計/risk audit を docs として提出（scoreCandidate 高リスク領域・実装は別 design gate GO 後）
+
+---
+
+## [2026-06-01] [Build/Ops] M1 localStorage quota cleanup close [承認: CEO + 実機 PASS]
+
+D2 残課題の localStorage quota 圧迫（実機 5.24MB → quota 上限近接）を M1-1 + M1-2A の 2 commit で実質解消。 実機 console 観測で `culcept_tryon_history_v1` が消え、 total 0.70MB へ激減を CEO 確認済。 M1-3 docs-only commit で close。
+
+- **詳細**: `docs/maintenance-localstorage-quota-cleanup-close.md`
+- **3 commits**:
+  - `7b10eb58` M1-1 — orphan `culcept_tryon_history_v1`（~4.54MB）を EXPENDABLE_EXACT_KEYS 追加
+  - `0cffe565` M1-2A — `loadStateBundle` から PREVIOUS_BACKUP_STORAGE_KEY 読込停止 + `culcept_my_style_v2_backup` 追加
+  - 本コミット M1-3 close docs
+- **不変原則**: IndexedDB / server / current wardrobe / My-Style v3 / culcept_my_style_v2 本体 すべて未削除
+- **deferred**: M1-2B（v2 本体読込停止）— quota 余裕回復済で着手不要、 必要性が出てから再評価
+- **検証**: my-style 119 PASS / plan+Calendar+stargazer 5868 PASS / eslint clean / tsc 差分内 0 / 実機 PASS
+- **次**: D6（scoreCandidate への bag/accessory 限定 weighting）に進む
+
+---
+
+## [2026-06-01] [Build/Product] D6 design / risk audit 提出 [承認: CEO]
+
+D5 完了報告時に提出した D6 design / risk audit を docs に固定。 D6-1 baseline test + D6-2 実装 + close docs の 4 commit プランで進行。
+
+- **詳細**: `docs/plan-outfit-scorecandidate-bag-accessory-design.md`
+- **方針**: scoreCandidate の `return score` 直前に bag/accessory gated weight を追加（各 +3 程度・controlled）。 tops/bottoms/shoes/outer のスコアは完全不変が必須条件
+- **D6-1 必須**: baseline score test で tops/bottoms/shoes/outer のスコアを固定してから D6-2 実装に進む（順序厳守）
+- **触らない**: D1 helper / diffScore / buildCombo / adapter / hook / UI / scoreCandidate 大改修
+- **STOP 条件**: baseline test 作成不可 / 既存スコア変動 / Calendar/plan test 退化 / NaN
+
+---
+
+## [2026-06-01] [Build] D6-1 scoreCandidate baseline test 固定 [承認: CEO]
+
+D6-2 実装前の必須前提として、 scoreCandidate のスコアを 17 cases で固定。 tops/bottoms/shoes/outer の挙動を構造的に保証。 同時に `scoreCandidate` を export（test import 用）。
+
+- **commit**: `6711c934`
+- **新規 test**: `tests/unit/calendar/scoreCandidateBaseline.test.ts` 17 cases PASS
+- **export**: `app/(culcept)/calendar/_lib/outfitEngine.ts` の `scoreCandidate` に export 付与（既存呼び出しに影響なし）
+- **最小依存原則**: `localStorage` 空、 `recentlyWornIds = []`、 persona/satisfactionProfile/cache 未注入
+- **D6-2 後の差し替え**: bag/accessory 3 cases は当時 50（D6-2 後 53 になる旨コメント明記）
+- **検証**: Calendar 全 / plan 全 / eslint clean / tsc 自分のファイル差分 0
+- **次**: D6-2 で scoreCandidate に bag/accessory 限定 weighting を追加
+
+---
+
+## [2026-06-01] [Build] D6 scoreCandidate に bag/accessory 限定 weighting close [承認: CEO]
+
+D6-0 design 案に従い、 scoreCandidate に bag/accessory 限定の +3 weighting を追加。 tops/bottoms/shoes/outer のスコアは完全不変。 D6-1 baseline 17 cases は変更なしで PASS、 bag/accessory は 8 cases に拡充（D6-2 後の動作を構造的に固定）。
+
+- **詳細**: `docs/plan-outfit-scorecandidate-bag-accessory-close.md`
+- **4 commits**:
+  - `0bceb81c` D6-0 design / risk audit
+  - `6711c934` D6-1 baseline score test 固定（17 cases）
+  - `bba39686` D6-2 実装 — scoreCandidate に bag/accessory 限定 weighting + baseline 期待値更新（25 cases）
+  - 本コミット D6-close docs
+- **採用**: bag = backpack×casual / tote-shoulder-crossbody×smart-dress / accessory = scarf×thick / jewelry×dress / belt×casual-smart に +3。 hat は context 不足で D6 スコープ外
+- **不変原則**: tops/bottoms/shoes/outer のスコア完全不変 / scoreCandidate 構造改修なし（`return score` 直前の gated 分岐のみ）/ 属性未設定 item は中性扱い / NaN なし
+- **検証**: scoreCandidateBaseline 25 cases PASS（既存 17 + 新規 8）/ Calendar 322 / plan 3532 / eslint clean / tsc baseline 1116 維持
+- **次**: CEO 判断（Calendar 他改善 / Plan / 別ユニット）
+
+---
+
+## [2026-06-01] [Build] M2-extra WardrobeCard tap → activeItem 詳細モーダル経路追加 [承認: CEO]
+
+M2-2 の「背景をきれいにする」導線が、 WardrobeTab カテゴリ別グリッドの WardrobeCard では未配線（card tap で何も起こらない）だったため、 案 B（image 全面に透明 button を被せる）で外科的に追加。 ShowcaseRail 経由の既存経路は不変。
+
+- **commit**: `415d6ccd`
+- **変更ファイル**: 3（WardrobeCard.tsx / WardrobeTab.tsx / page.tsx、 計 24 追加 / 7 削除）
+- **実装**: WardrobeCard に onSelect prop 追加 → image 全面に透明 button (z-[1]) を被せる。 既存 hover overlay (+/✏️/🗑️) は z-[2] へ昇格、 内側ボタンは stopPropagation 済で衝突なし。 quality badge / color swatch は pointer-events-none で透過
+- **不変領域**: 既存 hover ボタン操作 / ShowcaseRail tap / WardrobeCard 表示 / 他 component 一切無改修。 onSelect 未指定なら後方互換維持
+- **検証**: my-style 141 PASS（退化 0）/ eslint clean / tsc baseline 1116 維持
+- **次**: M3-0 docs（cutout 品質改善 + 復活ブラシ + 控えめ post-process の設計）
+
+---
+
+## [2026-06-01] [Build/Product] M3-0 cutout 品質改善 design / roadmap 提出 [承認: CEO Phase 1 GO]
+
+CEO 提案「復活ブラシ」+「自動精度より、 ユーザーが直せることを優先」方針を反映した設計 docs。 既存 backgroundRemovalV1 / BackgroundRemover の大改修なし、 復活ブラシ + 控えめな post-process のみ追加する。
+
+- **詳細**: `docs/my-style-cutout-quality-improvement-design.md`
+- **構造的欠陥 5 点**（D1-D5）と文献調査結論を docs に固定
+- **Phase 設計**:
+  - Phase 1（完了）: M2-extra（WardrobeCard tap）+ M3-0（本 docs）
+  - Phase 2（GO）: M3-1 pure helper（保守的 morphology + 境界 feathering）/ M3-2 復活ブラシ UI + post-process 接続 / M3-3 close docs
+  - Phase 3（deferred）: deep matting は package 追加が必要、 別 audit へ
+- **CEO 補正 厳守項目**:
+  - imageUrl 上書き禁止（cutout 系 4 field のみ更新）
+  - 復活ブラシは original image 参照
+  - post-process は radius/iter 小・feather 境界のみ・服を削らない
+  - post-process は **初期 auto cutout のみ** に適用（manual 編集後の再適用禁止）
+  - success 判定を無理に上げない
+  - 精度 100% 表記は別スライスで検討
+- **STOP 条件**: 復活で消しゴム破壊 / post-process で服削れ / manual 後再適用 / imageUrl 接触 / BackgroundRemover 大改修 / package 追加 / テスト退化
+- **次**: M3-1 pure helper + unit tests
+
+---
+
+## [2026-06-01] [Build] M3-1 cutoutPostProcess pure helper + unit tests [承認: CEO Phase 2 GO]
+
+控えめ cutout post-process の pure helper を新規追加（UI 接続なし）。 CEO 補正「服を削らない」を defaults と中間値不変ルールで構造的に保証。
+
+- **commit**: `f23aa601`
+- **新規ファイル 2**: `app/(immersive)/my-style/_lib/cutoutPostProcess.ts` / `tests/unit/my-style/cutoutPostProcess.test.ts`
+- **defaults**（CEO 補正の構造的保証）:
+  - `closeIter=1`（前景の小穴のみ埋める）
+  - `openIter=0`（孤立小領域除去 OFF — 服分断保護）
+  - `bgFeatherAlpha=0`（feather OFF）
+- **helper 群**: dilate/erode/close/open/feather + RGBA 統合 `applyPostProcessToRgba` + browser-only wrapper `applyCutoutPostProcess`
+- **不変原則**: alpha のみ操作（RGB 不変）/ 前景画素 (255) は feather でも絶対不変 / 中間値 (0<α<255) 全 helper で不変 / 入力 buffer 全 helper で mutate しない / status/confidence/signals 計算に関与しない
+- **検証**: 新規 27 cases PASS / my-style 168 PASS（退化 0）/ eslint clean / tsc baseline 1116 維持
+- **次**: M3-2 BackgroundRemover に復活ブラシ + post-process 接続
+
+---
+
+## [2026-06-01] [Build] M3-2 復活ブラシ + 初期 auto cutout のみ post-process 接続 [承認: CEO Phase 2 GO]
+
+BackgroundRemover に「復活」ブラシを追加し、 M3-1 の post-process を初期 auto cutout のみに適用。 CEO 補正「ユーザーが直せる」「保守的に」を全て満たす。
+
+- **commit**: `18d0d4db`
+- **変更ファイル 1**: `app/(immersive)/my-style/_components/BackgroundRemover.tsx`（+105 / -16）
+- **復活ブラシ**:
+  - toolbar に「復活」button 追加（消しゴムと排他、 emerald 色）
+  - `ctx.clip(circle)` + `destination-over` + `drawImage(originalImg)` で透明部分のみ original 補充（MDN 検証済）
+  - originalImg は `originalUrl` を decode して useRef で保持（imageUrl は読むだけ）
+  - pointer ハンドラは既存を再利用、 brushDab dispatcher で eraseDab/restoreDab 切替
+  - ブラシサイズは消しゴムと共有
+  - 「消しゴム」「復活」「比較」「元に戻す」全 toggle で他モードを OFF にする排他制御
+- **post-process 接続**:
+  - `processImage` 内、 V1 cutout の直後・autoCrop の前で `applyCutoutPostProcess(finalUrl)` を 1 行
+  - defaults 採用（closing 1 iter のみ・服 alpha 不変）
+  - **初期 auto cutout の path にのみ適用** → manual 編集後の再適用なしを構造的に保証
+  - fail-safe: 例外時は入力 dataURL をそのまま返す
+- **不変原則**: imageUrl/originalUrl/cutoutUrl 以外触らない / backgroundRemovalV1 無改修 / cutoutBrowser 無改修 / /plan 無改修 / success/confidence/status 判定変更なし / 外部 API/package 追加なし
+- **検証**: my-style 168 PASS（退化 0）/ eslint clean / tsc baseline 1116 維持 / dev server healthy
+- **次**: M3-3 close docs + 実機確認
+
+---
+
+## [2026-06-01] [Build] M3 cutout 品質改善 close [承認: CEO Phase 2 完了]
+
+M3-1 (pure helper) + M3-2 (UI 接続) を docs に固定。 復活ブラシ + 控えめ post-process が完成。 deep matting (Phase 3) は deferred のまま、 別 audit で再検討。
+
+- **詳細**: `docs/my-style-cutout-quality-improvement-design.md`（M3-3 セクション追記）
+- **4 commits**:
+  - `ef26ce8e` M3-0 design + roadmap
+  - `f23aa601` M3-1 pure helper + 27 unit tests
+  - `18d0d4db` M3-2 復活ブラシ + post-process 接続
+  - 本コミット M3-3 close docs
+- **次フェーズ候補（CEO 判断）**: Phase 3 deep matting / 精度文言調整 / 他ユニット
+
+---
+
+## [2026-06-04] [Build/Chief of Staff] 5 セッション統合 監査 + safety tag + plan 保存（実行前）[承認: CEO safety+docs まで GO]
+
+main 未合流の 5 並行セッションブランチを安全統合するための read-only 監査・safety tag・統合 plan を確定。 **統合実行自体は CEO 明示 GO 待ち（未実行）**。
+
+- **詳細**: `docs/plan-multi-session-integration-audit-2026-06-04.md`
+- **実施済（破壊性ゼロ）**:
+  - 5 ブランチ HEAD に復元用 annotated safety tag（`safety/preinteg-20260604/*`・push なし・local）
+  - 本統合 plan を docs 保存（docs-only）
+- **衝突マップ**: ~399 file 変更中、真の code 衝突は **2 ファイルのみ** — `CalendarTab.tsx`(LP×SH) / `PlanClient.tsx`(SH×NT)。`decision-log.md` は append union 自明。SB・FH は他と共有ファイルゼロ
+- **CEO 設計確定（CalendarTab）**: 「週間/月」トグル。週=既存週ビュー + LP outfit dashboard + 既存 day timeline / 月=SH 月グリッド。**union のみ・片側選択禁止**
+- **統合順序**: FH→SB→NT→LP→SH（最後に SH の衝突を 1 パス手動解決）。main 起点 integration branch・元ブランチ無傷
+- **重要検知**: `serene-bardeen` が監査中に HEAD 移動（be6da9c5→34cf967d）＝稼働中。統合前に安定点停止が必要（safety tag は移動後を捕捉済）
+- **merge 先**: local main `9afdcaf9`（origin/main は +348 遅れで stale）
+- **ドライバー推奨**: 本セッション(LP)。 全監査 + plan 保持で最深コンテキスト。SH は月モード smoke 検証担当
+- **制約**: source branch 編集なし / push・PR なし / rebase・reset・clean・stash・force push 禁止 / full verify + CEO smoke まで main 反映しない
+- **次**: CEO の統合実行 GO 待ち（+ serene-bardeen 停止確認）
+
+### Revision 2（2026-06-04・全セッション回答 + GPT レビュー反映）
+全 5 セッション（SH/NT/SB/FH）の回答受領 + GPT レビューを受け、 **実 git 再検証**の上で統合 plan を補正。 統合実行は引き続き HOLD。
+- **★MapTab 事実訂正**: GPT/FH の「FH×NT MapTab 衝突」は **merge 機構上は誤り**を git で実証 — MapTab を変更しているのは **FH のみ**（NT は不変更）、 `merge-tree FH×NT` = **クリーン**。 ＝merge 衝突なし。 ただし FH 自身の推奨どおり、 1462 行 MapTab は `lib/plan/transport` バイパスの大規模書換で **§11.4 CEO アーキ判断後に再適用** → **FH docs 6 本は統合 / MapTab code は HOLD**（safety tag b69aa809 で保全）
+- **★R5 訂正**: FH HOLD と整合させ、 SH/NT/SB/LP は全 commit 到達、 FH は docs 到達 + MapTab tag 保全を成功条件に
+- **★dirty 訂正**: 「5 worktree 全 clean」は不正確（cross-worktree 読みはサンドボックス不可）。 統合対象 tracked ソースは clean、 SH に dev-preview 未コミット / NT に supabase/.temp（scope-out）— 統合に持ち込まない
+- **CalendarTab union**: LP memoized selectedDateObj（freeze 根治）を残し SH viewMode/月グリッド graft、 SH 月モード 6 配線厳守、 `calendarMonthGridEnabled` gate 維持（smoke のみ ON）、 SH co-review
+- **PlanClient union**: SH dayIndicator 配線 + NT compose/adaptive（保存契約 edits=PATCH/news=POST1回/refetch）+ LP cosmetic、 SH+NT review
+- **final tips（freeze 済）**: SH a1024625 / NT aeb5332c / SB 34cf967d / FH b69aa809 / LP 2b0637fb
+- **詳細**: `docs/plan-multi-session-integration-audit-2026-06-04.md` § Revision 2
+- **次**: 統合実行 GO は CEO 最終判断（merge 実行はまだ NO）
+
+---
+
+## [2026-06-01] [Build] Phase 6 — /calendar 画面を /plan へ redirect（UI 到達封鎖）[承認: CEO]
+
+CEO 指示「/calendar ルートは消していい＝画面上からたどり着けなくする・バックで動くのは OK」を受け、 旧スタンドアロン `/calendar` 画面を `/plan` へ redirect して UI 到達を封鎖。 物理削除（Phase 7）ではなく hide（Phase 6）。
+
+- **commit**: 本コミット
+- **変更**: `app/(culcept)/calendar/page.tsx` を `redirect("/plan")` スタブに置換（auth/baseline 分岐と CalendarPageClient render を撤去）
+- **方式判断**: 案 R（redirect）採用。 案 L（25 導線を個別削除）は大規模 diff + URL 直打ち未封鎖 + 取りこぼしリスクのため不採用。 redirect は 1 ファイルで全導線 + URL 直打ちを確実に塞ぐ。 307 一時 redirect で**可逆**
+- **redirect 先**: `/plan`（PlanClient の activeTab 既定が "calendar" → おすすめコーデ体験に直接着地）
+- **温存（バックで動く）**: `calendar/_lib/*`（engine outfitEngine / rotationTracker / 学習）/ `/api/calendar/*` / `culcept_calendar_worn_v1` すべて無改修。 `/plan` が facade `@/lib/shared/outfitEngine` 経由で使用継続
+- **物理削除せず**: CalendarPageClient / _components / _lib は残置（Phase 7 別ゲート）
+- **既知の残**: nav ラベル「カレンダー」表記 約 25 箇所は redirect 経由で /plan に着地（機能上問題なし）。 ラベル掃除は任意 follow-up
+- **不変原則**: backend / engine / 学習 / DB / API 無改修・新規 key なし
+- **検証**: eslint clean / tsc baseline 1116 維持（calendar/page 0 error）/ page を import する箇所 0 / render 依存テスト 0
+- **Phase 5（engine 移送 + 学習解禁）/ Phase 7（物理削除）は将来トラック**（GitHub 復活後・別ゲート）
+
+---
+
+## [2026-06-01] [Build] おすすめのコーデ アイテム拡大 + 間隔広げ [承認: CEO]
+
+CEO 報告「おすすめのコーデが中央密集・アイテムを大きく + 間隔を広げる」を pure 配置値だけで外科的に対応。
+
+- **commit**: `73bed38a`
+- **変更**: `outfitCollagePlacement.ts` 1 ファイル（11 追加 / 7 削除）
+- **scale**: 全 slot +9〜+18%（accessory 最大幅増・主役は控えめ）
+- **位置**: 中央 cluster を放射方向にオフセット、 corner slot も外側へ
+- **不変原則**: pure 関数のみ・OutfitCollage/OutfitItemView/OutfitCard 無改修・既存テストの相対不変条件すべて維持
+- **検証**: outfitCollage 22 PASS / plan 3532 / Calendar 322 / eslint clean / tsc baseline 1116 維持
+
+---
+
+## [2026-06-01] [Build/Product] 【FUTURE】Cutout プロ級透過 (Deep Matting / AI 透過) 別 audit 記録 [承認: CEO 指示]
+
+CEO 指示「Deep matting / AI 透過は別 audit、 未達成（将来行う）として記録」を docs に固定。 コード変更なし。
+
+- **詳細**: `docs/my-style-cutout-deep-matting-future-audit.md`
+- **状態**: **未着手・将来タスク**（本セッションでは実装しない・記録のみ）
+- **audit 対象**: RMBG / BiRefNet / Transformers.js / WebGPU / ライセンス / bundle size
+- **着手判断の閾値**: ユーザー要望集積 / 復活ブラシ使用頻度 / WebGPU 普及率 / 軽量モデル登場
+- **既存 docs link**: `docs/my-style-cutout-quality-improvement-design.md` § 9 (Phase 3 deferred) に相互参照
+- **次フェーズ候補**: 精度文言調整（別スライス） / 他ユニット
+
+---
+
+## [2026-06-01] [Build] M4 BackgroundRemover 編集座標系補正 close [承認: CEO 案 Y 採用]
+
+CEO 報告「比較・消しゴム・復活ブラシで位置/サイズがズレる」を案 Y（editableUrl/processedUrl 2-state 分離）で根本修正。 同時に getReprocessSourceUrl の優先順位を originalUrl → imageUrl fallback に逆転（CEO 補正 1）。
+
+- **詳細**: `docs/my-style-cutout-quality-improvement-design.md` § 10
+- **2 commits**:
+  - `7546d494` M4-1 実装（editableUrl/processedUrl 分離 + race-free 適用 + reprocessSource 優先順位逆転 + tests）
+  - 本コミット M4-2 close docs
+- **2-state 役割**:
+  - editableUrl = post-process 後 / crop 前 uncropped（比較・消しゴム・復活・stroke commit 全て同座標系）
+  - processedUrl = autoCrop 適用後 cropped（最終プレビュー / 保存候補）
+  - useEffect で editableUrl+autoCrop → processedUrl を race-safe 同期
+- **不変原則**:
+  - imageUrl/originalUrl 読み取り専用（書込経路ゼロ）
+  - editableUrl は UI 内部状態、 保存正本でない
+  - 保存対象は cutoutUrl/cutoutStatus/cutoutMethod/cutoutConfidence のみ
+  - post-process は初期 auto cutout のみ（stroke commit / autoCrop 切替で再実行しない）
+  - crop は保存直前 + useEffect 同期のみ
+  - backgroundRemovalV1 / cutoutBrowser / /plan 無改修
+- **M2-1 補正**: getReprocessSourceUrl 順序 originalUrl→imageUrl に逆転。 既存 item の典型（originalUrl 未保存）では imageUrl にフォールバック
+- **検証**: my-style 169 PASS（reprocessItem 23 拡充含む・退化 0）/ eslint clean / tsc baseline 1116 維持
+- **次フェーズ候補（CEO 判断）**: 精度文言調整（別スライス） / Phase 3 deep matting / 他ユニット
+
+---
+
+## [2026-06-01] [Build/Product] M2-0 既存 item 背景再処理 read-only audit 提出 [承認: CEO 指示で着手]
+
+CEO 次フェーズ指示「M2: 既存 item 再処理」を受け、 read-only audit + 実装分割案を提出。 既存 wardrobe item の cutout をユーザーが任意で個別再処理できるようにする設計。 コード変更なし（docs-only）。
+
+- **詳細**: `docs/my-style-existing-item-reprocess-design.md`
+- **核心結論（GO 可能・low risk）**: BackgroundRemover を `imageUrl` prop で**無改修**再利用 → `onApply(draft)` → `cutoutDraftToItemFields` → `setState` で item に merge。 新規エンジン/永続化コードゼロ
+- **要 feasibility 確定事項**:
+  - imageUrl は `resizeImage` → `toDataURL("image/jpeg")` で **dataURL** → `processImageCutout(string)` が CORS なしで動く（constants.ts 82）
+  - `processImageCutout` は production 稼働中（PhotoAddWizard + BackgroundRemover が import）。 cutoutBrowser 冒頭の「接続しない」コメントは C1L-4a の stale
+  - BackgroundRemover は既に `imageUrl?: string` + `onApply/onSkip/onCancel` を持つ（再利用テンプレ確定）
+  - cutoutUrl は imageUrl と同経路（IDB 正本 / localStorage strip / C1L-6 復元）→ setState で足すだけ
+  - /plan は `cutoutStatus==="success" && cutoutUrl` 優先（wardrobeToOutfit.ts 129-141）→ 保存後自動反映
+- **imageUrl 無し item**: 再処理不可。 導線を出さず「再登録が必要」と正直に表示（自動復旧しない）
+- **実装分割**: M2-0(audit) / M2-1(pure helper + test) / M2-2(導線 + BackgroundRemover 接続) / M2-3(実機 + close)。 CEO 推奨 4 分割の M2-2/M2-3 を統合、 ロジックは M2-1 に全寄せ
+- **STOP 条件**: imageUrl 再処理不可 / item 消失 / IDB-localStorage-server 整合崩れ / 白抜き事故再発 / 外部 API / UI 大改修
+- **次**: CEO の M2-1 GO 待ち
 
 ---

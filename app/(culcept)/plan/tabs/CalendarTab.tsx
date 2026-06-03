@@ -59,6 +59,7 @@ import {
 } from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
 import { usePlanGeocode } from "./_usePlanGeocode";
 import { ProposalChip } from "../components/ProposalChip";
+import { CalendarOutfitDashboard } from "./_calendar-outfit/CalendarOutfitDashboard";
 import type { AddRequest } from "../PlanClient";
 import {
   addMonths,
@@ -133,12 +134,29 @@ export function CalendarTab({
   /** 月送り animation の方向 (-1 = 前月、+1 = 翌月、0 = 初回) */
   const [slideDirection, setSlideDirection] = useState<-1 | 0 | 1>(0);
 
+  // Slice 1: 既存の予定タイムライン (= 月送り / week strip / 予定 list / proposal / DayGraph /
+  //   feasibility / FAB) を退避する disclosure。 初期は閉 (= dashboard を主役に)。
+  const [timelineOpen, setTimelineOpen] = useState<boolean>(false);
+
   const reducedMotion = useReducedMotion();
 
   // ── derived ──
-  const selectedDateObj = new Date(selectedDate + "T00:00:00.000Z");
+  // freeze 修正 (2026-05-31): selectedDateObj / selectedDayAnchors を useMemo で安定化する。
+  //   直書きだと毎レンダー新しい ref になり、 これを effect 依存に取る
+  //   useMapTabMovementDisplay / useCalendarTabFeasibilityDisplay の effect が毎レンダー再実行 →
+  //   async pipeline 完了で setDisplayMap(new Map()) → 再レンダー → また新 ref … と
+  //   **無限 async setState ループ**になり main thread を固める (= Chrome「ページが応答しません」)。
+  //   MapTab は同じ hook に useMemo 済みの安定 ref を渡しているため固まらない (= 対照証拠)。
+  //   selectedDate / anchors が変わらない限り同一 ref を返し、 hook の effect 依存を安定させる。
+  const selectedDateObj = useMemo(
+    () => new Date(`${selectedDate}T00:00:00.000Z`),
+    [selectedDate],
+  );
   const weekStrip = buildWeekStrip(selectedDateObj, currentMonth);
-  const selectedDayAnchors = anchorsForDay(anchors, selectedDateObj);
+  const selectedDayAnchors = useMemo(
+    () => anchorsForDay(anchors, selectedDateObj),
+    [anchors, selectedDateObj],
+  );
 
   // ── L-4d-b1 (= 2026-05-22 CEO 承認): selected day timeline のみ移動時間表示 ──
   //    既存 usePlanGeocode を **selected day anchors の最小 subset に限定** して利用。
@@ -263,6 +281,47 @@ export function CalendarTab({
 
   return (
     <div data-testid="plan-calendar-tab" className="relative pb-24">
+      {/* ── Slice 1: スケジュール連動 コーデ提案 dashboard (= 新しい主役、 mock UI) ── */}
+      {/* section ③ のみ実 anchors。 ②④⑤⑥ は mock。 engine / DB / weather 実取得は未配線。 */}
+      <CalendarOutfitDashboard
+        anchors={anchors}
+        now={baseNow}
+        onOpenTimeline={() => setTimelineOpen(true)}
+      />
+
+      {/* ── 既存の予定タイムラインは「タイムラインで確認」 disclosure に退避 (初期: 閉) ── */}
+      {/* 開くと月送り / week strip / 予定 list / proposal chip / 構造 timeline / 予定追加 を確認できる。 */}
+      <div className="mt-5 flex justify-center">
+        <button
+          type="button"
+          onClick={() => setTimelineOpen((open) => !open)}
+          aria-expanded={timelineOpen}
+          aria-controls="plan-calendar-legacy-timeline"
+          data-testid="plan-calendar-timeline-disclosure-toggle"
+          className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 motion-reduce:transition-none"
+        >
+          {timelineOpen ? "タイムラインを閉じる" : "タイムラインで確認"}
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+            className={"transition-transform " + (timelineOpen ? "rotate-180" : "")}
+          >
+            <path
+              d="M6 9l6 6 6-6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      {timelineOpen && (
+      <div id="plan-calendar-legacy-timeline">
       {/* ── Month header ── */}
       <header className="flex items-center justify-between px-2 mb-3">
         <button
@@ -647,6 +706,8 @@ export function CalendarTab({
         >
           +
         </button>
+      )}
+      </div>
       )}
     </div>
   );

@@ -17,6 +17,15 @@ import { COLOR_OPTIONS, uid, resizeImage } from "../_lib/constants";
 import { extractDominantColors, hexToColorName } from "../_lib/imageColorExtract";
 import type { DominantColor } from "../_lib/imageColorExtract";
 import BackgroundRemover from "./BackgroundRemover";
+import { getCaptureGuide } from "../_lib/captureGuides";
+import {
+    processImageCutout,
+    cutoutResultToItemFields,
+    cutoutDraftToItemFields,
+    skippedDraft,
+    type CutoutItemFields,
+    type CutoutDraft,
+} from "../_lib/cutoutBrowser";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,6 +110,8 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
     // Step 5 – post-save
     const [saved, setSaved] = useState(false);
     const [savedCount, setSavedCount] = useState(0);
+    const [processing, setProcessing] = useState(false); // C1L-4b: cutout 処理中（保存ボタン loading）
+    const [cutoutDraft, setCutoutDraft] = useState<CutoutDraft | null>(null); // C1L-4c-b1: overlay で適用した cutout
 
     // Derived
     const subcategoryOptions = useMemo(
@@ -120,6 +131,10 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
         if (savedCount === 5) return "5着達成！全機能が解放されました";
         return `${savedCount}着目を登録！`;
     }, [savedCount]);
+
+    // C1L-3: カテゴリ別撮影ガイド（Step1 では categoryMain 未確定 → general にフォールバック）。
+    // 枠は撮影補助 / segmentation prior であり crop ではない。 ここでは computeCutoutV1 に接続しない。
+    const captureGuide = useMemo(() => getCaptureGuide(categoryMain), [categoryMain]);
 
     // Navigation helpers
     const goTo = useCallback((target: Step, dir: number) => {
@@ -215,6 +230,27 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             }
         }
 
+        // C1L-4c-b1: 保存する cutout の優先順位 = ①BackgroundRemover で適用した draft（見たもの=保存物）
+        //   ②draft が無い場合のみ V1 を fallback 実行 ③それも失敗なら imageUrl のみ。
+        // category frame は segmentation prior（crop ではない）。 失敗しても登録は止めない。
+        let cutoutFields: CutoutItemFields | null = null;
+        if (cutoutDraft) {
+            cutoutFields = cutoutDraftToItemFields(cutoutDraft);
+        } else if (imageFile) {
+            setProcessing(true);
+            try {
+                const result = await processImageCutout(imageFile, {
+                    frame: getCaptureGuide(categoryMain).frame,
+                    maxDimension: 768,
+                });
+                cutoutFields = cutoutResultToItemFields(result);
+            } catch {
+                cutoutFields = null; // decode/canvas/compute 失敗 → imageUrl のみで登録継続
+            } finally {
+                setProcessing(false);
+            }
+        }
+
         const quality = calcWardrobeQuality({
             imageUrl: imageUrl ?? null,
             categoryMain,
@@ -241,6 +277,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             addedAt: new Date().toISOString(),
             qualityScore: quality.score,
             missingBadges: quality.badges,
+            ...(cutoutFields ?? {}),
         };
 
         onSave(item);
@@ -260,6 +297,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
         formality,
         itemCount,
         onSave,
+        cutoutDraft,
     ]);
 
     const handleRestart = useCallback(() => {
@@ -274,6 +312,7 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
         setName("");
         setSeason("all");
         setFormality("casual");
+        setCutoutDraft(null); // C1L-4c-b1: 次の登録用に draft をクリア
         setSaved(false);
         setDirection(-1);
         setStep(1);
@@ -332,7 +371,36 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
             className="flex flex-col items-center w-full max-w-sm"
         >
             <h2 className="text-xl font-bold text-slate-900 mb-1">写真を追加</h2>
-            <p className="text-sm text-slate-500 mb-6">服の写真を撮影またはアップロード</p>
+            <p className="text-sm text-slate-500 mb-4">服の写真を撮影またはアップロード</p>
+
+            {/* C1L-3: 撮影ガイド（点線枠は撮影補助 / segmentation prior。 crop ではない） */}
+            <div className="w-full mb-5">
+                <div
+                    className="relative mx-auto mb-3 rounded-2xl bg-slate-50 border border-slate-100"
+                    style={{ width: 128, height: 150 }}
+                    aria-hidden
+                >
+                    <div
+                        className="absolute rounded-xl border-2 border-dashed border-violet-300 flex items-center justify-center"
+                        style={{
+                            left: `${captureGuide.frame.x * 100}%`,
+                            top: `${captureGuide.frame.y * 100}%`,
+                            width: `${captureGuide.frame.width * 100}%`,
+                            height: `${captureGuide.frame.height * 100}%`,
+                        }}
+                    >
+                        <span className="text-2xl opacity-30 select-none">👕</span>
+                    </div>
+                </div>
+                <ul className="space-y-1 max-w-xs mx-auto">
+                    {captureGuide.instructions.map((t, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug text-slate-500">
+                            <span className="text-violet-400 mt-px">•</span>
+                            <span>{t}</span>
+                        </li>
+                    ))}
+                </ul>
+            </div>
 
             {/* Hidden inputs */}
             <input
@@ -741,8 +809,8 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
                         </div>
                     </GlassCard>
 
-                    <GlassButton variant="primary" fullWidth onClick={handleSave}>
-                        保存する
+                    <GlassButton variant="primary" fullWidth onClick={handleSave} disabled={processing}>
+                        {processing ? "背景を整えています…" : "保存する"}
                     </GlassButton>
                 </>
             ) : (
@@ -852,8 +920,14 @@ export default function PhotoAddWizard({ onSave, onClose, itemCount }: PhotoAddW
                         <h3 className="text-lg font-bold text-slate-900 mb-3">背景を整える</h3>
                         <BackgroundRemover
                             imageFile={imageFile}
-                            onApply={(processedUrl) => void proceedToColorStep(processedUrl)}
-                            onSkip={() => void proceedToColorStep()}
+                            onApply={(draft) => {
+                                setCutoutDraft(draft);
+                                void proceedToColorStep(draft.dataUrl);
+                            }}
+                            onSkip={() => {
+                                setCutoutDraft(skippedDraft());
+                                void proceedToColorStep();
+                            }}
                             onCancel={() => setShowBgRemover(false)}
                         />
                     </div>

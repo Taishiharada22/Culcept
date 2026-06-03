@@ -58,6 +58,11 @@ const FlatLayComposer = dynamic(() => import("./_components/FlatLayComposer"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-48" />,
 });
+// M2: 既存 item の背景再処理（reprocess）。 PhotoAddWizard と同じ BackgroundRemover を遅延ロードで再利用。
+const BackgroundRemover = dynamic(() => import("./_components/BackgroundRemover"), {
+    ssr: false,
+    loading: () => <LoadingSkeleton height="h-64" />,
+});
 import SmartEmptyState from "./_components/SmartEmptyState";
 import StyleLogicPanel from "./_components/StyleLogicPanel";
 import AIInsightPanel from "./_components/AIInsightPanel";
@@ -96,9 +101,15 @@ import {
     finalizeSavedState,
     hasMeaningfulState,
     loadStateBundle,
+    mergeCachedStateWithLocalImages,
+    mergeRemoteStateWithLocalImages,
+    mergeRestoredWardrobeImageFields,
     normalizeSavedState,
+    shouldAdoptRemoteState,
 } from "./_lib/state";
 import type { SavedState, WardrobeItem } from "./_lib/types";
+import { buildReprocessWardrobeUpdater, canReprocessItem, getReprocessSourceUrl } from "./_lib/reprocessItem";
+import type { CutoutDraft } from "./_lib/cutoutBrowser";
 import {
     type TabId,
     type IdentityMode,
@@ -642,7 +653,7 @@ const WardrobeOverviewTab = React.memo(function WardrobeOverviewTab({
             )}
 
             {/* ── カテゴリ別 (WardrobeTab) ── */}
-            <WardrobeTab state={state} setState={setState} onAddToSetup={onAddToSetup} />
+            <WardrobeTab state={state} setState={setState} onAddToSetup={onAddToSetup} onSelectItem={onSelectItem} />
 
             {/* ── 足りない1点 ── */}
             {missingPiece && (
@@ -774,6 +785,7 @@ export default function MyStylePage() {
     const [crossFeature, setCrossFeature] = useState<CrossFeatureData | null>(null);
     const [bridgePulse, setBridgePulse] = useState<BridgePayload["pulse"]>(null);
     const [activeItemId, setActiveItemId] = useState<string | null>(null);
+    const [reprocessItemId, setReprocessItemId] = useState<string | null>(null); // M2: 背景再処理対象
     const syncTimerRef = useRef<number | null>(null);
     const tabBarRef = useRef<HTMLDivElement>(null);
 
@@ -827,10 +839,9 @@ export default function MyStylePage() {
             try {
                 localStorage.setItem(STORAGE_KEY, json);
             } catch {
-                // Quota still exceeded — rely on IndexedDB as primary store
-                // Remove stale localStorage entry to prevent reading outdated data on next load
-                try { localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
-                console.warn("[my-style] localStorage quota exceeded — using IndexedDB as primary store");
+                // Fix C: quota 超過でも main snapshot を **消さない**。 消すと次回 load が virgin 化し、
+                // stale な server state が local の削除を上書きする（＝削除復活の原因）。 IDB を primary として継続。
+                console.warn("[my-style] localStorage quota exceeded — keeping IndexedDB as primary store");
             }
         }
         // Backup moved to beforeunload only — writing it on every change doubled quota pressure
@@ -903,25 +914,18 @@ export default function MyStylePage() {
                 try {
                     const cached = await loadCachedState<SavedState>("my-style-state");
                     if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0) {
-                        const imageMap = new Map<string, string>();
-                        for (const item of cached.wardrobe) {
-                            if (item.id && item.imageUrl) imageMap.set(item.id, item.imageUrl);
-                        }
-                        if (imageMap.size > 0) {
-                            setState((prev) => {
-                                const hasAnyImage = prev.wardrobe.some(w => !!w.imageUrl);
-                                if (hasAnyImage) return prev; // already has images
-                                let restored = 0;
-                                const wardrobe = prev.wardrobe.map((item) => {
-                                    if (item.imageUrl) return item;
-                                    const img = imageMap.get(item.id);
-                                    if (img) { restored++; return { ...item, imageUrl: img }; }
-                                    return item;
-                                });
-                                if (restored > 0) console.log(`[my-style] 🖼 restored ${restored} images from IndexedDB`);
-                                return restored > 0 ? { ...prev, wardrobe } : prev;
-                            });
-                        }
+                        // Fix（2026-05-31・IDB 正本化）: IDB cache を current の正本にする。
+                        //   旧実装は「prev(localStorage 由来) base + cached の画像 patch」だったが、
+                        //   localStorage v3 が quota で消えると PREVIOUS_BACKUP_STORAGE_KEY="v2_backup" が
+                        //   読まれ、 v2 時代の古い 24件 (画像込み、 古い id) が initialBundle になる。
+                        //   prev の id 集合と IDB（最新 add の id）の id 集合が一致せず、 旧 merge では
+                        //   prev のまま state 化 → persist で IDB を古い state で上書きする事故が起きていた。
+                        //   IDB は persist で常に最新が書かれる正本。 cached を base にし、 prev の同 id のみで
+                        //   画像補完（保険）にする。 rawSetState で rev wrapper bump を回避し cached.rev を保持。
+                        rawSetState((prev) => {
+                            const merged = mergeCachedStateWithLocalImages(cached, prev.wardrobe);
+                            return merged ?? prev;
+                        });
                     }
                 } catch { /* IndexedDB unavailable */ }
                 setRestorationResolved(true);
@@ -945,7 +949,12 @@ export default function MyStylePage() {
     useEffect(() => { if (!notice) return; const t = window.setTimeout(() => setNotice(null), 2800); return () => window.clearTimeout(t); }, [notice]);
 
     // Remote sync (load)
+    //   Fix（2026-05-31・race 解消）: restorationResolved=true まで待つ。 mount once effect の
+    //   branch1/3 が IDB から復元する前に remote-load が adopt 判定すると、 prev = initialBundle
+    //   (v2_backup 由来の古い id 集合) で remote(server 新 id) との id 不一致が起き、 画像補完が
+    //   効かなくなる（reload 後の写真消失の race 部分）。 IDB 復元完了後に走らせる。
     useEffect(() => {
+        if (!restorationResolved) return;
         let active = true;
         async function loadRemote() {
             const res = await fetch("/api/my-style/bridge", { cache: "no-store" }).catch(() => null);
@@ -958,17 +967,30 @@ export default function MyStylePage() {
             setSyncStatus(json?.syncedAt ? "synced" : "idle");
             if (json?.crossFeature) setCrossFeature(json.crossFeature);
             if (json?.pulse) setBridgePulse(json.pulse);
-            // Only overwrite local state with remote if local is truly virgin (rev 0 + empty).
-            // If local has revision > 0, user has been active — even if wardrobe is empty (delete-all).
-            const localRevNow = initialBundle.state._revision ?? 0;
-            const remoteRev = json?.remoteState?._revision ?? 0;
-            if (localRevNow === 0 && !hasMeaningfulState(initialBundle.state) && json?.remoteState && (remoteRev > 0 || hasMeaningfulState(json.remoteState))) {
-                rawSetState(finalizeSavedState(json.remoteState)); setNotice("保存データを読み込みました");
+            // Fix D（削除復活の停止）: server remote の採用は **現在の state** で判定する。
+            //   stale な initialBundle は見ない。 localStorage が quota で消えても mount 時に IDB full state が
+            //   current へ復元されるため、 current が meaningful なら server で上書きしない（IDB > server）。
+            //   stale な server が local の削除を巻き戻す事故を防ぐ。 本当に空の新規端末のときだけ remote を採用。
+            const remoteState = json?.remoteState;
+            if (remoteState) {
+                let adopted = false;
+                rawSetState((prev) => {
+                    if (shouldAdoptRemoteState(prev, remoteState)) {
+                        adopted = true;
+                        // server snapshot は stripHeavyImageUrls 済で画像が無い。 そのまま finalize すると
+                        // IDB 復元済の imageUrl/cutoutUrl/originalUrl が消える → 写真が reload 後に白抜き化する。
+                        // remote wardrobe を base にして、 prev(IDB 復元済) の画像を id 一致で補完する
+                        // （削除は remote に従う＝remote に無い id は復活させない）。
+                        return mergeRemoteStateWithLocalImages(remoteState, prev.wardrobe);
+                    }
+                    return prev;
+                });
+                if (adopted) setNotice("保存データを読み込みました");
             }
         }
         void loadRemote();
         return () => { active = false; };
-    }, [initialBundle.state]);
+    }, [restorationResolved]);
 
     // Remote sync (save) — with offline queue fallback
     // 復元完了前は POST を禁止（空 state でサーバーを上書きしない）
@@ -1032,8 +1054,25 @@ export default function MyStylePage() {
     /* showDna removed — Style DNA expandable removed */
     const closeActiveItem = () => setActiveItemId(null);
 
+    // M2: 背景再処理。 対象 item と再処理 source（dataURL）を導出。 imageUrl は読むだけ・絶対に書かない。
+    const reprocessItem = useMemo(
+        () => (reprocessItemId ? state.wardrobe.find((entry) => entry.id === reprocessItemId) ?? null : null),
+        [reprocessItemId, state.wardrobe],
+    );
+    const reprocessSourceUrl = reprocessItem ? getReprocessSourceUrl(reprocessItem) : null;
+    // onApply: cutout draft を helper 経由で cutout 系 4 field のみ更新。 imageUrl/originalUrl は不変。
+    const handleReprocessApply = (draft: CutoutDraft) => {
+        if (!reprocessItemId) return;
+        setState(buildReprocessWardrobeUpdater(reprocessItemId, draft));
+        setReprocessItemId(null);
+        pushNotice("背景をきれいにしました");
+    };
+
     useEffect(() => {
-        if (tab !== "closet") setActiveItemId(null);
+        if (tab !== "closet") {
+            setActiveItemId(null);
+            setReprocessItemId(null);
+        }
     }, [tab]);
 
     return (
@@ -1179,7 +1218,23 @@ export default function MyStylePage() {
                         <div className="mt-4 grid gap-4 sm:grid-cols-[140px_1fr]">
                             <ImageSurface image={activeItem.item.imageUrl} label={activeItem.item.name} gradient="from-slate-700 to-slate-900" />
                             <div className="space-y-3">
-                                <div className="flex justify-end">
+                                <div className="flex flex-wrap items-center justify-end gap-2">
+                                    {canReprocessItem(activeItem.item) ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setReprocessItemId(activeItem.item.id)}
+                                            className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-bold text-emerald-600 transition hover:bg-emerald-100"
+                                        >
+                                            背景をきれいにする
+                                        </button>
+                                    ) : (
+                                        <span
+                                            className="text-[11px] text-slate-400"
+                                            title="写真が残っていないため、背景の再処理はできません。もう一度登録してください。"
+                                        >
+                                            写真がないため再処理できません
+                                        </span>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1267,6 +1322,33 @@ export default function MyStylePage() {
                         onClose={() => setShowPhotoAdd(false)}
                         itemCount={state.wardrobe.length}
                     />
+                </ErrorBoundary>
+            ) : null}
+
+            {/* M2: 既存 item 背景再処理 overlay（BackgroundRemover を imageUrl prop で再利用・無改修） */}
+            {reprocessItem && reprocessSourceUrl ? (
+                <ErrorBoundary fallbackMessage="背景の再処理中にエラーが発生しました">
+                    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+                        <div className="max-h-[90vh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-4 shadow-2xl">
+                            <div className="mb-3 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-slate-900">背景をきれいにする</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setReprocessItemId(null)}
+                                    className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200"
+                                    aria-label="閉じる"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                                </button>
+                            </div>
+                            <BackgroundRemover
+                                imageUrl={reprocessSourceUrl}
+                                onApply={handleReprocessApply}
+                                onSkip={() => setReprocessItemId(null)}
+                                onCancel={() => setReprocessItemId(null)}
+                            />
+                        </div>
+                    </div>
                 </ErrorBoundary>
             ) : null}
 

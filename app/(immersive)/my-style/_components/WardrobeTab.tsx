@@ -61,6 +61,8 @@ interface WardrobeTabProps {
     setState: React.Dispatch<React.SetStateAction<SavedState>>;
     showAddFormDefault?: boolean;
     onAddToSetup?: (itemId: string) => void;
+    /** M2-extra: item tap → 詳細モーダル（activeItem）を開く。 未指定なら従来挙動。 */
+    onSelectItem?: (itemId: string) => void;
 }
 
 type RowConfig = {
@@ -370,7 +372,7 @@ function AttributeCard({
     );
 }
 
-export default function WardrobeTab({ state, setState, showAddFormDefault, onAddToSetup }: WardrobeTabProps) {
+export default function WardrobeTab({ state, setState, showAddFormDefault, onAddToSetup, onSelectItem }: WardrobeTabProps) {
     const [showAddForm, setShowAddForm] = React.useState(showAddFormDefault ?? false);
     const [editingItemId, setEditingItemId] = React.useState<string | null>(null);
     const [draft, setDraft] = React.useState<DraftState>(() => createEmptyDraft("tops"));
@@ -1615,6 +1617,7 @@ export default function WardrobeTab({ state, setState, showAddFormDefault, onAdd
                                             onEdit={() => startEdit(item)}
                                             onRemove={() => removeItem(item.id)}
                                             onAddToSetup={onAddToSetup ? () => onAddToSetup(item.id) : undefined}
+                                            onSelect={onSelectItem ? () => onSelectItem(item.id) : undefined}
                                         />
                                     ))}
                                 </div>

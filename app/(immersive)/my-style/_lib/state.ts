@@ -38,7 +38,11 @@ export const STORAGE_KEY = "culcept_my_style_v3";
 export const BACKUP_STORAGE_KEY = "culcept_my_style_v3_backup";
 export const LEGACY_STORAGE_KEY = "culcept_my_style_v1";
 const PREVIOUS_STORAGE_KEY = "culcept_my_style_v2";
-const PREVIOUS_BACKUP_STORAGE_KEY = "culcept_my_style_v2_backup";
+// M1-2A (2026-06-01): PREVIOUS_BACKUP_STORAGE_KEY ("culcept_my_style_v2_backup") は loadStateBundle から
+//   読込停止済（v2 race の素因を断つため）。 宣言ごと削除して unused にしない。 文字列値は
+//   lib/stargazer/localStorageHelper.ts の EXPENDABLE_EXACT_KEYS に列挙されており、 次回 ensureStorageSpace
+//   実行時に物理削除されるため、 ここに定数として保持する必要はない。
+// const PREVIOUS_BACKUP_STORAGE_KEY = "culcept_my_style_v2_backup";  // [removed by M1-2A]
 
 const MAX_SIGNAL_COUNT = 6;
 const ZERO_DATE = new Date(0).toISOString();
@@ -1007,6 +1011,35 @@ export function hasMeaningfulState(state: SavedState | null | undefined) {
     );
 }
 
+/**
+ * Fix D（削除復活の停止）: remote(server) state を local に採用してよいか判定する pure helper。
+ *
+ * **revision-aware**（2026-05-31 改訂）:
+ *   - localStorage が quota で **古い revision に stale 固定**され（書込失敗）、 それが reload で current に
+ *     なる一方、 IDB / server は新しい revision に進む——という非対称が起きる。 current が meaningful という
+ *     だけで remote を弾くと、 **古い current が新しい remote の削除結果を巻き戻す**（実ログ: current 24/rev1 が
+ *     server 23/rev2 を adopt:false で拒否）。 そこで **revision を比較**する。
+ *
+ * 判定:
+ *   1. `remoteRev > currentRev` → **採用**（remote が新しい。 delete-all＝空 wardrobe でも新しければ反映）。
+ *   2. revision 同等以下で current が active（rev>0）/ meaningful → **維持**（古い remote で上書きしない）。
+ *   3. current が完全 virgin（rev0 かつ非 meaningful）→ 中身のある remote のみ **採用**（新規端末の復元）。
+ *
+ * ※ 呼び出し側は **stale な initialBundle ではなく「現在の state」**（functional setState の prev）を
+ *    current として渡すこと。
+ */
+export function shouldAdoptRemoteState(
+    current: SavedState | null | undefined,
+    remote: SavedState | null | undefined,
+): boolean {
+    if (!remote) return false;
+    const currentRev = current?._revision ?? 0;
+    const remoteRev = remote?._revision ?? 0;
+    if (remoteRev > currentRev) return true;
+    if (currentRev > 0 || hasMeaningfulState(current)) return false;
+    return hasMeaningfulState(remote);
+}
+
 export function getStateRichness(state: SavedState | null | undefined) {
     if (!state) return 0;
     return (
@@ -1297,20 +1330,137 @@ export function deriveSyncSignals(state: SavedState) {
 }
 
 /**
- * Strip base64 data: URLs from wardrobe imageUrl fields.
+ * Strip base64 data: URLs from wardrobe image fields.
  * Keeps external URLs (https:// etc.) under 2048 chars; drops everything else.
+ *
+ * C1L-1: imageUrl と同一ポリシーを originalUrl / cutoutUrl にも適用する
+ * （base64 data: の重い cutout / original を server snapshot に載せない）。
+ * cutoutStatus / cutoutConfidence / cutoutMethod は軽量メタなので `...item` で保持する。
+ * imageUrl の既存挙動は変えない（同じ述語を共有）。 export はテスト用（挙動は不変）。
  */
-function stripHeavyImageUrls(wardrobe: WardrobeItem[]): WardrobeItem[] {
+export function stripHeavyImageUrls(wardrobe: WardrobeItem[]): WardrobeItem[] {
+    const keepLight = (url: string | undefined): string | undefined =>
+        typeof url === "string" && url.trim() !== "" && !url.startsWith("data:") && url.length < 2048
+            ? url
+            : undefined;
     return wardrobe.map((item) => ({
         ...item,
-        imageUrl:
-            typeof item.imageUrl === "string" &&
-            item.imageUrl.trim() &&
-            !item.imageUrl.startsWith("data:") &&
-            item.imageUrl.length < 2048
-                ? item.imageUrl
-                : undefined,
+        imageUrl: keepLight(item.imageUrl),
+        originalUrl: keepLight(item.originalUrl),
+        cutoutUrl: keepLight(item.cutoutUrl),
     }));
+}
+
+/**
+ * C1L-6 fix: 再読込時に IDB(cached full state) から **heavy 画像フィールド**を
+ * current(localStorage は stripHeavyImageUrls 済) へ id 一致で復元する。
+ *
+ * 背景:
+ *   - localStorage は quota 対策で imageUrl / originalUrl / cutoutUrl(base64 data:) を除去する。
+ *   - 再読込時に **imageUrl だけ**復元すると cutoutUrl / originalUrl が戻らず、 直後の自動 persist が
+ *     IDB を cutoutUrl 無しで上書きして、 /plan + My-Style の **背景透過表示が壊れる**。
+ *   - 本 helper は 3 つの heavy 画像フィールドを復元し、 cutout を保つ。
+ *
+ * 規約（壊さないための不変条件）:
+ *   - 復元対象は **imageUrl / cutoutUrl / originalUrl のみ**。
+ *   - cutoutStatus / cutoutConfidence / cutoutMethod など軽量 metadata は current を保持
+ *     （current を spread の base にするため自動で残る）。
+ *   - cached 側に**非空値がある時だけ**復元。 **undefined で current の既存値を上書きしない**。
+ *   - current 側に既に値があるフィールドは維持（cached で上書きしない）。
+ *   - id 不一致の cached は無視。 並び順・他フィールドは current のまま。
+ *   - pure: 副作用なし・入力を mutate しない。 何も復元しなければ **同じ配列参照**を返す（再描画ゼロ）。
+ */
+export function mergeRestoredWardrobeImageFields(
+    currentWardrobe: WardrobeItem[],
+    cachedWardrobe: WardrobeItem[],
+): WardrobeItem[] {
+    const isNonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+
+    const heavyById = new Map<string, Pick<WardrobeItem, "imageUrl" | "cutoutUrl" | "originalUrl">>();
+    for (const item of cachedWardrobe) {
+        if (!item || !item.id) continue;
+        const heavy: Pick<WardrobeItem, "imageUrl" | "cutoutUrl" | "originalUrl"> = {};
+        if (isNonEmpty(item.imageUrl)) heavy.imageUrl = item.imageUrl;
+        if (isNonEmpty(item.cutoutUrl)) heavy.cutoutUrl = item.cutoutUrl;
+        if (isNonEmpty(item.originalUrl)) heavy.originalUrl = item.originalUrl;
+        if (heavy.imageUrl || heavy.cutoutUrl || heavy.originalUrl) heavyById.set(item.id, heavy);
+    }
+    if (heavyById.size === 0) return currentWardrobe;
+
+    let changed = false;
+    const next = currentWardrobe.map((item) => {
+        const heavy = heavyById.get(item.id);
+        if (!heavy) return item;
+        // current に欠けている heavy 値だけを cached から補う（既存値・undefined は触らない）。
+        const patch: Partial<WardrobeItem> = {};
+        if (!isNonEmpty(item.imageUrl) && heavy.imageUrl) patch.imageUrl = heavy.imageUrl;
+        if (!isNonEmpty(item.cutoutUrl) && heavy.cutoutUrl) patch.cutoutUrl = heavy.cutoutUrl;
+        if (!isNonEmpty(item.originalUrl) && heavy.originalUrl) patch.originalUrl = heavy.originalUrl;
+        if (Object.keys(patch).length === 0) return item;
+        changed = true;
+        return { ...item, ...patch };
+    });
+    return changed ? next : currentWardrobe;
+}
+
+/**
+ * Fix（写真消失の停止・2026-05-31）: revision-aware remote-adopt で remote(server) を採用する際に、
+ * prev(IDB 復元済) の **heavy 画像フィールド** を保持して合成する pure helper。
+ *
+ * 背景:
+ *   - server snapshot は `createPortableStateSnapshot → stripHeavyImageUrls` で送られるため
+ *     imageUrl / cutoutUrl / originalUrl が **全く無い**（画像の正本は IDB のみ）。
+ *   - revision-aware fix で remote が新しいとき adopt するようになったが、 そのまま
+ *     `finalizeSavedState(remoteState)` で state を置換すると、 IDB から復元されていた画像が消える
+ *     （= reload 後に My-Style / /plan の写真が白抜き化）。
+ *   - そこで remote の wardrobe を base にして、 prev(IDB 復元済) の画像で **id 一致**だけを補完する。
+ *
+ * 不変原則:
+ *   - **削除は remote に従う**: remote に無い id は復活させない（id 一致のみ補完）。
+ *   - **画像は prev から保持**: 同じ id の item は imageUrl/cutoutUrl/originalUrl を prev から戻す。
+ *   - **metadata は remote 優先**: name / category / colorHex 等は remote の値を使う（最新版が server）。
+ *   - **_revision は remote のものを採用**: rawSetState 経由なので setState wrapper の bump はかからない。
+ *   - pure: 入力を mutate しない。 補完すべき画像が無ければ `finalizeSavedState(remoteState)` と同等を返す。
+ */
+export function mergeRemoteStateWithLocalImages(
+    remoteState: SavedState,
+    prevWardrobe: WardrobeItem[],
+): SavedState {
+    const finalized = finalizeSavedState(remoteState);
+    const wardrobe = mergeRestoredWardrobeImageFields(finalized.wardrobe, prevWardrobe);
+    return wardrobe === finalized.wardrobe ? finalized : { ...finalized, wardrobe };
+}
+
+/**
+ * Fix（IDB 正本化・2026-05-31）: mount-once restore で IDB cache を current の正本として採用する pure helper。
+ *
+ * 背景:
+ *   - 旧設計は branch3 を「prev(localStorage 由来) を base に cached(IDB) の画像を id 一致で patch」していた。
+ *   - 一方で PREVIOUS_BACKUP_STORAGE_KEY="culcept_my_style_v2_backup" を loadStateBundle が読むため、
+ *     localStorage v3 が quota で消えると **v2 時代の古い 24件 (画像込み、stripHeavyImageUrls 適用前)** が
+ *     initialBundle になり得る。 prev の id 集合 ≠ IDB の id 集合（新規 add の id）。
+ *   - 結果 1: 旧 merge は id 不一致で何も patch しない → state = prev(v2_backup 24件 古い id)
+ *   - 結果 2: その state が persist で IDB を上書き → IDB が古い state で壊れる
+ *   - 結果 3: remote-load が adopt しても prev の画像（古い id）と remote(server 新しい id)の id 不一致で
+ *     画像補完が効かず、 写真が reload 後に白抜きで残る。
+ *
+ * 設計:
+ *   - **IDB cache が current の正本**（id 集合・rev・画像）。 persist effect で常に最新が IDB に書かれる
+ *     ため、 IDB こそが信頼できる。
+ *   - cached を base にして、 prev の同 id のみで画像補完（IDB が稀に画像欠落のケースの保険）。
+ *   - 削除は cached に従う（cached に無い id は復活させない）。
+ *   - rev は cached を採用 — caller は **rawSetState** で適用し、 setState wrapper の rev bump を避けること。
+ *   - cached.wardrobe が空 → `null`（caller は prev を維持）。
+ */
+export function mergeCachedStateWithLocalImages(
+    cachedRaw: unknown,
+    prevWardrobe: WardrobeItem[],
+): SavedState | null {
+    if (!cachedRaw || typeof cachedRaw !== "object") return null;
+    const normalized = normalizeSavedState(cachedRaw);
+    if (normalized.wardrobe.length === 0) return null;
+    const wardrobe = mergeRestoredWardrobeImageFields(normalized.wardrobe, prevWardrobe);
+    return wardrobe === normalized.wardrobe ? normalized : { ...normalized, wardrobe };
 }
 
 /**
@@ -1366,7 +1516,13 @@ export type LoadBundle = {
 export function loadStateBundle(): LoadBundle {
     const currentRaw = readJsonStorage(STORAGE_KEY) ?? readJsonStorage(PREVIOUS_STORAGE_KEY);
     const current = normalizeSavedState(currentRaw);
-    const backupRaw = readJsonStorage(BACKUP_STORAGE_KEY) ?? readJsonStorage(PREVIOUS_BACKUP_STORAGE_KEY);
+    // M1-2A (2026-06-01): PREVIOUS_BACKUP_STORAGE_KEY (= "culcept_my_style_v2_backup") の読込を停止。
+    //   D2 で確定した「v2_backup race」の素因（quota 失敗で v3/v3_backup 消失 → 古い v2_backup を読んで
+    //   復活 → 自動 persist が IDB を v2 時代 state で上書き）を構造的に消す。 IDB 正本化 (D2-3, a77c8933)
+    //   と組み合わせて、 削除済 item が「過去の v2 snapshot」由来で蘇る経路を断つ。
+    //   v2 本体 (PREVIOUS_STORAGE_KEY = culcept_my_style_v2) は legacy migration source として残す
+    //   （CEO 補正：M1-2B で別途判断）。
+    const backupRaw = readJsonStorage(BACKUP_STORAGE_KEY);
     const backup = backupRaw ? normalizeSavedState(backupRaw) : null;
     const merged = mergeWithBackup(current, backup);
 
