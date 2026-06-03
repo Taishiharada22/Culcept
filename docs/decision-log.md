@@ -15412,5 +15412,237 @@ CEO 次フェーズ指示「M2: 既存 item 再処理」を受け、 read-only a
 - **実装分割**: M2-0(audit) / M2-1(pure helper + test) / M2-2(導線 + BackgroundRemover 接続) / M2-3(実機 + close)。 CEO 推奨 4 分割の M2-2/M2-3 を統合、 ロジックは M2-1 に全寄せ
 - **STOP 条件**: imageUrl 再処理不可 / item 消失 / IDB-localStorage-server 整合崩れ / 白抜き事故再発 / 外部 API / UI 大改修
 - **次**: CEO の M2-1 GO 待ち
+## 2026-05-30 — Build Unit: シフト表 画像取り込み feasibility 実証（B1a / B1a-v2 / cross-month）
+
+### 背景
+
+PDF/画像からのシフト表取り込み（"元原稿どおりに正確に反映"）の最難関 = VLM が密な色付き格子を正確に読めるか。CEO が原田大志（=CEO本人）の連続デスクシフト表 5ヶ月分（3-7月、GPT 生成 bootstrap・実データ扱い）の crop 画像を private-eval に提供（非 commit）。Gemini vision 少額実行を承認（DB write なし / cost cap）。
+
+### 経緯と結果（Gemini 2.5 Flash・local 実験・非 commit）
+
+1. **B1a 第1走（date-keyed）**: 25/31=80.6%。誤り 6 件は**ランダムでなく 26日以降の +1 列シフト**（密表 tail で列レジストレーション喪失）。コード自体は全て正しく読めた → 記号認識は有望、列対応が課題と切り分け。
+2. **B1a-v2（day-keyed 列アンカー）**: 各セルを配列順でなく**印字日番号にアンカー** + coverage validator。Flash full・1 call で **30/31=96.8%、coverage 31/31、missing/dup 0**。列シフト完全解消。唯一の不一致 day25（golden L→model 空）。
+3. **day25 CEO 原本確認**: 原本の day25 は**実際に空欄**。VLM が正しく、golden 草案の L が誤り → **実質 31/31（100%）**。重要: **モデルは空欄を勝手に勤務で埋めなかった**（予定取り込みで最も危険な失敗を回避）。
+4. **Cross-month（3-6月・各 1 call）**: 全月 coverage 完全（31/31, 30/30, 31/31, 30/30）/ missing・duplicate・不正コード **全て 0** / blank も正しく検出（April day30）。**列ドロップは全月で発生せず** = day-keyed の cross-month 堅牢性を実証。
+
+### 採用 + 教訓
+
+- **day-keyed 列アンカー設計を採用**: 印字日番号紐づけ + coverage validator により、列ドロップが silent でなく **missing/duplicate として必ず検出**される恒久的堅牢性。
+- **公休 checksum は必要十分でない**: B1a v1 で H 個数 8/8 が列ズレ下でも通った → per-cell 整合が真の検証。harness は per-cell + checksum 併用で正しかった。
+- **表現**: 「もう読めた」とは断定しない。記号認識は有望、列対応は解決、"元原稿どおりの品質" は確認画面（human-in-loop）込みで到達見込み。
+- golden を単一正本（`tests/unit/plan/shift/julyHaradaGolden.ts`）に集約し二重管理を排除。
+
+### 検証 / 衛生
+
+- shift harness 47 tests PASS、tsc source baseline **1112 不変**。
+- raw 画像・実験 runner は `private-eval/`（gitignore 済・非 commit）。DB write なし。Gemini call は July 1 + cross-month 4 = 計 5 call（少額）。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-30、「day25 は実際に抜けていた。Claude の分析が正しい。技術の失敗でなく成功」）
+- **ステータス**: 画像取り込み feasibility **実証完了**。branch `feat/plan-pdf-image-import`、harness commit 群（5224a3b5 / ff761ff7 等）、**未 merge / 未 push**。次候補: 他月 golden 適正 / B1b（全表→本人行）/ 製品化（Step 3-6: 本人行選択・day_indicator 保存・anchor adapter・確認画面）。
+
+---
+
+## 2026-05-30 [Build] P1-2 取り込み確認画面（Source Image Highlight Review）PASS [承認: CEO「完璧です。文句なしの結果。pass判定」]
+
+### 成果
+
+カレンダー型 source-of-truth 確認画面の下に**原画像全体**を表示し、日を hover/tap で**該当セルを枠強調**（CEO 案）。セル単独 crop より周囲文脈ごと確認でき検証負担を低減。元画像は 340→600px に拡大（モバイル横スクロール+自動センタリング）。
+
+### 校正の経緯（3 巡・全て CEO 実機観測で収束）
+
+1. **ground-truth 校正**: Playwright+canvas でヘッダー日番号の列中心を実測（301,353,…均一 51.5px）。GPT の「mapping bug」説を数学で否定し、線形 calibration 誤差と特定。
+2. **off-by-one 補正**: CEO 構造観測「day1 が左隣の公休列を指す」で 301=day1 を確定 → gridLeft=275（box中心=数字中心、全日 <0.5px）。
+3. **詰め描画（blank-skip）対応 ← 重要構造的洞察**: 原画像のデータ行は**空の日（コード無し）にセルを持たず後続が左へ詰まる**（canvas 実測: 25日列に26日データ、31列目は空）。ヘッダー数字は規則正しく1..31並ぶため数字位置に枠を置くと空以降が +1。`sourceColumnForDay(day, blankDays)`（空をスキップ、空の日は直前列に stay = CEO 指定ロジック）で解消。
+
+### 検証 / 衛生
+
+- geometry/highlight/grid render **20 tests PASS**、tsc baseline **1112 不変**。
+- 実機検証（Playwright+canvas, delta 数値）: day1→301 / day25(空)→24にstay / day26→26実データ列 / 全て delta≈0。
+- commit: e898f7de / ae813c30 / 42bb9a13 / 87f5e3b0（branch `feat/plan-pdf-image-import`、未 merge / 未 push）。raw 画像・demo page・screenshot は**非 commit**（gitignore / 削除）。
+
+### 教訓 / 申し送り（productization）
+
+- **構造的洞察**: 原画像は空を詰める。本番では highlight を blankDays 再導出でなく**抽出（VLM）が記録した実セル位置に直接ひも付ける**設計にすれば、詰め/非詰めどちらの原稿でも頑健。Step 5-6 で反映。
+- 確認画面 = 品質の最終保証（どのモデルも 100% blank 検出は不可 → human-in-loop が正本）の方針は不変。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-30、「完璧です。文句なしの結果。pass判定です。次に進みましょう」）
+- **ステータス**: P1-2 **完了（保守対象へ移行）**。次は製品化 Step 3-6（DB gate あり）または B1b。
+
+---
+
+## 2026-05-31 [Build] SR Step 6B-apply — シフト取り込み保存パス staging apply + RPC behavioral smoke PASS [承認: CEO/GPT「staging smoke は PASS として受理」]
+
+### 到達点
+
+**DB/RPC レイヤーは staging で PASS。ただし Server Action / UI保存ボタン / 本番反映は未接続。**
+
+確認画面で承認したセル → /plan への保存パスのうち、**DB schema + RPC（Postgres 関数）レイヤー**を staging 実 DB で behavioral に検証し全 PASS。勤務=external_anchors（時間枠）/ 休み・希望休=plan_day_indicators（anchor でない）の分離原則を実 DB で確認。
+
+### staging apply（migration 2 本）
+
+- `20260530100000_sr_shift_import_source_type_and_day_indicators.sql`: external_anchor_sources.source_type CHECK に `'shift_image'` 追加 + UNIQUE(id,user_id) + **plan_day_indicators 新設**（composite FK (source_id,user_id)→(id,user_id) ON DELETE CASCADE で owner 整合 / UNIQUE(user_id,date) / kind∈{off,off_request} / RLS 4 policy / source_type='manual' OR source_id NOT NULL）。
+- `20260531100000_sr_shift_import_rpc.sql`: `import_shift_roster()` = 1 トランザクション atomic。owner guard 42501 / advisory lock / range guard① / duplicate guard⑤ / **手動印 conflict early-return（無書込）** / shift_image 由来のみ importRange[start,end) で range-scoped replace / source GC / REVOKE PUBLIC+anon・GRANT authenticated。
+- apply 先: **staging（hjcrvndumgiovyfdacwc）のみ**。production（aljavfujeqcwnqryjmhl）不接触。`supabase migration list` で remote 反映確認。
+
+### smoke matrix（32 assertions / FAIL 0）
+
+gitignored runner（`private-eval/shift/staging-smoke.ts`・非 commit・synthetic fixture・2099 年・三重 staging ガード + self env-loader・creds は .env.local の SHIFT_SMOKE_*）で 8 シナリオを実 DB assert:
+
+1. 初回取り込み / 2. 同月再取り込み（**range-scoped replace 成立**・旧 work anchor 削除=1） / 3. 手動印 conflict（**黙って上書きせず保存ブロック**・shift_image 無書込） / 4. 多月非干渉（August 取込で July 不変） / 5. user 不一致（owner guard **42501→forbidden→safe**） / 6. 範囲外 date（app guard + SQL range guard RAISE） / 7. 同日 anchor∩indicator（app guard + SQL dup guard RAISE） / 8. anon 呼出不可（REVOKE/GRANT）。
+
+- **raw DB error 非漏洩を behavioral 確認**: 42501 raw（'unauthorized'）は server-side logDetail のみ、user-facing result は safe message（"シフトの保存に失敗しました"）。unit test の `not.toContain(raw)` を実環境で裏付け。
+- **cleanup 成功**: staging に残骸なし（anchors=0 / indicators=0 / sources=0）。
+
+### 衛生
+
+- tsc baseline **1112 不変**（runner も tsc 対象だが型エラー 0）。
+- runner / smoke creds は非 commit（runner gitignore 済、creds は .env.local・gitignore 済）。
+- throwaway demo（`app/shift-review-demo/page.tsx`）は purpose 完了につき**削除**。`supabase/.temp/*` は CLI 状態のため**非 commit**。
+
+### 承認 + ステータス
+
+- **承認**: CEO/GPT（2026-05-31、「staging smoke は PASS として受理。DB/RPC レイヤーは staging 実 DB で behavioral に成立」）。
+- **ステータス**: 保存パス **DB/RPC レイヤー staging PASS（保守対象）**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **6B-apply-C**（types regen 判断 + Server Action 本接続 + 単体 test）。UI 保存ボタン有効化・B1b・本番 apply はさらに次 gate。
+
+---
+
+## 2026-05-31 [Build] SR E2b — UI 保存→staging DB→/plan 反映 決定論ループ local smoke PASS [承認: CEO「PASS として受理」]
+
+### 到達点（表現は厳密に）
+
+**保存・反映パスは staging で PASS。ただし実画像からの自動抽出 B1b は未実証。本流入口 / production / upload UI も未接続。**
+
+確認画面で承認したセル → /plan 反映の **UI 層〜保存〜DB〜表示〜cleanup の決定論ループ**を、local dev server + staging Supabase で end-to-end に通した。6B-apply（DB/RPC staging PASS）以降に積んだ UI 側資産（6B-apply-C Server Action / 6D save controller / #216 D1-D3 day_indicator read·wire·render / E1 ShiftImportModal / E2a fixture host）が実環境で繋がることを実証。
+
+### 実証したループ
+
+`fixture cells → ShiftImportModal → importShiftRosterAction（server action）→ staging DB → /plan serving path → cleanup`
+
+### smoke（11/11 PASS・gitignored runner `private-eval/shift/e2b-fixture-smoke.ts`・非 commit）
+
+- 実施環境: **local dev（localhost:3100）+ staging Supabase（hjcrvndumgiovyfdacwc）**。GitHub / push / PR / deploy 不使用。production（aljavfujeqcwnqryjmhl）不接触（URL に staging ref 含む / prod ref 非含有を実行前検証）。
+- fixture host guard: 三重ガード（明示flag PLAN_SHIFT_FIXTURE_HOST + staging allowlist + production deny、NODE_ENV 非依存）通過。
+- 保存成功 → DB 実値が元原稿どおり:
+  - **E-18（勤務）05-29 → external_anchors**（title「早番ロング」= timed anchor）
+  - **H（公休）05-30 → plan_day_indicators**（off / counts_as_public_holiday=true）
+  - **HREQ（希望休）05-31 → plan_day_indicators**（off_request）
+  - → 勤務=anchor / 休み・希望休=day_indicator の分離原則を実 DB で確認。
+- /plan serving path: `/api/plan/anchors` が anchor + day_indicator（公休/希望休/勤務 3 種）を client へ配信。in-window の希望休 badge を実描画（today=05-31 が月末日曜のため公休/勤務は前週=週ストリップ viewport 外だが、serving-path + unit render-contract でカバー）。
+- cleanup: source 削除 → composite FK (source_id,user_id) ON DELETE CASCADE で day_indicators も原子削除（sources=0 / indicators=0）。
+
+### デバッグ知見（透明性）
+
+v2 失敗の真因は**製品バグではなく smoke 側の hydration race**。dev server log で server action POST が未発火と判明（warm-up 二度目 goto 直後、`waitForSelector` は DOM 存在のみ待ち hydration 前に click → onClick 未装着）。**robust save click（状態遷移を待ち無反応なら再click）**で解消。保存ロジック自体は健全。
+
+### 衛生
+
+- 製品コード無変更（デバッグは gitignored smoke 側のみ）。
+- smoke 完了後: env flag（PLAN_SHIFT_FIXTURE_HOST / PLAN_SHIFT_IMPORT_SAVE）削除で **dormant 復帰**、dev server 停止。
+- `supabase/.temp/*` は CLI 状態のため**非 commit**。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-31、「E2b は PASS として受理。保存・反映パスは staging で PASS、ただし B1b / 本流入口 / production は未接続」）。
+- **ステータス**: UI→保存→DB→/plan 反映ループ **staging PASS**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **B1b mini design**（実画像→本人行→VLM 抽出→ShiftReviewGrid 接続の実験設計。VLM 実行は CEO gate）。本流入口・production・upload UI 本実装はさらに次 gate。
+
+---
+
+## 2026-05-31 [Build] SR B1b 抽出 robustness 実験（3手法）— 自動確定は未達、方針を「VLM下書き + human review」へ転換 [承認: CEO「FAIL 受理・B1b-2 へ転換」]
+
+### 到達点（表現は厳密に）
+
+**現状の本人行 crop + Gemini Pro + prompt硬化/chunk/contact sheet の範囲では、5ヶ月安定**自動**抽出は未達。**（「VLM 自動抽出が原理的に不可能」ではない）
+
+本人行 crop 済み 5ヶ月（3〜7月・golden=`SHIFT_MONTH_GOLDENS`）に対し、committed scorer（`shiftExtractionMonthlyReport`）で 3 手法を read-only 採点（DB write なし / raw画像・VLM生ログ・contact sheet すべて非 commit）。
+
+### 3 手法の結果（同一 golden・同一 scorer）
+
+| 手法 | 全体 cellAccuracy | months pass | 備考 |
+|---|---|---|---|
+| Pro single-shot | 80.4% | 2/5 | may 32%（隣接 HREQ 併合→列ズレ）、june/july 末尾空セル skip |
+| **Pro chunk 2/month（1-15 / 16-末）** | **92.8%** | **3/5（最良）** | july の空 skip 解消。may chunk1 の HREQ 併合・june day25 空 skip 残存 |
+| Pro contact sheet（1日=1tile 前処理） | 48.4% | 1/5（最悪） | 自動セル分割が table-structure 問題で脆弱 + 多 tile 化で VLM 応答が JSON truncation（may/june 0%） |
+
+### 失敗モード（境界知覚に集中・非決定的）
+
+- **隣接同一セルの併合**（may: HREQ HREQ を 1 つに）／**空セル skip → 前詰め shift**（june/july 末尾）。テキスト硬化で名指し禁止しても残存 ＝ 指示追従でなく**知覚**の問題。
+- 同じ day25 空が july で解消・june で残存 ＝ **同種セルでも run/月で揺れる非決定性**。→ どれだけスコアが良くても単発抽出を「元原稿どおり」と信頼できない。
+- contact sheet（最複雑）が最悪 ＝ 「画像側で正規化」も正規化自体が同じ難問を要し、多 tile 化が VLM を不安定化。複雑化は逆効果。
+
+### 方針転換（CEO 決定）
+
+- **VLM = 確定抽出器ではなく「下書き生成器」**。「元原稿どおり正確に」は VLM 単体でなく **source-of-truth review（ShiftReviewGrid）+ human confirmation** で担保。
+- 採用する下書き方式 = **chunk 2/month（最良）**。ただし may 型 silent shift があるため review 側で必ず強調。
+- **保存反映パスは E2b で staging PASS 済**（confirmed cells → ShiftImportModal → save action → staging DB → /plan）。これは流用。
+- 自動抽出 100% を追うフェーズはここでいったん停止。
+
+### 衛生
+
+- 製品コード無変更（実験は gitignored runner/helper のみ: `b1b-1-run*.ts` / `_make-contact-sheet.ts` / `generated-contact-sheets/`）。tsc baseline **1112 不変**。
+- B1b-1 採点 harness は committed 済（`97604563`）。
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-05-31、「B1b-1R2 contact sheet は FAIL 受理。自動抽出 100% を追うのを止め、VLM下書き + human review 前提の B1b-2 assisted review path へ転換」）。
+- **ステータス**: 自動抽出 **未達（最良 chunk 92.8%）**。次: **B1b-2 assisted review path mini design**（assisted row selection / draft extraction=chunk / risk detection / review UI / E2b 保存パス / production gate）。実装・upload UI・本流入口・production はさらに次 gate。
+
+---
+
+## 2026-06-01 [Build] SR B1b-2C-5 VLM runtime chain smoke PASS（本流E2Eではない）[承認: CEO「PASS として受理」]
+
+### 到達点（表現は厳密に）
+
+**今回 PASS したのは VLM runtime chain smoke のみ**。次の chain が実 Gemini Pro 呼出でも壊れず噛み合うことを確認した:
+
+```
+planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
+```
+
+**まだ通っていないもの（=本流E2Eではない）**: AssistedRowSelector 実 UI / upload UI / ShiftImportModal 本流接続 / 保存 / DB / /plan 反映 / production。
+
+### 実行サマリ
+
+- **model**: Gemini Pro（`gemini-2.5-pro`）
+- **対象**: may / july（既存 B1b-1 系の本人行 crop・gitignored）
+- **call 数**: **4 chunks**（may 1-15/16-末 + july 1-15/16-末・fetch retry なし）
+- **runtime chain pass / fail**: **ALL PASS（両月）**
+- **cells**: may **31/31** / july **31/31**
+- **perChunkCounts**: may **[15, 16]** / july **[15, 16]**
+- **risk**: may **hard=0 / soft=4** / july **hard=0 / soft=2**（blocking=false 両月）
+- **所要**: may 40.7s / july 48.7s
+- **gitignored runner**: `private-eval/shift/b1b-2c-5-eval-smoke.ts`（非 commit）
+
+### 重要表記（risk の限界）
+
+**risk hard=0 は「may が正確に読めた」ことを意味しない**。risk model は **重点確認を促す補助**であり、**誤り確定検出ではない**。最終保証は **source-of-truth review + human confirmation**（B1b-2B の ShiftReviewGrid 接続）に委ねる設計。
+
+### 衛生
+
+- **DB write なし**（Supabase 非 import・実行中 DB トラフィックなし）
+- **raw 画像 commit なし**（既存 B1b-1 系の `private-eval/` 規約）
+- **raw response commit なし / log なし**（adapter local のみ・stdout に raw 出力なし）
+- **base64 commit / 保存なし**（adapter 関数 local のみ・return/state/props/localStorage/DB/log に載せない）
+- **API key 値出力なし**
+- **runner gitignored**（非 commit）/ tracked 変更なし
+- **tsc baseline 1112 不変** / shift suite 25 files / 267 tests PASS（不変）
+
+### 承認 + ステータス
+
+- **承認**: CEO（2026-06-01、「B1b-2C-5 は PASS。runtime chain smoke として受理。最終保証は human review」）。
+- **ステータス**: VLM runtime chain **PASS**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **B1b-2C-6 host wiring mini design**（実装は別 gate）。server action / upload UI / 本流入口 / 保存 / production はさらに次 gate。
+
+---
+
+## SR B1b-2C-9-FIX-2 combined mode Phase A 複数月 PASS（2026-06-03）
+
+[2026-06-03] [Build] B1b-2C-9-FIX-2 combined mode Phase A 複数月 PASS — 2025/7 + 別月で列対応 drift 解消を CEO 目視確認。split FAIL の構造仮説（2枚別画像で VLM が列対応保持できない）を強く支持した。env 既定 split 維持、production 不変。DB write なし。[承認: CEO]
+
+[2026-06-03] [Build] B1b-2C-9-FIX-2 combined mode Phase B（DB write）end-to-end PASS — staging で combined 入力により 2025/6 シフト画像を取り込み、external_anchor_sources + external_anchors(19勤務) + plan_day_indicators(11休み/希望休) の atomic 保存 30 件を CEO が元画像と全照合一致確認。休み分離（H/BD/HREQ→day_indicator）・辞書変換（E/E-18/N/L/G→title+時刻）・列対応・DB保存の正しさを確認。cleanup 時点で shift_image source が 2 件確認され、関連する external_anchors(38) / plan_day_indicators(23) を含めて全て削除済み（0/0/0確認）。staging のみ・production 不変・env を PLAN_SHIFT_IMPORT_SAVE=false へ rollback 済み。[承認: CEO]
+
+[2026-06-03] [Product] UX gap 検出（本流接続前の必須課題）— /plan は今日±7日 window 中心で、過去/未来月への navigation と月 grid view が不足している。シフト取り込み pipeline は staging E2E PASS したが、取り込んだ月全体をユーザーが確認・把握する view が不足。SR Step 5/6 や本流入口接続前に、月切替 + 月 grid view 設計が必要。[記録: Build/Product]
 
 ---

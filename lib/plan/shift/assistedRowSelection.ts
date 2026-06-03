@@ -1,0 +1,300 @@
+/**
+ * Assisted row selection — pure 座標 model（SR B1b-2C-1）
+ *
+ * 役割: full画像上で「日付ヘッダ帯（headerBand）」と「本人行帯（personRowBand）」を
+ *   ユーザーが指定する UX の、UI 非依存の座標契約・validation・正規化・crop region 計算・
+ *   localStorage key/payload 規約を提供する。
+ *
+ * 設計核心（CEO 補正・2026-05-31）:
+ *   - 画像本体（Blob/base64/dataURI/raw bytes）は contract に**含めない**（型で構造的に禁止）。
+ *     localStorage に置くのは座標 trace + 軽 metadata のみ:
+ *       imageFingerprint / imageW / imageH / headerBand top,bottom /
+ *       personRowBand top,bottom / updatedAt。
+ *   - **headerBand は contract 上必須**（day-keyed 抽出の生命線）。初期値は自動推定可だが、
+ *     最終的にユーザーが明示確認する前提で、両 band の validation を CTA gate に使う。
+ *   - 自動セル分割はしない（列方向は VLM に委ねる・B1b-1R2 教訓）。本 phase は y 方向のみ扱う。
+ *
+ * 不変原則: pure（IO / LLM / DB / canvas / DOM / Date / random / env / Web Crypto なし）。
+ *   throw しない（validation は明示的な ok/issue 形式で返す）。
+ *
+ * 参考: B1b-1R2 で観測したテンプレ寸法（1860x846）。本 model は寸法を hardcode しない。
+ */
+
+/** 縦方向の帯（画像座標、px）。top < bottom。 */
+export interface BandY {
+  top: number;
+  bottom: number;
+}
+
+/** 帯の妥当性（band 単独・画像高さ依存）。 */
+export interface BandIssue {
+  field: "top" | "bottom" | "order" | "bounds" | "height";
+  message: string;
+}
+
+/**
+ * 1 画像分の assisted row selection。
+ * **画像本体（Blob/base64/dataURI 等）は含まない**（型で構造的に禁止）。
+ */
+export interface AssistedRowSelection {
+  /** 元画像 px 幅 */
+  imageW: number;
+  /** 元画像 px 高さ */
+  imageH: number;
+  /** 日付ヘッダ帯（contract 上必須）。 */
+  headerBand: BandY;
+  /** 本人行帯（contract 上必須）。 */
+  personRowBand: BandY;
+  /** 任意: pure FNV-1a 32bit ハッシュ（画像 byte 不要・size+wh+optional fingerprint をキー化する用途）。 */
+  imageFingerprint?: string;
+  /** 任意: ISO 文字列。記録時に外部から渡す（pure module は now を生成しない）。 */
+  updatedAt?: string;
+}
+
+/** localStorage に置く payload（画像本体を含まないことを型で保証）。 */
+export interface AssistedRowSelectionStored {
+  imageFingerprint: string;
+  imageW: number;
+  imageH: number;
+  headerBand: BandY;
+  personRowBand: BandY;
+  updatedAt: string;
+}
+
+/** 全体検証結果。両 band が valid なら ok。 */
+export interface SelectionValidation {
+  ok: boolean;
+  /** CTA active 可（=両 band が valid）。 */
+  ctaActive: boolean;
+  headerIssues: BandIssue[];
+  personRowIssues: BandIssue[];
+  /** band 同士の関係（推奨: header は person row より上） */
+  orderingIssue: BandIssue | null;
+}
+
+/** band 既定（自動推定）に使う比率定数 */
+export const DEFAULT_PERSON_ROW_RATIO = 0.06; // 画像高さの 6%
+export const DEFAULT_HEADER_RATIO = 0.05; // 同 5%
+export const DEFAULT_HEADER_OFFSET_RATIO = 0.005; // person row 上 0.5%
+
+/** Band が単独で valid か。bounds は画像高さ依存。 */
+export function validateBand(band: BandY, imageH: number): BandIssue[] {
+  const issues: BandIssue[] = [];
+  if (!Number.isFinite(band.top))
+    issues.push({ field: "top", message: "top is not a finite number" });
+  if (!Number.isFinite(band.bottom))
+    issues.push({ field: "bottom", message: "bottom is not a finite number" });
+  if (issues.length) return issues;
+  if (band.top >= band.bottom)
+    issues.push({ field: "order", message: "top must be < bottom" });
+  if (band.top < 0 || band.bottom > imageH)
+    issues.push({
+      field: "bounds",
+      message: "band must lie within [0, imageH]",
+    });
+  if (band.bottom - band.top < 4)
+    issues.push({ field: "height", message: "band height must be >= 4px" });
+  return issues;
+}
+
+/** Selection 全体の validation（両 band 必須 + 並び順チェック）。 */
+export function validateSelection(s: AssistedRowSelection): SelectionValidation {
+  const headerIssues = validateBand(s.headerBand, s.imageH);
+  const personRowIssues = validateBand(s.personRowBand, s.imageH);
+  let orderingIssue: BandIssue | null = null;
+  // header は person row より上（top<top）を推奨。重なりや逆順は ordering issue。
+  if (!headerIssues.length && !personRowIssues.length) {
+    if (s.headerBand.top >= s.personRowBand.top)
+      orderingIssue = {
+        field: "order",
+        message: "headerBand must start above personRowBand",
+      };
+    else if (s.headerBand.bottom > s.personRowBand.top + 1)
+      orderingIssue = {
+        field: "order",
+        message: "headerBand must not overlap personRowBand",
+      };
+  }
+  const ok =
+    !headerIssues.length && !personRowIssues.length && orderingIssue === null;
+  return { ok, ctaActive: ok, headerIssues, personRowIssues, orderingIssue };
+}
+
+/** 整数 px に snap し、[0, imageH] に clamp。 */
+export function normalizeBand(band: BandY, imageH: number): BandY {
+  const top = Math.max(0, Math.min(Math.round(band.top), imageH));
+  const bottom = Math.max(0, Math.min(Math.round(band.bottom), imageH));
+  return top <= bottom ? { top, bottom } : { top: bottom, bottom: top };
+}
+
+/** 両 band を normalize した Selection を返す（pure・元 selection は不変）。 */
+export function normalizeSelection(
+  s: AssistedRowSelection
+): AssistedRowSelection {
+  return {
+    ...s,
+    headerBand: normalizeBand(s.headerBand, s.imageH),
+    personRowBand: normalizeBand(s.personRowBand, s.imageH),
+  };
+}
+
+/**
+ * person row tap 位置（画像 y）から、header / personRow の初期 band を自動推定する。
+ * 比率はテンプレ寸法に hardcode せず、画像高さに対する割合で決定（汎用性）。
+ */
+export function suggestBandsFromTap(
+  tapY: number,
+  imageH: number,
+  options?: { personRowRatio?: number; headerRatio?: number; offsetRatio?: number }
+): { headerBand: BandY; personRowBand: BandY } {
+  const personRatio = options?.personRowRatio ?? DEFAULT_PERSON_ROW_RATIO;
+  const headerRatio = options?.headerRatio ?? DEFAULT_HEADER_RATIO;
+  const offsetRatio = options?.offsetRatio ?? DEFAULT_HEADER_OFFSET_RATIO;
+  const personH = Math.max(8, Math.round(imageH * personRatio));
+  const headerH = Math.max(8, Math.round(imageH * headerRatio));
+  const offset = Math.max(2, Math.round(imageH * offsetRatio));
+  const personRowBand = normalizeBand(
+    { top: tapY - personH / 2, bottom: tapY + personH / 2 },
+    imageH
+  );
+  // header は person row の直上、画像内に収まるよう clamp
+  const headerBottom = Math.max(0, personRowBand.top - offset);
+  const headerBand = normalizeBand(
+    { top: headerBottom - headerH, bottom: headerBottom },
+    imageH
+  );
+  return { headerBand, personRowBand };
+}
+
+/** crop region（左幅は全幅・上下は band）。VLM へ送る 2 帯の取り出しに使う pure 矩形。 */
+export interface CropRegionPx {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+export interface AssistedCropRegions {
+  header: CropRegionPx;
+  personRow: CropRegionPx;
+}
+
+/** valid な selection から 2 帯の crop region を算出。invalid なら null。 */
+export function computeCropRegions(
+  s: AssistedRowSelection
+): AssistedCropRegions | null {
+  const v = validateSelection(s);
+  if (!v.ok) return null;
+  return {
+    header: {
+      left: 0,
+      top: s.headerBand.top,
+      width: s.imageW,
+      height: s.headerBand.bottom - s.headerBand.top,
+    },
+    personRow: {
+      left: 0,
+      top: s.personRowBand.top,
+      width: s.imageW,
+      height: s.personRowBand.bottom - s.personRowBand.top,
+    },
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fingerprint（pure・Web Crypto / Date / random なし）
+// 画像本体を保存させないため、File metadata（size + wh + name 末尾）から決定論ハッシュを作る。
+// 衝突可能性はあるが「同一画像の再開時に座標を復元する」用途には十分。
+// ─────────────────────────────────────────────────────────────
+
+/** FNV-1a 32bit（pure 文字列ハッシュ）。 */
+export function fnv1a32(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/** File から fingerprint key を作る（base64/blob を保存しない）。size+wh+name_tail を ハッシュ。 */
+export function buildImageFingerprint(input: {
+  size: number;
+  imageW: number;
+  imageH: number;
+  nameTail?: string;
+}): string {
+  const tail = (input.nameTail ?? "").slice(-32);
+  const key = `${input.size}|${input.imageW}x${input.imageH}|${tail}`;
+  return `${input.size}_${input.imageW}x${input.imageH}_${fnv1a32(key)}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// localStorage payload 規約（画像本体は含まない・型で禁止）
+// ─────────────────────────────────────────────────────────────
+
+const STORAGE_KEY_PREFIX = "aneurasync:plan:shift:assistedRow:v1:";
+
+/** image fingerprint から localStorage key を作る（pure・per-image）。 */
+export function makeStorageKey(imageFingerprint: string): string {
+  return `${STORAGE_KEY_PREFIX}${imageFingerprint}`;
+}
+
+/** 永続化対象 fields だけを抽出（画像本体・dataURI 等を構造的に弾く）。 */
+export function toStoredPayload(
+  s: AssistedRowSelection,
+  updatedAt: string
+): AssistedRowSelectionStored | null {
+  if (!s.imageFingerprint) return null;
+  const v = validateSelection(s);
+  if (!v.ok) return null;
+  return {
+    imageFingerprint: s.imageFingerprint,
+    imageW: s.imageW,
+    imageH: s.imageH,
+    headerBand: s.headerBand,
+    personRowBand: s.personRowBand,
+    updatedAt,
+  };
+}
+
+/**
+ * untyped JSON（localStorage 由来）を防御的に検証して AssistedRowSelectionStored に。
+ * 失敗時は null。画像本体らしき extra field は黙って捨てる（拡張時の漏出抑制）。
+ */
+export function parseStoredPayload(
+  raw: unknown
+): AssistedRowSelectionStored | null {
+  if (raw === null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const headerBand = o.headerBand as Partial<BandY> | undefined;
+  const personRowBand = o.personRowBand as Partial<BandY> | undefined;
+  if (
+    typeof o.imageFingerprint !== "string" ||
+    typeof o.imageW !== "number" ||
+    typeof o.imageH !== "number" ||
+    typeof o.updatedAt !== "string" ||
+    !headerBand ||
+    !personRowBand ||
+    typeof headerBand.top !== "number" ||
+    typeof headerBand.bottom !== "number" ||
+    typeof personRowBand.top !== "number" ||
+    typeof personRowBand.bottom !== "number"
+  )
+    return null;
+  const out: AssistedRowSelectionStored = {
+    imageFingerprint: o.imageFingerprint,
+    imageW: o.imageW,
+    imageH: o.imageH,
+    headerBand: { top: headerBand.top, bottom: headerBand.bottom },
+    personRowBand: { top: personRowBand.top, bottom: personRowBand.bottom },
+    updatedAt: o.updatedAt,
+  };
+  // 構造検証も通す（範囲は imageH 依存・persisted 値の sanity）
+  const v = validateSelection({
+    imageW: out.imageW,
+    imageH: out.imageH,
+    headerBand: out.headerBand,
+    personRowBand: out.personRowBand,
+  });
+  return v.ok ? out : null;
+}

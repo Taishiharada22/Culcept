@@ -23,6 +23,10 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { createSupabaseExternalAnchorRepository } from "@/lib/plan/external-anchor-repository-supabase";
 import {
+  listPlanDayIndicators,
+  createSupabaseDayIndicatorQuery,
+} from "@/lib/plan/planDayIndicatorReader";
+import {
   parseJsonBody,
   requireAuthenticatedUser,
 } from "@/lib/plan/api-helpers";
@@ -110,14 +114,19 @@ export async function GET() {
     if (!auth.ok) return auth.response;
 
     const repo = createSupabaseExternalAnchorRepository(supabase);
-    const [sources, anchors] = await Promise.all([
+    const [sources, anchors, dayIndicators] = await Promise.all([
       repo.listSources(auth.userId),
       repo.listAnchors(auth.userId),
+      // 休み/希望休（plan_day_indicators）。table 未適用(42P01)は reader 側で [] に degrade。
+      listPlanDayIndicators(
+        createSupabaseDayIndicatorQuery(supabase),
+        auth.userId
+      ),
     ]);
 
     return NextResponse.json({
       ok: true,
-      data: { sources, anchors },
+      data: { sources, anchors, dayIndicators },
     });
   } catch (e) {
     console.error("[Plan/Anchors] GET error:", e);

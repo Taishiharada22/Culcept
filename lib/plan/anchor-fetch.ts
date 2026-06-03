@@ -20,12 +20,19 @@ import type {
   CreateSourceWithAnchorsInput,
 } from "./external-anchor-repository";
 import type { AnchorInputValidationError } from "./external-anchor-input";
+import type { PlanDayIndicator } from "./planDayIndicatorReader";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export interface AnchorListData {
   sources: ExternalAnchorSource[];
   anchors: ExternalAnchor[];
+  /**
+   * 休み/希望休 の day-level 印（SR #216 D2 追加）。
+   * anchor とは別レイヤー。欠落/非配列の response（旧 API・production 未適用）でも
+   * [] にフォールバックして既存の sources/anchors を壊さない。
+   */
+  dayIndicators: PlanDayIndicator[];
 }
 
 export type AnchorFetchResult =
@@ -140,11 +147,18 @@ export async function fetchAnchors(): Promise<AnchorFetchResult> {
     };
   }
 
+  // dayIndicators は任意（欠落/非配列なら []）。旧 response / production 未適用でも壊さない。
+  const dayIndicatorsRaw = (data as { dayIndicators?: unknown }).dayIndicators;
+  const dayIndicators = Array.isArray(dayIndicatorsRaw)
+    ? (dayIndicatorsRaw as PlanDayIndicator[])
+    : [];
+
   return {
     ok: true,
     data: {
       sources: sources as ExternalAnchorSource[],
       anchors: anchors as ExternalAnchor[],
+      dayIndicators,
     },
   };
 }

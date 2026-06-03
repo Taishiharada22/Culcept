@@ -122,4 +122,61 @@ export const PLAN_FLAGS = {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   })() as readonly string[],
+
+  /**
+   * SR Step 6: 画像/PDF シフト表取り込みの **本保存**（確認→/plan 反映）を有効化するか。
+   *   true  : import action が confirmed cells を external_anchors + plan_day_indicators に保存
+   *   false : 保存経路は dormant（本番デフォルト）。確認画面の「反映」は無効のまま。
+   *
+   * env: PLAN_SHIFT_IMPORT_SAVE=true で有効化（server-side のみ評価、NEXT_PUBLIC_ なし）
+   *
+   * 設計: SR Step 6A transactional save plan foundation（CEO + GPT 合議 2026-05-31）
+   *
+   * 制約（6A 時点）:
+   *   - 本保存 = all-or-nothing（source + anchors + day_indicators を atomic に。部分保存禁止）
+   *   - 6A は契約 + memory repository + transaction/rollback test まで。実 DB 保存は **6B**（migration apply 後の Supabase/RPC）
+   *   - 実 DB 保存 / production path は migration apply（CEO 別承認）後にのみ有効化
+   *
+   * 本番 ON は別 patch（= CEO 判断経由、default false で merge）。
+   */
+  shiftImportSave: process.env.PLAN_SHIFT_IMPORT_SAVE === "true",
+
+  /**
+   * SR B1b-2C-9-FIX-2: VLM への画像入力形式（split / combined）。
+   *
+   *   - "split"（既定）: 旧経路。headerBlob + personRowBlob の **2 枚** を VLM に投げる。
+   *     既存 staging smoke / 旧 prompt と互換。
+   *   - "combined": 日付ヘッダ + 本人行を **同 X 軸で上下結合した 1 枚** を VLM に投げる。
+   *     Phase A FAIL（2026-06-01 column registration drift）対策。chunk は 1-15/16-31 を
+   *     同じ combined 画像 + 違う chunk-prompt で 2 回投げる（Z 案）。
+   *
+   * env: PLAN_SHIFT_VLM_INPUT_MODE=combined で combined 経路。未設定/その他値 → split。
+   * **server-side only**（NEXT_PUBLIC_ なし）。production 既定は split（CEO 別承認で切替）。
+   *
+   * 注: client は env を直接読まない。page.tsx（server）が解決して props で流す。
+   *      server action（extractShiftDraftAction）が env を再評価して FormData と照合
+   *      （client が mode を信用しない設計）。
+   */
+  vlmInputMode: (process.env.PLAN_SHIFT_VLM_INPUT_MODE === "combined"
+    ? "combined"
+    : "split") as "split" | "combined",
+
+  /**
+   * Plan 月ビュー Phase 2-A+: CalendarTab の week ⇄ month grid toggle を出すか。
+   *   true  : CalendarTab に「週 | 月」segmented toggle を表示
+   *   false : 既存 week strip のみ（本番デフォルト・toggle 非表示・UI 完全不変）
+   *
+   * **client-side const**（process.env でない）:
+   *   - CalendarTab は "use client"。client bundle で非 NEXT_PUBLIC_ env は undefined に
+   *     inlining されるため、client から確実に読める plain const にする（8a UI flag 前例踏襲）。
+   *   - default OFF。M3-b visual smoke 時のみ手動 true、commit は必ず false に戻す。
+   *
+   * 段階:
+   *   - M3-a（本コミット）: flag + 「週 | 月」toggle shell のみ。month grid 本体は描画しない
+   *     （viewMode が month でも body は week strip 維持）。
+   *   - M3-b: MonthGridView を month mode に接続。
+   *
+   * 設計: Plan 月ビュー mini design + M3 mini design（2026-06-03 CEO chat 承認）。
+   */
+  calendarMonthGridEnabled: false,
 } as const;

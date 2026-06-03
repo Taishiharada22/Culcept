@@ -74,6 +74,22 @@ import {
   utcMidnight,
   type WeekStripCell,
 } from "./_helpers";
+import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
+import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
+// Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import {
+  DEFAULT_CALENDAR_VIEW_MODE,
+  shouldShowCalendarViewToggle,
+  type CalendarViewMode,
+} from "@/lib/plan/calendarViewMode";
+import { CalendarViewToggle } from "../components/CalendarViewToggle";
+// M3-b: month grid 本体接続（viewMode=month で MonthGridView を描画）
+import { buildMonthGrid } from "./_monthGrid";
+import { CalendarViewBody } from "../components/CalendarViewBody";
+import type { MonthGridViewProps } from "../components/MonthGridView";
+// M3-b polish: 勤務 anchor → 原稿コード chip の resolver（辞書はここ経由。MonthGridView 非依存）
+import { resolveShiftAnchorChip } from "@/lib/plan/shift/shiftAnchorChip";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -81,6 +97,16 @@ import {
 
 /** Weekday labels Sun-first (日本ロケール標準、CEO mock 整合) */
 const WEEKDAY_LABELS_SUN_FIRST = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** month mode で dayIndicatorByIso 未指定時に渡す安定した空 Map（毎 render の再生成防止） */
+const EMPTY_INDICATOR_MAP: ReadonlyMap<string, DayIndicatorViewModel> = new Map();
+
+/** SR #216 D3: 週セル indicator dot の色（H=rose / BD=slate / HREQ=violet。amber 不使用）。 */
+function dayIndicatorDotClass(vm?: DayIndicatorViewModel): string {
+  if (vm?.variant === "public_holiday") return "bg-rose-400";
+  if (vm?.variant === "requested_off") return "bg-violet-300";
+  return "bg-slate-300"; // off / 既定
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Component
@@ -108,6 +134,8 @@ export function CalendarTab({
   // 既存 anchor list は **置換しない**、 timeline を **静かに追加**するだけ。
   // proposal chip 位置不変、 onAnchorClick への bridge 経由で詳細を開く。
   dayGraphByDate,
+  // SR #216 D3: 休み/希望休 day-level badge（iso → viewModel）。anchor と別レイヤー。
+  dayIndicatorByIso,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -122,6 +150,8 @@ export function CalendarTab({
    * optional のため未指定でも既存 UI は不変。
    */
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
+  /** SR #216 D3: 休み/希望休 day-level badge。未指定なら badge なし。 */
+  dayIndicatorByIso?: ReadonlyMap<string, DayIndicatorViewModel>;
 } & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
@@ -131,6 +161,14 @@ export function CalendarTab({
   // ── state ──
   const [currentMonth, setCurrentMonth] = useState<Date>(() => todayMonthStart);
   const [selectedDate, setSelectedDate] = useState<string>(todayIso);
+  // M3-a: week ⇄ month view（既定 week）。本コミットでは body は week strip のみ
+  // （viewMode が month でも month grid は描画しない）。MonthGridView 接続は M3-b。
+  const [viewMode, setViewMode] = useState<CalendarViewMode>(
+    DEFAULT_CALENDAR_VIEW_MODE
+  );
+  const showViewToggle = shouldShowCalendarViewToggle(
+    PLAN_FLAGS.calendarMonthGridEnabled
+  );
   /** 月送り animation の方向 (-1 = 前月、+1 = 翌月、0 = 初回) */
   const [slideDirection, setSlideDirection] = useState<-1 | 0 | 1>(0);
 
@@ -153,10 +191,14 @@ export function CalendarTab({
     [selectedDate],
   );
   const weekStrip = buildWeekStrip(selectedDateObj, currentMonth);
+  // union(統合 2026-06-04): LP の memoized selectedDayAnchors（freeze 根治）を採用し、
+  //   SH の直書き版は破棄（同一変数。 直書きは freeze 再発のため）。 SH の selectedDayIndicator は併存。
   const selectedDayAnchors = useMemo(
     () => anchorsForDay(anchors, selectedDateObj),
     [anchors, selectedDateObj],
   );
+  // SR #216 D3: 選択日の休み/希望休 badge（anchor list と別レイヤー）
+  const selectedDayIndicator = dayIndicatorByIso?.get(selectedDate);
 
   // ── L-4d-b1 (= 2026-05-22 CEO 承認): selected day timeline のみ移動時間表示 ──
   //    既存 usePlanGeocode を **selected day anchors の最小 subset に限定** して利用。
@@ -279,6 +321,19 @@ export function CalendarTab({
     ? { duration: 0 }
     : { type: "tween" as const, duration: 0.2, ease: "easeOut" as const };
 
+  // M3-b: month grid（currentMonth 変化時のみ再構築。selectedDate 変化では再計算しない）。
+  const monthGrid = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
+  // MonthGridView に渡す props（全て既存 state の再利用。新規データ調達なし）。
+  const monthGridProps: MonthGridViewProps = {
+    grid: monthGrid,
+    anchors,
+    dayIndicatorByIso: dayIndicatorByIso ?? EMPTY_INDICATOR_MAP,
+    selectedIso: selectedDate,
+    todayIso,
+    onSelectDate: handleSelectDate,
+    getAnchorChip: resolveShiftAnchorChip,
+  };
+
   return (
     <div data-testid="plan-calendar-tab" className="relative pb-24">
       {/* ── Slice 1: スケジュール連動 コーデ提案 dashboard (= 新しい主役、 mock UI) ── */}
@@ -366,6 +421,14 @@ export function CalendarTab({
         </button>
       </header>
 
+      {/* ── M3-a: week ⇄ month toggle（flag ON 時のみ。月 grid 本体は M3-b。
+            flag OFF では非表示 = 既存 week strip と完全同一）── */}
+      {showViewToggle && (
+        <div className="flex justify-end px-2 mb-2">
+          <CalendarViewToggle viewMode={viewMode} onChange={setViewMode} />
+        </div>
+      )}
+
       {/* ── Weekday labels (Sun-first、日 = 赤、土 = 青、日本標準) ── */}
       <div className="grid grid-cols-7 mb-2 px-2">
         {WEEKDAY_LABELS_SUN_FIRST.map((label, i) => (
@@ -397,6 +460,9 @@ export function CalendarTab({
             exit="exit"
             transition={slideTransition}
           >
+            {/* M3-b: viewMode で week strip ⇄ month grid を分岐（agenda は下で共通・不変）。
+                month → MonthGridView / week → 既存 week strip（children、JSX 不変）。 */}
+            <CalendarViewBody viewMode={viewMode} monthGridProps={monthGridProps}>
             {/* Week strip (1 行 × 7 col) */}
             <div
               role="grid"
@@ -419,14 +485,34 @@ export function CalendarTab({
                     data-testid={`plan-calendar-day-${cell.iso}`}
                     className={cellClasses(cell, isToday, isSelected)}
                   >
-                    <span className="text-sm font-medium">{cell.dayOfMonth}</span>
+                    <span className="flex flex-col items-center leading-none">
+                      <span className="text-sm font-medium">{cell.dayOfMonth}</span>
+                      {dayIndicatorByIso?.has(cell.iso) && (
+                        <span
+                          data-testid={`plan-calendar-day-indicator-${cell.iso}`}
+                          className={`mt-0.5 h-1 w-1 rounded-full ${dayIndicatorDotClass(
+                            dayIndicatorByIso.get(cell.iso)
+                          )}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </span>
                   </button>
                 );
               })}
             </div>
+            </CalendarViewBody>
 
             {/* Selected day agenda section (slide animation 内、月送りで一緒に動く) */}
             <section data-testid="plan-calendar-selected-day" className="px-4">
+              {selectedDayIndicator && (
+                <div
+                  className="mb-2"
+                  data-testid="plan-calendar-selected-day-indicator"
+                >
+                  <DayIndicatorBadge indicator={selectedDayIndicator} />
+                </div>
+              )}
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}
