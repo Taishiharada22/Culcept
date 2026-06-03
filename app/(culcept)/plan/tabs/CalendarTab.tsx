@@ -83,6 +83,10 @@ import {
   type CalendarViewMode,
 } from "@/lib/plan/calendarViewMode";
 import { CalendarViewToggle } from "../components/CalendarViewToggle";
+// M3-b: month grid 本体接続（viewMode=month で MonthGridView を描画）
+import { buildMonthGrid } from "./_monthGrid";
+import { CalendarViewBody } from "../components/CalendarViewBody";
+import type { MonthGridViewProps } from "../components/MonthGridView";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -90,6 +94,9 @@ import { CalendarViewToggle } from "../components/CalendarViewToggle";
 
 /** Weekday labels Sun-first (日本ロケール標準、CEO mock 整合) */
 const WEEKDAY_LABELS_SUN_FIRST = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** month mode で dayIndicatorByIso 未指定時に渡す安定した空 Map（毎 render の再生成防止） */
+const EMPTY_INDICATOR_MAP: ReadonlyMap<string, DayIndicatorViewModel> = new Map();
 
 /** SR #216 D3: 週セル indicator dot の色（H=rose / BD=slate / HREQ=violet。amber 不使用）。 */
 function dayIndicatorDotClass(vm?: DayIndicatorViewModel): string {
@@ -292,6 +299,18 @@ export function CalendarTab({
     ? { duration: 0 }
     : { type: "tween" as const, duration: 0.2, ease: "easeOut" as const };
 
+  // M3-b: month grid（currentMonth 変化時のみ再構築。selectedDate 変化では再計算しない）。
+  const monthGrid = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
+  // MonthGridView に渡す props（全て既存 state の再利用。新規データ調達なし）。
+  const monthGridProps: MonthGridViewProps = {
+    grid: monthGrid,
+    anchors,
+    dayIndicatorByIso: dayIndicatorByIso ?? EMPTY_INDICATOR_MAP,
+    selectedIso: selectedDate,
+    todayIso,
+    onSelectDate: handleSelectDate,
+  };
+
   return (
     <div data-testid="plan-calendar-tab" className="relative pb-24">
       {/* ── Month header ── */}
@@ -377,6 +396,9 @@ export function CalendarTab({
             exit="exit"
             transition={slideTransition}
           >
+            {/* M3-b: viewMode で week strip ⇄ month grid を分岐（agenda は下で共通・不変）。
+                month → MonthGridView / week → 既存 week strip（children、JSX 不変）。 */}
+            <CalendarViewBody viewMode={viewMode} monthGridProps={monthGridProps}>
             {/* Week strip (1 行 × 7 col) */}
             <div
               role="grid"
@@ -415,6 +437,7 @@ export function CalendarTab({
                 );
               })}
             </div>
+            </CalendarViewBody>
 
             {/* Selected day agenda section (slide animation 内、月送りで一緒に動く) */}
             <section data-testid="plan-calendar-selected-day" className="px-4">
