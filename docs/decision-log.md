@@ -15129,4 +15129,8 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 
 [2026-06-03] [Build] B1b-2C-9-FIX-2 combined mode Phase A 複数月 PASS — 2025/7 + 別月で列対応 drift 解消を CEO 目視確認。split FAIL の構造仮説（2枚別画像で VLM が列対応保持できない）を強く支持した。env 既定 split 維持、production 不変。DB write なし。[承認: CEO]
 
+[2026-06-03] [Build] B1b-2C-9-FIX-2 combined mode Phase B（DB write）end-to-end PASS — staging で combined 入力により 2025/6 シフト画像を取り込み、external_anchor_sources + external_anchors(19勤務) + plan_day_indicators(11休み/希望休) の atomic 保存 30 件を CEO が元画像と全照合一致確認。休み分離（H/BD/HREQ→day_indicator）・辞書変換（E/E-18/N/L/G→title+時刻）・列対応・DB保存の正しさを確認。cleanup 時点で shift_image source が 2 件確認され、関連する external_anchors(38) / plan_day_indicators(23) を含めて全て削除済み（0/0/0確認）。staging のみ・production 不変・env を PLAN_SHIFT_IMPORT_SAVE=false へ rollback 済み。[承認: CEO]
+
+[2026-06-03] [Product] UX gap 検出（本流接続前の必須課題）— /plan は今日±7日 window 中心で、過去/未来月への navigation と月 grid view が不足している。シフト取り込み pipeline は staging E2E PASS したが、取り込んだ月全体をユーザーが確認・把握する view が不足。SR Step 5/6 や本流入口接続前に、月切替 + 月 grid view 設計が必要。[記録: Build/Product]
+
 ---
