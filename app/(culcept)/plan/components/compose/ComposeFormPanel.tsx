@@ -19,7 +19,7 @@ import { useMemo, useState } from "react";
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import type { ComposeDraftCore } from "@/lib/plan/compose/composeDraft";
 import {
-  deriveLocationChips,
+  deriveTitlePlaceGroups,
   type LocationUsage,
 } from "@/lib/plan/compose/locationHistory";
 
@@ -44,11 +44,13 @@ export function ComposeFormPanel({
   const activityKey = classifyActivityIconKey(core.title);
   const companions = core.companions ?? [];
 
-  // 「よく行く」(頻度・どこで欄に常時) + 「この予定」(title 連動・活動SVG クリックで) を reactive に導出。
-  const { frequent, forTitle } = useMemo(
-    () => deriveLocationChips(locationUsages ?? [], { title: core.title }),
+  // ① 活動SVG popover 用: その予定の「よく行く（常連）＋最近（開拓）」を reactive に導出。
+  const placeGroups = useMemo(
+    () => deriveTitlePlaceGroups(locationUsages ?? [], core.title),
     [locationUsages, core.title],
   );
+  const hasPlaceGroups =
+    placeGroups.frequent.length > 0 || placeGroups.recent.length > 0;
   const titleTrim = core.title.trim();
   // ① 活動SVG クリックで「この予定なら、ここでは？」候補を出す popover の開閉。
   const [showPlaces, setShowPlaces] = useState(false);
@@ -93,34 +95,26 @@ export function ComposeFormPanel({
             <ActivityIcon iconKey={activityKey} />
           </button>
         </div>
-        {/* 活動SVG クリック → 予定内容連動の場所候補（「この予定なら、ここでは？」）。
-            1タップで「どこで？」に反映。自動確定なし・外部検索なし・履歴 derive。 */}
+        {/* 活動SVG クリック → その予定の場所候補（「よく行く（常連）＋最近（開拓）」・両方 title 連動）。
+            1タップで「どこで？」に反映。長押しで詳細。自動確定なし・外部検索なし・履歴 derive。 */}
         {showPlaces && titleTrim && (
           <div
             data-testid="compose-activity-places"
             className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2"
           >
             <p className="mb-1 text-[11px] font-medium text-indigo-500">
-              「{titleShort}」でよく行く
+              「{titleShort}」の場所
             </p>
-            {forTitle.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {forTitle.map((c) => (
-                  <button
-                    key={c.text}
-                    type="button"
-                    data-testid="compose-activity-place-chip"
-                    onClick={() => {
-                      pickLocation(c.text, c.category);
-                      setShowPlaces(false);
-                    }}
-                    title={c.text}
-                    className="max-w-[160px] truncate rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 active:scale-95"
-                  >
-                    {c.text}
-                  </button>
-                ))}
-              </div>
+            {hasPlaceGroups ? (
+              <LocationHistoryChips
+                frequent={placeGroups.frequent}
+                forTitle={placeGroups.recent}
+                forTitleLabel="最近"
+                onPick={(chip) => {
+                  pickLocation(chip.text, chip.category);
+                  setShowPlaces(false);
+                }}
+              />
             ) : (
               <p className="text-[11px] text-slate-400">
                 この予定の場所履歴はまだありません
@@ -145,16 +139,8 @@ export function ComposeFormPanel({
             className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:outline-none focus-visible:border-slate-300"
           />
         </div>
-        {/* どこで欄の補助は「よく行く（頻度）」のみ常時表示（① で「この予定」は活動SVGへ移設）。
-            1タップで text(+category) 確定。自動確定しない。入力中は外部検索に委譲。 */}
-        {core.locationText.trim().length === 0 && (
-          <LocationHistoryChips
-            frequent={frequent}
-            forTitle={[]}
-            onPick={(chip) => pickLocation(chip.text, chip.category)}
-          />
-        )}
-        {/* 当初仕様: 既存 PlaceCandidatesPanel（/api/plan/places/search）。非強制・自己 gate */}
+        {/* どこで欄: 履歴チップ（よく行く）は廃止 → 活動SVG popover に集約（CEO 2026-06-03）。
+            ここは手入力 + 既存 PlaceCandidatesPanel（/api/plan/places/search・非強制・自己 gate）のみ。 */}
         <PlaceCandidatesPanel
           query={core.locationText}
           title={core.title}

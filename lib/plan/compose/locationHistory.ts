@@ -47,6 +47,22 @@ export interface LocationChips {
 export const EMPTY_LOCATION_CHIPS: LocationChips = { frequent: [], forTitle: [] };
 
 /**
+ * ① 活動SVG popover 用: ある予定(title)に紐づく場所を 2 群で返す。
+ *   - frequent（よく行く）: その予定で 2 回以上・頻度順＝常連。
+ *   - recent（最近）  : その予定で frequent 以外・日付降順＝最近行った（開拓）場所。
+ * title 空 / マッチ無しは両群空（呼び出し側で「履歴なし」表示）。
+ */
+export interface TitlePlaceGroups {
+  frequent: LocationChip[];
+  recent: LocationChip[];
+}
+
+export const EMPTY_TITLE_PLACE_GROUPS: TitlePlaceGroups = {
+  frequent: [],
+  recent: [],
+};
+
+/**
  * ① 一般名詞の場所は除外する（「どこの〜か」が分からない曖昧語）。固有名のみ採用。
  * 完全一致のみ判定＝「渋谷オフィス」「隠れ房 新宿店」等の固有名は通す。
  */
@@ -205,4 +221,35 @@ export function deriveLocationChips(
     .filter((c) => !forKeys.has(normKey(c.text)))
     .slice(0, limit);
   return { frequent, forTitle };
+}
+
+/**
+ * ① title に紐づく場所を「よく行く（常連）」「最近（開拓）」に分ける（pure）。
+ *
+ * CEO 確定（2026-06-03）: どこで欄の常時「よく行く」を廃止し、活動SVG クリックで
+ * 「その予定の よく行く＋最近」を出す。両群とも **title 連動**。
+ *
+ *   - frequent: title マッチ usages を集計し count>=2 を頻度順（常連）。
+ *   - recent  : frequent を除いた残りを usedAtISO 降順（最近行った場所）。
+ *     ＝初期ユーザー（各場所1回）は frequent 空・recent が日付順で全件を担う。
+ *
+ * 全 anchor を純関数で集計＝新 endpoint も migration も不要・fail-open by construction。
+ */
+export function deriveTitlePlaceGroups(
+  usages: ReadonlyArray<LocationUsage>,
+  title: string,
+  limit: number = LOCATION_CHIP_LIMIT,
+): TitlePlaceGroups {
+  const t = title.trim();
+  if (t.length === 0) return EMPTY_TITLE_PLACE_GROUPS;
+  const matched = usages.filter((u) => titleMatches(u.title, t));
+  if (matched.length === 0) return EMPTY_TITLE_PLACE_GROUPS;
+  const all = aggregateAll(matched);
+  const frequent = all.filter((c) => c.count >= 2).slice(0, limit);
+  const freqKeys = new Set(frequent.map((c) => normKey(c.text)));
+  const recent = all
+    .filter((c) => !freqKeys.has(normKey(c.text)))
+    .sort((a, b) => cmpDesc(a.usedAtISO, b.usedAtISO))
+    .slice(0, limit);
+  return { frequent, recent };
 }

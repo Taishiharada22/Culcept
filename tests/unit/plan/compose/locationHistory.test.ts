@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import {
   deriveLocationChips,
+  deriveTitlePlaceGroups,
   extractLocationUsages,
   isSpecificPlace,
   LOCATION_CHIP_LIMIT,
@@ -175,5 +176,66 @@ describe("空・limit", () => {
     expect(deriveLocationChips(data).frequent.length).toBeLessThanOrEqual(
       LOCATION_CHIP_LIMIT,
     );
+  });
+});
+
+describe("deriveTitlePlaceGroups（① 活動SVG: よく行く＋最近・両方 title 連動）", () => {
+  it("title 空 / マッチ無し → 両群空", () => {
+    const data = usages([oneOff({ title: "会議", locationText: "渋谷オフィス" })]);
+    expect(deriveTitlePlaceGroups(data, "")).toEqual({ frequent: [], recent: [] });
+    expect(deriveTitlePlaceGroups(data, "ランチ")).toEqual({ frequent: [], recent: [] });
+  });
+
+  it("常連(2回以上)は frequent、1回の場所は recent（日付降順）", () => {
+    const data = usages([
+      oneOff({ title: "勉強", locationText: "自習室 KAKOI", date: "2026-01-01" }),
+      oneOff({ title: "数学の勉強", locationText: "自習室 KAKOI", date: "2026-01-05" }),
+      oneOff({ title: "勉強", locationText: "図書館ラウンジ", date: "2026-03-10" }),
+      oneOff({ title: "勉強", locationText: "喫茶リブロ", date: "2026-02-01" }),
+    ]);
+    const { frequent, recent } = deriveTitlePlaceGroups(data, "勉強");
+    expect(frequent.map((c) => c.text)).toEqual(["自習室 KAKOI"]);
+    expect(frequent[0].count).toBe(2);
+    // recent は frequent を除外し日付降順（3/10 → 2/1）
+    expect(recent.map((c) => c.text)).toEqual(["図書館ラウンジ", "喫茶リブロ"]);
+  });
+
+  it("title マッチのみ集計（他予定の場所は混ざらない）", () => {
+    const data = usages([
+      oneOff({ title: "会議", locationText: "渋谷オフィス" }),
+      oneOff({ title: "勉強", locationText: "自習室 KAKOI" }),
+    ]);
+    const { frequent, recent } = deriveTitlePlaceGroups(data, "勉強");
+    const all = [...frequent, ...recent].map((c) => c.text);
+    expect(all).toContain("自習室 KAKOI");
+    expect(all).not.toContain("渋谷オフィス");
+  });
+
+  it("初期ユーザー（各場所1回）→ frequent 空・recent が日付順で担う", () => {
+    const data = usages([
+      oneOff({ title: "勉強", locationText: "自習室 KAKOI", date: "2026-01-02" }),
+      oneOff({ title: "勉強", locationText: "図書館ラウンジ", date: "2026-01-09" }),
+    ]);
+    const { frequent, recent } = deriveTitlePlaceGroups(data, "勉強");
+    expect(frequent).toEqual([]);
+    expect(recent.map((c) => c.text)).toEqual(["図書館ラウンジ", "自習室 KAKOI"]);
+  });
+
+  it("frequent は limit 件まで", () => {
+    const many = Array.from({ length: LOCATION_CHIP_LIMIT + 3 }, (_, i) => [
+      oneOff({ title: "勉強", locationText: `常連${i}`, date: "2026-01-01" }),
+      oneOff({ title: "勉強", locationText: `常連${i}`, date: "2026-01-02" }),
+    ]).flat();
+    const { frequent } = deriveTitlePlaceGroups(usages(many), "勉強");
+    expect(frequent.length).toBeLessThanOrEqual(LOCATION_CHIP_LIMIT);
+  });
+
+  it("長押し詳細用 sampleTitles を引き継ぐ", () => {
+    const data = usages([
+      oneOff({ title: "勉強", locationText: "自習室 KAKOI", date: "2026-01-01" }),
+      oneOff({ title: "数学の勉強", locationText: "自習室 KAKOI", date: "2026-02-01" }),
+    ]);
+    const { frequent } = deriveTitlePlaceGroups(data, "勉強");
+    expect(frequent[0]?.sampleTitles).toEqual(["数学の勉強", "勉強"]);
   });
 });

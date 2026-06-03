@@ -79,16 +79,14 @@ describe("場所候補（実 PlaceCandidatesPanel 接続・当初仕様）", () 
   });
 });
 
-describe("④ Phase 1a 場所履歴チップ（具体的のみ + title 連動）", () => {
+describe("④/① 場所履歴は活動SVG popover に集約（どこで欄の常時「よく行く」は廃止）", () => {
   let n = 0;
   const u = (text: string, title = "予定"): LocationUsage => {
     n += 1;
     return { text, title, usedAtISO: `2026-03-${String((n % 28) + 1).padStart(2, "0")}` };
   };
   // panel は extractLocationUsages 済（具体的のみ）の usages を受け取る前提。
-  // 渋谷オフィス×3（よく行く）/ 勉強→自習室KAKOI×2（title 連動）。
   const USAGES: LocationUsage[] = [
-    u("渋谷オフィス", "会議"),
     u("渋谷オフィス", "会議"),
     u("渋谷オフィス", "会議"),
     u("自習室 KAKOI", "勉強"),
@@ -104,42 +102,42 @@ describe("④ Phase 1a 場所履歴チップ（具体的のみ + title 連動）
   const render2 = (c: ComposeDraftCore, usages?: LocationUsage[]) =>
     renderToStaticMarkup(<ComposeFormPanel core={c} locationUsages={usages} />);
 
-  it("未入力(title空) → 「よく行く」に固有名チップ", () => {
-    const html = render2(core(), USAGES);
-    expect(html).toContain('data-testid="compose-location-history"');
-    expect(html).toContain("よく行く");
-    expect(html).toContain("渋谷オフィス");
+  it("どこで欄に常時「よく行く」チップを出さない（欄は廃止・popover へ移設）", () => {
+    // title 空でも有でも、locationText 有無に関わらず where 欄に履歴チップは出ない
+    expect(render2(core(), USAGES)).not.toContain('data-testid="compose-location-history"');
+    expect(render2(core({ title: "勉強" }), USAGES)).not.toContain(
+      'data-testid="compose-location-history"',
+    );
+    expect(render2(core({ title: "勉強", locationText: "渋" }), USAGES)).not.toContain(
+      'data-testid="compose-location-history"',
+    );
   });
 
-  it("① title='勉強' → 活動SVG が有効。「この予定」候補は どこで欄に自動表示しない（SVGへ移設）", () => {
+  it("① title 有 → 活動SVG が有効、popover は閉（候補は未露出）", () => {
     const html = render2(core({ title: "勉強" }), USAGES);
     expect(html).toContain('data-testid="compose-activity-places-trigger"');
-    expect(html).toContain('data-enabled="true"'); // title 有 → SVG 有効
-    // クリック前なので候補 popover は出ない（SSR は showPlaces=false）
+    expect(html).toContain('data-enabled="true"');
+    // SSR は showPlaces=false → popover とその中の候補(自習室 KAKOI)は markup に無い
     expect(html).not.toContain('data-testid="compose-activity-places"');
-    // 「この予定」候補(自習室 KAKOI) は どこで欄の自動チップには出さない
     expect(html).not.toContain("自習室 KAKOI");
   });
 
-  it("① title 空なら 活動SVG は disabled（tooltip 案内）", () => {
+  it("① title 空 → 活動SVG は disabled（tooltip 案内）", () => {
     const html = render2(core({ title: "" }), USAGES);
     expect(html).toContain('data-testid="compose-activity-places-trigger"');
     expect(html).toContain('data-enabled="false"');
     expect(html).toContain("予定を入力すると候補が出ます");
   });
 
-  it("① 長押し詳細は初期表示では出ない（長押し操作時のみ）", () => {
-    expect(render2(core(), USAGES)).not.toContain('data-testid="compose-loc-detail"');
-  });
-
-  it("入力中（locationText 非空）はチップを出さない", () => {
-    expect(render2(core({ locationText: "渋" }), USAGES)).not.toContain(
-      'data-testid="compose-location-history"',
+  it("長押し詳細は初期表示では出ない（操作時のみ）", () => {
+    expect(render2(core({ title: "勉強" }), USAGES)).not.toContain(
+      'data-testid="compose-loc-detail"',
     );
   });
 
-  it("usages 無し / 空ならチップなし（fail-open・後方互換）", () => {
-    expect(render2(core())).not.toContain('data-testid="compose-location-history"');
-    expect(render2(core(), [])).not.toContain('data-testid="compose-location-history"');
+  it("usages 無しでも SVG trigger は常在（fail-open）", () => {
+    const html = render2(core({ title: "勉強" }));
+    expect(html).toContain('data-testid="compose-activity-places-trigger"');
+    expect(html).not.toContain('data-testid="compose-location-history"');
   });
 });
