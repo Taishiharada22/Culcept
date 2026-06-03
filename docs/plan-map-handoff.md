@@ -16,7 +16,7 @@
 
 ## 1. 確定済み成果（commit 済・本セッション）
 
-ブランチ `claude/frosty-hellman-b3305e`、コミット履歴（新しい順、本セッション分 + 直前基盤）:
+ブランチ `claude/frosty-hellman-b3305e`、コミット履歴（新しい順・**すべて本セッション**、ベース `9afdcaf9` の上）:
 
 | commit | 内容 |
 |---|---|
@@ -25,7 +25,13 @@
 | `8298642e` | S1-A `selectedModeByLeg` localStorage 永続化 |
 | `70f33f67` | docs: 「第二の自己化する地図」戦略 & 施策提案 |
 | `9c9b42b2` | ガラス質ホログラム ルート線 + Lucide 移動アイコン + ノード鼓動/発光呼吸 |
-| `2064b723` | (基盤・本セッション前) mobility icon switcher v1 |
+| `2064b723` | mobility icon switcher v1（per-leg mode chips / card / mode-aware route） |
+| `ae5e408b` | docs: 観測ガードレール明文化（§4.3.1・`selected↔actual` 鉄則） |
+| `20a2a59c` | docs: Time Layers & Mobility Layer 設計（**nifty と共有する契約**） |
+| `e1176d20` | mobility route leg 表示レイヤー（RouteLegViewModel・距離推定撤去・静かな glow） |
+| `f80412ce` | 道路沿いルート化 v1（WIP） |
+
+（本引き継ぎ書じたいは `a8ffc722` 以降の docs commit。）
 
 **全変更は `app/(culcept)/plan/tabs/MapTab.tsx` のみ**（docs を除く）。他ファイル不触。`lib/shared/googleMapsLoader.ts` 不触。
 
@@ -74,6 +80,13 @@
 
 各項目: 概要 / 必要サブシステム / なぜ別セッションか / 着手のヒント。**着手は CEO グリーンライト必須。**
 
+### 設計合流: nifty（予定追加）セッションとの語彙統一 ★優先・横断
+- **概要**: 本 worktree (frosty) は Map **表示**側、別セッション **nifty = 予定追加 (add-schedule UI)** 側。両者で語彙・型を揃える必要がある（本セッション初期の到達点 `20a2a59c`/`ae5e408b` で「次は nifty 合流」と申し送り済み）。
+- **揃える語彙**（共有契約 = `docs/alter-plan-time-layers-mobility-design.md`・commit `20a2a59c`）: `candidateModes` / `recommendedMode` / `selectedMode` / `actualMode`、`ContextBand` / `Anchor` / `ExcursionLeg`、`transportMode` 正本型の将来方針。
+- **現状（正直に）**: 本セッションの S1-A/S2-A/所要時間比較 は **`selectedMode` の localStorage サブセットのみ**を使用。`lib/shared` の **正本型 (canonical TransportSegment 等) は未作成 = HOLD**（CEO 指示）。`recommendedMode` は所要時間比較導入時に prop ごと撤去（推薦エンジン HOLD のため）。
+- **なぜ別**: 2 worktree 間の設計合流＋正本型確定は片側だけでは決められない。**共有正本 / DB / Decision Engine 接続は合流後の別 Phase**。
+- **着手のヒント**: nifty 側の現状を読み語彙の食い違いを洗い出してから正本型を1本化。frosty 側は §4 の `selected↔actual` ガードレールを必ず引き継ぐ。
+
 ### 軽量・S1-A/S2-A の上に乗る
 - **S2-B レパートリー学習（頻度/recency 重み付け + OD/時間帯/曜日 一般化）**
   - 必要: 集約ロジック（=学習の入口）。`lib/stargazer/bayesianAxisUpdater.ts`（ベイズ共役・precision auto-scale）が再利用候補。
@@ -106,6 +119,11 @@
 1. **偽の数字・偽の根拠を出さない**（CEO 既定・全フェーズ）。所要時間は実 Google duration のみ、取れなければ「—」。
 2. **距離からの移動手段推定をしない**（`MapTab` 内に明記、誤判定が Plan OS の信頼を壊す）。
 3. **推薦の断定をしない / 人格診断にしない**（推薦エンジン HOLD 中）。出すのは事実の判断材料。
+   - **`selected↔actual` 乖離ガードレール（鉄則・横断制約）** — 正本は `docs/alter-plan-time-layers-mobility-design.md` §4.3.1（commit `ae5e408b`）。要点:
+     - 乖離は**深層観測シグナルだが人格診断・固定ラベルではない**（悪「怠けるからタクシー」／良「この状況では移動負荷軽減を優先した *可能性*」）。
+     - 必ず**状況依存の仮説**として `confidence / context / weather / baggage / fatigue / urgency` とセットで解釈。単独シグナルで結論にしない。
+     - **用途は本人の自己理解と Plan 改善のみ**。断定・評価・監視・スコアリングには使わない。一度の乖離で決めず、反復で confidence を積む。
+     - この鉄則は `recommendedMode` / `actualMode` / 将来の Decision Engine 入力 すべてに効く。
 4. **`lib/shared/googleMapsLoader.ts` 不触**（frozen。MorningMapView と SCRIPT_ID 共有）。型は MapTab 内 local 拡張で広げる。
 5. **新規 npm 依存を入れない**（`@types/google.maps` NG / `@vis.gl/react-google-maps` は Vercel build timeout 既往）。lucide-react は既存。
 6. **DB / Supabase / マイグレーション / 外部 API 連携 = CEO 承認案件**。勝手に進めない。
