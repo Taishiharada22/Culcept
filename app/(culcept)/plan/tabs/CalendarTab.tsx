@@ -173,8 +173,11 @@ export function CalendarTab({
   const [slideDirection, setSlideDirection] = useState<-1 | 0 | 1>(0);
 
   // Slice 1: 既存の予定タイムライン (= 月送り / week strip / 予定 list / proposal / DayGraph /
-  //   feasibility / FAB) を退避する disclosure。 初期は閉 (= dashboard を主役に)。
-  const [timelineOpen, setTimelineOpen] = useState<boolean>(false);
+  //   feasibility / FAB) を格納する disclosure。
+  // 統合 (2026-06-04 CEO union 判断 A): 初期は「開」。 週間 = 既存週ビュー + LP 成果 (dashboard) +
+  //   既存 day timeline の三者共存を既定にする (dashboard は最上部の主役位置を維持、 折りたたみは任意操作で可能)。
+  //   これにより SH の week strip / day-indicator render contract も既定で満たす。
+  const [timelineOpen, setTimelineOpen] = useState<boolean>(true);
 
   const reducedMotion = useReducedMotion();
 
