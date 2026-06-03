@@ -39,7 +39,13 @@ const MAX_ENTRIES = 60;
  */
 function mirrorWornToCanonical(record: PlanWornRecord): void {
   try {
-    upsertCanonicalWornHistoryEntry(planWornRecordToEntry(record));
+    // engine_padded は engine 派生 → shared worn-history では engine に正規化（shared 契約を広げない）。
+    upsertCanonicalWornHistoryEntry(
+      planWornRecordToEntry({
+        ...record,
+        source: record.source === "engine_padded" ? "engine" : record.source,
+      }),
+    );
   } catch {
     // mirror は補助。 canonical 失敗は無視（旧 diary は既に保存済み）。
   }

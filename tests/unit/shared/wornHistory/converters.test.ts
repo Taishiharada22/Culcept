@@ -100,7 +100,7 @@ describe("planWornRecordToEntry", () => {
     expect(e.itemIds).not.toBe(ids);
   });
 
-  it("contract: 実 PlanWornRecord 型が converter 入力に assignable（compile-time pin）", () => {
+  it("contract: 正規化した PlanWornRecord（engine_padded→engine）が converter 入力に assignable（compile-time pin）", () => {
     const real: PlanWornRecord = {
       date: "2026-05-29",
       wornAt: "2026-05-29T20:00:00.000Z",
@@ -109,7 +109,10 @@ describe("planWornRecordToEntry", () => {
       source: "engine",
       satisfaction: 5,
     };
-    const e = planWornRecordToEntry(real);
+    const e = planWornRecordToEntry({
+      ...real,
+      source: real.source === "engine_padded" ? "engine" : real.source,
+    });
     expect(e.origin).toBe("plan");
     expect(e.learningEligible).toBe(true);
   });
