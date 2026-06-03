@@ -49,6 +49,7 @@ import {
 import {
   useGoogleMapsScript,
   type GmapsApi,
+  type GmapsIcon,
   type GmapsLatLng,
   type GmapsMap,
   type GmapsMarker,
@@ -582,12 +583,14 @@ function PlanMapView({
       for (const vm of legViewModels) {
         // Step 1.1: 初期は直線中点 (描画後に道路ルート線の中点へ寄せる)
         const mid = legChipPosition([vm.from, vm.to]);
+        const chipState = mapChipStateForLeg(vm.state);
+        const chipPx = mobilityChipPx(chipState);
         const iconMarker = new maps.Marker({
           map,
           position: mid,
           icon: {
-            url: mobilityLegIconDataUri(vm.displayMode, vm.state === "done"),
-            anchor: new maps.Point(MOBILITY_ICON_HALF, MOBILITY_ICON_HALF),
+            url: mobilityLegIconDataUri(vm.displayMode, chipState),
+            anchor: new maps.Point(chipPx / 2, chipPx / 2),
           },
           clickable: true, // Step 2a: tap → 移動手段カード
         } as MobilityMarkerOptions);
@@ -657,7 +660,7 @@ function PlanMapView({
                     map,
                     path: arc,
                     strokeOpacity: 0,
-                    icons: dashedRouteIcons(ROUTE_MODE_COLORS.flight, 0.9, 3),
+                    icons: dottedRouteIcons(maps, ROUTE_MODE_COLORS.flight, 0.9),
                     zIndex: ROUTE_Z_AHEAD,
                     clickable: false,
                   } as RoutePolylineOptions),
@@ -678,19 +681,19 @@ function PlanMapView({
               if (legPath.length < 2) continue;
               const baseStyle = getRouteStyleForLeg(vm.state, vm.displayMode);
               const style = resolved ? baseStyle : { ...baseStyle, dashed: true };
-              for (const line of buildRouteLegLines(maps, map, legPath, style)) {
-                routePolylines.push(line);
-              }
-              // glow は「解決した current(今→次)」区間のみ
-              if (resolved && shouldAnimateLeg(vm.state)) {
-                const glow = createRouteGlowAnimation(
+              const built = buildGlassyLegLines(maps, map, legPath, style);
+              for (const line of built.lines) routePolylines.push(line);
+              // 発光呼吸 + ノード鼓動 は「解決した current(今→次)」区間のみ
+              if (resolved && shouldAnimateLeg(vm.state) && built.glow) {
+                const aura = createRouteAuraAnimation(
                   maps,
                   map,
-                  legPath,
+                  built.glow,
+                  vm.to, // 次の目的地 = 鼓動させるノード
                   style.color,
                 );
-                routePolylines.push(glow.polyline);
-                routeAnimationTimers.push(glow.timerId);
+                for (const ring of aura.markers) legIconMarkers.push(ring);
+                routeAnimationTimers.push(aura.timerId);
               }
               // チップを実際の描画 path 線上の中点へスナップ
               if (chip) {
@@ -1023,16 +1026,18 @@ function MapPlaceholder({
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MobilityLegCard (v1 Step 2a): leg チップ tap で開く移動手段カード
-//   - 8 手段ボタン + 正直ラベル(note)。 選択で leg の selectedMode を local state 更新。
-//   - 過去(done) leg は readOnly (= 編集不可、 実績の器として表示のみ)。
-//   - ★経路ジオメトリの mode 別最適化は Step 2b。 今は「色」のみ反映 (偽の経路は描かない)。
+// MobilityLegCard (v2 判断OS化): leg チップ tap で開く移動手段カード
+//   - ✦おすすめ枠 (= 判断OS。 実 recommendedMode が来たら点灯、 無ければ正直に「順次提案」)
+//   - 主な手段 / 制限あり(β) にグルーピング、 注記の氾濫を βバッジ + 1行脚注へ集約
+//   - 選択は mode 色でハイライト、 過去(done) leg は readOnly
+//   - ★経路ジオメトリ・推奨の中身は実データ接続後 (偽の数字は出さない)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function MobilityLegCard({
   legKey,
   fromTitle,
   toTitle,
   selectedMode,
+  recommendedMode,
   readOnly,
   onSelect,
   onClose,
@@ -1041,67 +1046,126 @@ function MobilityLegCard({
   fromTitle: string;
   toTitle: string;
   selectedMode: RouteTransportMode | null;
+  recommendedMode?: RouteTransportMode | null;
   readOnly: boolean;
   onSelect: (legKey: string, mode: RouteTransportMode) => void;
   onClose: () => void;
 }) {
+  const chipBg = (mode: RouteTransportMode) => ({
+    backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
+    backgroundSize: "contain",
+  });
+  const modeButton = (mode: RouteTransportMode, limited: boolean) => {
+    const active = selectedMode === mode;
+    const color = ROUTE_MODE_COLORS[mode];
+    return (
+      <button
+        key={mode}
+        type="button"
+        disabled={readOnly}
+        aria-pressed={active}
+        onClick={() => onSelect(legKey, mode)}
+        className={`relative flex flex-col items-center gap-1 rounded-2xl border-2 px-1 py-2 transition ${
+          readOnly ? "cursor-default" : "hover:bg-slate-50"
+        } ${limited ? "opacity-60" : ""}`}
+        style={
+          active
+            ? { borderColor: color, backgroundColor: `${color}14` }
+            : { borderColor: "transparent", backgroundColor: "transparent" }
+        }
+      >
+        <span
+          aria-hidden
+          className="block h-11 w-11 bg-center bg-no-repeat"
+          style={chipBg(mode)}
+        />
+        <span className="text-[11px] font-semibold text-slate-700">
+          {MOBILITY_MODE_META[mode].label}
+        </span>
+        {limited && (
+          <span className="absolute right-1 top-1 rounded-md bg-slate-300 px-1 text-[8px] font-bold tracking-wide text-white">
+            β
+          </span>
+        )}
+      </button>
+    );
+  };
   return (
     <div data-testid="mobility-leg-card" className="absolute inset-x-3 bottom-3 z-20">
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-lg">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <p className="truncate text-sm font-semibold text-slate-800">
-            {fromTitle} <span className="text-slate-400">→</span> {toTitle}
+      <div className="rounded-3xl border border-slate-200/90 bg-white p-4 shadow-[0_18px_50px_-12px_rgba(15,23,42,0.28)]">
+        <div className="flex items-center justify-between gap-2">
+          <p className="truncate text-[15px] font-bold text-slate-900">
+            {fromTitle} <span className="font-medium text-slate-300">→</span>{" "}
+            {toTitle}
           </p>
           <button
             type="button"
             onClick={onClose}
             aria-label="閉じる"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200"
           >
             ✕
           </button>
         </div>
-        <p className="mb-2 text-xs text-slate-500">
-          移動手段{readOnly ? "（過去の移動・実績／編集不可）" : ""}
-        </p>
-        <div className="grid grid-cols-4 gap-2">
-          {MOBILITY_SWITCHABLE_MODES.map((mode) => {
-            const meta = MOBILITY_MODE_META[mode];
-            const active = selectedMode === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                disabled={readOnly}
-                onClick={() => onSelect(legKey, mode)}
-                aria-pressed={active}
-                className={`rounded-xl border px-1.5 py-2 text-center transition ${
-                  active
-                    ? "border-indigo-500 bg-indigo-50"
-                    : "border-slate-200 bg-white hover:bg-slate-50"
-                } ${readOnly ? "cursor-default opacity-50" : ""}`}
-              >
-                <span
-                  className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: ROUTE_MODE_COLORS[mode] }}
-                />
-                <span className="block text-xs font-medium text-slate-700">
-                  {meta.label}
-                </span>
-                {meta.note && (
-                  <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">
-                    {meta.note}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+
+        {/* ✦おすすめ枠 (= 判断OS): 実 recommendedMode で点灯、 無ければ正直に順次提案 */}
+        <div className="mt-3 rounded-2xl border border-indigo-100 bg-gradient-to-br from-blue-50 to-violet-50 px-3.5 py-3">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-indigo-600">
+            <span aria-hidden>✦</span> おすすめ
+          </div>
+          {recommendedMode ? (
+            <div className="mt-2 flex items-center gap-2.5">
+              <span
+                aria-hidden
+                className="block h-11 w-11 bg-center bg-no-repeat"
+                style={chipBg(recommendedMode)}
+              />
+              <div className="text-sm font-bold text-slate-900">
+                {MOBILITY_MODE_META[recommendedMode].label}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-indigo-500/90">
+              予定に合わせた最適な移動を順次提案します
+            </p>
+          )}
         </div>
-        <p className="mt-3 text-[11px] text-slate-400">
-          現在表示：
-          {selectedMode ? MOBILITY_MODE_META[selectedMode].label : "未設定"}
-          {" ・ 推奨：未接続 ・ 実績：未接続"}
-        </p>
+
+        {/* 主な手段 */}
+        <div className="mt-4">
+          <div className="mb-2 text-[11px] font-semibold tracking-wider text-slate-400">
+            主な手段{readOnly ? "（過去の移動・実績／編集不可）" : ""}
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {MOBILITY_MAIN_MODES.map((m) => modeButton(m, false))}
+          </div>
+        </div>
+
+        {/* 制限あり (β) */}
+        <div className="mt-4">
+          <div className="mb-2 text-[11px] font-semibold tracking-wider text-slate-400">
+            制限あり
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {MOBILITY_LIMITED_MODES.map((m) => modeButton(m, true))}
+          </div>
+          <p className="mt-2 text-[10px] text-slate-400">
+            β＝経路は概念表示／地域により未対応の場合あり
+          </p>
+        </div>
+
+        {/* 状態 */}
+        <div className="mt-3 flex gap-4 border-t border-slate-100 pt-3 text-[11px] text-slate-400">
+          <span>
+            現在表示：
+            <b className="text-slate-700">
+              {selectedMode ? MOBILITY_MODE_META[selectedMode].label : "未設定"}
+            </b>
+          </span>
+          <span>
+            実績：<b className="text-slate-700">未記録</b>
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -1167,7 +1231,7 @@ function isSamePointCluster(coords: GmapsLatLng[]): boolean {
 //
 // 関心の分離 (= 巨大条件分岐にしない):
 //   resolveFocusLegIndex / resolveLegState / resolveTransportMode /
-//   getRouteStyleForLeg / shouldAnimateLeg / buildRouteLegLines / createRouteGlowAnimation
+//   getRouteStyleForLeg / shouldAnimateLeg / buildGlassyLegLines / createRouteAuraAnimation
 
 // 移動手段 (CEO: 電車/新幹線/車/タクシー/徒歩/バス/自転車/飛行機/不明)
 type RouteTransportMode =
@@ -1203,11 +1267,15 @@ interface RouteLegViewModel {
 // 1 区間の解決済み視覚スタイル
 interface RouteLegStyle {
   color: string;
-  weight: number;
-  opacity: number;
-  dashed: boolean;
-  casing: boolean;
-  zIndex: number;
+  weight: number; // ガラス本体の太さ(px)
+  bodyOpacity: number; // 半透明ガラス本体の不透明度
+  glowExtra: number; // 外側グローは body より +n px 太い
+  glowOpacity: number; // 外側グロー (current は呼吸の基準下限)
+  coreWeight: number; // 白い芯の太さ(px)
+  coreOpacity: number; // 白い芯の不透明度
+  dashed: boolean; // done = 丸点線
+  animate: boolean; // current のみ呼吸 + 到着ノード鼓動
+  zIndex: number; // core の z (body=z-1, glow=z-2)
 }
 
 // 移動手段別の色 (mode-aware)。 transport mode source が来たら即 light up する。
@@ -1215,25 +1283,27 @@ interface RouteLegStyle {
 const ROUTE_MODE_COLORS: Record<RouteTransportMode, string> = {
   walk: "#2e9e5b", // 徒歩 = グリーン
   car: "#1a73e8", // 車 = ブルー
-  taxi: "#f4b400", // タクシー = イエロー寄り
+  taxi: "#f59e0b", // タクシー = アンバー
   train: "#1565c0", // 電車 = 鉄道系ブルー
   shinkansen: "#0b3d91", // 新幹線 = 濃紺系ブルー
   bus: "#8e24aa", // バス = パープル
-  bicycle: "#00897b", // 自転車 = ティール
-  flight: "#00acc1", // 飛行機 = シアン/空色
+  bicycle: "#0d9488", // 自転車 = ティール
+  flight: "#0891b2", // 飛行機 = シアン/空色
   unknown: "#64748b", // 不明 = 中立スレート
 };
 
-// 移動手段カードのボタン順 (unknown はボタンにしない)
-const MOBILITY_SWITCHABLE_MODES: RouteTransportMode[] = [
+// 移動手段カードのグルーピング (判断OS化: 主な手段 / 制限あり β)。 unknown はボタンにしない。
+const MOBILITY_MAIN_MODES: RouteTransportMode[] = [
   "walk",
   "car",
   "taxi",
   "train",
-  "shinkansen",
   "bus",
+];
+const MOBILITY_LIMITED_MODES: RouteTransportMode[] = [
   "bicycle",
   "flight",
+  "shinkansen",
 ];
 // 各手段の表示メタ。 note = 正直な経路対応状況 (★嘘の経路を見せないための明示)
 const MOBILITY_MODE_META: Record<RouteTransportMode, { label: string; note?: string }> = {
@@ -1253,26 +1323,28 @@ function legKeyOf(fromAnchorId: string, toAnchorId: string): string {
   return `${fromAnchorId}__${toAnchorId}`;
 }
 
-const ROUTE_DONE_COLOR = "#94a3b8"; // done(2 個前以前) = 薄いグレー波線で de-emphasize
-const ROUTE_FOCUS_CASING_COLOR = "#ffffff"; // current 区間 casing = 白 (= どの mode 色でも浮く)
-const ROUTE_FOCUS_WEIGHT = 6; // current(今→次) 本線の太さ(px)
+const ROUTE_DONE_COLOR = "#94a3b8"; // done(2 個前以前) = 薄いグレーの丸点線で de-emphasize
+const ROUTE_CORE_COLOR = "#ffffff"; // ガラス導線の白い芯 (= ホログラム的な光の筋)
+const ROUTE_FOCUS_WEIGHT = 7; // current(今→次) ガラス本体の太さ(px) = 主役
 
-// glow animation (CEO「ゆっくり静かに呼吸」): current 区間の下に色 halo を敷き opacity を緩く脈動。
-//   流れる dash ではなく "静かに呼吸する光"。 まだ速いとの指摘 → 1 脈動 ≈ 10 秒・かなり低主張。
-//   = 「動いている線」ではなく「次に向かう区間が静かに呼吸している」程度。
-const ROUTE_GLOW_PERIOD_MS = 10000; // 1 脈動 ≈ 10 秒
-const ROUTE_GLOW_FRAME_MS = 80; // 更新間隔
-const ROUTE_GLOW_MIN_OPACITY = 0.1;
-const ROUTE_GLOW_MAX_OPACITY = 0.3;
-const ROUTE_GLOW_EXTRA_WEIGHT = 9; // halo は本線より +9px 太く
+// 近未来ガラス質ホログラム線 = 外側グロー(半透明) + 本体(半透明 mode 色) + 白い芯。
+//   "発光する導線"。 アニメは中央を走らせず、 current の glow が呼吸し到着ノードが鼓動する。
+// ① ライン発光呼吸 (current glow): 位置不動、 strokeOpacity だけ静かに増減。
+const ROUTE_BREATH_PERIOD_MS = 6000; // 1 呼吸 ≈ 6 秒 (ゆっくり)
+const ROUTE_BREATH_MIN_OPACITY = 0.1;
+const ROUTE_BREATH_MAX_OPACITY = 0.32;
+// ② ノード発光鼓動 (次の目的地): 光の輪が拡大しながらフェード (心拍)。 線上は走らせない。
+const ROUTE_PULSE_PERIOD_MS = 2600; // 1 鼓動 ≈ 2.6 秒
+const ROUTE_PULSE_MIN_SCALE = 5; // 輪の最小半径(px)
+const ROUTE_PULSE_MAX_SCALE = 30; // 輪の最大半径(px)
+const ROUTE_PULSE_MAX_OPACITY = 0.5; // 輪の最大不透明度 (拡大につれ 0 へフェード)
+const ROUTE_AURA_FRAME_MS = 60; // 呼吸 + 鼓動の更新間隔 (≈ 16fps)
 
-// z-index: done < ahead < previous < glow < casing < main。 current を常に前面へ。
-const ROUTE_Z_DONE = 1;
-const ROUTE_Z_AHEAD = 2;
-const ROUTE_Z_PREVIOUS = 3;
-const ROUTE_Z_GLOW = 4;
-const ROUTE_Z_FOCUS_CASING = 5;
-const ROUTE_Z_FOCUS_MAIN = 6;
+// z-index: done < ahead < previous < current。 各 leg は glow(z-2) < body(z-1) < core(z)。
+const ROUTE_Z_DONE = 10;
+const ROUTE_Z_AHEAD = 22; // glow 20 / body 21 / core 22
+const ROUTE_Z_PREVIOUS = 32; // glow 30 / body 31 / core 32
+const ROUTE_Z_FOCUS_MAIN = 62; // glow 60 / body 61 / core 62
 
 // GmapsPolylineOptions に zIndex/clickable + 太い symbol(icons) を足した local 拡張
 //   (googleMapsLoader.ts は frozen のため本 file 側で型を広げる)
@@ -1281,6 +1353,8 @@ interface RouteSymbol {
   strokeColor?: string;
   strokeOpacity?: number;
   strokeWeight?: number;
+  fillColor?: string; // 丸ドット塗り用 (Google Symbol は fill 対応、 frozen loader は触らず local 拡張)
+  fillOpacity?: number;
   scale?: number;
 }
 type RoutePolylineOptions = Omit<GmapsPolylineOptions, "icons"> & {
@@ -1382,51 +1456,67 @@ function buildRouteLegViewModels(
   return legs;
 }
 
-/** (state, mode) → 視覚スタイル。 done=波線で引く / previous・ahead=細い実線 / current=太い実線(主役)。 */
+/** (state, mode) → ガラス質スタイル。 done=丸点線 / previous・ahead=控えめガラス / current=発光する主役。 */
 function getRouteStyleForLeg(
   state: RouteLegState,
   mode: RouteTransportMode,
 ): RouteLegStyle {
   if (state === "done") {
-    // 2 個前以前 = 薄いグレー波線 (引く)
+    // 2 個前以前 = 薄いグレーの丸点線 (引く・glow/core 無し)
     return {
       color: ROUTE_DONE_COLOR,
-      weight: 2,
-      opacity: 0.3,
+      weight: 3,
+      bodyOpacity: 0.5,
+      glowExtra: 0,
+      glowOpacity: 0,
+      coreWeight: 0,
+      coreOpacity: 0,
       dashed: true,
-      casing: false,
+      animate: false,
       zIndex: ROUTE_Z_DONE,
     };
   }
   if (state === "previous") {
-    // 一個前 → 今 = 細い実線 (mode 色)
+    // 一個前 → 今 = 半透明ガラス + 白い芯 (静的)
     return {
       color: ROUTE_MODE_COLORS[mode],
-      weight: 3,
-      opacity: 0.8,
+      weight: 5,
+      bodyOpacity: 0.5,
+      glowExtra: 6,
+      glowOpacity: 0.14,
+      coreWeight: 2,
+      coreOpacity: 0.5,
       dashed: false,
-      casing: false,
+      animate: false,
       zIndex: ROUTE_Z_PREVIOUS,
     };
   }
   if (state === "ahead") {
-    // 次より先 = 細い実線 (控えめ)
+    // 次より先 = 透明度を上げた控えめガラス (引く)
     return {
       color: ROUTE_MODE_COLORS[mode],
-      weight: 3,
-      opacity: 0.55,
+      weight: 4.5,
+      bodyOpacity: 0.38,
+      glowExtra: 5,
+      glowOpacity: 0.1,
+      coreWeight: 1.5,
+      coreOpacity: 0.38,
       dashed: false,
-      casing: false,
+      animate: false,
       zIndex: ROUTE_Z_AHEAD,
     };
   }
-  // current = 今 → 次 = 太い実線 + 白 casing (+ glow は effect 側で重ねる) = 主役
+  // current = 今 → 次 = 太い半透明ガラス + 白い芯 + 呼吸する glow + 到着ノード鼓動 = 主役
   return {
     color: ROUTE_MODE_COLORS[mode],
     weight: ROUTE_FOCUS_WEIGHT,
-    opacity: 1,
+    bodyOpacity: 0.6,
+    glowExtra: 9,
+    glowOpacity: ROUTE_BREATH_MIN_OPACITY, // 呼吸で増減する初期値
+    coreWeight: 2.5,
+    coreOpacity: 0.72,
     dashed: false,
-    casing: true,
+    animate: true,
     zIndex: ROUTE_Z_FOCUS_MAIN,
   };
 }
@@ -1436,112 +1526,161 @@ function shouldAnimateLeg(state: RouteLegState): boolean {
   return state === "current";
 }
 
-/** 点線 icons (= past / future 区間用)。 weight/scale で太さ・長さを制御。 */
-function dashedRouteIcons(color: string, opacity: number, weight: number) {
+/** 丸点線 icons (= done / 未対応区間用)。 Google 純正 CIRCLE の塗りドット (Apple マップ風の上品な点線)。 */
+function dottedRouteIcons(maps: GmapsApi, color: string, opacity: number) {
   return [
     {
       icon: {
-        path: "M 0,-1 0,1",
-        strokeColor: color,
-        strokeOpacity: opacity,
-        strokeWeight: Math.max(2, weight),
-        scale: 3,
+        path: maps.SymbolPath.CIRCLE, // 純正の塗り円 (= 確実に filled・scale=半径px)
+        fillColor: color,
+        fillOpacity: opacity,
+        strokeOpacity: 0,
+        scale: 2.5,
       },
       offset: "0",
-      repeat: "16px",
+      repeat: "14px",
     },
   ];
 }
 
-/** 1 区間を style に従って描画 (next のみ白 casing、 本線は solid/dashed)。 */
-function buildRouteLegLines(
+/**
+ * 1 区間をガラス質ホログラムとして描画。
+ *   active = 外側グロー(半透明) + 本体(半透明 mode 色) + 白い芯 の 3 層 / done = 丸点線。
+ *   戻り値 glow は current の「呼吸」で animate するため参照を返す (done/静的は null)。
+ */
+function buildGlassyLegLines(
   maps: GmapsApi,
   map: GmapsMap,
   path: GmapsLatLng[],
   style: RouteLegStyle,
-): GmapsPolyline[] {
-  const lines: GmapsPolyline[] = [];
-  if (style.casing) {
-    lines.push(
-      new maps.Polyline({
-        map,
-        path,
-        strokeColor: ROUTE_FOCUS_CASING_COLOR,
-        strokeOpacity: 0.9,
-        strokeWeight: style.weight + 3,
-        zIndex: ROUTE_Z_FOCUS_CASING,
-        clickable: false,
-      } as RoutePolylineOptions),
-    );
-  }
-  lines.push(
-    style.dashed
-      ? new maps.Polyline({
+): { lines: GmapsPolyline[]; glow: GmapsPolyline | null } {
+  if (style.dashed) {
+    return {
+      lines: [
+        new maps.Polyline({
           map,
           path,
-          strokeOpacity: 0, // 本線は透明、 dash symbol だけ見せる
-          icons: dashedRouteIcons(style.color, style.opacity, style.weight),
-          zIndex: style.zIndex,
-          clickable: false,
-        } as RoutePolylineOptions)
-      : new maps.Polyline({
-          map,
-          path,
-          strokeColor: style.color,
-          strokeOpacity: style.opacity,
-          strokeWeight: style.weight,
+          strokeOpacity: 0, // 本体は透明、 丸ドットだけ見せる
+          icons: dottedRouteIcons(maps, style.color, style.bodyOpacity),
           zIndex: style.zIndex,
           clickable: false,
         } as RoutePolylineOptions),
-  );
-  return lines;
-}
-
-/**
- * current 区間に重ねる "ゆっくり光る" glow animation (CEO 指示)。
- *   - 本線の下に mode 色の太い halo polyline を敷き、 strokeOpacity を sin で緩く脈動させる
- *   - 流れる dash ではなく "呼吸する光" (= 約 2.6 秒で 1 脈動、 低主張、 主役を邪魔しない)
- *   - 戻り値の timerId は effect cleanup で clearInterval する
- */
-function createRouteGlowAnimation(
-  maps: GmapsApi,
-  map: GmapsMap,
-  path: GmapsLatLng[],
-  color: string,
-): { polyline: GmapsPolyline; timerId: number } {
+      ],
+      glow: null,
+    };
+  }
+  // 外側グロー (= 半透明の発光) → 本体 (= 半透明ガラス) → 白い芯 (= 光の筋) の順で重ねる
   const glow = new maps.Polyline({
     map,
     path,
-    strokeColor: color,
-    strokeOpacity: ROUTE_GLOW_MIN_OPACITY,
-    strokeWeight: ROUTE_FOCUS_WEIGHT + ROUTE_GLOW_EXTRA_WEIGHT,
-    zIndex: ROUTE_Z_GLOW,
+    strokeColor: style.color,
+    strokeOpacity: style.glowOpacity,
+    strokeWeight: style.weight + style.glowExtra,
+    zIndex: style.zIndex - 2,
     clickable: false,
   } as RoutePolylineOptions);
-  const mid = (ROUTE_GLOW_MIN_OPACITY + ROUTE_GLOW_MAX_OPACITY) / 2;
-  const amp = (ROUTE_GLOW_MAX_OPACITY - ROUTE_GLOW_MIN_OPACITY) / 2;
-  const stepRad = (2 * Math.PI) / (ROUTE_GLOW_PERIOD_MS / ROUTE_GLOW_FRAME_MS);
-  let phase = 0;
-  const timerId = window.setInterval(() => {
-    phase += stepRad;
-    (glow as GmapsPolylineWithSetOptions).setOptions({
-      strokeOpacity: mid + amp * Math.sin(phase),
-    });
-  }, ROUTE_GLOW_FRAME_MS);
-  return { polyline: glow, timerId };
+  const body = new maps.Polyline({
+    map,
+    path,
+    strokeColor: style.color,
+    strokeOpacity: style.bodyOpacity,
+    strokeWeight: style.weight,
+    zIndex: style.zIndex - 1,
+    clickable: false,
+  } as RoutePolylineOptions);
+  const core = new maps.Polyline({
+    map,
+    path,
+    strokeColor: ROUTE_CORE_COLOR,
+    strokeOpacity: style.coreOpacity,
+    strokeWeight: style.coreWeight,
+    zIndex: style.zIndex,
+    clickable: false,
+  } as RoutePolylineOptions);
+  return { lines: [glow, body, core], glow };
 }
 
-// ── Mobility icon layer v1 Step 1: leg 中点の「移動チップ」SVG ──
-//   小さな白丸 + mode 色の "↔"(移動) glyph。 unknown=中立スレート。 done(過去) は faint。
-//   Step 2 で mode 別 glyph (徒歩/電車/車…) + tap→カード→手段切替 を載せる土台。
+/**
+ * current(今→次) の近未来アニメーション (中央を走らせない)。
+ *   ① ライン発光呼吸: current の glow の strokeOpacity だけを sin で静かに増減 (位置不動)。
+ *   ② ノード発光鼓動: 次の目的地に光の輪を 2 つ半周ずらして置き、 拡大しながらフェード (心拍)。
+ *   戻り値 markers は cleanup で setMap(null)、 timerId は clearInterval する。
+ */
+function createRouteAuraAnimation(
+  maps: GmapsApi,
+  map: GmapsMap,
+  glow: GmapsPolyline,
+  nextPos: GmapsLatLng,
+  color: string,
+): { markers: GmapsMarker[]; timerId: number } {
+  const pulseRing = (scale: number, opacity: number): RouteRingIcon => ({
+    path: maps.SymbolPath.CIRCLE,
+    fillOpacity: 0, // 塗らない = 輪っか
+    strokeColor: color,
+    strokeWeight: 2,
+    strokeOpacity: opacity,
+    scale,
+  });
+  // 2 つの輪 (半周ずらし) で concentric な心拍に
+  const rings = [0, 0.5].map(
+    () =>
+      new maps.Marker({
+        map,
+        position: nextPos,
+        icon: pulseRing(ROUTE_PULSE_MIN_SCALE, 0),
+        clickable: false,
+      } as MobilityMarkerOptions),
+  );
+  const breathSpan = ROUTE_BREATH_MAX_OPACITY - ROUTE_BREATH_MIN_OPACITY;
+  let ms = 0;
+  const timerId = window.setInterval(() => {
+    ms += ROUTE_AURA_FRAME_MS;
+    // ① ライン発光呼吸 (位置不動・opacity のみ)
+    const breath =
+      ROUTE_BREATH_MIN_OPACITY +
+      breathSpan * (0.5 + 0.5 * Math.sin((2 * Math.PI * ms) / ROUTE_BREATH_PERIOD_MS));
+    (glow as GmapsPolylineWithSetOptions).setOptions({ strokeOpacity: breath });
+    // ② ノード発光鼓動 (拡大 + フェード)
+    rings.forEach((ring, i) => {
+      const phase = (ms / ROUTE_PULSE_PERIOD_MS + i * 0.5) % 1;
+      const scale = ROUTE_PULSE_MIN_SCALE + (ROUTE_PULSE_MAX_SCALE - ROUTE_PULSE_MIN_SCALE) * phase;
+      const op = ROUTE_PULSE_MAX_OPACITY * (1 - phase);
+      (ring as GmapsMarkerWithSetIcon).setIcon(pulseRing(scale, op));
+    });
+  }, ROUTE_AURA_FRAME_MS);
+  return { markers: rings, timerId };
+}
+
+// ── Mobility チップ (v2 polish: 塗り mode 色 + 艶 + 影 + リング + 状態階層) ──
+//   状態がアイコンに宿る: current=大+glow / future=通常 / past=薄灰 / selected=glow / plain。
 //   ★距離推定はしない (色は displayMode に従うだけ、 mode は実 data が来た時だけ確定)。
-const MOBILITY_ICON_SIZE = 26;
-const MOBILITY_ICON_HALF = 13;
+type MobilityChipState = "current" | "future" | "past" | "selected" | "plain";
+
+/** チップの px サイズ (= 地図上の状態階層: current を大きく、 past を小さく)。 */
+function mobilityChipPx(state: MobilityChipState): number {
+  if (state === "current") return 40;
+  if (state === "past") return 26;
+  if (state === "selected") return 34;
+  return 30;
+}
+
+/** leg state → チップ状態 (done=過去薄灰 / current=今→次は大+glow / 他=future)。 */
+function mapChipStateForLeg(legState: RouteLegState): MobilityChipState {
+  if (legState === "done") return "past";
+  if (legState === "current") return "current";
+  return "future";
+}
 // GmapsMarkerOptions に clickable を足した local 拡張 (googleMapsLoader.ts は frozen)
 type MobilityMarkerOptions = GmapsMarkerOptions & { clickable?: boolean };
 // GmapsMarker に setPosition を足した local 拡張 (= チップを描画後に線上へ寄せる)
 type GmapsMarkerWithSetPosition = GmapsMarker & {
   setPosition(latLng: GmapsLatLng): void;
+};
+// GmapsIcon に strokeOpacity を足した local 拡張 (= Google Symbol は対応、 frozen loader は触らず)
+type RouteRingIcon = GmapsIcon & { strokeOpacity?: number };
+// GmapsMarker に setIcon を足した local 拡張 (= ノード鼓動リングを毎フレーム更新、 frozen file 不触)
+type GmapsMarkerWithSetIcon = GmapsMarker & {
+  setIcon(icon: RouteRingIcon): void;
 };
 
 /**
@@ -1561,65 +1700,82 @@ function legChipPosition(path: GmapsLatLng[]): GmapsLatLng {
   return path[Math.floor(path.length / 2)]!;
 }
 
-function mobilityLegIconDataUri(mode: RouteTransportMode, faint: boolean): string {
-  const color = ROUTE_MODE_COLORS[mode];
-  const opacity = faint ? 0.45 : 1;
+function mobilityLegIconDataUri(
+  mode: RouteTransportMode,
+  state: MobilityChipState,
+): string {
+  const past = state === "past";
+  const color = past ? "#94a3b8" : ROUTE_MODE_COLORS[mode]; // 過去は薄灰 (mode 不問)
+  const opacity = past ? 0.55 : 1;
+  const ring = state === "current" || state === "selected";
+  const px = mobilityChipPx(state);
+  const glow = ring
+    ? `<circle cx="15" cy="15" r="13.4" fill="none" stroke="${color}" stroke-opacity="0.3" stroke-width="2.4"/>`
+    : "";
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${MOBILITY_ICON_SIZE}" height="${MOBILITY_ICON_SIZE}" viewBox="0 0 26 26">` +
-    `<g opacity="${opacity}">` +
-    `<circle cx="13" cy="13" r="10.5" fill="#ffffff" stroke="${color}" stroke-width="2"/>` +
-    mobilityGlyphMarkup(mode, color) +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 30 30">` +
+    `<defs><filter id="csh" x="-40%" y="-40%" width="180%" height="180%">` +
+    `<feDropShadow dx="0" dy="0.6" stdDeviation="0.9" flood-color="#0f172a" flood-opacity="0.28"/></filter></defs>` +
+    `<g opacity="${opacity}">${glow}` +
+    `<g filter="url(#csh)">` +
+    `<circle cx="15" cy="15" r="11.3" fill="${color}"/>` +
+    `<ellipse cx="15" cy="10.6" rx="9" ry="5.6" fill="#ffffff" opacity="0.14"/>` + // 艶
+    `</g>` +
+    mobilityGlyphLayer(mode) +
     `</g></svg>`;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-/** mode 別のチップ glyph (= 円内の線画ピクト)。 v1: 簡易 primitive、 後で polish 可。 */
-function mobilityGlyphMarkup(mode: RouteTransportMode, c: string): string {
-  const S = `stroke="${c}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"`;
-  const car =
-    `<path d="M5.6 16 L7.2 12.4 H16.4 L19.4 16" ${S}/>` +
-    `<path d="M5 16 H21" ${S}/>` +
-    `<circle cx="8.6" cy="16.6" r="1.4" fill="${c}"/><circle cx="16.6" cy="16.6" r="1.4" fill="${c}"/>`;
+/** カード用 iOS squircle チップ (= 塗り mode 色の角丸四角 + 白 Lucide glyph + mode 色の影)。 */
+function mobilitySquircleDataUri(mode: RouteTransportMode): string {
+  const color = ROUTE_MODE_COLORS[mode];
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">` +
+    `<defs><filter id="sq" x="-30%" y="-30%" width="160%" height="160%">` +
+    `<feDropShadow dx="0" dy="0.7" stdDeviation="0.8" flood-color="${color}" flood-opacity="0.35"/></filter></defs>` +
+    `<g filter="url(#sq)">` +
+    `<rect x="3" y="3" width="24" height="24" rx="8" fill="${color}"/>` +
+    `<rect x="3" y="3" width="24" height="11" rx="8" fill="#ffffff" opacity="0.12"/>` +
+    `</g>` +
+    mobilityGlyphLayer(mode) +
+    `</svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+/** Lucide glyph を白線で 30-box 中央に内接配置する layer (= 円/squircle 共通)。 */
+function mobilityGlyphLayer(mode: RouteTransportMode): string {
+  return (
+    `<g transform="translate(7.3,7.3) scale(0.64)" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">` +
+    mobilityGlyphLucide(mode) +
+    `</g>`
+  );
+}
+
+/**
+ * mode → Lucide アイコンの inner SVG (lucide-react v0.563.0, ISC)。
+ *   stroke/fill は親 mobilityGlyphLayer が指定 (白線)。 手描きをやめプロのアイコンセットを採用。
+ *   walk=footprints / car=car / taxi=car-taxi-front / train・shinkansen=train-front /
+ *   bus=bus-front / bicycle=bike / flight=plane / unknown=waypoints。
+ */
+function mobilityGlyphLucide(mode: RouteTransportMode): string {
   switch (mode) {
     case "walk":
-      return (
-        `<circle cx="13" cy="7.6" r="1.7" fill="${c}"/>` +
-        `<path d="M13 9.4 V13.8 M13 13.8 L10.6 18.4 M13 13.8 L15.4 18 M12.8 11 L10.2 12.4 M12.8 11.4 L15.6 12.8" ${S}/>`
-      );
+      return '<path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/>';
     case "car":
-      return car;
+      return '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>';
     case "taxi":
-      return car + `<rect x="11" y="9" width="4" height="2" rx="0.4" fill="${c}"/>`;
-    case "bus":
-      return (
-        `<rect x="6.6" y="8" width="12.8" height="9" rx="1.6" ${S}/>` +
-        `<path d="M6.6 13.4 H19.4" ${S}/>` +
-        `<circle cx="9.6" cy="18.2" r="1.2" fill="${c}"/><circle cx="16.4" cy="18.2" r="1.2" fill="${c}"/>`
-      );
+      return '<path d="M10 2h4"/><path d="m21 8-2 2-1.5-3.7A2 2 0 0 0 15.646 5H8.4a2 2 0 0 0-1.903 1.257L5 10 3 8"/><path d="M7 14h.01"/><path d="M17 14h.01"/><rect width="18" height="8" x="3" y="10" rx="2"/><path d="M5 18v2"/><path d="M19 18v2"/>';
     case "train":
-      return (
-        `<path d="M8 17 V11.2 A5 5 0 0 1 18 11.2 V17 Z" ${S}/>` +
-        `<path d="M9.6 12.6 H16.4" ${S}/>` +
-        `<circle cx="10.6" cy="15" r="0.9" fill="${c}"/><circle cx="15.4" cy="15" r="0.9" fill="${c}"/>`
-      );
     case "shinkansen":
-      return (
-        `<path d="M7.5 17 V13 Q13 5.5 18.5 13 V17 Z" ${S}/>` +
-        `<path d="M10 12.8 H16" ${S}/>` +
-        `<circle cx="13" cy="14.6" r="0.9" fill="${c}"/>`
-      );
+      return '<path d="M8 3.1V7a4 4 0 0 0 8 0V3.1"/><path d="m9 15-1-1"/><path d="m15 15 1-1"/><path d="M9 19c-2.8 0-5-2.2-5-5v-4a8 8 0 0 1 16 0v4c0 2.8-2.2 5-5 5Z"/><path d="m8 19-2 3"/><path d="m16 19 2 3"/>';
+    case "bus":
+      return '<path d="M4 6 2 7"/><path d="M10 6h4"/><path d="m22 7-2-1"/><rect width="16" height="16" x="4" y="3" rx="2"/><path d="M4 11h16"/><path d="M8 15h.01"/><path d="M16 15h.01"/><path d="M6 19v2"/><path d="M18 21v-2"/>';
     case "bicycle":
-      return (
-        `<circle cx="8.6" cy="16.4" r="3" ${S}/><circle cx="17.4" cy="16.4" r="3" ${S}/>` +
-        `<path d="M8.6 16.4 L13 11 L17.4 16.4 M11 11 H14.6 M13 11 V16.4" ${S}/>`
-      );
+      return '<circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/>';
     case "flight":
-      return (
-        `<path d="M6.5 19 L20 6.5 L13.6 19.2 L12 14.6 Z" fill="${c}"/>` +
-        `<path d="M12 14.6 L20 6.5" stroke="#ffffff" stroke-width="0.8"/>`
-      );
-    default: // unknown = 移動 (↔)
-      return `<path d="M7 13 H19 M9.5 10 L6.5 13 L9.5 16 M16.5 10 L19.5 13 L16.5 16" stroke="${c}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+      return '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>';
+    default: // unknown = waypoints
+      return '<path d="m10.586 5.414-5.172 5.172"/><path d="m18.586 13.414-5.172 5.172"/><path d="M6 12h12"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="4" cy="12" r="2"/>';
   }
 }
 
