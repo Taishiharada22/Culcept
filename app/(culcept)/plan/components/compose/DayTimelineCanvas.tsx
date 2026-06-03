@@ -93,6 +93,8 @@ const CLICK_THRESHOLD_PX = 4;
 export const TIMELINE_HEIGHT_PX = 440;
 
 const MIN_BLOCK_PX = 16;
+/** 2.5D: 重なる context band を段差で重ねる左 inset（px/段）。各 rail が distinct な x に並ぶ。 */
+const BAND_INSET_PX = 8;
 /** 2 行（タイトル＋時刻・各 10px leading-tight + py）が収まる最小高。これ未満は時刻行を省く。 */
 const TIME_LINE_MIN_PX = 30;
 
@@ -150,6 +152,9 @@ export function DayTimelineCanvas({
   // 重なり横分割（UI-5・表示専用。X のみ）。**container を除外**し前景だけ lanes に通す
   // ＝部分重なりの他クラスタは不変・child 同士は前景で lane 分割（CEO 補正 / GPT 補正）。
   const laneMap = layoutLanes(blocks.filter((b) => roleOf(b.id) !== "container"));
+  // 2.5D layered（GPT＋Claude）: 重なる context band 同士は段差(inset)で重ねる＝各 rail が distinct な
+  // x に並び、3重以上でも「どの帯がどこまでか」が一意。X(left)のみ＝drop 非干渉（lane と同種）。
+  const containerLaneMap = layoutLanes(blocks.filter((b) => roleOf(b.id) === "container"));
 
   // ── P4-4: placed block の移動 / 伸縮（Y のみ・drop 配置とは別経路） ──
   const ppm = pxPerMin(vp);
@@ -334,6 +339,8 @@ export function DayTimelineCanvas({
           if (roleOf(b.id) !== "container") return null;
           const top = minutesToY(b.startMin, vp);
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
+          // 2.5D: 重なる band を段差(inset)で重ねる＝各 rail が distinct な x（3重以上の範囲明確化）。
+          const cInset = (containerLaneMap.get(b.id)?.lane ?? 0) * BAND_INSET_PX;
           const isExisting = b.tone === "existing";
           const isActive = !isExisting && b.id === activeBlockId;
           // existing → onExistingSelect / draft → onBlockSelect（どちらも click で右フォーム編集）。
@@ -353,7 +360,7 @@ export function DayTimelineCanvas({
               className={
                 // 視認性（CEO 2026-06-03）: 細い全周border（上下=範囲）＋**太い左rail（縦の軸＝下まで続く文脈の帯）**
                 // ＋少し強い塗り。ただし前景 child（濃い塗り＋shadow＋ring）より弱く保つ。
-                "group absolute inset-x-0 overflow-hidden rounded-md border border-l-4 px-2 py-0.5 text-[10px] leading-tight transition " +
+                "group absolute inset-x-0 overflow-hidden rounded-md border border-l-4 px-2 py-0.5 text-[10px] leading-tight shadow-sm transition " +
                 (isExisting
                   ? "border-slate-200 border-l-slate-400 bg-slate-100/70 text-slate-600"
                   : // draft の文脈バンド＝主役色(violet)の淡い背景＋violet rail。
@@ -361,7 +368,7 @@ export function DayTimelineCanvas({
                 (isActive ? " ring-2 ring-indigo-400" : "") +
                 (onBandClick ? " cursor-pointer hover:brightness-95" : "")
               }
-              style={{ top, height }}
+              style={{ top, height, left: cInset }}
             >
               {/* 上端に title + time を小さく固定（child より目立たない・文脈が分かる程度） */}
               <span className="flex items-baseline gap-1 pr-10">
