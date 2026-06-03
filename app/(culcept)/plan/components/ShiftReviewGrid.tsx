@@ -40,6 +40,11 @@ import {
   isBlankRisk,
 } from "@/lib/plan/shift/shiftReviewClassification";
 import {
+  buildShiftReviewWeeks,
+  dayOfWeek,
+  daysInMonth,
+} from "@/lib/plan/shift/shiftReviewCalendar";
+import {
   type ShiftSaveState,
   SHIFT_SAVE_CONFIRM_MESSAGE,
 } from "@/lib/plan/shift/shiftSaveController";
@@ -82,27 +87,6 @@ interface ShiftReviewGridProps {
 type CellKind = "empty" | "work" | "off" | "candidate" | "unresolved";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-
-/** Sakamoto: 0=Sun..6=Sat（pure・Date 非依存） */
-function dayOfWeek(y: number, m: number, d: number): number {
-  const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-  const yy = m < 3 ? y - 1 : y;
-  return (
-    (yy +
-      Math.floor(yy / 4) -
-      Math.floor(yy / 100) +
-      Math.floor(yy / 400) +
-      t[m - 1] +
-      d) %
-    7
-  );
-}
-
-/** その月の日数（pure・Date 非依存・risk model の coverage 用） */
-function daysInMonth(y: number, m: number): number {
-  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
-  return [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
-}
 
 function cellInfo(
   rawCode: string,
@@ -187,18 +171,11 @@ export function ShiftReviewGrid({
   const cellIsBlankRisk = (c: ShiftReviewCell): boolean =>
     isBlankRisk(c, emptyDays, lowConfidenceThreshold);
 
-  // カレンダー週構築（先頭の曜日に空きを入れる）
-  const weeks = useMemo(() => {
-    const firstDow = dayOfWeek(year, month, 1);
-    const slots: (ShiftReviewCell | null)[] = [
-      ...Array<null>(firstDow).fill(null),
-      ...[...cells].sort((a, b) => a.day - b.day),
-    ];
-    while (slots.length % 7 !== 0) slots.push(null);
-    const out: (ShiftReviewCell | null)[][] = [];
-    for (let i = 0; i < slots.length; i += 7) out.push(slots.slice(i, i + 7));
-    return out;
-  }, [cells, year, month]);
+  // カレンダー週構築（各日を真の曜日スロットへ配置。欠け日も実カレンダー位置を保つ）
+  const weeks = useMemo(
+    () => buildShiftReviewWeeks(cells, year, month),
+    [cells, year, month]
+  );
 
   const knownCodes = Object.values(dictionary.codes).map((e) => e.rawCode);
   const selectedCell = cells.find((c) => c.day === selectedDay) ?? null;
@@ -281,10 +258,32 @@ export function ShiftReviewGrid({
         ))}
       </div>
 
-      {/* カレンダー grid */}
+      {/* カレンダー grid（各日を真の曜日スロットへ配置。欠け日も実カレンダー位置に表示） */}
       <div className="grid grid-cols-7 gap-1">
-        {weeks.flat().map((cell, idx) => {
-          if (!cell) return <div key={`pad-${idx}`} className="aspect-square" />;
+        {weeks.flat().map((slot, idx) => {
+          if (!slot) return <div key={`pad-${idx}`} className="aspect-square" />;
+          const { day, cell } = slot;
+          if (!cell) {
+            // 欠け日（抽出セルなし）= 実カレンダー位置に日番号だけ薄く表示。
+            // 原稿照合で「読み取りの穴」がその日の位置に一目で浮く（連番詰めズレを根絶）。
+            return (
+              <div
+                key={`gap-${day}`}
+                data-testid={`shift-review-gap-${day}`}
+                className="relative flex aspect-square flex-col items-center justify-center rounded-xl border border-dashed border-slate-200/60 bg-white/10"
+              >
+                <span className="absolute left-1.5 top-1 text-[9px] font-medium text-gray-300">
+                  {day}
+                </span>
+                <span
+                  className="text-[13px] leading-none text-slate-300"
+                  aria-hidden="true"
+                >
+                  ·
+                </span>
+              </div>
+            );
+          }
           const { kind } = cellInfo(cell.rawCode, dictionary);
           const risk = cellIsBlankRisk(cell);
           const selected = selectedDay === cell.day;
