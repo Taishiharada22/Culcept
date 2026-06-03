@@ -200,11 +200,12 @@ describe("§7 ②-3 既存予定のインライン編集", () => {
       />,
     );
 
-  it("既存編集中 → amber バー(existing) + キャンセル、＋新しい予定は出さない", () => {
+  it("既存編集中 → amber バー(existing) + 完了 + キャンセル、＋新しい予定は出さない", () => {
     const html = renderEditing();
     expect(html).toContain('data-testid="compose-editing-bar"');
     expect(html).toContain('data-mode="existing"');
     expect(html).toContain("既存の予定");
+    expect(html).toContain('data-testid="compose-complete-edit"'); // 完了（編集保存）
     expect(html).toContain('data-testid="compose-cancel-edit"');
     expect(html).not.toContain('data-testid="compose-new-draft"');
   });

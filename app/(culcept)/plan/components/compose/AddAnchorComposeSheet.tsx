@@ -289,14 +289,25 @@ export function AddAnchorComposeSheet({
                         {activeDraft.core.title || "（無題）"}」を編集中
                       </span>
                       {isEditingExisting ? (
-                        <button
-                          type="button"
-                          data-testid="compose-cancel-edit"
-                          onClick={() => onCancelEdit?.(activeDraft.id)}
-                          className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-amber-700 shadow-sm transition hover:bg-amber-100"
-                        >
-                          キャンセル
-                        </button>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {/* 完了＝この編集を保存（PATCH・bottom 完了 と同経路）。キャンセルと対で出す。 */}
+                          <button
+                            type="button"
+                            data-testid="compose-complete-edit"
+                            onClick={() => onComplete?.()}
+                            className="rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-amber-600"
+                          >
+                            完了
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="compose-cancel-edit"
+                            onClick={() => onCancelEdit?.(activeDraft.id)}
+                            className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-amber-700 shadow-sm transition hover:bg-amber-100"
+                          >
+                            キャンセル
+                          </button>
+                        </div>
                       ) : (
                         <button
                           type="button"
