@@ -63,6 +63,7 @@ function render(opts: {
   isOpen: boolean;
   drafts?: ComposeDraftState[];
   active?: ComposeDraftState;
+  submitting?: boolean;
 }): string {
   return renderToStaticMarkup(
     <AddAnchorComposeSheet
@@ -72,9 +73,25 @@ function render(opts: {
       existingBlocks={EXISTING}
       drafts={opts.drafts ?? [PLACED, opts.active ?? ACTIVE_PLACEABLE]}
       activeDraft={opts.active ?? ACTIVE_PLACEABLE}
+      submitting={opts.submitting}
     />,
   );
 }
+
+describe("完了ボタン double-submit 防止（submitting）", () => {
+  it("submitting=true → 完了ボタン disabled・『保存中…』表示", () => {
+    const html = render({ isOpen: true, submitting: true });
+    expect(html).toContain('data-testid="compose-complete-btn"');
+    expect(html).toContain("保存中…");
+    expect(html).toContain("disabled"); // GlassButton disabled
+  });
+
+  it("submitting なし → 『完了』表示（disabled でない）", () => {
+    const html = render({ isOpen: true });
+    expect(html).toContain("完了");
+    expect(html).not.toContain("保存中…");
+  });
+});
 
 describe("§1 isOpen=false", () => {
   it("compose-sheet を render しない", () => {

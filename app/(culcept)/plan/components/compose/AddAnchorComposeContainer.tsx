@@ -33,13 +33,9 @@ import {
   resolvePlacement,
   visualBlock,
 } from "@/lib/plan/compose/composeTimeResolver";
-import { planComposeSave } from "@/lib/plan/compose/composeToAnchorInput";
+import { runComposeSave } from "@/lib/plan/compose/composeSaveRunner";
 import type { LocationUsage } from "@/lib/plan/compose/locationHistory";
-import {
-  type ComposeEditable,
-  buildEditPatch,
-  splitDraftsForSave,
-} from "@/lib/plan/compose/composeEdit";
+import { type ComposeEditable } from "@/lib/plan/compose/composeEdit";
 import { createAnchorBundle, updateAnchor } from "@/lib/plan/anchor-fetch";
 import {
   DEFAULT_WINDOW_START_MIN,
@@ -359,44 +355,29 @@ export function AddAnchorComposeContainer({
     message?: string;
   }>({ status: "idle" });
 
+  // double-submit ガード ①同期 ref（最重要）。state は非同期更新のため同一tick の二度押しは
+  // ref でしか止まらない（CEO×GPT 2026-06-03・2重登録 fix）。
+  const submitInFlightRef = useRef(false);
+
   async function handleComplete() {
-    // ②-3: 編集 draft(editingAnchorId 有) と 新規 draft を分離（保存契約安全の核）。
-    const { edits, news } = splitDraftsForSave(state.drafts);
-    // **新規分だけ** planComposeSave（編集 draft を絶対に POST しない＝重複作成・契約破壊防止）。
-    const plan = planComposeSave(news, dateISO);
-    if (edits.length === 0 && plan.kind === "nothing_to_save") {
-      setSaveState({
-        status: "error",
-        message:
-          plan.excluded.length > 0
-            ? "保存できる予定がありません（日跨ぎ等は除外されます）"
-            : "左のタイムラインに予定を配置してください",
-      });
-      return;
-    }
+    // ②state guard（防御）＋②-3 編集/新規分離・PATCH/POST は runComposeSave に集約。
+    if (saveState.status === "saving") return;
     setSaveState({ status: "saving" });
-    // ② 編集分は PATCH（updateAnchor・既存経路再利用。新規契約なし）。
-    for (const ed of edits) {
-      if (!ed.editingAnchorId) continue;
-      const r = await updateAnchor(ed.editingAnchorId, buildEditPatch(ed));
-      if (!r.ok) {
-        setSaveState({
-          status: "error",
-          message: r.error ?? "予定の更新に失敗しました",
-        });
-        return;
-      }
-    }
-    // 新規分は POST（従来）。
-    if (plan.kind === "save") {
-      const r = await createAnchorBundle({
-        source: { sourceType: "manual" },
-        anchors: plan.inputs,
-      });
-      if (!r.ok) {
-        setSaveState({ status: "error", message: r.error });
-        return;
-      }
+    const result = await runComposeSave(
+      state.drafts,
+      dateISO,
+      { updateAnchor, createAnchorBundle },
+      {
+        isInFlight: () => submitInFlightRef.current,
+        setInFlight: (v) => {
+          submitInFlightRef.current = v;
+        },
+      },
+    );
+    if (result.status === "busy") return; // in-flight 中の二重呼び出しは無視（1回目が所有）
+    if (result.status === "nothing" || result.status === "error") {
+      setSaveState({ status: "error", message: result.message });
+      return;
     }
     setSaveState({ status: "idle" });
     onSaved?.();
@@ -434,6 +415,7 @@ export function AddAnchorComposeContainer({
       onCoreChange={handleCoreChange}
       onTimeChange={handleTimeChange}
       onComplete={() => void handleComplete()}
+      submitting={saveState.status === "saving"}
       notice={notice}
       ghost={ghost}
       timelineRef={timelineRef}

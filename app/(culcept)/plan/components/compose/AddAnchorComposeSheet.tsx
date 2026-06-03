@@ -57,6 +57,8 @@ export interface AddAnchorComposeSheetProps {
   onCoreChange?: (patch: Partial<ComposeDraftCore>) => void;
   onTimeChange?: (time: ComposeTimeConstraint) => void;
   onComplete?: () => void;
+  /** 保存中＝完了ボタン無効化（double-submit 防止の3点目・UI）。 */
+  submitting?: boolean;
 
   // ── A-3 追加（optional・後方互換） ──
   ghost?: TimelineGhost | null;
@@ -105,6 +107,7 @@ export function AddAnchorComposeSheet({
   onCoreChange,
   onTimeChange,
   onComplete,
+  submitting,
   ghost = null,
   timelineRef,
   renderCard,
@@ -357,15 +360,17 @@ export function AddAnchorComposeSheet({
               {notice}
             </div>
 
-            {/* 完了（右下・full-width・purple で強く） */}
+            {/* 完了（右下・full-width・purple で強く）。double-submit 防止: 保存中は disabled。 */}
             <div className="shrink-0 pt-3" data-testid="compose-complete-btn">
               <GlassButton
                 variant="primary"
                 fullWidth
+                type="button"
+                disabled={submitting}
                 onClick={() => onComplete?.()}
                 className="rounded-2xl bg-indigo-600 shadow-md shadow-indigo-500/25 hover:bg-indigo-700"
               >
-                完了
+                {submitting ? "保存中…" : "完了"}
               </GlassButton>
             </div>
           </div>
