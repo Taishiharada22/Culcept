@@ -91,7 +91,7 @@
   - ✅ `ExternalAnchor` / `anchorsForDay` = /plan の anchor 正本（`lib/plan/external-anchor.ts` / `tabs/_helpers.ts`。frosty 使用中）。
   - ⚠️ `deriveTitlePlaceGroups`（commit `873d2ca1`・Step4「よく行く」ヘルパー）= **実在するが main 未マージ**（別 branch）。
   - ⚠️ containment band（案B / `ContextBand`）= **main では plan-map 用を検出できず**（nifty branch か名称差の可能性・要 nifty 側確認）。
-  - → **合流の本質 = alter-morning `TransportSegment` / frosty localStorage / nifty Anchor・Step4・band を共有正本型へ一本化**。正本の置き場所（`lib/shared` か `lib/alter-morning` か）含め CEO 判断。nifty の「✅実装済(main)」は **TransportSegment は正・Step4/band は要補正**。
+  - → **合流の本質 = 散在する transport 表現を共有正本型へ一本化**（★詳細精査は **§11**）。**/plan の正本層は `lib/plan/transport`（11ファイル・main・alter-morning とは別で疎結合＝import 1点）**。frosty は未使用で独自実装＝衝突あり。**表示哲学／正本置き場所／MapTab アーキ の3点は CEO 決定**（§11.4）。nifty の「✅実装済(main)」は **TransportSegment は正・Step4/band は要補正**。
 - **なぜ別**: 2 worktree 間の設計合流＋正本型確定は片側だけでは決められない。**共有正本 / DB / Decision Engine 接続は合流後の別 Phase**。
 - **着手のヒント**: nifty 側の現状を読み語彙の食い違いを洗い出してから正本型を1本化。frosty 側は §4 の `selected↔actual` ガードレールを必ず引き継ぐ。
 - **関連の未捕捉機能（CEO 発案・nifty 側 deferred）**: 「**よく行く / よく使う場所**」候補提示 ＝ 予定追加時に**右端の SVG をクリック → その予定に応じた候補地**を出す UX。frequency ベースの提案で **S2-B（頻度学習）/ S3 と接続しうる**。本セッションでは未着手（nifty スコープ・HOLD）。
@@ -262,3 +262,46 @@
 - **嘘をつかない**。確認していない事は「未確認」と書く。
 - **偽の数字・偽の根拠・距離からの mode 推定・人格診断**をしない（§4）。**observed > inferred**。
 - リサーチや成果は**揮発（/tmp）に置かず commit で永続化**する（出典つき）。
+
+---
+
+## 11. 合流衝突の精査結果（main・両 branch を実証・2026-06-04・★実装前必読）
+> §3 nifty 合流の**詳細**。frosty が main / frosty branch / nifty branch を `git show`/`git grep` で実証。
+> **結論: 合流は「小さな reconcile」でなく相応の統合プロジェクト。3 つの CEO 決定が要る。**
+
+### 11.1 実証した現物（3 つの transport 表現が並存）
+1. **`lib/plan/transport/`（main・11 ファイル）= 成熟した正本層「Mobility Truth Layer」(Phase 3-L)**
+   - `transportTypes.ts`（390行）/ `movementDisplayContract.ts`(307) / `Formatter`(272) / `cascadeOrchestrator.ts`(342) / `heuristicDistanceProvider.ts`(215) / `manualUserProvider.ts` / `unresolvedProvider.ts` / `mapTabCoordsBridge.ts`(115) ほか。
+   - **frosty と同一哲学**: optimize/recommend しない・**距離→mode 推定しない**(mode 常に unknown/low confidence)・confidence ベース・**provider 非依存**。
+   - provider スロット: `google_routes`=**未接続(L-3+)**、`manual_user`=**shell のみ(L-2)**、現行 source=`heuristic_distance`(alter-morning heuristic 再利用)。
+   - 表示契約は**意図的に最小**: `"移動 約N分"` のみ。**mode 表示は範囲外・raw 数値出さない・比較なし**(recommendation/mode/distance を NG 文言と明記)。
+2. **frosty branch の MapTab.tsx = 独自実装（lib/plan/transport 未使用）**
+   - 今セッションの `selectedMode`(localStorage) ≒ 正本層の `manual_user`、Google Directions duration ≒ `google_routes` を**スロットに挿さず MapTab 内に独自実装**。
+   - frosty の**所要時間比較(徒歩/車/電車 の raw 複数mode)は、正本契約が"範囲外"とした表現**そのもの = **設計哲学の食い違い**(CEO の今回指示 vs 既存 Truth Layer の保守契約)。
+3. **nifty branch = 薄い MapTab ＋ `lib/plan/transport` ＋ hooks**（`_useMapTabMovementDisplay`/`_useMapTabFeasibilityDisplay`/`mapTabCoordsBridge`、timeline 系で使用）。
+   - 加えて nifty branch のみ: containment band(`lib/plan/timeline-containment.ts` + `DayTimelineCanvas.tsx`、commit `418ab6db`/`a614a62d`/`3da88636`/`7fa063e9`/`3825e786`)。`deriveTitlePlaceGroups`(Step4・`873d2ca1`)。
+
+### 11.2 衝突の核心（3 層）
+- **(a) コード重複**: frosty Directions+selectedMode が、正本層の未接続スロットを独自に再実装。
+- **(b) 設計哲学の対立**: frosty「raw 複数mode 比較」 vs 正本契約「移動約N分・mode/raw/比較なし」。
+- **(c) アーキ乖離**: `frosty ↔ nifty` の **MapTab.tsx 差分 = +30 / −1462 行**(共通祖先 `9afdcaf9`)。frosty=モノリス、nifty=薄い＋hooks。git merge は大規模 conflict。
+
+### 11.3 reconcile の骨格（推奨）
+- **データ層 = `lib/plan/transport`(正本)**: frosty の Directions→`google_routes` provider、selectedMode→`manual_user` provider として**スロットに挿す**。
+- **UI 層 = frosty の資産**(ガラス線・Lucide・MobilityLegCard)を正本層の出力消費形に。
+- **MapTab アーキ = nifty の薄い＋hooks を基盤に frosty UI を載せ替え**(frosty モノリスを正本層へ分解)。
+- **やり方 = surgical 段階移行**(共有型/接続を定義 → adapter で寄せる → 検証。big-bang 置換は禁物)。
+
+### 11.4 ★CEO 決定が必要（これが決まらないと合流設計が一意にならない）
+1. **表示哲学**: frosty の raw 複数mode比較を**残す**か、正本契約の「移動約N分」保守形に**寄せる**か。
+2. **正本の置き場所**: `lib/plan/transport`(既存実体) か、設計契約 §7 の `lib/shared/mobility.ts`(未実装ターゲット) か。
+3. **MapTab アーキ**: frosty モノリス基盤 か、nifty 薄い＋hooks 基盤 か。
+
+### 11.5 再検証コマンド（次セッションが裏取り用）
+```
+git show main:lib/plan/transport/transportTypes.ts            # 正本型・哲学
+git show main:lib/plan/transport/movementDisplayContract.ts   # 保守表示契約
+git grep -l "alter-morning/transport" main -- lib/plan        # 結合は1点(疎)
+git diff --stat claude/frosty-hellman-b3305e claude/nifty-turing-128e67 -- 'app/(culcept)/plan/tabs/MapTab.tsx'  # ~1492行乖離
+git show claude/nifty-turing-128e67:lib/plan/timeline-containment.ts  # band(案B)
+```
