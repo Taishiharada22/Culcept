@@ -27,6 +27,10 @@ import {
   snapMinutes,
   type TimelineViewport,
 } from "@/lib/plan/timeline-geometry";
+import {
+  classifyTimelineRoles,
+  type TimelineBlockRole,
+} from "@/lib/plan/timeline-containment";
 
 /** 既存ブロックのパステル配色キー（表示専用・UI-5。draft/placed は violet 固定で別扱い）。 */
 export type ExistingColorKey = "sky" | "amber" | "emerald" | "teal";
@@ -71,7 +75,7 @@ export interface DayTimelineCanvasProps {
   activeBlockId?: string;
   /** ②-3: active block が「既存予定のインライン編集」なら true（amber + 脈動の編集アクセント）。 */
   activeIsEditing?: boolean;
-  /** ②-2: 既存(保存済)予定 block の**クリック → 編集**（PlanClient が EditAnchorModal を開く）。 */
+  /** ②-3: 既存(保存済)予定 block の**クリック → ボトムシート内インライン編集**（container band 含む）。 */
   onExistingSelect?: (id: string) => void;
   /**
    * UI-polish: 現在時刻（分・0–1440）。**対象日 = 今日のときのみ** container が渡す。
@@ -140,8 +144,12 @@ export function DayTimelineCanvas({
     typeof nowMin === "number" && nowMin >= windowStartMin && nowMin <= windowEndMin;
   const noBlocks = blocks.length === 0;
 
-  // 重なりブロックの横分割（UI-5・表示専用。X のみ＝drop 計算に非干渉）。
-  const laneMap = layoutLanes(blocks);
+  // ③ containment: 役割判定（context 文脈予定のみ background band 化）。pure・drop 非干渉。
+  const roles = classifyTimelineRoles(blocks);
+  const roleOf = (id: string): TimelineBlockRole => roles.get(id) ?? "normal";
+  // 重なり横分割（UI-5・表示専用。X のみ）。**container を除外**し前景だけ lanes に通す
+  // ＝部分重なりの他クラスタは不変・child 同士は前景で lane 分割（CEO 補正 / GPT 補正）。
+  const laneMap = layoutLanes(blocks.filter((b) => roleOf(b.id) !== "container"));
 
   // ── P4-4: placed block の移動 / 伸縮（Y のみ・drop 配置とは別経路） ──
   const ppm = pxPerMin(vp);
@@ -320,8 +328,39 @@ export function DayTimelineCanvas({
           </div>
         )}
 
-        {/* 予定ブロック */}
+        {/* ③ 背景バンド（container=文脈予定・全幅・最初に描画＝前景の背面・read-only 表示＋click編集） */}
         {blocks.map((b) => {
+          if (roleOf(b.id) !== "container") return null;
+          const top = minutesToY(b.startMin, vp);
+          const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
+          const bandClickable = !!onExistingSelect;
+          return (
+            <div
+              key={`band-${b.id}`}
+              data-testid={`compose-block-${b.id}`}
+              data-role="container"
+              data-tone={b.tone}
+              onClick={bandClickable ? () => onExistingSelect?.(b.id) : undefined}
+              className={
+                "absolute inset-x-0 overflow-hidden rounded-md border-l-2 border-slate-300 bg-slate-100/50 px-2 py-0.5 text-[10px] leading-tight text-slate-500" +
+                (bandClickable ? " cursor-pointer transition hover:bg-slate-100/80" : "")
+              }
+              style={{ top, height }}
+            >
+              {/* 上端に title + time を小さく固定（child より目立たない・文脈が分かる程度） */}
+              <span className="flex items-baseline gap-1 pr-1">
+                <span className="truncate font-medium">{b.label}</span>
+                <span className="shrink-0 tabular-nums opacity-70">
+                  {formatMinutes(b.startMin)}–{formatMinutes(b.endMin)}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+
+        {/* 予定ブロック（前景＝contained + normal。container は band で別描画＝skip） */}
+        {blocks.map((b) => {
+          if (roleOf(b.id) === "container") return null;
           const top = minutesToY(b.startMin, vp);
           const height = Math.max(minutesToY(b.endMin, vp) - top, MIN_BLOCK_PX);
           const isExisting = b.tone === "existing";
@@ -352,6 +391,7 @@ export function DayTimelineCanvas({
             <div
               key={b.id}
               data-testid={`compose-block-${b.id}`}
+              data-role={roleOf(b.id) === "contained" ? "contained" : undefined}
               data-tone={b.tone}
               data-lanes={slot.lanes}
               data-active={isActive ? "true" : undefined}
