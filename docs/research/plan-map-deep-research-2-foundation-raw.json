@@ -1,0 +1,359 @@
+{
+  "summary": "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report.",
+  "agentCount": 105,
+  "logs": [
+    "Q: 【リサーチ目的（第2回・焦点を絞る）】Aneurasync /plan「Map タブ」の個人化戦略について、(A) 既存方針「個人レパートリー学習＋選択尊重＋選…",
+    "Decomposed into 5 angles: primary / stable identity for recurring events, academic / personalization keying granularity, practitioner / localStorage schema versioning & sync, contrarian / over-personalization & explainability-first, feasibility / Japan transit + walking + Google Maps capability",
+    "practitioner / localStorage schema versioning & sync: 6 results",
+    "contrarian / over-personalization & explainability-first: 6 results",
+    "academic / personalization keying granularity: 6 results",
+    "academic / personalization keying granularity: 3 novel (3 filtered)",
+    "primary / stable identity for recurring events: 6 results",
+    "primary / stable identity for recurring events: 4 novel (2 filtered)",
+    "feasibility / Japan transit + walking + Google Maps capability: 6 results",
+    "feasibility / Japan transit + walking + Google Maps capability: 4 novel (2 filtered)",
+    "Fetched 23 sources → 105 claims → verifying top 25",
+    "\"A specific instance of a recurring event is unique…\": 3-0 ✓",
+    "\"The instance identifier (RECURRENCE-ID) is stable …\": 0-3 ✗",
+    "\"originalStartTime is defined as the scheduled time…\": 3-0 ✓",
+    "\"In the Google Calendar API, originalStartTime uniq…\": 3-0 ✓",
+    "\"Travel mode choice is strongly habitual: establish…\": 3-0 ✓",
+    "\"redux-persist tracks a numeric schema version on t…\": 2-1 ✓",
+    "\"Migrations are defined as an object keyed by integ…\": 3-0 ✓",
+    "\"Relying on passive behavioral feedback (clicks/lik…\": 2-1 ✓",
+    "\"Standard personalized recommenders that fit user f…\": 0-3 ✗",
+    "\"The paper proposes user controls at two granularit…\": 3-0 ✓",
+    "\"User feedback to recommenders is better modeled as…\": 2-1 ✓",
+    "\"Explicit feedback imposes a higher user cost than …\": 0-3 ✗",
+    "\"Recommendation systems that rely on static user-it…\": 3-0 ✓",
+    "\"The proposed model uses an adaptive (non-linear) f…\": 2-1 ✓",
+    "\"Standard sequential recommenders predict the next …\": 2-1 ✓",
+    "\"Scrutability — letting users tell the system it is…\": 3-0 ✓",
+    "\"Users frequently decline to use recommendation con…\": 2-1 ✓",
+    "\"Google Maps 'Ask Maps' personalizes results based …\": 1-2 ✗",
+    "\"Empirically, explanations should be optimized for …\": 1-2 ✗",
+    "\"Ask Maps explains route options visually and surfa…\": 3-0 ✓",
+    "\"ODPT provides Japanese public transport open data …\": 3-0 ✓",
+    "\"GTFS-format data is available through ODPT, but it…\": 0-3 ✗",
+    "\"ODPT is Tokyo-centric in origin and coverage: it l…\": 1-2 ✗",
+    "\"Client-side schema upgrade/migration code must exp…\": 2-1 ✓",
+    "\"Writes to client-side storage can fail for multipl…\": 3-0 ✓",
+    "Verify done: 25 claims → 18 confirmed, 7 killed"
+  ],
+  "result": {
+    "question": "【リサーチ目的（第2回・焦点を絞る）】Aneurasync /plan「Map タブ」の個人化戦略について、(A) 既存方針「個人レパートリー学習＋選択尊重＋選択理由の言語化」が本当に最善の賭けかを批判的に検証し、より良い決定・方針があれば提示する、(B) 直近で実装する土台 S1（移動手段選択の永続化）のデータ設計を間違えないための具体知見を得る。前回リサーチ（docs/plan-map-second-self-strategy.md）は受理済みで、その上積み。\n\n【方針（採用済・検証対象）】旧来地図は最短前提で毎回再計算するが人は最短を選ばない（Lima 2016）。よって「観測して個人レパートリーを学習し、選択を尊重し（MaxEnt 的・ハードロック禁止）、選択理由まで Alter が言語化する地図」を作る。これが最善か、あるいはより強い方針があるかを、文献・競合・第一原理で検証してほしい。\n\n【最重要の調査タスク：土台のキー設計】S1 は「ユーザーが leg ごとに選んだ移動手段を localStorage に保存し、リロード後・翌日以降も正しく復元する」もの。鍵は \"leg（予定間の移動区間）の安定した識別子\" 設計。\n1. 繰り返し予定／旅程区間の「安定キー（stable identity）」設計のベストプラクティス: カレンダー(iCal RECURRENCE-ID/UID)・旅程アプリ・タスク/イベント同期で、ID が不安定・再生成される状況でも同一エンティティを再同定する手法（natural key vs surrogate key、composite key、fuzzy entity resolution、re-fetch をまたぐ安定参照）。\n2. 「ユーザーの文脈別の選択」を将来学習に乗せるとき、選択を何で keying すべきか: 個別 leg 単位 か / OD ペア（出発地→目的地の種別）単位 か / 場所・時間帯・曜日の文脈単位 か。パーソナライゼーション/recommender 設計で「繰り返す文脈での選好」をどの粒度で保存すると後段の学習が効くか（cold-start・sparsity・一般化の観点）。S1 の保存粒度が将来 S2-S6 を阻害しない設計指針。\n3. クライアントサイド永続化（localStorage）で日付スコープ・バージョニング・fail-open・破損耐性・容量/GC を扱うベストプラクティス。将来サーバ同期へ無痛で拡張するためのスキーマ設計（versioned key、migration、last-write-wins/CRDT 等の入口）。\n\n【方針検証（批判的・敵対的）】\n4. 「選択尊重・継続学習・理由言語化」方針への反証・代替: 個人化ナビ/レコメンドで \"過剰個人化/フィルターバブル/学習の硬直化\" の失敗例、ユーザーが個人化を嫌う場面、明示フィードバックの負担、行動ログだけで十分か理由まで要るかの議論。より良い設計原則（例: 説明可能性ファースト、controllability、forgetting/decay）。\n\n【開放論点の深掘り（実装可能性の境界）】\n5. 日本の交通・歩行データ実現性: GTFS / GTFS-RT の日本での整備状況（JR・私鉄・地下鉄・バス）、駅構内 step-free/バリアフリーデータ、Google Maps Platform の日本での transit/walking カバレッジと制約、NAVITIME/駅すぱあと/ekispert 等の存在（vanilla Google Maps + 新規依存なし・課金なしの制約下で何が出来て何が外部依存になるか）。加えて Google Maps の \"Ask Maps\"/Immersive View が 2025-2026 時点で実際に何を説明・提案しているか（差別化の確認）。\n\n【成果物】\n- 既存方針を「支持/修正/置換」のいずれかで結論（より良い決定があれば具体提案）。\n- S1 のキー設計への具体推奨（leg 安定キーの推奨方式・保存粒度・versioned schema）。各々出典つき。\n- 主張には必ず出典（URL/論文）。一次統計でないもの（フォーラム等）は定性シグナルと明記。",
+    "summary": "既存方針「個人レパートリー学習＋選択尊重（MaxEnt的・ハードロック禁止）＋選択理由の言語化」は文献・第一原理から支持（修正付き）の結論。移動手段選択が強く習慣化し（Lima的観測の裏付け）、習慣不連続仮説により引っ越し等のライフ遷移でのみ鋭く変化する（claim 3）ため、安定した選好を学習しつつ遷移で再学習する設計が正しい。ただし重要な修正として、(a)「理由言語化」を学習の前提にせず、ユーザーは制御機能を「手間/不可逆/プライバシー」を理由に高頻度で使わない（claim 13）ため低負担・可逆・信頼保全を優先し、(b)「説明可能性／scrutability（訂正可能性）」を一級設計目標に据える（claim 12）べき。S1のキー設計は、繰り返し予定の安定識別子として iCal の UID+RECURRENCE-ID（値=元のDTSTART、SEQUENCEで版管理／claim 0）および Google Calendar の originalStartTime（移動・再スケジュールされても不変の自然キー／claim 1,2）を採用し、実際の開始時刻でキーを作らない。保存粒度は個別 leg だけでなく「item/leg より上の抽象（intent・OD・文脈）」でも keying し（claim 7,11）、忘却/減衰を一級の設計関心とする（claim 9,10）。永続化は redux-persist パターンに倣う versioned key + 前方 migration（claim 4,5）、バグ版からの移行も明示処理（claim 16）、書込失敗を前提とした fail-open（claim 17）。日本の交通実現性は ODPT が JSON/REST で公開（claim 15）だが新規依存・登録必須のため vanilla 制約と衝突。Google の Ask Maps は選択肢の可視化止まりで「なぜその手段を繰り返すか」は説明せず（claim 14）、Aneurasync の差別化ポイントは健在。",
+    "findings": [
+      {
+        "claim": "既存方針は『支持（修正付き）』で結論。移動手段選択は強く習慣化し、通常の反復では安定だが、引っ越し等のライフ遷移（習慣不連続仮説）でのみ鋭く変化する。よって『観測して個人レパートリーを学習し、選択を尊重し、遷移で再学習する』方針は行動科学的に正しい賭け。ただし効果量は小さく、遷移後の熟慮ウィンドウは時間とともに減衰する。",
+        "confidence": "high",
+        "sources": [
+          "https://www.sciencedirect.com/science/article/abs/pii/S0272494407000898",
+          "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0153926 (PMC4847906, Thomas/Walker/Musselwhite 2016 replication)"
+        ],
+        "evidence": "Verplanken et al. 2008 (J. Environmental Psychology) の習慣不連続仮説『context changes disrupt established patterns, creating moments when deliberate consideration becomes possible』を、PLOS One 2016 が代表サンプルで再現（引越後の車利用確率 .64→.54 に低下しその後回復）。強い習慣下では intention 効果が negligible まで縮小し情報探索も習慣手段に偏る。3-0 で確認。注意: オッズ比は 1.04–1.23 と小さく、習慣は intention を完全置換せず併存する。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "方針への重要な修正①: 『選択理由の言語化』を学習の前提条件にしてはならない。ユーザーは単純な制御/フィードバック機能でも高頻度で使わない（約1/4が『手間』、約1/4が『プロフィールへの不可逆変更が怖い』、19%がプライバシー懸念）。明示フィードバックに依存せず、低負担・可逆（undo可能）・信頼保全的な制御を優先すべき。",
+        "confidence": "high",
+        "sources": [
+          "https://web-ainf.aau.at/pub/jannach/files/BOOK_CHAPTER_PERSONALIZED_HCI_2019.pdf",
+          "https://link.springer.com/ (Jannach/Naveed/Jugovac, EC-Web 2016, 元研究)"
+        ],
+        "evidence": "Jannach/Jugovac/Nunes 2019 book chapter p.18: 『About a fourth said that it would be too much effort... a fourth mentioned a fear of bad consequences, such as irreversible changes to their user preference profile... 19%... privacy concerns』。同章は機能の~75%が『分かりやすい』と感じたのに実際の利用は~8%のみと明記（理解度は不使用理由でない）。2024-2026のHCI論文も recommender controls が『rarely used』と裏付け。3-0 で確認（2-1票だが verifier high）。注意: 最大の不使用理由は『そもそも推薦に興味なし』(約1/3)でありこの3理由は free-text 回答者内の割合。",
+        "vote": "2-1"
+      },
+      {
+        "claim": "方針への重要な修正②: 『説明可能性／scrutability（ユーザーがシステムの誤りを指摘し前提を訂正できること）』を一級の設計目標に据えるべき。これは認知されつつも著しく研究不足の高レバレッジ領域で、200本超の説明研究レビューで scrutability に焦点を当てたのは僅か7本。/plan Map では『ユーザーが override し、システムがそれを学習更新する』設計が差別化軸になりうる。",
+        "confidence": "high",
+        "sources": [
+          "https://web-ainf.aau.at/pub/jannach/files/BOOK_CHAPTER_PERSONALIZED_HCI_2019.pdf",
+          "https://arxiv.org/abs/2006.08672 (Nunes & Jannach, UMUAI 2017 systematic review, 217 studies)"
+        ],
+        "evidence": "『in a review of over 200 papers on the topic of explanations, Nunes and Jannach could identify only seven works that focused on scrutability, i.e., allowing the user to correct the system, which indicates a major research gap』。元レビューは1209本から217本採用を確認、scrutability は注目最下位クラスタ。3-0 で確認。2024年の Trustworthy RecSys survey も active frontier として継続言及。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "行動ログだけでは不十分で、明示制御の補完が必要: 受動的行動フィードバック（like/dislike等）に依存した補正は非効率・高レイテンシ（ユーザーは意図が認識されるまで延々とフィードバックし続ける必要がある）。さらにユーザーフィードバックは『明示/暗黙』の二分ではなく『明示・意図的暗黙・非意図的暗黙』の3カテゴリで捉えるべきで、全行動を一律に扱うシステムは熟慮シグナル（戦略的検索、スワイプ）と受動シグナルを混同し弱体化する。",
+        "confidence": "high",
+        "sources": [
+          "https://arxiv.org/pdf/2204.13844 (Wang et al., User-controllable Recommendation Against Filter Bubbles, SIGIR 2022)",
+          "https://arxiv.org/html/2502.09869v1 (Li et al., CHI 2025)",
+          "https://arxiv.org/abs/2006.04153 (Wang et al., Denoising Implicit Feedback)"
+        ],
+        "evidence": "SIGIR2022: 受動フィードバックは『inefficient manner with high latency, e.g., keeping providing feedback... until the system recognizes the user intention』。CHI2025 は intention で区別する3カテゴリを提案し binary が『failed to fully capture users' agency』と論証。implicit-feedback denoising 文献が noisy implicit signals は精度劣化を招くと独立に裏付け。各2-1票だが verifier high。",
+        "vote": "2-1"
+      },
+      {
+        "claim": "保存粒度の指針: 選択学習は個別 leg だけでなく『item/leg より上の抽象』でも keying すべき。逐次推薦は interaction history から直接予測するが行動を駆動する latent intent のモデルを欠く（intent は item より高い抽象でユーザー理解と長期体験に critical）。また制御/選好は2粒度（特定の feature を指定する fine-grained と、対象指定不要な coarse-grained）で持てる。これは leg vs OD ペア vs 場所・時間帯・文脈の選択に直接示唆を与える。",
+        "confidence": "high",
+        "sources": [
+          "https://arxiv.org/pdf/2211.09832 (Chang et al., Latent User Intent Modeling, Google, WWW 2023)",
+          "https://arxiv.org/pdf/2204.13844 (Wang et al., SIGIR 2022)",
+          "https://dl.acm.org/doi/abs/10.1145/3473972 (Hierarchical Intent Model, ACM TOIS 2021)"
+        ],
+        "evidence": "WWW2023: 『Most sequential recommenders... lack a higher-level understanding of user intents... Intent modeling is thus critical for understanding users and optimizing long-term user experience』。SIGIR2022 は fine-grained（特定 feature キー、例: target category）と coarse-grained（対象指定不要、例: no bubble w.r.t. item category）の2粒度制御を提案。各 high。注意: いずれもコンテンツ推薦領域で、/plan の小さな離散選択集合・反復文脈への外挿は claim 側の明示的推論（『this supports』）。S1 では leg 個別キーで保存しつつ、後段で OD・時間帯・曜日・文脈に集約できる粒度を確保するのが安全。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "忘却/減衰を一級の設計原則に: 静的な user-item interaction や部分的時間シグナル（評価タイムスタンプ）のみに依存する推薦は、興味の非線形減衰（ユーザーは過去選好を徐々に忘れる）を捉えられず preference drift をモデル化できない。提案モデルは適応的（非線形）忘却重み関数で古い履歴を動的に down-weight し、均一な履歴蓄積より優れる。S2-S6 で反復選択を学習する際 forgetting/decay を first-class concern とすべき。",
+        "confidence": "high",
+        "sources": [
+          "https://www.mdpi.com/2079-8954/13/11/1034 (Ding et al., Systems 2025, Non-Linear Forgetting)",
+          "https://dl.acm.org/doi/10.1145/1557019.1557072 (Koren, Collaborative Filtering with Temporal Dynamics, 基礎)",
+          "Ebbinghaus forgetting curve (1885, replicated 2015)"
+        ],
+        "evidence": "MDPI Systems 2025: 既存研究は『fail to comprehensively model... the non-linear decay of user interests over time, where users gradually forget historical preferences』、提案手法は『adaptive forgetting-weight function to simulate users' interest decay... dynamically weights user ratings based on temporal forgetting patterns』。複数の peer-reviewed 論文(PMC12994845, PMC11639207 等)が recency-weighting > flat accumulation を裏付け。3-0/2-1票で確認。注意: レビュー型推薦からの一般化であり、習慣的経路選択では aggressive recency decay より stable habit-strength が適する可能性。減衰は『慎重にモデル化』が要点（過度な recency は profile drift / フィルターバブルを招く）。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "【S1 最重要】繰り返し予定の安定キー設計: iCal では繰り返しイベントの特定インスタンスは UID + RECURRENCE-ID（+ SEQUENCE で版管理）の合成/自然キーで一意識別され、RECURRENCE-ID の値は『そのインスタンスの元の DTSTART』である。同一シリーズは1つの UID を共有し、各インスタンスは元の開始時刻で区別される。よって leg の安定キーは UID 系の不変参照を起点にすべき。",
+        "confidence": "high",
+        "sources": [
+          "https://icalendar.org/iCalendar-RFC-5545/3-8-4-4-recurrence-id.html (RFC 5545 §3.8.4.4)"
+        ],
+        "evidence": "RFC 5545: 『used in conjunction with the UID and SEQUENCE properties to identify a specific instance of a recurring VEVENT... The property value is the original value of the DTSTART property of the recurrence instance』。仕様の例では金曜インスタンスを木曜に再スケジュールしても RECURRENCE-ID は元の金曜値のまま。3-0 で確認。実装上の注意: SEQUENCE 共有 UID+RECURRENCE-ID は実際にはほぼ emit されない(多くのアプリは RRULE のみ)ため、provider が RECURRENCE-ID を必ず埋めると仮定してはならない。なお『(UID, RECURRENCE-ID) が再fetchをまたいで安定』という強い主張は別途 0-3 で棄却された(版変更時に変わりうる)点に留意。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "【S1 最重要】Google Calendar での安定キーは originalStartTime: originalStartTime は親の繰り返しルールに従う『予定上の時刻』として定義され、インスタンスが移動/再スケジュールされてもシリーズ内でそのインスタンスを一意識別する不変(Immutable)の自然キー。実際の開始時刻(mutable)でキーを作るとexceptionで壊れるが、originalStartTime は安定。recurring instance id 自体も {eventId}_{YYYYMMDDThhmmssZ} と originalStartTime 由来。",
+        "confidence": "high",
+        "sources": [
+          "https://developers.google.com/workspace/calendar/api/guides/recurringevents",
+          "https://developers.google.com/workspace/calendar/api/v3/reference/events"
+        ],
+        "evidence": "Google docs(複数ページ): 『It uniquely identifies the instance within the recurring event series even if the instance was moved to a different time』、フィールドは『Immutable』。『This can be different from the actual start time if the instance was rescheduled』。3-0 で確認。S1 推奨: leg の端点となる予定が繰り返しの場合、actual start でなく originalStartTime(または originalStartTime 由来の instance id)を識別子に使う。注意: instance id は singleton 化で standalone event id に昇格しうるため、originalStartTime の方がより根源的な安定参照。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "【S1 永続化】versioned key + 前方 migration パターンを採用すべき(新規依存ではなくパターン参照): redux-persist は persist config の version キーで数値スキーマ版を追跡し、保存状態の版が設定版より低いとき前方 migration を実行する。migration は整数版番号でキーされたオブジェクトで、各関数が前版 state を受け取り次版 state を返し、目標版まで段階適用される。S1 は leg/手段選択 blob に version 番号を併存させロード時に前方 migration すればユーザー記録選択を破棄せずスキーマ進化できる。",
+        "confidence": "high",
+        "sources": [
+          "https://github.com/rt2zz/redux-persist/blob/master/docs/migrations.md",
+          "redux-persist src/createMigrate.ts (master)"
+        ],
+        "evidence": "createMigrate.ts: inboundVersion を _persist.version から読み、`currentVersion >= key && key > inboundVersion` で filter→昇順 sort→reduce で段階適用。docs: `const migrations = { 0: (state)=>..., 1: (state)=>... }` + `version: 1` + createMigrate。IndexedDB onupgradeneeded / SQLite PRAGMA user_version と同型の標準 idiom。4は2-1票だが mechanism は primary source code で confirm、5は3-0。注意: migration は『累積state』(緩い型)を受け取るため各関数は部分的/旧shapeに防御的に書く必要。S1 は localStorage(versioning内蔵なし)なので手動実装。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "【S1 永続化】堅牢性原則: クライアント側スキーマ migration コードは『過去のどの版から来たユーザーも(バグを含む版からも)』明示的に処理しなければならない。さらにクライアントストレージへの書込はプライベートブラウジング/ディスク不足など多様な理由で失敗しうるため persistence は best-effort 扱いとし、S1 は書込成功を仮定せず fail-open(メモリにも state を保持しUIを壊さない)設計にすべき。",
+        "confidence": "high",
+        "sources": [
+          "https://web.dev/articles/indexeddb-best-practices-app-state",
+          "https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria (best-effort 定義)",
+          "WebKit bug 157010 (Safari private mode setItem QuotaExceededError)"
+        ],
+        "evidence": "web.dev: 『handle the user coming from a previous version (including a version with a bug)』『Errors when writing to IndexedDB can happen for a variety of reasons』(private browsing / running out of disk space を明示)『keep application state in memory... so the UI doesn't break』。MDN が best-effort を正式定義(quota 内・容量十分・ユーザー非削除の間のみ永続、LRU eviction 対象)。16は2-1、17は3-0。注意: 出典は IndexedDB だが原則はストレージ非依存で、localStorage 向けにも複数の二次情報(localstorage-migrator 等)が同一パターン(版検出→段階migration→不可なら scratch fallback)を裏付け。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "【開放論点】日本の交通データ実現性と差別化確認: ODPT は鉄道・バス・航空の日本公共交通オープンデータを共通 JSON 形式で REST API 提供し scraping 不要で programmatic アクセス可能。ただし新規外部依存・API キー登録(約2営業日)必須でvanilla Google Maps+新規依存なし+課金なし制約と衝突。一方 Google の Ask Maps は『選択肢の可視化＋ETA＋クラウドソース tips＋Q&A』止まりで、ユーザーが特定手段/経路を繰り返し選ぶ理由(choice rationale)は説明しない。Aneurasync の『選択理由言語化』差別化は健在。",
+        "confidence": "high",
+        "sources": [
+          "https://www.odpt.org/en/overview/",
+          "https://developer.odpt.org/",
+          "https://blog.google/products-and-platforms/products/maps/ask-maps-immersive-navigation/"
+        ],
+        "evidence": "ODPT: 『Cleansed data in common JSON format is provided via REST API』、railway/bus/airline 対応、developer portal で API キー登録。Ask Maps blog: 『a customized map to help you visualize your options... clear directions, ETAs, and insider tips from real people』。パーソナライズは検索/保存履歴を推薦に factoring するだけで、ユーザー自身の反復選択理由を introspective に説明し返すものではない。両 3-0。注意: ODPT のバス系は GTFS/GTFS-RT 提供でモードにより形式差。差別化主張は Google 自身のマーケが描く limitation に基づくため誇大ではない。",
+        "vote": "3-0"
+      }
+    ],
+    "caveats": "出典の質と票割れ: 18件すべて adversarial 検証通過だが、claim 2(redux-persist version)・4(受動フィードバック非効率)・6(3カテゴリ)・9(forgetting一般化)・12(scrutability利用率)・15(IndexedDB原則のlocalStorage転用)は 2-1 票(verifier は high)。本文では high 扱いとしたが、いずれも『主張の操作的核は primary source code/text で confirm、弱点は領域転用や周辺sub-phraseの不精確』という共通構造。\n\nドメイン転用の限界: recommender/intent/forgetting 文献はいずれも大規模コンテンツ推薦(数百万 item のランキング/検索)が原領域で、/plan の『小さな離散選択集合・反復文脈での移動手段選択』への外挿は claim 側の明示推論。特に forgetting/decay は習慣的経路選択では aggressive recency decay が逆効果(stable habit-strength が支配的)の可能性があり、減衰係数は保守的に始めるべき。\n\n時間依存性: Ask Maps / Immersive View は 2026-03〜04 の情報で本日(2026-06-03)時点では current だが、Google の nav 機能は更新が速く『choice rationale を説明しない』という差別化境界は再確認が必要。ODPT も Open Data Challenge 2025 進行中で coverage は流動的。\n\n棄却された強い主張(設計に影響): ①『(UID, RECURRENCE-ID) は再fetchをまたいで完全に安定』は 0-3 で棄却(SEQUENCE 変更時に RECURRENCE-ID も変わりうる)——S1 は版変更を migration で吸収する前提が必要。②『行動ログ駆動パーソナライズは本質的にフィルターバブルを生み時間とともに悪化』は 0-3 棄却——過剰個人化は『慎重設計で回避可能な失敗モード』であって必然ではない。③『明示フィードバックは暗黙より高コストで非効果的』は 0-3 棄却——制御の知覚効率は UI 依存(CHI 2025)。④『説明は効率より effectiveness/transparency を最適化すべき/ユーザーは理解に時間を投資する』は 1-2 棄却——『理由理解 > 速い決定』の一般化は支持されず、claim 13(低負担優先)と整合させる必要。\n\n実装制約の衝突: ODPT は技術的には有用だが『vanilla Google Maps + 新規依存なし + 課金なし』制約と正面衝突。当面は外部依存として保留し、Google Maps Platform の日本 transit/walking カバレッジ内で完結させるのが整合的。",
+    "openQuestions": [
+      "S1 の leg 安定キーを実際に何で構成するか: 端点予定が Google Calendar 由来なら originalStartTime 由来の instance id が使えるが、/plan の予定が手動入力/他ソース由来の場合の安定キー(composite: 場所識別子+正規化時刻+曜日 等)の具体設計とフォールバック順序は本リサーチでは未確定。",
+      "減衰係数の初期値: forgetting/decay を一級にするとして、習慣的移動手段選択における適切な半減期(daily 反復で何日/何回で down-weight するか)は文献が原領域(コンテンツ推薦)依存で、Aneurasync 文脈の妥当値は実測キャリブレーションが必要。",
+      "scrutability(訂正可能性)の UI 形態: 『override + 学習更新』を一級目標とする方向は支持されたが、claim 13 の低負担・可逆・信頼保全制約と両立する具体 UI(例: ワンタップ undo、不可逆変更の回避、変更の可視フィードバック)の設計は未解決。",
+      "OD/文脈粒度の集約スキーマ: leg 個別で保存しつつ後段で OD ペア・時間帯・曜日・文脈に集約する『将来集約を阻害しない最小スキーマ』の具体フィールド設計(出発地/目的地の種別タグ付け方法、文脈次元の正規化)は本リサーチの粒度を超える。"
+    ],
+    "refuted": [
+      {
+        "claim": "The instance identifier (RECURRENCE-ID) is stable across re-fetches: for a given UID and SEQUENCE, the RECURRENCE-ID value of an instance does not change. This makes (UID, RECURRENCE-ID) a stable composite key for re-identifying the same recurring-event instance over time — directly relevant to S1's leg stable-key design.",
+        "vote": "0-3",
+        "source": "https://icalendar.org/iCalendar-RFC-5545/3-8-4-4-recurrence-id.html"
+      },
+      {
+        "claim": "Standard personalized recommenders that fit user features and historical interactions inherently produce filter bubbles (over-recommending homogeneous items), and this narrowing worsens over time via the feedback loop — empirical support that purely behavior-log-driven personalization narrows interests over time.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/pdf/2204.13844"
+      },
+      {
+        "claim": "Explicit feedback imposes a higher user cost than implicit signals and is perceived as ineffective/non-durable, requiring repeated effort to maintain — a direct argument against relying on burdensome explicit reason-elicitation for personalization.",
+        "vote": "0-3",
+        "source": "https://arxiv.org/html/2502.09869v1"
+      },
+      {
+        "claim": "Empirically, explanations should be optimized for effectiveness and transparency rather than efficiency: high-transparency explanations increase user satisfaction, and users are willing to invest more time to understand explanations rather than just decide faster. This reframes the Map's goal away from 'fastest route / fastest decision' toward 'helping the user understand why', aligning with Aneurasync's reason-verbalization direction.",
+        "vote": "1-2",
+        "source": "https://web-ainf.aau.at/pub/jannach/files/BOOK_CHAPTER_PERSONALIZED_HCI_2019.pdf"
+      },
+      {
+        "claim": "Google Maps 'Ask Maps' personalizes results based on a user's prior search/save history (e.g. knowing the user likes vegan restaurants), demonstrating that Google's own nav product already does behavioral personalization rather than pure shortest-path recomputation.",
+        "vote": "1-2",
+        "source": "https://blog.google/products-and-platforms/products/maps/ask-maps-immersive-navigation/"
+      },
+      {
+        "claim": "GTFS-format data is available through ODPT, but it is mainly for bus services — implying rail GTFS coverage via ODPT is weaker/not the primary GTFS offering.",
+        "vote": "0-3",
+        "source": "https://www.odpt.org/en/overview/"
+      },
+      {
+        "claim": "ODPT is Tokyo-centric in origin and coverage: it launched for the 2020 Tokyo Olympics/Paralympics and started with Tokyo Metropolitan Government (Bureau of Transportation) railway and bus data, rather than nationwide JR/private-railway coverage.",
+        "vote": "1-2",
+        "source": "https://www.odpt.org/en/overview/"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://icalendar.org/iCalendar-RFC-5545/3-8-4-4-recurrence-id.html",
+        "quality": "primary",
+        "angle": "primary / stable identity for recurring events",
+        "claimCount": 5
+      },
+      {
+        "url": "https://github.com/SimpleMobileTools/Simple-Calendar/issues/294",
+        "quality": "forum",
+        "angle": "primary / stable identity for recurring events",
+        "claimCount": 3
+      },
+      {
+        "url": "https://developers.google.com/workspace/calendar/api/guides/recurringevents",
+        "quality": "primary",
+        "angle": "primary / stable identity for recurring events",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.baeldung.com/sql/keys-natural-vs-surrogate",
+        "quality": "blog",
+        "angle": "primary / stable identity for recurring events",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/html/2312.10073v1",
+        "quality": "primary",
+        "angle": "academic / personalization keying granularity",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.sciencedirect.com/science/article/pii/S2590123025041866",
+        "quality": "secondary",
+        "angle": "academic / personalization keying granularity",
+        "claimCount": 4
+      },
+      {
+        "url": "https://www.sciencedirect.com/science/article/abs/pii/S0272494407000898",
+        "quality": "primary",
+        "angle": "academic / personalization keying granularity",
+        "claimCount": 4
+      },
+      {
+        "url": "https://github.com/rt2zz/redux-persist/blob/master/docs/migrations.md",
+        "quality": "primary",
+        "angle": "practitioner / localStorage schema versioning & sync",
+        "claimCount": 4
+      },
+      {
+        "url": "https://web.dev/articles/indexeddb-best-practices-app-state",
+        "quality": "secondary",
+        "angle": "practitioner / localStorage schema versioning & sync",
+        "claimCount": 5
+      },
+      {
+        "url": "https://dzone.com/articles/conflict-resolution-using-last-write-wins-vs-crdts",
+        "quality": "blog",
+        "angle": "practitioner / localStorage schema versioning & sync",
+        "claimCount": 4
+      },
+      {
+        "url": "https://dev.to/smallstack/crdts-and-local-first-architecture-how-smallstack-handles-offline-conflict-resolution-338c",
+        "quality": "blog",
+        "angle": "practitioner / localStorage schema versioning & sync",
+        "claimCount": 5
+      },
+      {
+        "url": "https://mmazzarolo.com/blog/2022-06-25-local-storage-status/",
+        "quality": "blog",
+        "angle": "practitioner / localStorage schema versioning & sync",
+        "claimCount": 4
+      },
+      {
+        "url": "https://chrisberkhout.com/blog/localstorage-errors/",
+        "quality": "blog",
+        "angle": "practitioner / localStorage schema versioning & sync",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/pdf/2204.13844",
+        "quality": "primary",
+        "angle": "contrarian / over-personalization & explainability-first",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/html/2502.09869v1",
+        "quality": "primary",
+        "angle": "contrarian / over-personalization & explainability-first",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.mdpi.com/2079-8954/13/11/1034",
+        "quality": "primary",
+        "angle": "contrarian / over-personalization & explainability-first",
+        "claimCount": 4
+      },
+      {
+        "url": "https://arxiv.org/pdf/2211.09832",
+        "quality": "primary",
+        "angle": "contrarian / over-personalization & explainability-first",
+        "claimCount": 4
+      },
+      {
+        "url": "https://web-ainf.aau.at/pub/jannach/files/BOOK_CHAPTER_PERSONALIZED_HCI_2019.pdf",
+        "quality": "primary",
+        "angle": "contrarian / over-personalization & explainability-first",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/html/2307.01221",
+        "quality": "secondary",
+        "angle": "contrarian / over-personalization & explainability-first",
+        "claimCount": 5
+      },
+      {
+        "url": "https://developers.google.com/maps/documentation/routes/usage-and-billing",
+        "quality": "primary",
+        "angle": "feasibility / Japan transit + walking + Google Maps capability",
+        "claimCount": 4
+      },
+      {
+        "url": "https://blog.google/products-and-platforms/products/maps/ask-maps-immersive-navigation/",
+        "quality": "primary",
+        "angle": "feasibility / Japan transit + walking + Google Maps capability",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.macrumors.com/2026/03/12/google-maps-gemini-integration/",
+        "quality": "secondary",
+        "angle": "feasibility / Japan transit + walking + Google Maps capability",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.odpt.org/en/overview/",
+        "quality": "primary",
+        "angle": "feasibility / Japan transit + walking + Google Maps capability",
+        "claimCount": 5
+      }
+    ],
+    "stats": {
+      "angles": 5,
+      "sourcesFetched": 23,
+      "claimsExtracted": 105,
+      "claimsVerified": 25,
+      "confirmed": 18,
+      "killed": 7,
+      "afterSynthesis": 11,
+      "urlDupes": 0,
+      "budgetDropped": 7,
+      "agentCalls": 105
+    }
+  }
+}

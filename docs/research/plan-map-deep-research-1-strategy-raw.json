@@ -1,0 +1,375 @@
+{
+  "summary": "Deep research harness — fan-out web searches, fetch sources, adversarially verify claims, synthesize a cited report.",
+  "agentCount": 105,
+  "logs": [
+    "Q: 【リサーチ目的】Aneurasync の /plan「Map タブ」が、旧来の地図アプリが未解決のユーザー不満を解消し、「予定×地図×移動×生活文脈」領域で世界…",
+    "Decomposed into 5 angles: Wanderlog 徹底解剖（最重要・主機能）, Citymapper 生活文脈ルーティング, 個人化移動推定・経路選好学習（査読研究）, 意図/文脈認識ナビ・経路変更の説明可能性（査読研究）, 既存Mapへのユーザー不満の定性シグナル",
+    "Citymapper 生活文脈ルーティング: 6 results",
+    "個人化移動推定・経路選好学習（査読研究）: 6 results",
+    "Wanderlog 徹底解剖（最重要・主機能）: 6 results",
+    "Wanderlog 徹底解剖（最重要・主機能）: 3 novel (3 filtered)",
+    "意図/文脈認識ナビ・経路変更の説明可能性（査読研究）: 6 results",
+    "意図/文脈認識ナビ・経路変更の説明可能性（査読研究）: 4 novel (2 filtered)",
+    "既存Mapへのユーザー不満の定性シグナル: 6 results",
+    "既存Mapへのユーザー不満の定性シグナル: 4 novel (2 filtered)",
+    "fetch failed: https://www.sciencedirect.com/science/article/abs/pii/S0198971522001107 — agent({schema}): subagent completed without calling StructuredOutput (after 2 in-conversation nudges)",
+    "Fetched 23 sources → 93 claims → verifying top 25",
+    "\"Wanderlog's route optimization automatically reord…\": 3-0 ✓",
+    "\"Wanderlog's optimization objective is to minimize …\": 1-2 ✗",
+    "\"Wanderlog auto-imports reservation details by lett…\": 3-0 ✓",
+    "\"Wanderlog offers an alternative to manual forwardi…\": 3-0 ✓",
+    "\"Citymapper surfaces wheelchair-accessible routes a…\": 2-1 ✓",
+    "\"Citymapper personalizes pedestrian travel-time est…\": 1-2 ✗",
+    "\"Citymapper's accessible routing deliberately optim…\": 3-0 ✓",
+    "\"Citymapper's step-free routing feature avoids stai…\": 3-0 ✓",
+    "\"Step-free routes incorporate specific accessibilit…\": 3-0 ✓",
+    "\"The step-free feature is explicitly designed to se…\": 3-0 ✓",
+    "\"Citymapper offers a 'WALK LESS' routing mode that …\": 3-0 ✓",
+    "\"Citymapper's WALK LESS mode is explicitly framed a…\": 3-0 ✓",
+    "\"Citymapper lets users plan routes around transit d…\": 3-0 ✓",
+    "\"Citymapper's disruption handling is granular at th…\": 3-0 ✓",
+    "\"Citymapper lets users opt into push notifications …\": 3-0 ✓",
+    "\"Citymapper personalizes disruption alerts by letti…\": 3-0 ✓",
+    "\"People do NOT minimize travel cost when choosing r…\": 3-0 ✓",
+    "\"Each person uses only a small, finite set of disti…\": 3-0 ✓",
+    "\"Route choice exhibits a learnable 'adaptation proc…\": 0-3 ✗",
+    "\"Pedestrian route choice is jointly determined by i…\": 3-0 ✓",
+    "\"MEDIRL-IC architecturally separates constant indiv…\": 3-0 ✓",
+    "\"Maximum Entropy IRL learns a driver's route prefer…\": 3-0 ✓",
+    "\"Route recommendation can be personalized purely fr…\": 3-0 ✓",
+    "\"The MaxEnt approach is explicitly designed for, an…\": 3-0 ✓",
+    "\"Mainstream routing applications optimize only for …\": 1-2 ✗",
+    "Verify done: 25 claims → 21 confirmed, 4 killed"
+  ],
+  "result": {
+    "question": "【リサーチ目的】Aneurasync の /plan「Map タブ」が、旧来の地図アプリが未解決のユーザー不満を解消し、「予定×地図×移動×生活文脈」領域で世界トップを取るための、競合ロジック徹底解剖＋学術知見＋優先度付き施策提案を、引用付きで作る。\n\n【勝ち筋の前提（正面戦を避ける）】Google/Apple Maps の純ナビ（turn-by-turn・検索・3D・Immersive・Ask Maps 等）とは正面から戦わない。勝ち筋は「ユーザーの意図・今の文脈・選択理由・1日全体の予定の成立」を地図が扱う領域。Aneurasync の核は「第二の自己」＝ユーザーを観測・学習し、どんどんその人好みに更新される地図。Wanderlog を盲目的にコピーせず、Aneurasync の世界観（深層観測・1日全体の成立・選択理由の言語化・ソロの日常）に合うものだけ批判的に取り込む。\n\n【製品コンテキスト】/plan Map タブ = 1日の予定（anchors/pins）を地図に置き、予定間ルート・移動手段（徒歩/車/タクシー/電車/バス/自転車/新幹線/飛行機）切替・時間軸 leg 階層（過去/今/次/未来）を表示する「Full-Day Secretary / Reality Control OS」。技術は vanilla Google Maps JS API（新規依存なし）+ Supabase + Next.js。日本市場が主。\n\n【調査タスク】\n1. Wanderlog 徹底解剖（最重要）: 全機能・裏ロジック・データモデル・UX原則を精査推定。(a) 日プラン/旅程の訪問順最適化アルゴリズム（移動時間最小化・営業時間考慮・TSP的順序最適化の仕組み）、(b) 予約/チケットのメール自動取り込み・パース・整理、(c) 地図上の日別ピン・ルート表示UX、(d) 共同編集、(e) オフラインアクセス、(f) 費用管理、(g) おすすめ/インポート、(h) モバイルUX。各機能ごとに「Aneurasync に取り込むべき/不要」を批判的に判定。\n2. Citymapper の移動文脈ルーティング: step-free（階段回避）、アクセシビリティ、荷物/ベビーカー、雨を避ける、運行障害・遅延対応、マルチモーダル比較、出発時刻提案。生活文脈をルートに落とすロジック。\n3. 他competitorの取り込めるロジック: TripIt（旅程自動パース）、Google Maps（ルート理由説明・Ask Maps が実際に何を説明/提案しているか）、Apple Maps、Transit app、Komoot/Strava（個人の移動プロフィール学習）、Rome2Rio（マルチモーダル）。\n4. 学術/業界研究（査読論文・著名研究を引用付きで）: (a) 個人化された歩行・移動時間推定／移動プロファイル学習（既存Mapが個人差を学習しない問題）、(b) ルート変更の説明可能性（\"なぜルートが変わったか\"の説明）、(c) 意図認識・文脈認識ナビゲーション、(d) 経路選好学習（ユーザーが選んだ代替ルートの尊重・学習）。\n5. ユーザー不満の定性シグナル（一次統計でない前提で参考扱い）: 迂回時の勝手な再ルート、選んだ代替を尊重しない、検索が遠方に飛ぶ、UIが小さい/ごちゃつく等。根因仮説＝「意図・文脈・選択理由を Map が扱えていない」を検証。\n\n【統合・成果物の要件】\n- 「Aneurasync /plan Map が独占すべき gap」を明確に定義。\n- 「ユーザー学習で第二の自己化する地図」のコア・ロジック設計案（観測すべき信号・個人化更新の仕組み）。\n- 施策提案を優先度付き＋両建て: 【即実装】現スタック（vanilla Google Maps・新規依存なし・課金なし）で今月の成功条件に資する／【moonshot】近未来の革新案。各施策に中心問い「第二の自己として必要か」の合致度を付記。\n- 主張には必ず出典（URL/論文）。Reddit等は定性シグナルと明記。",
+    "summary": "旧来の地図アプリ（Google/Apple Maps）が未解決の核心的不満は「ユーザーの意図・文脈・選択理由を地図が扱えない」点であり、ここに Aneurasync /plan Map が独占すべき gap が存在する。査読論文が決定的根拠を提供する：人は最短経路を選ばない（ルーティンの約53%で常用ルートが推奨1位ではなく、約34%では推奨いずれとも一致しない／Lima et al. 2016, J.R.Soc.Interface）、各人が使うルートは少数（約1/3は単一ルート、対数正規分布 μ=0.71 σ=2.22）であり、地図は数回の観測から個人のルート・レパートリーを学習できる。さらに MaxEnt 逆強化学習（Ziebart et al. 2008）は、単一ユーザーの受動的観測のみから、明示的に目的地や経路を尋ねることなく将来ルートと意図（目的地）を推定でき、かつ「ノイジー・最適でない実際の選択」を原理的に尊重・学習する仕組みを提供する——これが「勝手な再ルートが選択を尊重しない」不満への直接の技術的解。競合解剖では、Citymapper が「生活文脈をルートに落とす」設計（step-free=階段/エスカレーター回避が荷物・ベビーカー・杖ユーザーにも効く一機能多用途、WALK LESS=雨/暑さ回避、簡潔さ＞速さの目的関数、運行障害の線区セグメント単位の回避、選択した路線だけの遅延通知）で先行し、Wanderlog が「1日単位の訪問順最適化（最大15地点）」と「予約確認メールの自動取り込み（trip+123@wanderlog.com 転送 or Gmail連携で便/ホテルのみパース）」で先行している。Aneurasync の勝ち筋は、これら競合機能を世界観（深層観測・1日全体の成立・選択理由の言語化・ソロの日常）に照らして批判的に取り込み、「ユーザーを観測して第二の自己化する地図」のコア・ロジック（個人のルート・レパートリー学習＋意図の受動推定＋選択尊重）を独占することにある。",
+    "findings": [
+      {
+        "claim": "旧来の地図アプリの最短経路前提は人間の実際の行動と矛盾する——これが Aneurasync が独占すべき最大の gap の学術的根拠。Lima et al. (2016) はGPS約92,419軌跡（18ヶ月）の分析で、ルーティンの約53%で常用（最頻）ルートが推奨1位ではなく、約34%では推奨ルートのいずれとも一致しないことを示した。Google/Apple型の最短経路・コスト最小化前提を直接反証する。",
+        "confidence": "high",
+        "sources": [
+          "https://royalsocietypublishing.org/doi/10.1098/rsif.2016.0021"
+        ],
+        "evidence": "査読論文 J.R.Soc.Interface 13:20160021 のPDFを直接抽出して検証。原文逐語一致：'In about 53% of the cases, the dominant route chosen by the user is not the first optimal choice. For about 34% of the user routines none of the routes are compatible with the optimal choices, indicating that preferred routes do not minimize the travel cost.' 独立追試 Zhao et al.(PMC4534461, 143ドライバー)で約2/3が最短時間経路を使わない、Xu et al.2021(arXiv:2312.13505)で約51%が単一ルートと裏付け。3-0 unanimous。caveat: 'optimal'は単一ルーティングサービスの提案基準であり地上真の最速ではない、車GPSのみ。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "個人のルート・レパートリーは小さく有限で、地図は数回の観測から学習できる——『第二の自己化する地図』のコア設計根拠。各人は限られた数のルートのみ使い、約1/3は単一ルート、ルート数は対数正規分布(μ=0.71, σ=2.22)に従う。18ヶ月という長期窓でも成立。最適経路を毎回再計算するより、ユーザーの実際のルート・レパートリーを学習する方が個人化に適う。",
+        "confidence": "high",
+        "sources": [
+          "https://royalsocietypublishing.org/doi/10.1098/rsif.2016.0021"
+        ],
+        "evidence": "Lima et al.(2016)逐語：'different individuals prefer to use a limited number of routes, and a third of them use only one route... the number of choices follows a lognormal distribution with parameters mu=0.71 and sigma=2.22.' 独立追試 arXiv:2312.13505 で51.35%が単一、平均1.56ルート/OD pair、対数正規分布一致と確認。3-0。caveat: 基盤データは車/運転(欧州都市)であり徒歩・公共交通ではない。製品推論(数回の観測で学習可能)は claimant の合理的外挿でラベル付き。NOTE: 関連する『20回超でロックイン可能(Gini 0.6)』主張は別途 0-3 で反証されたため、確信度の高いロックイン閾値は採用しない。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "MaxEnt 逆強化学習は、単一ユーザーの受動的観測のみから、目的地・経路を一切尋ねずに将来ルートと意図(目的地)を推定できる——意図を受動的に学習する地図の技術的土台。部分的に走行した軌跡から将来ルートと目的地の両方をベイズ推定する。",
+        "confidence": "high",
+        "sources": [
+          "https://www.ri.cmu.edu/pub_files/2008/7/AAAI2008-bziebart.pdf"
+        ],
+        "evidence": "AAAI 2008 Ziebart et al.のPDFをpypdfで全文抽出検証。逐語：'This allows us to extend our route preferences with hidden goals to naturally infer both future routes and destinations based on partial trajectories' および 'warning drivers about unanticipated traffic problems on their route without ever explicitly having to query the user about route or destination.' 目的地推定はベイズ定理 P(dest|trajectory) で実装。Ubicomp 2008(PROCAB/Navigate Like a Cabbie)が併走。被引用3000+の基礎論文。3-0。caveat: 目的地推論は候補集合＋学習済み事前分布も使うが、その事前分布も受動的に行動から学習されるため主張を補強。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "MaxEnt アプローチは『ノイジー・最適でない実際の選択』を原理的に扱うよう設計されており、ユーザーが選んだ代替ルート(数学的最適でなくても)を上書きせず尊重・学習する核心メカニズム——『勝手な再ルートが選択を尊重しない』不満への直接の解。",
+        "confidence": "high",
+        "sources": [
+          "https://www.ri.cmu.edu/pub_files/2008/7/AAAI2008-bziebart.pdf"
+        ],
+        "evidence": "AAAI 2008 PDF逐語：'A key concern is that demonstrated behavior is prone to noise and imperfect behavior. The maximum entropy approach provides a principled method of dealing with this uncertainty.' 本文に'sub-optimal'が複数出現：'many different distributions of paths match feature counts when any demonstrated behavior is sub-optimal... We employ the principle of maximum entropy, which resolves this ambiguity.' ドメインは経路選択そのもの(100,000マイルGPS, 25タクシー運転手)で外挿ではない。P(path)∝exp(reward)により選ばれた非最適ルートを破棄せず学習。3-0。caveat: 反復的な非最適デモには弱い(arxiv 2203.11409)が、これは限界であり主張を反証しない。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "ルート推薦は単一ユーザーの受動観測のみから個人化可能で、ユーザーに経路・目的地を一切問わずに『あなたの行きそうなルートの渋滞を事前警告する』等のプロアクティブ機能を実現できる——アンケート/明示入力不要の個人化の実証根拠。",
+        "confidence": "high",
+        "sources": [
+          "https://www.ri.cmu.edu/pub_files/2008/7/AAAI2008-bziebart.pdf"
+        ],
+        "evidence": "AAAI 2008 PDF Applications節逐語：'Route recommendation can be easily personalized based on passive observation of a single user... warning drivers about unanticipated traffic problems on their route without ever explicitly having to query the user about route or destination.' データ：25 Yellow Cab運転手12週、約13,000トリップ、テスト7403例。3-0。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "歩行者の経路選択は個人特性と建造環境の両方で決まり、個人差を無視するモデルは不完全——『個人を学習する地図』を学術的に正当化する。",
+        "confidence": "high",
+        "sources": [
+          "https://www.researchgate.net/publication/384274698_Enhancing_Pedestrian_Route_Choice_Models_Through_Maximum-Entropy_Deep_Inverse_Reinforcement_Learning_With_Individual_Covariates_MEDIRL-IC"
+        ],
+        "evidence": "査読論文 IEEE T-ITS(2024, doc 10689250)逐語：'pedestrian route choices being shaped by both individual characteristics and the built environment.' 反証目的の敵対的検索が逆に補強を返した：'the inclusion of social demographic covariates to capture heterogeneity considerably improves the performance of all models.' 系統的レビュー Transport Reviews(2022, 10.1080/01441647.2021.2000064)が105のPRC因子を個人socio-demographic/建造環境に分類。Transportation Research Part A 2025(S0965856425000655)で女性は曲がり少、高齢者は視認性、低所得は簡潔さを選好と人口属性別の差を実証。3-0。caveat: 『製品としての地図を正当化』は verifier の製品フレーミングだが、個人差が経路選択に効くという load-bearing 主張は成立。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "MEDIRL-IC は定数の個人特徴と動的な建造環境特徴を別個のニューラルネットで処理してから統合し、非線形(加法/線形でない)報酬関数を捉える——個人特性と状況文脈を融合する具体的モデル設計。",
+        "confidence": "high",
+        "sources": [
+          "https://www.researchgate.net/publication/384274698_Enhancing_Pedestrian_Route_Choice_Models_Through_Maximum-Entropy_Deep_Inverse_Reinforcement_Learning_With_Individual_Covariates_MEDIRL-IC",
+          "https://ieeexplore.ieee.org/document/10689250/"
+        ],
+        "evidence": "IEEE T-ITS(2024年12月)アブストラクト逐語(IEEE Xplore と ResearchGate で一致)：'MEDIRL-IC uses deep neural networks to separately fit constant individual features and dynamic built environment features before integration, effectively capturing the non-linear reward function in pedestrian scenarios.' 従来の経路選択モデルの'oversimplified utility assumptions'(線形logit効用)と明示的に対比。3-0。caveat: IEEE本文はHTTP 418/ResearchGate 403でフェッチ不可、検証は一貫して再現されるアブストラクト断片に依拠(主張自体がアブストラクトレベル)。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Wanderlog のルート最適化は旅程全体ではなく『1日単位』で訪問順を自動並べ替える(最大15地点)。Itinerary タブの日付見出し直下の『Optimize route』ボタンで起動し、移動時間と燃料を最小化する。",
+        "confidence": "high",
+        "sources": [
+          "https://help.wanderlog.com/hc/en-us/articles/13545624787867-Optimize-route",
+          "https://wanderlog.com/blog/faq/"
+        ],
+        "evidence": "Wanderlog公式FAQ(直接フェッチ)逐語：'As of now, you can optimize route for up to 15 places within one day.' help-center記事：'The app will automatically arrange the itinerary for a single day' / 'Tap on Optimize route under the day heading, then choose start and end point.' 別検索で'day-by-day basis, not across multiple days... optimize each individual day separately'と確認。3-0。caveat: 一次URLはWebFetchに403を返すが検索インデックス＋公式FAQで二重確認。help centerは'Pro members'と記すがFAQはPro制限に言及せず(本主張はPro限定を主張しないため影響なし)。NOTE: 関連する『最適化目的=移動時間+燃料(車中心モデル)』主張は別途 1-2 split で反証寄りのため、Aneurasync は multimodal 前提で批判的に取り込むべき。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Wanderlog は予約確認メールを、旅程ごとに固有のメールアドレス(例 trip+123@wanderlog.com / 実際は trips+NNNNNN@wanderlog.com 形式)へ転送させることで、便・ホテル・レンタカーの詳細を即座に旅程へ自動取り込みする。",
+        "confidence": "high",
+        "sources": [
+          "https://help.wanderlog.com/hc/en-us/articles/4625693334811-Add-flight-hotel-and-rental-car-details-by-forwarding-an-email"
+        ],
+        "evidence": "公式help-center記事(ID 4625693334811)逐語(3回の独立検索で一致)：'You can forward all your reservation emails to a unique email address (e.g., trip+123@wanderlog.com), and it will instantly add your flight, hotel, or rental car details to your trip plan.' 旅程ごとに別アドレスが生成される旨も独立裏付け。3-0。caveat: 第三者レビューは固有アドレスが'obscure and hard to find'、1メールを2旅程に転送不可、Gmail自動スキャンはPro限定と指摘(UX/スコープ限定であり機構自体は反証しない)。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Wanderlog は手動転送の代替として Gmail 連携を提供し、受信箱を『便とホテルの確認のみ』に限定してパースし自動取り込みする(レンタカー・アクティビティは Gmail 連携では自動取り込みされない)。",
+        "confidence": "high",
+        "sources": [
+          "https://help.wanderlog.com/hc/en-us/articles/4625693334811-Add-flight-hotel-and-rental-car-details-by-forwarding-an-email",
+          "https://wanderlog.com/blog/faq/"
+        ],
+        "evidence": "公式FAQをWebFetchで直接取得し逐語確認：'Wanderlog parses your Gmail inbox only for flight and hotel confirmations'(help記事13302942899099に帰属)。2手法(個別転送 or Gmail連携)も両記事で確認。FAQはレンタカー/アクティビティがGmail連携では自動取り込みされず、レンタカーは'Add rental car'ボタン＋転送/手入力が必要と明示。3-0。caveat: 一部第三者AI要約が'flights, hotels, rental cars, and activities'と過大表現したが、これは転送方式(レンタカー対応)とGmail連携パース範囲(便/ホテルのみ)の混同。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Citymapper の step-free ルーティングは階段・エスカレーターを回避し、この一機能が車椅子ユーザーに加え荷物・ベビーカー・杖のユーザーにも効く——『一つのアクセシビリティ対応ルーティングモードが、標準地図が無視する複数の生活文脈制約(移動制約/荷物/子供移動)を同時に解決する』ことを実証。",
+        "confidence": "high",
+        "sources": [
+          "https://citymapper.com/news/2004/wheelchair-accessible-routing",
+          "https://content.citymapper.com/news/2577/find-the-best-accessible-journey-with-step-free-routes",
+          "https://content.citymapper.com/news/2005/step-free-routes",
+          "https://citymapper.com/news/2262/inclusive-navigation-citymappers-step-free-routes"
+        ],
+        "evidence": "一次 news/2577 逐語：'which avoids stairs and escalators' および 'Commuters lugging luggage, pushing strollers, or using canes, can also benefit from this feature.' news/2004：'Our routes avoid stairs, and so also work for users with luggage or strollers.' 4つの独立Citymapperページで裏付け。リフト/ランプ付きの最適駅出入口、step-free乗降バス停も選択(news/2577逐語：'Best station exits and entrances with lifts and ramps' / 'Step-free alighting and boarding bus stops')。一機能多用途の核は 3-0(news/2577系)。caveat: 『すべての経路検索で(every directions search)』はFALSE——対応地域(NY/シンガポール等、17→20→27地域と拡大中)に限定されたユーザー切替モードであり全世界自動表示ではない。この限定により『単一機能が複数文脈を解決』を主張した版は 2-1 split だが、機構(階段回避→荷物/ベビーカー)は争いなし。",
+        "vote": "3-0 (core mechanism); 2-1 (every-search overreach version)"
+      },
+      {
+        "claim": "Citymapper のアクセシブルルーティングは移動時間最小化ではなく『経路の簡潔さ』を意図的に最適化する——ユーザー文脈(移動制約等)が異なるとき『最速』が常に正しい目的関数ではないことを示す。",
+        "confidence": "high",
+        "sources": [
+          "https://citymapper.com/news/2004/wheelchair-accessible-routing",
+          "https://content.citymapper.com/news/2005/step-free-routes",
+          "https://citymapper.com/news/2262/inclusive-navigation-citymappers-step-free-routes"
+        ],
+        "evidence": "3つの独立Citymapper一次ページで逐語一致：'Routes prioritise simplicity over travel times'(news/2262は'Step-free routes prioritize simplicity over travel times, and walking times are adjusted for people with reduced mobility')。敵対的検索で学術裏付けが出現：RESNA論文(MyPath, Karimi)が'fastest routes are not optimal for wheelchair users'、ScienceDirect(S2667091725000664)とarXiv(2604.00795)がアクセシブルルーティングを多目的最短経路問題と定式化。3-0。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Citymapper は『WALK LESS』モードで屋外歩行時間を最小化し(できるだけ早く交通機関に乗せる)、これを雨・暑さ・湿気を避けるための快適性/天候機能として明示的に位置づける——環境/生活文脈をルーティングに埋め込む。",
+        "confidence": "high",
+        "sources": [
+          "https://citymapper.com/news/2548/routing-power-walk-less"
+        ],
+        "evidence": "Citymapper公式 news/2548 逐語：'We get you onto transport ASAP, minimising the time spent outdoors' および '☂️ This mode helps you avoid rain, heat, or humidity.' 機構は'routes ranked by the shortest duration of outdoor walking time'(歩行leg≤5分のみ)。二次 ridewithvia.com(2023-05-02)が悪天候/夜間の屋外歩行最小化と確認。3-0。caveat: 二次ソースは安全機能(夜間に女性が安心)としても位置づけるが、主張は排他性を主張しないため補完であり反証ではない。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Citymapper は運行障害を回避する経路計画を、機能していないネットワーク部分を除外することで実現し(計画運休とリアルタイム運休の両方)、かつ部分運休の路線では機能している区間を線区セグメント単位で残す。",
+        "confidence": "high",
+        "sources": [
+          "https://citymapper.com/news/495/route-around-disruptions"
+        ],
+        "evidence": "Citymapper公式 news/495 逐語：'eliminating parts of the network that are not functioning, including planned and real-time closures' および 'We understand where issues are so we keep working parts of lines still available.' エンジニアブログ(Medium, 2017-08-10)がF線の一部閉鎖時に稼働区間で経路する具体例を提示しセグメント単位の粒度を立証。Via(ridewithvia.com)がGTFS/RSS/Twitter等からの即時調整を確認。3-0。caveat: 一次ページは無日付・ブログは2017だが長年の中核機能。実行は不完全との苦情あり(機構自体は検証済)。",
+        "vote": "3-0"
+      },
+      {
+        "claim": "Citymapper はユーザーが選んだ特定路線(例 TTC地下鉄/路面電車/GO Train の個別路線)が運行障害を起こしたときだけ通知するプッシュ通知をオプトインでき、City ページで設定する——全路線への一律通知ではない個人化された遅延通知。",
+        "confidence": "high",
+        "sources": [
+          "https://citymapper.com/news/1454/get-notified-when-your-line-is-disrupted",
+          "https://citymapper.com/news/858"
+        ],
+        "evidence": "Citymapper公式 news/1454 逐語：'receive alerts when your line is disrupted' / 'Pick among all TTC subway, streetcar and GO Train routes' / 'Go to the City page to setup your notifications.' タイトル'your line'(単数/個人)が路線選択を補強。SEPTAページ(news/858)がCITYタブからの'Line status alerts'設定フローを裏付け。'commute only'トグルも存在。3-0。caveat: Toronto固有の旧告知でUIラベルは変化の可能性、通知の信頼性/遅延への苦情あり(オプトイン機能の存在は反証されない)。",
+        "vote": "3-0"
+      }
+    ],
+    "caveats": "時間依存性とソース品質に関する注意：(1) 競合機能のソースは Wanderlog/Citymapper の自社ドキュメント・告知ページ(一次だが販促隣接)が中心。記述的な機能存在主張には適切だが、精度/効能のベンチマークではないため『どれだけうまく動くか』は別問題(実際、Citymapper の通知信頼性や Wanderlog 固有アドレスの発見しにくさに第三者苦情がある)。(2) Citymapper の地域限定性が重要：step-free・disruption・通知機能はすべて対応地域(17→27地域へ拡大中)に限定され、日本市場(Aneurasync の主戦場)でのカバレッジは本リサーチで未確認。日本の鉄道/バスデータ整備状況は別途検証が必要。(3) 学術的な核心根拠(Lima 2016, Ziebart 2008)は車/運転データに基づく——徒歩・公共交通・日本の都市文脈への外挿は理論的に妥当だが実証は限定的。歩行者特化の MEDIRL-IC(2024)が個人差の重要性を補強するが本文フェッチ不可でアブストラクト依拠。(4) 反証された主張4件に注意：『20回超でルートをロックイン可能(Gini 0.6 閾値)』は 0-3 で完全反証されたため、確信度の高い『ロックイン閾値』を製品設計の前提にしてはならない——ルート学習は確率的・継続更新型(MaxEnt 的)であるべき。『Wanderlog の最適化=移動時間+燃料(車中心)』も split のため、Aneurasync は徒歩/公共交通を含む multimodal 最適化として批判的に取り込むべき。『Citymapper が移動制約者向けに歩行時間を個人化調整』も 1-2 split のため、個人化された歩行速度推定は『競合が既にやっている』ではなく『Aneurasync が独占しうる gap』として扱える。(5) Wanderlog/Citymapper の複数の一次URLが WebFetch に HTTP 403/418 を返したため、検証は検索インデックス＋姉妹記事＋直接フェッチ可能だった公式FAQの三重確認に依拠している(load-bearing な逐語引用はすべて代替経路で確認済)。",
+    "openQuestions": [
+      "日本市場での実装可能性：Citymapper の step-free/運行障害/路線別通知が依拠する駅構内アクセシビリティデータ・GTFS-RT 等は日本の鉄道事業者(JR/私鉄/地下鉄)でどこまで取得可能か。vanilla Google Maps JS API + Supabase の現スタックで、徒歩個人化・運行障害回避・線区セグメント単位の表示はどこまで実現でき、どこから外部データ依存(=新規依存・課金)になるか。",
+      "観測すべき信号の具体設計：Lima/Ziebart の知見を /plan Map に落とす場合、『第二の自己化する地図』が学習すべき個人化信号は具体的に何か(常用ルート・時間帯別選好・移動手段選好・天候/体調による変化・選んだ代替ルート・滞在時間パターン等)。これらを localStorage/Supabase でどう versioned に蓄積し、MaxEnt 的な『選択を尊重する確率モデル』をクライアントサイドでどう近似実装するか(完全な逆強化学習は重いため)。",
+      "選択理由の言語化との接続：本リサーチの競合・学術知見は『行動(どのルートを選んだか)』の学習が中心で、Aneurasync 固有の『選択理由の言語化』『なぜそのルート/手段を選んだかの自己理解』にどう橋渡しするか。Alter(第二の自己)が地図上の移動選択を観測して『あなたはこういう時こう動くタイプ』と返す体験設計は未解明。",
+      "ルート変更の説明可能性(explainability)の具体手法：『なぜルートが変わったか』を説明する査読研究は本リサーチでは MaxEnt の報酬関数解釈以上の具体的UI/説明生成手法まで到達していない。ユーザーが選んだ代替を尊重しつつ、システム提案との差分を非侵襲的に提示する説明UIの設計パターン(Google Maps の Ask Maps が実際に何をどう説明しているかの精査含む)は追加調査が必要。"
+    ],
+    "refuted": [
+      {
+        "claim": "Wanderlog's optimization objective is to minimize travel time AND fuel (gas), implying a car/driving-centric model rather than a multimodal (walk/transit) optimization.",
+        "vote": "1-2",
+        "source": "https://help.wanderlog.com/hc/en-us/articles/13545624787867-Optimize-route"
+      },
+      {
+        "claim": "Citymapper personalizes pedestrian travel-time estimates by adjusting walking times for people with reduced mobility, rather than using a single generic walking speed for all users.",
+        "vote": "1-2",
+        "source": "https://citymapper.com/news/2004/wheelchair-accessible-routing"
+      },
+      {
+        "claim": "Route choice exhibits a learnable 'adaptation process': repeated journeys converge on one dominant preferred route (median normalized Gini coefficient 0.6 across routine trips), and once an individual repeats a journey more than 20 times a single route comes to dominate their choices. This gives a concrete signal/threshold for when a 'second self' map can confidently lock in a user's preferred route.",
+        "vote": "0-3",
+        "source": "https://royalsocietypublishing.org/doi/10.1098/rsif.2016.0021"
+      },
+      {
+        "claim": "Mainstream routing applications optimize only for shortest distance or time and ignore individual user preferences and current situational context, leaving a gap that personalized routing can fill.",
+        "vote": "1-2",
+        "source": "https://arxiv.org/abs/1602.09076"
+      }
+    ],
+    "sources": [
+      {
+        "url": "https://help.wanderlog.com/hc/en-us/articles/13545624787867-Optimize-route",
+        "quality": "primary",
+        "angle": "Wanderlog 徹底解剖（最重要・主機能）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://help.wanderlog.com/hc/en-us/articles/4625693334811-Add-flight-hotel-and-rental-car-details-by-forwarding-an-email",
+        "quality": "primary",
+        "angle": "Wanderlog 徹底解剖（最重要・主機能）",
+        "claimCount": 4
+      },
+      {
+        "url": "https://www.wandrly.app/reviews/wanderlog",
+        "quality": "blog",
+        "angle": "Wanderlog 徹底解剖（最重要・主機能）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://ridewithvia.com/resources/how-citymapper-handles-unplanned-disruptions",
+        "quality": "secondary",
+        "angle": "Citymapper 生活文脈ルーティング",
+        "claimCount": 5
+      },
+      {
+        "url": "https://citymapper.com/news/2004/wheelchair-accessible-routing",
+        "quality": "primary",
+        "angle": "Citymapper 生活文脈ルーティング",
+        "claimCount": 5
+      },
+      {
+        "url": "https://content.citymapper.com/news/2577/find-the-best-accessible-journey-with-step-free-routes",
+        "quality": "primary",
+        "angle": "Citymapper 生活文脈ルーティング",
+        "claimCount": 5
+      },
+      {
+        "url": "https://citymapper.com/news/2548/routing-power-walk-less",
+        "quality": "primary",
+        "angle": "Citymapper 生活文脈ルーティング",
+        "claimCount": 4
+      },
+      {
+        "url": "https://citymapper.com/news/495/route-around-disruptions",
+        "quality": "primary",
+        "angle": "Citymapper 生活文脈ルーティング",
+        "claimCount": 3
+      },
+      {
+        "url": "https://citymapper.com/news/1454/get-notified-when-your-line-is-disrupted",
+        "quality": "primary",
+        "angle": "Citymapper 生活文脈ルーティング",
+        "claimCount": 4
+      },
+      {
+        "url": "https://royalsocietypublishing.org/doi/10.1098/rsif.2016.0021",
+        "quality": "primary",
+        "angle": "個人化移動推定・経路選好学習（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.researchgate.net/publication/384274698_Enhancing_Pedestrian_Route_Choice_Models_Through_Maximum-Entropy_Deep_Inverse_Reinforcement_Learning_With_Individual_Covariates_MEDIRL-IC",
+        "quality": "primary",
+        "angle": "個人化移動推定・経路選好学習（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.ri.cmu.edu/pub_files/2008/7/AAAI2008-bziebart.pdf",
+        "quality": "primary",
+        "angle": "個人化移動推定・経路選好学習（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/abs/1602.09076",
+        "quality": "primary",
+        "angle": "個人化移動推定・経路選好学習（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.sciencedirect.com/science/article/abs/pii/S1366554524000759",
+        "quality": "primary",
+        "angle": "個人化移動推定・経路選好学習（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.sciencedirect.com/science/article/abs/pii/S0198971522001107",
+        "quality": "unreliable",
+        "angle": "個人化移動推定・経路選好学習（査読研究）",
+        "claimCount": 0
+      },
+      {
+        "url": "https://arxiv.org/abs/2506.05604",
+        "quality": "primary",
+        "angle": "意図/文脈認識ナビ・経路変更の説明可能性（査読研究）",
+        "claimCount": 4
+      },
+      {
+        "url": "https://arxiv.org/pdf/2403.03585",
+        "quality": "primary",
+        "angle": "意図/文脈認識ナビ・経路変更の説明可能性（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/pdf/2603.03325",
+        "quality": "primary",
+        "angle": "意図/文脈認識ナビ・経路変更の説明可能性（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://arxiv.org/pdf/2206.10598",
+        "quality": "primary",
+        "angle": "意図/文脈認識ナビ・経路変更の説明可能性（査読研究）",
+        "claimCount": 5
+      },
+      {
+        "url": "https://www.autoevolution.com/news/google-maps-navigation-is-so-bad-that-it-makes-me-want-to-switch-to-a-paper-map-253979.html",
+        "quality": "unreliable",
+        "angle": "既存Mapへのユーザー不満の定性シグナル",
+        "claimCount": 0
+      },
+      {
+        "url": "https://support.google.com/maps/thread/352070108/google-maps-does-not-remember-my-route-options",
+        "quality": "unreliable",
+        "angle": "既存Mapへのユーザー不満の定性シグナル",
+        "claimCount": 0
+      },
+      {
+        "url": "https://www.androidpolice.com/google-maps-has-a-big-problem-and-its-getting-worse-in-2026/",
+        "quality": "blog",
+        "angle": "既存Mapへのユーザー不満の定性シグナル",
+        "claimCount": 4
+      },
+      {
+        "url": "https://tech.slashdot.org/story/23/08/07/216200/google-maps-has-become-an-eyesore",
+        "quality": "secondary",
+        "angle": "既存Mapへのユーザー不満の定性シグナル",
+        "claimCount": 5
+      }
+    ],
+    "stats": {
+      "angles": 5,
+      "sourcesFetched": 23,
+      "claimsExtracted": 93,
+      "claimsVerified": 25,
+      "confirmed": 21,
+      "killed": 4,
+      "afterSynthesis": 15,
+      "urlDupes": 0,
+      "budgetDropped": 7,
+      "agentCalls": 105
+    }
+  }
+}
