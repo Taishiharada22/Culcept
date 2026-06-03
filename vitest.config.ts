@@ -11,6 +11,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      // server-only は react-server condition 置換前提で非置換環境では throw する。
+      // test では no-op stub に解決（production の Next.js bundler 挙動は不変）。
+      "server-only": path.resolve(__dirname, "tests/stubs/server-only.ts"),
     },
   },
 });
