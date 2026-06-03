@@ -133,7 +133,7 @@ describe("redaction-guard — assertRedacted catches leaks (and is itself leak-s
   it("複数箇所の raw → すべての path を列挙", () => {
     const v = assertShadowSummaryRedacted(summary({ bestRef: RAW, rejected: [{ ref: RAW as string, gates: ["safety"] }] }));
     expect(v.clean).toBe(false);
-    expect(v.offendingPaths.sort()).toEqual(["bestRef", "rejected[0].ref"]);
+    expect([...v.offendingPaths].sort()).toEqual(["bestRef", "rejected[0].ref"]);
   });
 });
 

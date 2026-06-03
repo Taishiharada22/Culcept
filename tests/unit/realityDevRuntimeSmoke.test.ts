@@ -7,7 +7,7 @@ import type { RealityInput } from "@/lib/plan/reality/integration/input-adapter"
 const CEO = "ceo-user-id";
 
 function input(n: number, p: Partial<RealityInput> = {}): RealityInput {
-  const anchors: RealityInput["anchors"] = {};
+  const anchors: Record<string, RealityInput["anchors"][string]> = {};
   for (let i = 0; i < n; i++) {
     anchors[`anchor-real-${i}`] = {
       governance: { origin: "imported", authority: "import_locked", flexibility: "locked", protectionReasons: ["hard_external"] },
