@@ -29,13 +29,15 @@
  *   - session recent places memory (C3 候補)
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   formatCanonicalLocationText,
   isCanonicalLocationText,
 } from "@/lib/shared/canonicalLocationText";
 import { classifyPlaceIntent } from "@/lib/plan/intentClassification";
+import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
+import { rerankGoogleCandidatesByActivity } from "@/lib/plan/compose/placeCandidateRanking";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -105,6 +107,12 @@ export interface PlaceCandidatesPanelProps {
    * (= intentType + title + locationText の 3 軸 key で 「同一検索」 を判定)。
    */
   initialClosedAtSearchKey?: string;
+  /**
+   * P1A-2a: true の時のみ Google 候補を予定タイプ(activityKey)に寄せて gentle reorder
+   * ＋ type 整合の fact reason 表示。default false ＝ 従来挙動（AnchorFormFields は不変）。
+   * persona / 履歴 / 距離 / 外部API は一切使わない。generic（title 空含む）は並べ替えない。
+   */
+  rankByAffinity?: boolean;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,6 +125,7 @@ export function PlaceCandidatesPanel({
   onSelect,
   onSkip,
   initialClosedAtSearchKey = null as unknown as string,
+  rankByAffinity = false,
 }: PlaceCandidatesPanelProps) {
   const [debouncedQuery, setDebouncedQuery] = useState<string>(query);
   const [debouncedTitle, setDebouncedTitle] = useState<string>(title);
@@ -289,6 +298,15 @@ export function PlaceCandidatesPanel({
     };
   }, []);
 
+  // ── P1A-2a: opt-in gentle reorder（persona 非関与・generic は Google 順維持）──
+  const displayList = useMemo(
+    () =>
+      rankByAffinity
+        ? rerankGoogleCandidatesByActivity(results, classifyActivityIconKey(title))
+        : results.map((candidate) => ({ candidate, typeReason: null as string | null })),
+    [rankByAffinity, results, title],
+  );
+
   // ── handlers ──
   const handleSelect = (c: PlaceCandidate) => {
     abortRef.current?.abort();
@@ -437,7 +455,7 @@ export function PlaceCandidatesPanel({
       {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale) */}
       {!loading && results.length > 0 && (
         <ul className="space-y-1.5" data-testid="plan-place-candidates-list">
-          {results.map((c) => (
+          {displayList.map(({ candidate: c, typeReason }) => (
             <li key={c.placeId}>
               <button
                 type="button"
@@ -465,6 +483,15 @@ export function PlaceCandidatesPanel({
                 {c.distanceMeters !== null && (
                   <p className="text-[10px] text-slate-400 tabular-nums mt-0.5">
                     {formatDistance(c.distanceMeters)}
+                  </p>
+                )}
+                {/* P1A-2a: type 整合の fact reason のみ（距離は数値で既出のため出さない） */}
+                {typeReason && (
+                  <p
+                    data-testid="plan-place-candidate-reason"
+                    className="text-[10px] text-indigo-500 mt-0.5"
+                  >
+                    {typeReason}
                   </p>
                 )}
               </button>

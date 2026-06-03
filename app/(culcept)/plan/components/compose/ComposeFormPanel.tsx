@@ -146,6 +146,7 @@ export function ComposeFormPanel({
           title={core.title}
           biasContext={biasContext}
           sensitive={false}
+          rankByAffinity
           onSelect={(canonicalText) =>
             onCoreChange?.({ locationText: canonicalText })
           }
