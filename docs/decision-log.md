@@ -15124,3 +15124,9 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **ステータス**: VLM runtime chain **PASS**。branch `feat/plan-pdf-image-import`、未 merge / 未 push。次: **B1b-2C-6 host wiring mini design**（実装は別 gate）。server action / upload UI / 本流入口 / 保存 / production はさらに次 gate。
 
 ---
+
+## SR B1b-2C-9-FIX-2 combined mode Phase A 複数月 PASS（2026-06-03）
+
+[2026-06-03] [Build] B1b-2C-9-FIX-2 combined mode Phase A 複数月 PASS — 2025/7 + 別月で列対応 drift 解消を CEO 目視確認。split FAIL の構造仮説（2枚別画像で VLM が列対応保持できない）を強く支持した。env 既定 split 維持、production 不変。DB write なし。[承認: CEO]
+
+---
