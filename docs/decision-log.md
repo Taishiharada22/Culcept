@@ -14907,6 +14907,17 @@ main 未合流の 5 並行セッションブランチを安全統合するため
 - **制約**: source branch 編集なし / push・PR なし / rebase・reset・clean・stash・force push 禁止 / full verify + CEO smoke まで main 反映しない
 - **次**: CEO の統合実行 GO 待ち（+ serene-bardeen 停止確認）
 
+### Revision 2（2026-06-04・全セッション回答 + GPT レビュー反映）
+全 5 セッション（SH/NT/SB/FH）の回答受領 + GPT レビューを受け、 **実 git 再検証**の上で統合 plan を補正。 統合実行は引き続き HOLD。
+- **★MapTab 事実訂正**: GPT/FH の「FH×NT MapTab 衝突」は **merge 機構上は誤り**を git で実証 — MapTab を変更しているのは **FH のみ**（NT は不変更）、 `merge-tree FH×NT` = **クリーン**。 ＝merge 衝突なし。 ただし FH 自身の推奨どおり、 1462 行 MapTab は `lib/plan/transport` バイパスの大規模書換で **§11.4 CEO アーキ判断後に再適用** → **FH docs 6 本は統合 / MapTab code は HOLD**（safety tag b69aa809 で保全）
+- **★R5 訂正**: FH HOLD と整合させ、 SH/NT/SB/LP は全 commit 到達、 FH は docs 到達 + MapTab tag 保全を成功条件に
+- **★dirty 訂正**: 「5 worktree 全 clean」は不正確（cross-worktree 読みはサンドボックス不可）。 統合対象 tracked ソースは clean、 SH に dev-preview 未コミット / NT に supabase/.temp（scope-out）— 統合に持ち込まない
+- **CalendarTab union**: LP memoized selectedDateObj（freeze 根治）を残し SH viewMode/月グリッド graft、 SH 月モード 6 配線厳守、 `calendarMonthGridEnabled` gate 維持（smoke のみ ON）、 SH co-review
+- **PlanClient union**: SH dayIndicator 配線 + NT compose/adaptive（保存契約 edits=PATCH/news=POST1回/refetch）+ LP cosmetic、 SH+NT review
+- **final tips（freeze 済）**: SH a1024625 / NT aeb5332c / SB 34cf967d / FH b69aa809 / LP 2b0637fb
+- **詳細**: `docs/plan-multi-session-integration-audit-2026-06-04.md` § Revision 2
+- **次**: 統合実行 GO は CEO 最終判断（merge 実行はまだ NO）
+
 ---
 
 ## [2026-06-01] [Build] Phase 6 — /calendar 画面を /plan へ redirect（UI 到達封鎖）[承認: CEO]

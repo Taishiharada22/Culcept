@@ -142,3 +142,83 @@ base = main (9afdcaf9) から integration branch を新規作成
 - 衝突候補: `git diff --name-only main...<branch>` を 5 本分 union し、≥2 出現を抽出
 - 衝突予測: `git merge-tree --write-tree --name-only <A> <B>`（exit≠0＝衝突）
 - HEAD 突合: `git rev-parse --short <branch>` vs safety tag
+
+---
+
+# Revision 2（2026-06-04・全セッション回答 + GPT レビュー反映）
+
+各セッション（SH/NT/SB/FH）の回答受領 + GPT レビューを受け、 **実 git で再検証**した上で統合 plan を補正。 **統合実行は引き続き HOLD**（docs 補正 + final tip 再確認まで GO・merge 実行は CEO 最終 GO 待ち）。
+
+## R2-1. ★ MapTab.tsx の事実訂正（GPT/FH の「FH×NT 衝突」は merge 機構上は誤り）
+**git 検証結果（現 HEAD）:**
+- `MapTab.tsx` を main 比で変更しているのは **FH のみ**（+1462/-30）。**NT は MapTab を一切変更していない**（LP/SH/SB も）。
+- **`git merge-tree FH × NT` = ✅ 完全クリーン（衝突ゼロ）**。
+- 5 本の overlap マトリクスに **MapTab は出現しない**（= 2 ブランチ同時変更ではない）。
+
+→ FH の「1492 行乖離」は **FH の MapTab vs main**（main からの書換量）であり、**FH×NT の merge 衝突ではない**。**git merge は clean**。GPT が増幅した「MapTab で事故る/計画作り直し」の **merge 機構リスクは存在しない**。
+
+**ただしアーキ判断は別軸で有効:** FH の 1462 行 MapTab は `lib/plan/transport`（/plan 正本層）をバイパスする大規模書換で、FH 自身が「§11.4 の CEO アーキ判断（表示哲学/正本置き場/MapTab アーキ）後に再適用」を推奨。 = **git 衝突ではなく「この実装を main に載せるかの製品判断」**。
+
+**→ FH の確定扱い:**
+- **FH docs 6 本**（`plan-map-handoff.md` / `plan-map-research-findings.md` / `plan-map-second-self-strategy.md` / `alter-plan-time-layers-mobility-design.md` / research raw json ×2）= 他と別ファイル・**衝突ゼロ → 統合に含める**。
+- **FH `MapTab.tsx` code = 今は統合しない（HOLD）**。§11.4 の CEO アーキ決定後に、選定アーキ上へ UI/UX 資産（ガラス線/Lucide/MobilityLegCard/S1-A 永続化/所要時間比較）を再適用。safety tag `safety/preinteg-20260604b/frosty-hellman-b3305e → b69aa809` で保全。
+
+## R2-2. ★ R5「喪失ゼロ証明」の訂正（FH HOLD と整合）
+- **SH / NT / SB / LP**: `git rev-list <branch> ^integration` が **空**（= 全 commit 到達）を成功条件にする。
+- **FH**: MapTab code を HOLD するため `rev-list FH ^integration` は**空にならないのが正**。 FH の成功条件は **「docs 6 本が integration に到達」+「MapTab code が safety tag `…b/frosty-hellman` で保全」**。 ＝「喪失ゼロ証明」と「FH HOLD」を両立。
+
+## R2-3. ★ dirty 状態の正直な訂正
+- 「5 worktree 全て clean」は**不正確**（私の cross-worktree `git -C` 読みはサンドボックスで空返し＝信頼不可。 各セッション自己申告を採用）。
+- 正確: **統合対象の git-tracked ソースは各セッション clean**。 ただし:
+  - **SH**: 統合対象外の dev-preview 2 file（`dev-month-grid/page.tsx` / `DevMonthGridClient.tsx`）未コミット。 統合に含めない。 safety tag では保全されない（不要なら放置・必要なら SH が退避）。
+  - **NT**: `supabase/.temp/cli-latest`（scope-out・**絶対 add しない**）。
+- → integration には**各セッションの tracked HEAD のみ**を使う。 上記 dirty は持ち込まない。
+
+## R2-4. final tips（全セッション freeze 確認済）+ green
+| | final tip | freeze | green（自己申告 / R1 で再検証）|
+|---|---|---|---|
+| SH | `a1024625` | ✅ 停止（以降 read-only）| tsc baseline +0 / 新規 60+ test PASS / full suite 未実行 |
+| NT | `aeb5332c` | ✅ hold | tsc 1112 / vitest 15900 PASS |
+| SB | `34cf967d` | ✅ 停止 | tsc 0 / vitest 15933 PASS |
+| FH | `b69aa809` | ✅ 停止（docs-only 以降）| MapTab tsc0/eslint0 / full suite 未実行 |
+| LP | `2b0637fb` | （ドライバー）| baseline 1116 維持 |
+- safety tag: 初版 `…20260604/*` + 移動分 refresh `…20260604b/*`（FH=b69aa809・LP=2b0637fb）。 **統合直前に全 final tip を tag と再突合**。
+
+## R2-5. CalendarTab union 確定仕様（SH invariant 反映）
+- **週間モード = 既存週ビュー + LP outfit dashboard + 既存 day timeline**（3 要素保持）/ **月モード = SH MonthGridView**。 union のみ・片側選択禁止。
+- **🔑 stack fix（freeze 根治）**: LP の `selectedDateObj = useMemo(...)` を**必ず残し**、 そこに SH の `viewMode`/月グリッドを graft。 SH の `new Date()` 直書きを採ると freeze 再発 → 禁止。
+- **🔑 SH の月モード必須 6 配線を全部残す**: ①8 import（_monthGrid/MonthGridView/CalendarViewBody/CalendarViewToggle/calendarViewMode/monthGridChip/shiftAnchorChip/DayIndicatorBadge）②`viewMode` state + `DEFAULT_CALENDAR_VIEW_MODE` ③`showViewToggle = shouldShowCalendarViewToggle(PLAN_FLAGS.calendarMonthGridEnabled)` + `<CalendarViewToggle>` ④`monthGrid = useMemo(buildMonthGrid(...))` ⑤`monthGridProps`（特に `getAnchorChip: resolveShiftAnchorChip` と `dayIndicatorByIso`）⑥**week strip を `<CalendarViewBody>` で wrap**（外すと月が永遠に出ない）。
+- **PLAN_FLAGS**: `calendarMonthGridEnabled` gate は **雑に外さず維持（default OFF）**。 在 app 取込入口（SR Step6/M5）未実装のため、 外すと「月は見えるが取り込めない行き止まり」。 **smoke 時のみ env で ON**、 本番常時表示は取込入口完成後に CEO 判断。
+- union 後、 **SH に CalendarTab diff を co-review 依頼**（シフト半分の取りこぼしゼロ確認）。
+
+## R2-6. PlanClient union 確定仕様（3-way: LP cosmetic + SH dayIndicator + NT compose）
+- merge-tree: 真衝突は **SH×NT**。 LP の変更（calendar タブ背景色 cosmetic）は両者とクリーン。
+- **SH 側 6 配線を残す**: `PlanDayIndicator`/`dayIndicatorsByDate` import / fetch state `dayIndicators` / `dayIndicatorByIso = useMemo` / CalendarTab・FlowTab へ `dayIndicatorByIso` を渡す（落とすと休み/希望休が grid から消える）。
+- **NT 側を残す**: `composeTimelineEnabled` prop 受け / `shouldUseComposeSheet()` gating / compose sheet mount / `handleAddSuccess`（**保存後 `load()` で refetch・楽観 append しない**＝保存契約）。
+- → render return から **両 UI 面（calendar view 面 / compose sheet 面）が消えていないこと**を diff 確認。 union 後 **SH + NT 両方に diff review 依頼**。
+
+## R2-7. その他の shared union（全て加算的）
+- `featureFlags.ts`: SH 3 key（`shiftImportSave`/`vlmInputMode`/`calendarMonthGridEnabled`）+ NT 1 key（`composeTimelineEnabled`）= **全 key distinct → 加算 union**。
+- `external-anchor-input.ts`: SH 取込経路 + NT compose 経路（`composeToAnchorInput`/`planComposeSave`）= **型フィールド union + 生成経路両保持**。 NT 保存契約（edits=PATCH のみ / news=POST 1 回）厳守。
+- `vitest.config.ts`: SB の `server-only`→stub alias 1 行 = **union**（他が触れば両 alias 保持）。
+- `decision-log.md`: 3-way **全 entry union**（時系列保持）。
+
+## R2-8. 修正版 統合シーケンス
+```
+Phase 0: final tip 再確認 / safety tag 突合 / scope-out dirty 確認 / 本 docs（Rev2）
+Phase 1（integration worktree on main 9afdcaf9・各 merge 後 tsc/test + checkpoint tag）:
+   SB full → NT full → LP full → SH full(手動 union) → FH **docs-only**（MapTab code は HOLD）
+Phase 2: CalendarTab union（R2-5・flag gate 維持・smoke 時のみ ON）
+Phase 3: PlanClient union（R2-6）
+Phase 4: featureFlags / external-anchor-input / vitest.config / decision-log union（R2-7）
+Phase 5: full verify（tsc/test/eslint/build/dev smoke）+ SH diff review + NT diff review + FH docs 確認 + CEO smoke
+         + R5 喪失ゼロ証明（R2-2・FH は docs 到達 + MapTab tag 保全）
+Phase 6: main 反映は CEO 最終 GO 後のみ
+```
+
+## R2-9. まだ GO してはいけないこと（再掲）
+5 本丸ごと merge / FH MapTab code merge / main 反映 / PLAN_FLAGS gate 削除 / CalendarTab・PlanClient 片側採用 / R5 で FH も全 commit 到達と主張。
+
+## R2-10. 次に GO してよいこと（本 Rev で実施済 + 残）
+- 実施済: 本 docs Rev2 補正 / 全セッション回答の反映 / MapTab git 再検証 / final tip 確認。
+- 残（実行 GO 後）: integration worktree 作成 → Phase 0-6。 + 各セッションへの diff review 依頼（CalendarTab→SH / PlanClient→SH+NT / docs→FH）。
