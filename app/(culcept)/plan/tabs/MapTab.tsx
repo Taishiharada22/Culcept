@@ -52,6 +52,7 @@ import {
   type GmapsLatLng,
   type GmapsMap,
   type GmapsMarker,
+  type GmapsMarkerOptions,
   type GmapsPolyline,
   type GmapsPolylineOptions,
 } from "@/lib/shared/googleMapsLoader";
@@ -158,6 +159,14 @@ export function MapTab({
   // ── selectedPinId state (= 旧 newSelectedPinId、 9 closeout で rename) ──
   //   default null = 8 場面表 #1 「初期 selected なし」
   const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  // v1 Step 2a: leg ごとのユーザー選択移動手段 (local state のみ、 DB 保存なし)
+  const [selectedModeByLeg, setSelectedModeByLeg] = useState<
+    Record<string, RouteTransportMode>
+  >({});
+  // v1 Step 2a: 開いている移動手段カードの legKey (null = 非表示)
+  const [openMobilityLegKey, setOpenMobilityLegKey] = useState<string | null>(
+    null,
+  );
 
   // ── 当日 anchor 取得 (= recurring 展開 + exception_dates 全継承) ──
   const dayAnchors = useMemo(
@@ -177,6 +186,7 @@ export function MapTab({
   // ── pin tap handler (= 8 場面表準拠、 同 pin = no-op / 別 pin = 切替) ──
   const handlePinTap = useCallback(
     (anchor: ExternalAnchor) => {
+      setOpenMobilityLegKey(null); // 相互排他: 移動手段カードを閉じる
       setSelectedPinId((prev) => (prev === anchor.id ? prev : anchor.id));
     },
     [],
@@ -283,6 +293,53 @@ export function MapTab({
     [dayAnchors, handlePinTap],
   );
 
+  // ── v1 Step 2a: 移動手段カード (leg チップ tap で開閉、 手段選択を local state へ) ──
+  const handleLegChipClick = useCallback((legKey: string) => {
+    setSelectedPinId(null); // 相互排他: pin sheet を閉じる
+    setOpenMobilityLegKey(legKey);
+  }, []);
+  const handleMobilityCardClose = useCallback(
+    () => setOpenMobilityLegKey(null),
+    [],
+  );
+  const handleSelectLegMode = useCallback(
+    (legKey: string, mode: RouteTransportMode) => {
+      setSelectedModeByLeg((prev) => ({ ...prev, [legKey]: mode }));
+    },
+    [],
+  );
+
+  // 開いている leg の card data (= from/to title + selectedMode + 過去判定 readOnly)
+  const mobilityCard = useMemo(() => {
+    if (!openMobilityLegKey) return null;
+    const sorted = [...allPins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    let idx = -1;
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      if (
+        legKeyOf(sorted[i]!.anchor.id, sorted[i + 1]!.anchor.id) ===
+        openMobilityLegKey
+      ) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return null;
+    const titleOf = (a: ExternalAnchor) =>
+      a.sensitiveCategory ? `[${SENSITIVE_LABEL[a.sensitiveCategory]}]` : a.title;
+    const ref = now ?? new Date();
+    const nowMin = ref.getHours() * 60 + ref.getMinutes();
+    const state = resolveLegState(idx, resolveFocusLegIndex(sorted, nowMin));
+    return {
+      legKey: openMobilityLegKey,
+      fromTitle: titleOf(sorted[idx]!.anchor),
+      toTitle: titleOf(sorted[idx + 1]!.anchor),
+      selectedMode: selectedModeByLeg[openMobilityLegKey] ?? null,
+      readOnly: state === "done", // 過去(2個前以前) = 編集不可 (実績の器)
+    };
+  }, [openMobilityLegKey, allPins, selectedModeByLeg, now]);
+
   // ── render (= 9 closeout: 単一 path、 flag check / 旧 UI なし) ──
   return (
     <div data-testid="plan-map-tab" className="relative">
@@ -297,6 +354,9 @@ export function MapTab({
         dayItemsForPanel={dayItemsForPanel}
         onDayItemTap={handleDayItemTap}
         selectedSheetForLabel={sheet}
+        selectedModeByLeg={selectedModeByLeg}
+        onLegChipClick={handleLegChipClick}
+        mobilityActive={openMobilityLegKey !== null}
       />
       <MapBottomSheet
         sheet={sheet}
@@ -304,6 +364,17 @@ export function MapTab({
         onOpenDetail={onAnchorClick ? handleOpenDetail : undefined}
         routeUrl={routeUrl}
       />
+      {mobilityCard && (
+        <MobilityLegCard
+          legKey={mobilityCard.legKey}
+          fromTitle={mobilityCard.fromTitle}
+          toTitle={mobilityCard.toTitle}
+          selectedMode={mobilityCard.selectedMode}
+          readOnly={mobilityCard.readOnly}
+          onSelect={handleSelectLegMode}
+          onClose={handleMobilityCardClose}
+        />
+      )}
     </div>
   );
 }
@@ -329,6 +400,9 @@ function PlanMapView({
   dayItemsForPanel,
   onDayItemTap,
   selectedSheetForLabel,
+  selectedModeByLeg,
+  onLegChipClick,
+  mobilityActive,
 }: {
   pins: AnchorWithCoord[];
   baselineCoords: BaselineCoords | null;
@@ -348,6 +422,12 @@ function PlanMapView({
   onDayItemTap?: (anchorId: string) => void;
   /** selected pin の sheet (= MapSelectedPinLabel + spatial binding 用、 null なら overlay 非表示) */
   selectedSheetForLabel?: MapSheetViewModel | null;
+  /** v1 Step 2a: leg ごとのユーザー選択移動手段 (= 線/チップの色に反映)。 */
+  selectedModeByLeg?: Record<string, RouteTransportMode>;
+  /** v1 Step 2a: leg チップ tap → 親へ legKey (= 移動手段カードを開く)。 */
+  onLegChipClick?: (legKey: string) => void;
+  /** v1 Step 2a: 移動手段カード表示中 (= DayItemsPanel と競合回避で hide)。 */
+  mobilityActive?: boolean;
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -357,6 +437,9 @@ function PlanMapView({
   // 9a-impl-fix1: background click handler ref (= Effect 1 内 listener が prop 変化に追従)
   const onBackgroundClickRef = useRef(onBackgroundClick);
   onBackgroundClickRef.current = onBackgroundClick;
+  // v1 Step 2a: leg チップ tap handler (= Effect 内 marker listener が prop 変化に追従)
+  const onLegChipClickRef = useRef(onLegChipClick);
+  onLegChipClickRef.current = onLegChipClick;
 
   // 9 closeout cleanup: activeCategories useMemo 削除済み
   //   (= 旧 legend (CategoryGrid 内) 専用、 DayItemsPanel が hybrid 凡例を兼ねるため不要)
@@ -472,6 +555,7 @@ function PlanMapView({
     );
     const routePolylines: GmapsPolyline[] = [];
     const routeAnimationTimers: number[] = [];
+    const legIconMarkers: GmapsMarker[] = [];
     let routeCancelled = false;
     if (
       sortedPins.length >= 2 &&
@@ -485,7 +569,34 @@ function PlanMapView({
         now.getHours() * 60 + now.getMinutes(),
       );
       // 区間ごとの表示 ViewModel (= 表示の器)。 state/mode をここで確定し、 描画は ViewModel を消費する
-      const legViewModels = buildRouteLegViewModels(sortedPins, focusLegIndex);
+      const legViewModels = buildRouteLegViewModels(
+        sortedPins,
+        focusLegIndex,
+        selectedModeByLeg,
+      );
+
+      // ── Mobility icon layer v1 Step 1: 各 leg 中点に「移動チップ」を表示 ──
+      //   displayMode の色で着色 (現状すべて unknown=中立スレート)。 done(過去) は faint。
+      //   Step 1 は表示のみ (clickable:false / state なし)。 Step 2 で tap→カード→手段切替を載せる。
+      //   ★距離推定はしない: 色は displayMode (= 実 selectedMode が無い今は unknown) に従うだけ。
+      for (const vm of legViewModels) {
+        // Step 1.1: 初期は直線中点 (描画後に道路ルート線の中点へ寄せる)
+        const mid = legChipPosition([vm.from, vm.to]);
+        const iconMarker = new maps.Marker({
+          map,
+          position: mid,
+          icon: {
+            url: mobilityLegIconDataUri(vm.displayMode, vm.state === "done"),
+            anchor: new maps.Point(MOBILITY_ICON_HALF, MOBILITY_ICON_HALF),
+          },
+          clickable: true, // Step 2a: tap → 移動手段カード
+        } as MobilityMarkerOptions);
+        // チップ tap → 親へ legKey を渡しカードを開く (= ref で最新 handler に追従)
+        iconMarker.addListener("click", () => {
+          onLegChipClickRef.current?.(vm.legKey);
+        });
+        legIconMarkers.push(iconMarker);
+      }
 
       // (1) 中立の直線を即描画 — ルート解決前 / DirectionsService 不可 / 失敗時の確実な表示
       let straightFallback: GmapsPolyline | null = new maps.Polyline({
@@ -501,24 +612,32 @@ function PlanMapView({
       // (2) DirectionsService が使える場合のみ、区間ごとの道路ルート + 階層 style へ差し替え (fail-open)
       const directionsService = createDirectionsService(maps);
       if (directionsService) {
-        const travelMode = drivingTravelMode(maps);
-        const pairs: Array<[GmapsLatLng, GmapsLatLng]> = [];
-        for (let i = 0; i < coords.length - 1; i += 1) {
-          pairs.push([coords[i]!, coords[i + 1]!]);
-        }
+        // 区間ごとに displayMode → API travelMode を解決して fetch (flight は道路ルートにしない)
         Promise.all(
-          pairs.map(([from, to]) =>
-            fetchRoadSegmentPath(directionsService, from, to, travelMode),
-          ),
+          legViewModels.map((vm) => {
+            const apiMode = toApiTravelMode(maps, vm.displayMode);
+            if (apiMode === null) {
+              return Promise.resolve<GmapsLatLng[] | null>(null); // flight → 空路 (arc/点線)
+            }
+            return fetchRoadSegmentPath(
+              directionsService,
+              vm.from,
+              vm.to,
+              apiMode,
+            );
+          }),
         )
           .then((segmentPaths) => {
             if (routeCancelled) return;
-            const anyRoadResolved = segmentPaths.some(
-              (p) => p != null && p.length > 0,
+            // 描けるものが 1 つも無い (= flight も無く全 fetch 失敗) → 中立直線のまま (ちらつき回避)
+            const anyDrawable = legViewModels.some(
+              (vm, i) =>
+                vm.displayMode === "flight" ||
+                (segmentPaths[i] != null && segmentPaths[i]!.length >= 2),
             );
-            if (!anyRoadResolved) return; // 全失敗 → 中立の直線のまま (ちらつき回避)
+            if (!anyDrawable) return;
 
-            // 直線 fallback を消して、区間ごとの階層 style へ差し替え
+            // 直線 fallback を消して、区間ごとの mode 別ジオメトリ + 階層 style へ
             straightFallback?.setMap(null);
             if (straightFallback) {
               const fi = routePolylines.indexOf(straightFallback);
@@ -528,19 +647,56 @@ function PlanMapView({
 
             for (let i = 0; i < legViewModels.length; i += 1) {
               const vm = legViewModels[i]!;
-              // 道路 path が取れた区間はそれを、 取れない区間は from→to 直線で補完
-              const legPath = segmentPaths[i] ?? [vm.from, vm.to];
+              const chip = legIconMarkers[i];
+
+              // 飛行機: 道路ルートにせず、空路風の arc を点線で描く (= 概念表示、 偽の道路は描かない)
+              if (vm.displayMode === "flight") {
+                const arc = flightArcPath(vm.from, vm.to);
+                routePolylines.push(
+                  new maps.Polyline({
+                    map,
+                    path: arc,
+                    strokeOpacity: 0,
+                    icons: dashedRouteIcons(ROUTE_MODE_COLORS.flight, 0.9, 3),
+                    zIndex: ROUTE_Z_AHEAD,
+                    clickable: false,
+                  } as RoutePolylineOptions),
+                );
+                if (chip) {
+                  (chip as GmapsMarkerWithSetPosition).setPosition(
+                    arc[Math.floor(arc.length / 2)]!,
+                  );
+                }
+                continue;
+              }
+
+              // 道路系: 取得できた区間は道路 path、 取れない区間 (TRANSIT/BICYCLING 失敗等) は
+              //   from→to 直線 + 点線化 (= 「この手段の経路は未対応」を正直に視覚化、 偽の道路は描かない)
+              const seg = segmentPaths[i];
+              const resolved = seg != null && seg.length >= 2;
+              const legPath: GmapsLatLng[] = resolved ? seg! : [vm.from, vm.to];
               if (legPath.length < 2) continue;
-              // 描画は ViewModel を消費 (state + displayMode)。 displayMode は実 data 無→unknown 中立色
-              const style = getRouteStyleForLeg(vm.state, vm.displayMode);
+              const baseStyle = getRouteStyleForLeg(vm.state, vm.displayMode);
+              const style = resolved ? baseStyle : { ...baseStyle, dashed: true };
               for (const line of buildRouteLegLines(maps, map, legPath, style)) {
                 routePolylines.push(line);
               }
-              // current(今→次) のみ: 「ゆっくり静かに呼吸する」glow を重ねる
-              if (shouldAnimateLeg(vm.state)) {
-                const glow = createRouteGlowAnimation(maps, map, legPath, style.color);
+              // glow は「解決した current(今→次)」区間のみ
+              if (resolved && shouldAnimateLeg(vm.state)) {
+                const glow = createRouteGlowAnimation(
+                  maps,
+                  map,
+                  legPath,
+                  style.color,
+                );
                 routePolylines.push(glow.polyline);
                 routeAnimationTimers.push(glow.timerId);
+              }
+              // チップを実際の描画 path 線上の中点へスナップ
+              if (chip) {
+                (chip as GmapsMarkerWithSetPosition).setPosition(
+                  legChipPosition(legPath),
+                );
               }
             }
           })
@@ -610,9 +766,10 @@ function PlanMapView({
       routeCancelled = true; // 進行中の道路ルート差し替えを無効化 (cleanup 後の描画防止)
       for (const t of routeAnimationTimers) clearInterval(t);
       for (const m of markers) m.setMap(null);
+      for (const m of legIconMarkers) m.setMap(null);
       for (const pl of routePolylines) pl.setMap(null);
     };
-  }, [pins, baselineCoords, selectedAnchorId]);
+  }, [pins, baselineCoords, selectedAnchorId, selectedModeByLeg]);
 
   // ─── Effect 3 (9b-2): pin screen position 計算 (= MapSelectedPinLabel spatial binding 用) ───
   //   selectedAnchorId 変化 + bounds_changed event で再計算、 setState で label に流す。
@@ -816,7 +973,7 @@ function PlanMapView({
        *     - sheet 閉じる (= ✕ or 余白 tap、 場面 #4/#7) で panel 再表示
        *     - pin 切替は map pin tap で行う (= 場面 #8、 panel 不要)
        */}
-      {dayItemsForPanel && onDayItemTap && !selectedSheetForLabel && (
+      {dayItemsForPanel && onDayItemTap && !selectedSheetForLabel && !mobilityActive && (
         <DayItemsPanel
           items={dayItemsForPanel}
           selectedId={selectedAnchorId}
@@ -861,6 +1018,91 @@ function MapPlaceholder({
     >
       <p className="text-sm text-slate-600">{text}</p>
       <p className="text-xs text-slate-400 mt-2">{sub}</p>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MobilityLegCard (v1 Step 2a): leg チップ tap で開く移動手段カード
+//   - 8 手段ボタン + 正直ラベル(note)。 選択で leg の selectedMode を local state 更新。
+//   - 過去(done) leg は readOnly (= 編集不可、 実績の器として表示のみ)。
+//   - ★経路ジオメトリの mode 別最適化は Step 2b。 今は「色」のみ反映 (偽の経路は描かない)。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function MobilityLegCard({
+  legKey,
+  fromTitle,
+  toTitle,
+  selectedMode,
+  readOnly,
+  onSelect,
+  onClose,
+}: {
+  legKey: string;
+  fromTitle: string;
+  toTitle: string;
+  selectedMode: RouteTransportMode | null;
+  readOnly: boolean;
+  onSelect: (legKey: string, mode: RouteTransportMode) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div data-testid="mobility-leg-card" className="absolute inset-x-3 bottom-3 z-20">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-lg">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="truncate text-sm font-semibold text-slate-800">
+            {fromTitle} <span className="text-slate-400">→</span> {toTitle}
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="閉じる"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100"
+          >
+            ✕
+          </button>
+        </div>
+        <p className="mb-2 text-xs text-slate-500">
+          移動手段{readOnly ? "（過去の移動・実績／編集不可）" : ""}
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          {MOBILITY_SWITCHABLE_MODES.map((mode) => {
+            const meta = MOBILITY_MODE_META[mode];
+            const active = selectedMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                disabled={readOnly}
+                onClick={() => onSelect(legKey, mode)}
+                aria-pressed={active}
+                className={`rounded-xl border px-1.5 py-2 text-center transition ${
+                  active
+                    ? "border-indigo-500 bg-indigo-50"
+                    : "border-slate-200 bg-white hover:bg-slate-50"
+                } ${readOnly ? "cursor-default opacity-50" : ""}`}
+              >
+                <span
+                  className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: ROUTE_MODE_COLORS[mode] }}
+                />
+                <span className="block text-xs font-medium text-slate-700">
+                  {meta.label}
+                </span>
+                {meta.note && (
+                  <span className="mt-0.5 block text-[10px] leading-tight text-amber-600">
+                    {meta.note}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[11px] text-slate-400">
+          現在表示：
+          {selectedMode ? MOBILITY_MODE_META[selectedMode].label : "未設定"}
+          {" ・ 推奨：未接続 ・ 実績：未接続"}
+        </p>
+      </div>
     </div>
   );
 }
@@ -948,6 +1190,7 @@ type RouteLegState = "done" | "previous" | "current" | "ahead";
 //   displayMode は ★距離推定をせず、 selectedMode があればそれ、 無ければ unknown。
 interface RouteLegViewModel {
   index: number;
+  legKey: string; // = `${fromAnchorId}__${toAnchorId}` (= 区間の安定キー)
   from: GmapsLatLng;
   to: GmapsLatLng;
   state: RouteLegState;
@@ -980,6 +1223,35 @@ const ROUTE_MODE_COLORS: Record<RouteTransportMode, string> = {
   flight: "#00acc1", // 飛行機 = シアン/空色
   unknown: "#64748b", // 不明 = 中立スレート
 };
+
+// 移動手段カードのボタン順 (unknown はボタンにしない)
+const MOBILITY_SWITCHABLE_MODES: RouteTransportMode[] = [
+  "walk",
+  "car",
+  "taxi",
+  "train",
+  "shinkansen",
+  "bus",
+  "bicycle",
+  "flight",
+];
+// 各手段の表示メタ。 note = 正直な経路対応状況 (★嘘の経路を見せないための明示)
+const MOBILITY_MODE_META: Record<RouteTransportMode, { label: string; note?: string }> = {
+  walk: { label: "徒歩" },
+  car: { label: "車" },
+  taxi: { label: "タクシー" },
+  train: { label: "電車", note: "乗換経路は地域により未対応" },
+  shinkansen: { label: "新幹線", note: "乗換経路は地域により未対応" },
+  bus: { label: "バス", note: "乗換経路は地域により未対応" },
+  bicycle: { label: "自転車", note: "日本は経路未対応・概念表示" },
+  flight: { label: "飛行機", note: "空路（概念表示）" },
+  unknown: { label: "未設定" },
+};
+
+/** 区間の安定キー (= from/to anchor id の組)。 selectedMode の保持と tap 識別に使う。 */
+function legKeyOf(fromAnchorId: string, toAnchorId: string): string {
+  return `${fromAnchorId}__${toAnchorId}`;
+}
 
 const ROUTE_DONE_COLOR = "#94a3b8"; // done(2 個前以前) = 薄いグレー波線で de-emphasize
 const ROUTE_FOCUS_CASING_COLOR = "#ffffff"; // current 区間 casing = 白 (= どの mode 色でも浮く)
@@ -1088,12 +1360,16 @@ function resolveTransportMode(leg: {
 function buildRouteLegViewModels(
   pins: AnchorWithCoord[],
   focusLegIndex: number,
+  selectedModeByLeg?: Record<string, RouteTransportMode>,
 ): RouteLegViewModel[] {
   const legs: RouteLegViewModel[] = [];
   for (let i = 0; i < pins.length - 1; i += 1) {
-    const selectedMode: RouteTransportMode | null = null; // 実 data 接続まで null
+    const legKey = legKeyOf(pins[i]!.anchor.id, pins[i + 1]!.anchor.id);
+    // selectedMode = ユーザーが手段カードで選んだ値 (= 推測ではない)。 無ければ null → unknown。
+    const selectedMode = selectedModeByLeg?.[legKey] ?? null;
     legs.push({
       index: i,
+      legKey,
       from: pins[i]!.coord,
       to: pins[i + 1]!.coord,
       state: resolveLegState(i, focusLegIndex),
@@ -1255,6 +1531,98 @@ function createRouteGlowAnimation(
   return { polyline: glow, timerId };
 }
 
+// ── Mobility icon layer v1 Step 1: leg 中点の「移動チップ」SVG ──
+//   小さな白丸 + mode 色の "↔"(移動) glyph。 unknown=中立スレート。 done(過去) は faint。
+//   Step 2 で mode 別 glyph (徒歩/電車/車…) + tap→カード→手段切替 を載せる土台。
+//   ★距離推定はしない (色は displayMode に従うだけ、 mode は実 data が来た時だけ確定)。
+const MOBILITY_ICON_SIZE = 26;
+const MOBILITY_ICON_HALF = 13;
+// GmapsMarkerOptions に clickable を足した local 拡張 (googleMapsLoader.ts は frozen)
+type MobilityMarkerOptions = GmapsMarkerOptions & { clickable?: boolean };
+// GmapsMarker に setPosition を足した local 拡張 (= チップを描画後に線上へ寄せる)
+type GmapsMarkerWithSetPosition = GmapsMarker & {
+  setPosition(latLng: GmapsLatLng): void;
+};
+
+/**
+ * leg の描画 path から「線上の中点」を返す (Step 1.1)。
+ *   - 直線中点ではなく実際のルート線の上にチップを置くための位置。
+ *   - 2 点 (直線 fallback) → 平均。 3 点以上 (道路 path) → 中央 index ≈ 視覚的中点。
+ *   - ★距離による mode 推定はしない (= 純粋に index/平均の幾何で位置を出すだけ)。
+ */
+function legChipPosition(path: GmapsLatLng[]): GmapsLatLng {
+  if (path.length <= 1) return path[0]!;
+  if (path.length === 2) {
+    return {
+      lat: (path[0]!.lat + path[1]!.lat) / 2,
+      lng: (path[0]!.lng + path[1]!.lng) / 2,
+    };
+  }
+  return path[Math.floor(path.length / 2)]!;
+}
+
+function mobilityLegIconDataUri(mode: RouteTransportMode, faint: boolean): string {
+  const color = ROUTE_MODE_COLORS[mode];
+  const opacity = faint ? 0.45 : 1;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${MOBILITY_ICON_SIZE}" height="${MOBILITY_ICON_SIZE}" viewBox="0 0 26 26">` +
+    `<g opacity="${opacity}">` +
+    `<circle cx="13" cy="13" r="10.5" fill="#ffffff" stroke="${color}" stroke-width="2"/>` +
+    mobilityGlyphMarkup(mode, color) +
+    `</g></svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+/** mode 別のチップ glyph (= 円内の線画ピクト)。 v1: 簡易 primitive、 後で polish 可。 */
+function mobilityGlyphMarkup(mode: RouteTransportMode, c: string): string {
+  const S = `stroke="${c}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"`;
+  const car =
+    `<path d="M5.6 16 L7.2 12.4 H16.4 L19.4 16" ${S}/>` +
+    `<path d="M5 16 H21" ${S}/>` +
+    `<circle cx="8.6" cy="16.6" r="1.4" fill="${c}"/><circle cx="16.6" cy="16.6" r="1.4" fill="${c}"/>`;
+  switch (mode) {
+    case "walk":
+      return (
+        `<circle cx="13" cy="7.6" r="1.7" fill="${c}"/>` +
+        `<path d="M13 9.4 V13.8 M13 13.8 L10.6 18.4 M13 13.8 L15.4 18 M12.8 11 L10.2 12.4 M12.8 11.4 L15.6 12.8" ${S}/>`
+      );
+    case "car":
+      return car;
+    case "taxi":
+      return car + `<rect x="11" y="9" width="4" height="2" rx="0.4" fill="${c}"/>`;
+    case "bus":
+      return (
+        `<rect x="6.6" y="8" width="12.8" height="9" rx="1.6" ${S}/>` +
+        `<path d="M6.6 13.4 H19.4" ${S}/>` +
+        `<circle cx="9.6" cy="18.2" r="1.2" fill="${c}"/><circle cx="16.4" cy="18.2" r="1.2" fill="${c}"/>`
+      );
+    case "train":
+      return (
+        `<path d="M8 17 V11.2 A5 5 0 0 1 18 11.2 V17 Z" ${S}/>` +
+        `<path d="M9.6 12.6 H16.4" ${S}/>` +
+        `<circle cx="10.6" cy="15" r="0.9" fill="${c}"/><circle cx="15.4" cy="15" r="0.9" fill="${c}"/>`
+      );
+    case "shinkansen":
+      return (
+        `<path d="M7.5 17 V13 Q13 5.5 18.5 13 V17 Z" ${S}/>` +
+        `<path d="M10 12.8 H16" ${S}/>` +
+        `<circle cx="13" cy="14.6" r="0.9" fill="${c}"/>`
+      );
+    case "bicycle":
+      return (
+        `<circle cx="8.6" cy="16.4" r="3" ${S}/><circle cx="17.4" cy="16.4" r="3" ${S}/>` +
+        `<path d="M8.6 16.4 L13 11 L17.4 16.4 M11 11 H14.6 M13 11 V16.4" ${S}/>`
+      );
+    case "flight":
+      return (
+        `<path d="M6.5 19 L20 6.5 L13.6 19.2 L12 14.6 Z" fill="${c}"/>` +
+        `<path d="M12 14.6 L20 6.5" stroke="#ffffff" stroke-width="0.8"/>`
+      );
+    default: // unknown = 移動 (↔)
+      return `<path d="M7 13 H19 M9.5 10 L6.5 13 L9.5 16 M16.5 10 L19.5 13 L16.5 16" stroke="${c}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+}
+
 const DIRECTIONS_SEGMENT_TIMEOUT_MS = 5000;
 const ROUTE_CACHE_COORD_DIGITS = 5; // ≒ 1.1m 解像度で区間 key を量子化
 
@@ -1285,10 +1653,48 @@ function roadSegmentKey(from: GmapsLatLng, to: GmapsLatLng, mode: string): strin
   return `${q(from.lat)},${q(from.lng)}|${q(to.lat)},${q(to.lng)}|${mode}`;
 }
 
-/** DRIVING の travelMode 値を取得 (enum があれば優先、 無ければ文字列 fallback)。 */
-function drivingTravelMode(maps: unknown): string {
-  const tm = (maps as { TravelMode?: { DRIVING?: string } }).TravelMode;
-  return tm?.DRIVING ?? "DRIVING";
+/** displayMode → DirectionsService の travelMode (flight は null = 道路ルートにしない)。 */
+function toApiTravelMode(maps: unknown, mode: RouteTransportMode): string | null {
+  const tm = (maps as { TravelMode?: Record<string, string> }).TravelMode;
+  const v = (k: string) => tm?.[k] ?? k; // enum があれば優先、 無ければ文字列 fallback
+  switch (mode) {
+    case "walk":
+      return v("WALKING");
+    case "car":
+    case "taxi":
+      return v("DRIVING");
+    case "train":
+    case "bus":
+    case "shinkansen":
+      return v("TRANSIT");
+    case "bicycle":
+      return v("BICYCLING");
+    case "flight":
+      return null; // 道路ルートにしない (= 空路 arc/点線)
+    default:
+      return v("DRIVING"); // unknown = 中立コネクタの geometry (mode 主張ではない)
+  }
+}
+
+/** 2 点間の空路風 arc (= 飛行機の概念表示)。 ★距離計算は使わず、 from-to 差分の垂直方向に膨らませる。 */
+function flightArcPath(from: GmapsLatLng, to: GmapsLatLng): GmapsLatLng[] {
+  const dLat = to.lat - from.lat;
+  const dLng = to.lng - from.lng;
+  // 中点から from→to に対し垂直方向へ膨らませた control point (= sqrt/asin 不要)
+  const cLat = (from.lat + to.lat) / 2 - dLng * 0.18;
+  const cLng = (from.lng + to.lng) / 2 + dLat * 0.18;
+  const pts: GmapsLatLng[] = [];
+  const steps = 24;
+  for (let i = 0; i <= steps; i += 1) {
+    const t = i / steps;
+    const mt = 1 - t;
+    // 二次ベジェ: (1-t)^2·from + 2(1-t)t·C + t^2·to
+    pts.push({
+      lat: mt * mt * from.lat + 2 * mt * t * cLat + t * t * to.lat,
+      lng: mt * mt * from.lng + 2 * mt * t * cLng + t * t * to.lng,
+    });
+  }
+  return pts;
 }
 
 /** DirectionsService instance を生成 (不可なら null = 直線 fallback)。 */
