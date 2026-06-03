@@ -347,14 +347,21 @@ export function MapTab({
     const ref = now ?? new Date();
     const nowMin = ref.getHours() * 60 + ref.getMinutes();
     const state = resolveLegState(idx, resolveFocusLegIndex(sorted, nowMin));
+    const todaySelected = selectedModeByLeg[openMobilityLegKey] ?? null;
+    const isDone = state === "done"; // 過去(2個前以前) = 編集不可 (実績の器)
     return {
       legKey: openMobilityLegKey,
       fromTitle: titleOf(sorted[idx]!.anchor),
       toTitle: titleOf(sorted[idx + 1]!.anchor),
-      selectedMode: selectedModeByLeg[openMobilityLegKey] ?? null,
-      readOnly: state === "done", // 過去(2個前以前) = 編集不可 (実績の器)
+      selectedMode: todaySelected,
+      readOnly: isDone,
+      // S2-A: 今日未選択 かつ 過去 leg でない ときだけ「前回こう動いた」を想起 (localStorage 読取のみ)
+      recallMode:
+        todaySelected || isDone
+          ? null
+          : recallPriorLegMode(dayKey, openMobilityLegKey),
     };
-  }, [openMobilityLegKey, allPins, selectedModeByLeg, now]);
+  }, [openMobilityLegKey, allPins, selectedModeByLeg, now, dayKey]);
 
   // ── render (= 9 closeout: 単一 path、 flag check / 旧 UI なし) ──
   return (
@@ -386,6 +393,7 @@ export function MapTab({
           fromTitle={mobilityCard.fromTitle}
           toTitle={mobilityCard.toTitle}
           selectedMode={mobilityCard.selectedMode}
+          recallMode={mobilityCard.recallMode}
           readOnly={mobilityCard.readOnly}
           onSelect={handleSelectLegMode}
           onClose={handleMobilityCardClose}
@@ -1053,6 +1061,7 @@ function MobilityLegCard({
   toTitle,
   selectedMode,
   recommendedMode,
+  recallMode,
   readOnly,
   onSelect,
   onClose,
@@ -1062,6 +1071,7 @@ function MobilityLegCard({
   toTitle: string;
   selectedMode: RouteTransportMode | null;
   recommendedMode?: RouteTransportMode | null;
+  recallMode?: RouteTransportMode | null; // S2-A: 前回この区間で選んだ手段 (= 想起。 推薦ではない)
   readOnly: boolean;
   onSelect: (legKey: string, mode: RouteTransportMode) => void;
   onClose: () => void;
@@ -1145,6 +1155,32 @@ function MobilityLegCard({
             </p>
           )}
         </div>
+
+        {/* S2-A: 前回こう動いた (= 事実の想起。 おすすめ=推薦 とは別。 ワンタップ適用・自動適用しない) */}
+        {!readOnly && recallMode && (
+          <button
+            type="button"
+            onClick={() => onSelect(legKey, recallMode)}
+            className="mt-3 flex w-full items-center gap-2.5 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-left transition hover:bg-slate-100"
+          >
+            <span
+              aria-hidden
+              className="block h-9 w-9 shrink-0 bg-center bg-no-repeat"
+              style={chipBg(recallMode)}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-semibold tracking-wide text-slate-400">
+                前回この区間
+              </span>
+              <span className="block text-sm font-bold text-slate-800">
+                {MOBILITY_MODE_META[recallMode].label}
+              </span>
+            </span>
+            <span className="shrink-0 rounded-full bg-slate-800 px-3 py-1 text-[11px] font-bold text-white">
+              適用
+            </span>
+          </button>
+        )}
 
         {/* 主な手段 */}
         <div className="mt-4">
@@ -1391,6 +1427,40 @@ function savePersistedLegModes(
     );
   } catch {
     // best-effort: 失敗しても state はメモリに残り UI は継続 (= fail-open)
+  }
+}
+
+/**
+ * S2-A: 「前回こう動いた」recall。 過去日の S1-A バケットを走査し、 同 legKey の最新日の mode を返す。
+ *   - localStorage 読み取りのみ (S1-A の保存ロジックは不変)。 今日/未来のバケットは見ない。
+ *   - 学習ではない: 頻度・recency 重み付け・OD 一般化はしない。 単純に「最新の前回値」を想起するだけ。
+ *   - recurring anchor は anchorsForDay が同一 id を返すため legKey が日跨ぎで一致 → recall 成立。
+ *     one-off は legKey が過去日に出ない → null (= 何も出ない、 想起は recurring 区間でのみ意味を持つ)。
+ *   - 履歴なし / 破損 / SSR は null で fail-open (recall を出さないだけ)。
+ */
+function recallPriorLegMode(
+  dayKey: string,
+  legKey: string,
+): RouteTransportMode | null {
+  if (typeof window === "undefined") return null;
+  try {
+    let bestDay = "";
+    let bestMode: RouteTransportMode | null = null;
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (!key || !key.startsWith(MOBILITY_PERSIST_KEY_PREFIX)) continue;
+      const day = key.slice(MOBILITY_PERSIST_KEY_PREFIX.length);
+      // 過去日のみ (YYYY-MM-DD は辞書順=時系列順)。 より新しい過去日だけ採用。
+      if (day >= dayKey || day <= bestDay) continue;
+      const mode = loadPersistedLegModes(day)[legKey]; // 破損バケットは {} になる
+      if (mode) {
+        bestDay = day;
+        bestMode = mode;
+      }
+    }
+    return bestMode;
+  } catch {
+    return null;
   }
 }
 
