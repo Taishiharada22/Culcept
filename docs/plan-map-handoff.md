@@ -10,7 +10,7 @@
 - **戦略の全体像**: `docs/plan-map-second-self-strategy.md`（必読・受理済。第1回リサーチ反映）
 - **リサーチ findings（2回・保全）**: `docs/plan-map-research-findings.md`（可読索引）+ `docs/research/plan-map-deep-research-1-strategy-raw.json` / `-2-foundation-raw.json`（verbatim 生出力・authoritative）
 - **設計契約（旧）**: `docs/alter-plan-time-layers-mobility-design.md`（Time Layers / Mobility Layer・**§4.3.1 観測ガードレール**）
-- **本書**: 現状の確定事実 + 別セッションへ引き継ぐ全項目 + 絶対制約 + コードマップ + リサーチ要約
+- **本書**: 現状の確定事実 + 別セッションへ引き継ぐ全項目 + 絶対制約 + コードマップ + リサーチ要約 + **§10 進め方・品質バー（CEO 規律・必読）**
 - このブランチは **未 push**。最新 commit は `git log --oneline` 参照（実装コードは `7eeeb3f4` までで凍結、以降は docs のみ）。push/PR は CEO 承認案件。
 
 ---
@@ -88,6 +88,7 @@
 - **現状（正直に）**: 本セッションの S1-A/S2-A/所要時間比較 は **`selectedMode` の localStorage サブセットのみ**を使用。`lib/shared` の **正本型 (canonical TransportSegment 等) は未作成 = HOLD**（CEO 指示）。`recommendedMode` は所要時間比較導入時に prop ごと撤去（推薦エンジン HOLD のため）。
 - **なぜ別**: 2 worktree 間の設計合流＋正本型確定は片側だけでは決められない。**共有正本 / DB / Decision Engine 接続は合流後の別 Phase**。
 - **着手のヒント**: nifty 側の現状を読み語彙の食い違いを洗い出してから正本型を1本化。frosty 側は §4 の `selected↔actual` ガードレールを必ず引き継ぐ。
+- **関連の未捕捉機能（CEO 発案・nifty 側 deferred）**: 「**よく行く / よく使う場所**」候補提示 ＝ 予定追加時に**右端の SVG をクリック → その予定に応じた候補地**を出す UX。frequency ベースの提案で **S2-B（頻度学習）/ S3 と接続しうる**。本セッションでは未着手（nifty スコープ・HOLD）。
 
 ### 軽量・S1-A/S2-A の上に乗る
 - **S2-B レパートリー学習（頻度/recency 重み付け + OD/時間帯/曜日 一般化）**
@@ -223,3 +224,35 @@
 4. 着手対象の「必要サブシステム」が DB/Supabase/外部API/新依存なら **CEO 承認を取る**。
 5. 変更は最小・外科的・**MapTab 以外を触るなら理由説明**。commit 前に branch/status/log 確認。**push/PR しない**。
 6. 実機 smoke はユーザーに依頼（認証壁）。**嘘をつかない**（検証できていない事は「未検証」と書く）。
+7. **§10 の進め方・品質バーを必ず守る**（CEO が一貫して求めた規律）。
+
+---
+
+## 10. CEO の進め方・品質バー（プロセス規律・★次セッション必読）
+> 本セッションを通じ CEO が一貫して要求した「**どう進めるか**」。WHAT(§1-§9) と同等に重要。これを外すと品質が落ちる。
+
+### 思考原則（CEO 提示 ①〜⑧）
+1. **前提を疑う**（コード前に前提・要件の妥当性を問う）
+2. **自立推論 + 文献リサーチ**（時間をかけて自分で調べ抜く。鵜呑みにしない）
+3. **シンプルな核から**始め論理的に
+4. **外科的・緻密に**修正（最小差分）
+5. **目標から逆算**して実行
+6. **人間と同等の推論・組み立て・理解**を持つ
+7. **革新（人間の能力を超えるアイデア）**を引き出し組み込む
+8. **世界トップシェアを取る**前提で、**時間をかけて**ゆっくり推論
+
+### 実行規律
+- **tight-slice**: 1 フェーズ = 最小・検証可能な1スライス（S1-A / S2-A / 所要時間比較 のように）。**複数同時着手しない**。
+- **scope 拡大前に必ず確認**（勝手に次フェーズへ進まない。CEO が範囲を指定する）。
+- **MapTab 以外を触るなら理由説明**。新サブシステム（DB/Supabase/外部API/新依存）は**着手前に承認**。
+- 変更は**外科的・最小**。frozen file（googleMapsLoader.ts）不触。
+
+### 検証・コミット・closeout のリズム
+- 各フェーズ: 実装 → ESLint/tsc（MapTab 0）→ **実機 smoke はユーザー** → CEO 承認 → **保護 commit** → **closeout**（dev 停止・scaffolding 掃除・clean 確認）。
+- commit 前に `branch / status / log` を確認。`git add` は**ファイル個別指定**。**push/PR は承認制**。State Safety Rule（stash/reset/checkout/clean/restore 禁止）。
+
+### 誠実性（最優先・このセッションで CEO が強く要求）
+- **完成度を断定しない**。**検証済 / 未検証 / HOLD を厳密に区別**して報告する（「全項目クリア」のような過大主張をしない）。
+- **嘘をつかない**。確認していない事は「未確認」と書く。
+- **偽の数字・偽の根拠・距離からの mode 推定・人格診断**をしない（§4）。**observed > inferred**。
+- リサーチや成果は**揮発（/tmp）に置かず commit で永続化**する（出典つき）。
