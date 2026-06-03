@@ -31,6 +31,10 @@ import {
   classifyTimelineRoles,
   type TimelineBlockRole,
 } from "@/lib/plan/timeline-containment";
+import {
+  classifyActivityIconKey,
+  type ActivityIconKey,
+} from "@/lib/plan/compose/activityIcon";
 
 /** 既存ブロックのパステル配色キー（表示専用・UI-5。draft/placed は violet 固定で別扱い）。 */
 export type ExistingColorKey = "sky" | "amber" | "emerald" | "teal";
@@ -98,14 +102,43 @@ const BAND_INSET_PX = 8;
 /** 2 行（タイトル＋時刻・各 10px leading-tight + py）が収まる最小高。これ未満は時刻行を省く。 */
 const TIME_LINE_MIN_PX = 30;
 
-/** 既存ブロックのパステル配色（UI-5）。placed(draft)=violet と区別するため violet/rose は不使用。 */
-const EXISTING_PALETTE: Record<ExistingColorKey | "neutral", string> = {
-  sky: "border-sky-100 bg-sky-50 text-sky-700",
-  amber: "border-amber-100 bg-amber-50 text-amber-700",
-  emerald: "border-emerald-100 bg-emerald-50 text-emerald-700",
-  teal: "border-teal-100 bg-teal-50 text-teal-700",
-  neutral: "border-slate-100 bg-white text-slate-500",
+/**
+ * カテゴリー（活動種別）配色（CEO 2026-06-03: 入れた予定の種別が1目で分かる）。
+ *   - block = 前面ブロックの濃い版 / band = 背景バンドの淡い版（同カテゴリー色）。
+ *   - 種別は title から classifyActivityIconKey で判定（meeting/food/fitness/travel/work/generic）。
+ * ※色クラスは literal で持つ（Tailwind の content scan 対象＝この app/ ファイル内）。
+ */
+const CATEGORY_PALETTE: Record<ActivityIconKey, { band: string; block: string }> = {
+  meeting: {
+    band: "border-indigo-200 border-l-indigo-400 bg-indigo-50/70 text-indigo-700",
+    block: "border-indigo-200 bg-indigo-100 text-indigo-800",
+  },
+  food: {
+    band: "border-amber-200 border-l-amber-400 bg-amber-50/70 text-amber-700",
+    block: "border-amber-200 bg-amber-100 text-amber-800",
+  },
+  fitness: {
+    band: "border-emerald-200 border-l-emerald-400 bg-emerald-50/70 text-emerald-700",
+    block: "border-emerald-200 bg-emerald-100 text-emerald-800",
+  },
+  travel: {
+    band: "border-sky-200 border-l-sky-400 bg-sky-50/70 text-sky-700",
+    block: "border-sky-200 bg-sky-100 text-sky-800",
+  },
+  work: {
+    band: "border-violet-200 border-l-violet-400 bg-violet-50/70 text-violet-700",
+    block: "border-violet-200 bg-violet-100 text-violet-800",
+  },
+  generic: {
+    band: "border-slate-200 border-l-slate-400 bg-slate-100/70 text-slate-600",
+    block: "border-slate-200 bg-slate-100 text-slate-700",
+  },
 };
+
+/** title → カテゴリー配色。 */
+function categoryColor(label: string): { band: string; block: string } {
+  return CATEGORY_PALETTE[classifyActivityIconKey(label)];
+}
 
 export function DayTimelineCanvas({
   blocks,
@@ -361,10 +394,8 @@ export function DayTimelineCanvas({
                 // 視認性（CEO 2026-06-03）: 細い全周border（上下=範囲）＋**太い左rail（縦の軸＝下まで続く文脈の帯）**
                 // ＋少し強い塗り。ただし前景 child（濃い塗り＋shadow＋ring）より弱く保つ。
                 "group absolute inset-x-0 overflow-hidden rounded-md border border-l-4 px-2 py-0.5 text-[10px] leading-tight shadow-sm transition " +
-                (isExisting
-                  ? "border-slate-200 border-l-slate-400 bg-slate-100/70 text-slate-600"
-                  : // draft の文脈バンド＝主役色(violet)の淡い背景＋violet rail。
-                    "border-violet-200 border-l-violet-400 bg-violet-50/80 text-violet-700") +
+                // 背景バンド＝同カテゴリー色の**淡い版**（前面より薄い＝背景でも種別が分かる）。
+                categoryColor(b.label).band +
                 (isActive ? " ring-2 ring-indigo-400" : "") +
                 (onBandClick ? " cursor-pointer hover:brightness-95" : "")
               }
@@ -428,16 +459,16 @@ export function DayTimelineCanvas({
           const interactive = !isExisting && (repositionable || !!onBlockSelect);
           // ②-2: 既存(保存済)予定は単純クリックで編集（drag なし）。
           const existingClickable = isExisting && !!onExistingSelect;
-          const toneClass = isExisting
-            ? EXISTING_PALETTE[b.colorKey ?? "neutral"]
-            : isActiveEdit
-              ? // ②-3 既存予定を編集中 = amber 編集アクセント（既存データを変更中の注意喚起）。
-                "border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400 shadow-amber-200/60"
-              : isActive
-                ? // ②-1 新規 draft を編集中（active）= indigo ring。
-                  "border-indigo-400 bg-violet-100 text-violet-900 ring-2 ring-indigo-400 shadow-violet-200/60"
-                : // placed(draft) = 主役。ring + 濃い枠 + tinted shadow で既存パステルより前に出す。
-                  "border-violet-300 bg-violet-100 text-violet-800 ring-1 ring-violet-300/60 shadow-violet-200/60";
+          // 色＝カテゴリー（種別を1目で）の**濃い版**。active/編集中は ring を重ねて状態を示す。
+          const catBlock = categoryColor(b.label).block;
+          const toneClass = isActiveEdit
+            ? // ②-3 既存予定を編集中 = amber ring（カテゴリー色の上に注意喚起）。
+              catBlock + " ring-2 ring-amber-400 shadow-amber-200/60"
+            : isActive
+              ? // ②-1 新規 draft を編集中（active）= indigo ring。
+                catBlock + " ring-2 ring-indigo-400"
+              : // 既存 / placed draft = カテゴリー色（draft は ↩✕ コントロールで区別）。
+                catBlock;
           // 重なり横分割（UI-5）。重なりなしは全幅。
           const slot = laneMap.get(b.id) ?? { lane: 0, lanes: 1 };
           const widthPct = 100 / slot.lanes;
