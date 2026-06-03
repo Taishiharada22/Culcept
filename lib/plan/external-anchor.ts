@@ -64,6 +64,13 @@ interface ExternalAnchorBase {
    * - DB column: external_anchors.external_uid TEXT NULL (= 20260526100000 migration)
    */
   externalUid?: string;
+
+  /**
+   * 誰と (P4・2026-06-02): 参加者名の配列（任意）。
+   * - DB column: external_anchors.companions TEXT[] NULL（20260602100000 migration・apply は CEO 承認後）
+   * - migration 未適用環境では永続化されない（読込時 undefined・後方互換）
+   */
+  companions?: string[];
 }
 
 /** 単発予定: 特定の日付に紐づく */

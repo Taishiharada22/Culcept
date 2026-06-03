@@ -378,6 +378,50 @@ describe("validateCreateExternalAnchorInput", () => {
     });
   });
 
+  // ── companions（P4: 誰と） ──
+
+  describe("companions（optional・P4）", () => {
+    it("companions 未指定は valid（後方互換）", () => {
+      expectValid(validateCreateExternalAnchorInput(makeOneOff()));
+    });
+
+    it("companions が string 配列なら valid + 透過保持", () => {
+      const r = validateCreateExternalAnchorInput(
+        makeOneOff({ companions: ["佐藤", "鈴木"] })
+      );
+      expectValid(r);
+      if (r.valid) expect(r.input.companions).toEqual(["佐藤", "鈴木"]);
+    });
+
+    it("companions 空配列も valid", () => {
+      expectValid(
+        validateCreateExternalAnchorInput(makeOneOff({ companions: [] }))
+      );
+    });
+
+    it("companions が array でないと invalid_format", () => {
+      const r = validateCreateExternalAnchorInput(
+        makeOneOff({ companions: "佐藤" as unknown as string[] })
+      );
+      expectInvalid(r, "companions", "invalid_format");
+    });
+
+    it("companions の要素が string でないと invalid_format", () => {
+      const r = validateCreateExternalAnchorInput(
+        makeOneOff({ companions: ["佐藤", 1 as unknown as string] })
+      );
+      expectInvalid(r, "companions", "invalid_format");
+    });
+
+    it("recurring でも companions は valid", () => {
+      expectValid(
+        validateCreateExternalAnchorInput(
+          makeRecurring({ companions: ["田中"] })
+        )
+      );
+    });
+  });
+
   // ── 不変条件 ──
 
   describe("不変条件: throw しない / mutate しない / 副作用なし", () => {

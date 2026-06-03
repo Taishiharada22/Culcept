@@ -120,7 +120,19 @@ import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
-import { anchorsForDay } from "./tabs/_helpers";
+import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpers";
+import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
+import { AddAnchorComposeContainer } from "./components/compose/AddAnchorComposeContainer";
+import { anchorsToTimelineBlocks } from "./components/compose/anchorsToTimelineBlocks";
+import {
+  extractLocationUsages,
+  type LocationUsage,
+} from "@/lib/plan/compose/locationHistory";
+import {
+  anchorsToComposeEditable,
+  type ComposeEditable,
+} from "@/lib/plan/compose/composeEdit";
+import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -163,10 +175,16 @@ export interface PlanClientProps {
    * 両 mode で機能は完全同等。chrome / 配色のみ差分。
    */
   displayMode?: PlanDisplayMode;
+  /**
+   * A-4b: 予定追加 compose 体験を使うか。server（plan/page.tsx）が PLAN_FLAGS を
+   * 読み取り prop で渡す（PLAN_FLAGS は server-only のため client 直読み不可）。default false。
+   */
+  composeTimelineEnabled?: boolean;
 }
 
 export default function PlanClient({
   displayMode = "route",
+  composeTimelineEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -426,6 +444,38 @@ export default function PlanClient({
   }, [now, state]);
   // K-2: tab に渡す optional prop。 tab は受け取るが使わない (= UI 不変)。
   const dayGraphByDate = dayGraphState.byDate;
+
+  // ── A-4b: compose sheet（flag ON 時）の対象日 + 既存予定 block ──
+  //   flag OFF では null/[] を返し一切計算しない（legacy AddAnchorModal 完全不変）。
+  const composeTargetUTC = useMemo<Date | null>(() => {
+    if (!shouldUseComposeSheet(composeTimelineEnabled)) return null;
+    const iso = addInitial?.date;
+    if (iso) return new Date(`${iso}T00:00:00.000Z`);
+    return now ? utcMidnight(now) : null;
+  }, [composeTimelineEnabled, addInitial, now]);
+
+  const composeExistingBlocks = useMemo<TimelineBlock[]>(() => {
+    if (!composeTargetUTC || state.kind !== "ok") return [];
+    return anchorsToTimelineBlocks(
+      anchorsForDay([...state.anchors], composeTargetUTC),
+    );
+  }, [composeTargetUTC, state]);
+
+  // ②-3: 当日既存予定 → インライン編集ロード用（block id=anchor id で対応）。
+  const composeEditable = useMemo<Record<string, ComposeEditable>>(() => {
+    if (!composeTargetUTC || state.kind !== "ok") return {};
+    return anchorsToComposeEditable(
+      anchorsForDay([...state.anchors], composeTargetUTC),
+    );
+  }, [composeTargetUTC, state]);
+
+  // ④ Phase 1a: 全 anchor（既ロード）から場所利用ログを抽出（具体的な場所のみ）。
+  // 新 endpoint / migration なし＝fail-open by construction（未ロード時は空）。
+  // チップ集計（よく行く / title 連動）は panel 側で title に反応して行う。
+  const composeLocationUsages = useMemo<LocationUsage[]>(
+    () => (state.kind === "ok" ? extractLocationUsages(state.anchors) : []),
+    [state],
+  );
 
   // accept callback (= 9-step transaction、 ref + state 二段防御)
   const handleProposalAccept = useCallback(
@@ -893,13 +943,29 @@ export default function PlanClient({
       </section>
 
       {/* ── Modals ── */}
-      <AddAnchorModal
-        isOpen={addOpen}
-        onClose={handleAddClose}
-        onSuccess={handleAddSuccess}
-        initialState={addInitial}
-        contextSubtitle={addSubtitle}
-      />
+      {/* A-4b: flag ON で compose 体験、OFF で既存 AddAnchorModal（完全不変） */}
+      {shouldUseComposeSheet(composeTimelineEnabled) ? (
+        composeTargetUTC ? (
+          <AddAnchorComposeContainer
+            isOpen={addOpen}
+            onClose={handleAddClose}
+            dateISO={isoDate(composeTargetUTC)}
+            dateLabel={formatJpDate(composeTargetUTC)}
+            existingBlocks={composeExistingBlocks}
+            locationUsages={composeLocationUsages}
+            onSaved={handleAddSuccess}
+            existingEditable={composeEditable}
+          />
+        ) : null
+      ) : (
+        <AddAnchorModal
+          isOpen={addOpen}
+          onClose={handleAddClose}
+          onSuccess={handleAddSuccess}
+          initialState={addInitial}
+          contextSubtitle={addSubtitle}
+        />
+      )}
       {/* P3 W2: .ics import modal (= CEO 2026-05-26、 review/approve UI) */}
       <IcsImportModal
         isOpen={icsImportOpen}
