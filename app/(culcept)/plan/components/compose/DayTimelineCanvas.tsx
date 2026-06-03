@@ -351,11 +351,13 @@ export function DayTimelineCanvas({
               data-active={isActive ? "true" : undefined}
               onClick={onBandClick || undefined}
               className={
-                "group absolute inset-x-0 overflow-hidden rounded-md border-l-2 px-2 py-0.5 text-[10px] leading-tight transition " +
+                // 視認性（CEO 2026-06-03）: 細い全周border（上下=範囲）＋**太い左rail（縦の軸＝下まで続く文脈の帯）**
+                // ＋少し強い塗り。ただし前景 child（濃い塗り＋shadow＋ring）より弱く保つ。
+                "group absolute inset-x-0 overflow-hidden rounded-md border border-l-4 px-2 py-0.5 text-[10px] leading-tight transition " +
                 (isExisting
-                  ? "border-slate-300 bg-slate-100/50 text-slate-500"
-                  : // draft の文脈バンド＝主役色(violet)の淡い背景。前景 child より控えめ。
-                    "border-violet-300 bg-violet-50/60 text-violet-600") +
+                  ? "border-slate-200 border-l-slate-400 bg-slate-100/70 text-slate-600"
+                  : // draft の文脈バンド＝主役色(violet)の淡い背景＋violet rail。
+                    "border-violet-200 border-l-violet-400 bg-violet-50/80 text-violet-700") +
                 (isActive ? " ring-2 ring-indigo-400" : "") +
                 (onBandClick ? " cursor-pointer hover:brightness-95" : "")
               }
