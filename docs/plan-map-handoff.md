@@ -7,10 +7,11 @@
 ---
 
 ## 0. このドキュメントの位置づけ
-- **戦略の全体像**: `docs/plan-map-second-self-strategy.md`（必読・受理済）
-- **設計契約（旧）**: `docs/alter-plan-time-layers-mobility-design.md`（Time Layers / Mobility Layer）
+- **戦略の全体像**: `docs/plan-map-second-self-strategy.md`（必読・受理済。第1回リサーチ反映）
+- **リサーチ findings（2回・保全）**: `docs/plan-map-research-findings.md`（可読索引）+ `docs/research/plan-map-deep-research-1-strategy-raw.json` / `-2-foundation-raw.json`（verbatim 生出力・authoritative）
+- **設計契約（旧）**: `docs/alter-plan-time-layers-mobility-design.md`（Time Layers / Mobility Layer・**§4.3.1 観測ガードレール**）
 - **本書**: 現状の確定事実 + 別セッションへ引き継ぐ全項目 + 絶対制約 + コードマップ + リサーチ要約
-- このブランチは **未 push**。HEAD = `7eeeb3f4`。push/PR は CEO 承認案件（本セッションでは禁止だった）。
+- このブランチは **未 push**。最新 commit は `git log --oneline` 参照（実装コードは `7eeeb3f4` までで凍結、以降は docs のみ）。push/PR は CEO 承認案件。
 
 ---
 
@@ -193,6 +194,9 @@
 ---
 
 ## 8. リサーチ要約（deep-research 2 回・引用つき）
+
+> 完全版（全 finding・vote・逐語 evidence・全出典・caveats・refutations・openQuestions）は
+> **`docs/plan-map-research-findings.md`**（可読索引）と **`docs/research/plan-map-deep-research-{1,2}-*-raw.json`**（verbatim）に保全済。以下は最小要約。
 
 ### 第1回（戦略）— `docs/plan-map-second-self-strategy.md` に詳細
 - 人は最短を選ばない（53% が推奨1位でない／Lima 2016 J.R.Soc.Interface 13:20160021、3-0）。レパートリーは小（1/3 単一）。
