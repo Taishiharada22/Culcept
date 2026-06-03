@@ -79,6 +79,8 @@ export interface AddAnchorComposeSheetProps {
   editingAnchorIds?: string[];
   /** ②-3: 編集キャンセル（編集 draft 破棄 → 既存ブロック復帰） */
   onCancelEdit?: (id: string) => void;
+  /** ②-3: 編集の「完了」= 編集を確定（draft は pending で残す）して編集モードを抜ける。最終保存は下部の青ボタン。 */
+  onCompleteEdit?: () => void;
   /** UI-polish: 現在時刻（分）。container が対象日=今日のときのみ渡す（左タイムラインの現在線） */
   nowMin?: number;
   /** P5-Height: タイムライン高さ(px)。canvas 描画と右フォーム列の高さに使う（drop は実測値＝同値） */
@@ -115,6 +117,7 @@ export function AddAnchorComposeSheet({
   onExistingSelect,
   editingAnchorIds,
   onCancelEdit,
+  onCompleteEdit,
   nowMin,
   heightPx = TIMELINE_HEIGHT_PX,
   locationUsages,
@@ -290,11 +293,12 @@ export function AddAnchorComposeSheet({
                       </span>
                       {isEditingExisting ? (
                         <div className="flex shrink-0 items-center gap-1.5">
-                          {/* 完了＝この編集を保存（PATCH・bottom 完了 と同経路）。キャンセルと対で出す。 */}
+                          {/* 完了＝この「予定修正」だけを確定し編集モードを抜ける（draft は pending で残す）。
+                              最終保存（予定追加全体）は下部の青い完了ボタン（onComplete）。 */}
                           <button
                             type="button"
                             data-testid="compose-complete-edit"
-                            onClick={() => onComplete?.()}
+                            onClick={() => onCompleteEdit?.()}
                             className="rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-amber-600"
                           >
                             完了

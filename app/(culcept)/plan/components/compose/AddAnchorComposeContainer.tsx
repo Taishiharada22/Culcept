@@ -451,6 +451,7 @@ export function AddAnchorComposeContainer({
         .filter((d) => d.editingAnchorId)
         .map((d) => d.editingAnchorId as string)}
       onCancelEdit={handleCancelEdit}
+      onCompleteEdit={createNewActiveDraft}
       nowMin={nowMin}
       heightPx={heightPx}
       locationUsages={locationUsages}
