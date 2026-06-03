@@ -38,7 +38,7 @@ export interface ComposeSaveGuard {
 }
 
 export type ComposeSaveResult =
-  | { status: "saved" }
+  | { status: "saved"; savedDraftIds: string[] } // 呼び出し側が compose state から除去（再オープン時の二重表示防止）
   | { status: "busy" } // in-flight 中の二重呼び出し → 無視（1回目が所有）
   | { status: "nothing"; message: string }
   | { status: "error"; message: string };
@@ -85,7 +85,15 @@ export async function runComposeSave(
         return { status: "error", message: r.error ?? "保存に失敗しました" };
       }
     }
-    return { status: "saved" };
+    // 保存済み draft の id（編集分 + 実際に POST された新規分・日跨ぎ等の除外は含めない）。
+    // 呼び出し側がこれを compose state から remove ＝ 再オープン時に既存予定と二重表示しない核。
+    const savedDraftIds = [
+      ...edits.map((e) => e.id),
+      ...(plan.kind === "save"
+        ? news.filter((n) => !plan.excluded.some((x) => x.id === n.id)).map((n) => n.id)
+        : []),
+    ];
+    return { status: "saved", savedDraftIds };
   } finally {
     // 成功/失敗どちらでも解除（次の保存・再試行を可能にする）。busy 早期 return はここを通らない。
     guard.setInFlight(false);

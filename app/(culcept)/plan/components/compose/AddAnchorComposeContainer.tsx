@@ -379,6 +379,9 @@ export function AddAnchorComposeContainer({
       setSaveState({ status: "error", message: result.message });
       return;
     }
+    // 保存済み draft を compose state から除去＝**再オープン時に既存予定と二重表示しない核**。
+    // container は開閉でアンマウントされず state が永続するため、保存後に消さないと残り続ける。
+    for (const id of result.savedDraftIds) dispatch({ type: "remove", id });
     setSaveState({ status: "idle" });
     onSaved?.();
   }

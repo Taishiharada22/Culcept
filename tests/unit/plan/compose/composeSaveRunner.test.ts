@@ -126,4 +126,18 @@ describe("composeSaveRunner — double-submit guard（GPT 必須テスト）", (
     expect(update).toHaveBeenCalledTimes(1); // 編集1件 PATCH
     expect(create).toHaveBeenCalledTimes(1); // 新規1件 POST（1 bundle）
   });
+
+  it("成功時 savedDraftIds を返す（呼び出し側が compose state から除去＝再オープン二重表示防止）", async () => {
+    const deps: ComposeSaveDeps = { updateAnchor: okUpdate(), createAnchorBundle: okCreate() };
+    const r = await runComposeSave(
+      [placedDraft("e1", "anchor-1"), placedDraft("n1")],
+      DATE,
+      deps,
+      makeGuard(),
+    );
+    expect(r.status).toBe("saved");
+    if (r.status === "saved") {
+      expect([...r.savedDraftIds].sort()).toEqual(["e1", "n1"]);
+    }
+  });
 });
