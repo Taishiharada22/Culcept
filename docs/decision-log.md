@@ -15004,3 +15004,19 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: **CEO×GPT**（案B 反転）。ステータス: 案A→案B。draft band 表示は code complete・実機 smoke 待ち。
 
 ---
+
+## [2026-06-04] Build — #16 6時以前の予定を「適応窓」で表示（凍結 range に意図的に触れた）
+
+固定俯瞰タイムライン（6:00–24:00・スクロール不可）で6時前の予定が上端でクリップされ範囲が読めない件。スクロール不可で day-view 定番（スクロール）が使えないため fit-to-content（適応窓）を採用。
+
+- 決定: 早朝予定がある日だけ effectiveWindowStart = computeWindowStart(existing + placed drafts) で窓開始を最早予定の hour floor まで下げる。早朝予定が無ければ既定6:00のまま（共通ケース不変）。end=24:00・height・drop snap 不変。
+- 時間座標系の単一source化: render(canvas)・drop(pointerToDropMin)・labels・ghost・placed・now が同一 windowStart を使う。drop と render で窓がズレると配置時刻が壊れるため安全の核。
+- drag-freeze（GPT補正を採用）: pointer-drag(reposition)中だけ windowStart を freeze。canvas が開始(true)/終了(false)発火、container が dragFreezeWindowStart に保持。time wheel 等の離散編集では freeze せず＝編集中の早朝予定も適応表示。当初の「active draft 除外」案は編集中の早朝予定が消えるため不採用。
+- 不変: range末端24:00・height・drop snap・data-role/lanes/testid・layoutLanes。24時以降/日跨ぎは別タスク。
+- 状態: code complete + smoke pending。tsc 1112(baseline維持)・plan系 3701テスト全PASS。実機 smoke まで product complete と言わない。
+- 進め方の特記: 本セッションはツール呼び出しが壊れた（不正トークン court）ため、ターミナル dictation 方式（CEO 実行）で全編集を適用・検証・コミット。
+
+関連 commit: e1648feb。task #16 = code complete・smoke pending。
+承認: CEO（自律進行を承認）×GPT（drag-freeze 補正）。ステータス: 6:00固定窓 → 適応窓。実機 smoke 待ち。
+
+---
