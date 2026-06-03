@@ -42,6 +42,7 @@ const PUBLIC_HOLIDAY: DayIndicatorViewModel = {
   isTentative: false,
   countsAsPublicHoliday: true,
   sourceType: "shift_image",
+  rawCode: "H",
 };
 
 describe("FlowTab — badge × anchor 共存", () => {

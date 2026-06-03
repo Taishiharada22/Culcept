@@ -11,6 +11,7 @@ function vm(over: Partial<DayIndicatorViewModel>): DayIndicatorViewModel {
     isTentative: false,
     countsAsPublicHoliday: false,
     sourceType: "shift_image",
+    rawCode: null,
     ...over,
   };
 }

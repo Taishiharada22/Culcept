@@ -30,6 +30,11 @@ export interface DayIndicatorViewModel {
   countsAsPublicHoliday: boolean;
   /** 由来（MVP 表示は同一、provenance 保持） */
   sourceType: "manual" | "shift_image";
+  /**
+   * 原稿コード（"H" / "BD" / "HREQ" 等。元画像照合用）。
+   * shift_image 由来は raw_code 列を保持。manual / 未保存は null。
+   */
+  rawCode: string | null;
 }
 
 const DEFAULT_LABEL: Record<DayIndicatorVariant, string> = {
@@ -59,6 +64,7 @@ export function toDayIndicatorViewModel(
     isTentative: variant === "requested_off",
     countsAsPublicHoliday: ind.countsAsPublicHoliday,
     sourceType: ind.sourceType,
+    rawCode: ind.rawCode,
   };
 }
 

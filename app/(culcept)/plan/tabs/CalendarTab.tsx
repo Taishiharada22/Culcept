@@ -87,6 +87,8 @@ import { CalendarViewToggle } from "../components/CalendarViewToggle";
 import { buildMonthGrid } from "./_monthGrid";
 import { CalendarViewBody } from "../components/CalendarViewBody";
 import type { MonthGridViewProps } from "../components/MonthGridView";
+// M3-b polish: 勤務 anchor → 原稿コード chip の resolver（辞書はここ経由。MonthGridView 非依存）
+import { resolveShiftAnchorChip } from "@/lib/plan/shift/shiftAnchorChip";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -309,6 +311,7 @@ export function CalendarTab({
     selectedIso: selectedDate,
     todayIso,
     onSelectDate: handleSelectDate,
+    getAnchorChip: resolveShiftAnchorChip,
   };
 
   return (

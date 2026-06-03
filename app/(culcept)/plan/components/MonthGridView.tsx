@@ -2,73 +2,115 @@
 
 /**
  * MonthGridView — Full month grid (6×7 = 42 cells) presentational component
- *   (Plan 月ビュー Phase 2-A+ M2)
+ *   (Plan 月ビュー Phase 2-A+ M2 → M3-b polish)
  *
- * 取り込んだ月を俯瞰する月 grid の「見た目だけ」。CalendarTab には未接続
- * （接続 / flag / 月送り state / shift import 導線は M3 以降）。
- *
- * 設計: Plan 月ビュー mini design + M2 mini design（2026-06-03 CEO chat 承認）。
+ * 取り込んだ月を俯瞰し、**各日の勤務/休みコードを読める**確認面。
+ * M3-b polish（CEO 2026-06-04）: dot 中心 → 原稿コード chip 中心へ。
  *
  * 不変原則:
- *   - presentational のみ（props で受領。内部 fetch なし・現在時刻参照なし・内部 state なし）
- *   - M1 buildMonthGrid 出力（grid）+ anchors / dayIndicators を props で受ける
- *   - 既存 _helpers.ts の anchorsForDay / formatJpDate / WEEKDAY_LABELS を再利用
- *   - 視覚 token は CalendarTab week strip cell（cellClasses）を mirror（同じ世界観）
+ *   - presentational のみ（props で受領。内部 fetch / 現在時刻参照 / 内部 state なし）
+ *   - **shift dictionary に依存しない**汎用カレンダー部品。勤務コードの逆引きは
+ *     getAnchorChip resolver を props で注入して受ける（辞書と疎結合）。
+ *   - 視覚 token は CalendarTab / glassmorphism と整合
  *   - DB / API / VLM / network 不接触
  *
- * dot 配色（CEO 決定 A）:
- *   - 勤務・予定あり（timed anchor 存在）= sky-500（active tone、rest 系と分離）
- *   - 公休 H   = rose-400 / 希望休 HREQ = violet-300 / 休み BD = slate-300（既存色に整合）
- *
- * leading/trailing cell tap（CEO 決定 B）: onSelectDate(iso) のみ。月遷移は M3。
+ * cell 表示（A+C）:
+ *   - 日付数字 + 種別コード chip（E/N/L/G/E-18 = 勤務 / H/BD/HREQ = 休み）+ 薄い背景 tint
+ *   - 勤務 = sky / 公休 H = rose / 希望休 HREQ = violet / 休み BD = slate / 既定 = slate
+ *   - selected = **ring（全面 gradient 塗りにしない＝コードが消えない）** / today = thin border
  */
 
 import { useMemo } from "react";
 
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
+import type { MonthGridChip, MonthGridChipTone } from "@/lib/plan/monthGridChip";
 
 import type { MonthGrid } from "../tabs/_monthGrid";
 import { anchorsForDay, formatJpDate, WEEKDAY_LABELS } from "../tabs/_helpers";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// dot / cell class helpers
+// chip 導出（辞書非依存。勤務の逆引きは props resolver）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/**
- * 休み / 希望休 dot の色。CalendarTab の dayIndicatorDotClass を mirror。
- * （DRY follow-up: M3 で CalendarTab と共有 helper へ抽出可。M2 は非接触のため複製）
- */
-function dayIndicatorDotClass(vm: DayIndicatorViewModel): string {
-  if (vm.variant === "public_holiday") return "bg-rose-400";
-  if (vm.variant === "requested_off") return "bg-violet-300";
-  return "bg-slate-300"; // off / 既定
+/** 休み indicator → chip。原稿コード（rawCode）優先、無ければ variant 既定（公/希/休）。 */
+function offChip(vm: DayIndicatorViewModel): MonthGridChip {
+  const tone: MonthGridChipTone =
+    vm.variant === "public_holiday"
+      ? "public_holiday"
+      : vm.variant === "requested_off"
+        ? "requested_off"
+        : "off";
+  const fallback =
+    vm.variant === "public_holiday" ? "公" : vm.variant === "requested_off" ? "希" : "休";
+  const label = vm.rawCode && vm.rawCode.trim() !== "" ? vm.rawCode.trim() : fallback;
+  return { label, tone };
 }
 
-/**
- * cell の class。CalendarTab cellClasses を mirror（rounded-full / aspect-square /
- * 選択 gradient / today 強調 / 非当月 淡色）。優先: selected > today > !inCurrentMonth > default。
- */
-function monthCellClasses(
+/** resolver 不一致 anchor の汎用 fallback（辞書非依存。無理にコード化しない）。 */
+function fallbackAnchorChip(anchor: ExternalAnchor): MonthGridChip {
+  const t = anchor.title.trim();
+  const label = t.length === 0 ? "予定" : t.length <= 4 ? t : t.slice(0, 4);
+  return { label, tone: "default" };
+}
+
+function chipToneClasses(tone: MonthGridChipTone): string {
+  switch (tone) {
+    case "work":
+      return "bg-sky-100 text-sky-700";
+    case "public_holiday":
+      return "bg-rose-100 text-rose-600";
+    case "requested_off":
+      return "bg-violet-100 text-violet-600";
+    case "off":
+      return "bg-slate-100 text-slate-500";
+    default:
+      return "bg-slate-100 text-slate-500";
+  }
+}
+
+/** cell 背景 tint（C 補助。かなり薄く・うるさくしない）。 */
+function cellTintClasses(tone: MonthGridChipTone | null): string {
+  switch (tone) {
+    case "work":
+      return "bg-sky-50";
+    case "public_holiday":
+      return "bg-rose-50";
+    case "requested_off":
+      return "bg-violet-50";
+    case "off":
+      return "bg-slate-50";
+    default:
+      return "";
+  }
+}
+
+/** cell 全体の class。selected = ring（全面塗りにしない）/ today = thin border。 */
+function cellClasses(
   inCurrentMonth: boolean,
   isToday: boolean,
-  isSelected: boolean
+  isSelected: boolean,
+  primaryTone: MonthGridChipTone | null
 ): string {
   const base =
-    "w-full aspect-square min-h-[44px] flex items-center justify-center rounded-full transition";
-  if (isSelected) {
-    return (
-      base +
-      " bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold shadow-sm"
-    );
-  }
-  if (isToday) {
-    return base + " text-indigo-700 font-bold hover:bg-indigo-50";
-  }
-  if (!inCurrentMonth) {
-    return base + " text-slate-300 hover:bg-slate-50";
-  }
-  return base + " text-slate-700 hover:bg-slate-100";
+    "w-full min-h-[50px] flex flex-col items-center justify-start gap-0.5 rounded-lg py-1 transition border";
+  const tint = inCurrentMonth ? cellTintClasses(primaryTone) : "";
+  const ring = isSelected
+    ? " ring-2 ring-indigo-500 border-indigo-300"
+    : isToday
+      ? " border-indigo-300"
+      : " border-transparent";
+  const dim = inCurrentMonth ? "" : " opacity-50";
+  return `${base} ${tint}${ring}${dim} hover:bg-slate-50`;
+}
+
+function numberClasses(
+  inCurrentMonth: boolean,
+  isToday: boolean
+): string {
+  if (!inCurrentMonth) return "text-xs leading-none text-slate-300";
+  if (isToday) return "text-xs leading-none font-bold text-indigo-700";
+  return "text-xs leading-none font-medium text-slate-700";
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -78,9 +120,9 @@ function monthCellClasses(
 export interface MonthGridViewProps {
   /** M1 buildMonthGrid 出力（6×7 = 42 cell） */
   grid: MonthGrid;
-  /** 予定 dot 判定用（全件。cell ごとに anchorsForDay で存在判定） */
+  /** 勤務 anchor（全件。cell ごとに anchorsForDay で該当日抽出） */
   anchors: ExternalAnchor[];
-  /** 休み / 希望休 dot（iso → ViewModel。既存 dayIndicatorsByDate 出力） */
+  /** 休み / 希望休（iso → ViewModel。rawCode を含む） */
   dayIndicatorByIso: ReadonlyMap<string, DayIndicatorViewModel>;
   /** 選択中の日（"YYYY-MM-DD"） */
   selectedIso: string;
@@ -88,6 +130,11 @@ export interface MonthGridViewProps {
   todayIso: string;
   /** cell tap callback（leading/trailing 含め iso を渡すのみ） */
   onSelectDate: (iso: string) => void;
+  /**
+   * 勤務 anchor → 原稿コード chip の resolver（辞書を使う側が注入）。
+   * 未指定 or null 返却なら短縮 title / 予定 に fallback。MonthGridView は辞書非依存。
+   */
+  getAnchorChip?: (anchor: ExternalAnchor) => MonthGridChip | null;
 }
 
 export function MonthGridView({
@@ -97,21 +144,27 @@ export function MonthGridView({
   selectedIso,
   todayIso,
   onSelectDate,
+  getAnchorChip,
 }: MonthGridViewProps) {
-  // 予定 dot: iso → hasAnchor を grid / anchors 変化時のみ計算。
-  // selectedIso / todayIso 変化では再計算しない（月送り以外の再 render を軽くする）。
-  // 将来データ増大時はこの buildAnchoredIsoSet 部分を month-level index に差し替える seam。
-  const anchoredIsoSet = useMemo(() => {
-    const set = new Set<string>();
+  // iso → cell chips。grid / anchors / indicators / resolver 変化時のみ計算
+  // （selectedIso / todayIso 変化では再計算しない）。将来は month-level index 化の seam。
+  const chipsByIso = useMemo(() => {
+    const map = new Map<string, MonthGridChip[]>();
     for (const cell of grid.cells) {
-      if (anchorsForDay(anchors, cell.date).length > 0) set.add(cell.iso);
+      const chips: MonthGridChip[] = [];
+      const ind = dayIndicatorByIso.get(cell.iso);
+      if (ind) chips.push(offChip(ind));
+      for (const a of anchorsForDay(anchors, cell.date)) {
+        chips.push(getAnchorChip?.(a) ?? fallbackAnchorChip(a));
+      }
+      if (chips.length > 0) map.set(cell.iso, chips);
     }
-    return set;
-  }, [grid, anchors]);
+    return map;
+  }, [grid, anchors, dayIndicatorByIso, getAnchorChip]);
 
   return (
     <div data-testid="plan-month-grid">
-      {/* ── Weekday labels (Sun-first、日 = 赤、土 = 青、日本標準) ── */}
+      {/* ── Weekday labels (Sun-first、日 = 赤、土 = 青) ── */}
       <div className="grid grid-cols-7 mb-2 px-2">
         {WEEKDAY_LABELS.map((label, i) => (
           <div
@@ -143,8 +196,8 @@ export function MonthGridView({
             {week.map((cell) => {
               const isSelected = cell.iso === selectedIso;
               const isToday = cell.iso === todayIso;
-              const hasAnchor = anchoredIsoSet.has(cell.iso);
-              const indicator = dayIndicatorByIso.get(cell.iso);
+              const chips = chipsByIso.get(cell.iso) ?? [];
+              const primaryTone = chips.length > 0 ? chips[0].tone : null;
               return (
                 <button
                   key={cell.iso}
@@ -156,35 +209,26 @@ export function MonthGridView({
                   data-testid={`plan-month-grid-day-${cell.iso}`}
                   data-in-current-month={cell.inCurrentMonth}
                   onClick={() => onSelectDate(cell.iso)}
-                  className={monthCellClasses(
+                  className={cellClasses(
                     cell.inCurrentMonth,
                     isToday,
-                    isSelected
+                    isSelected,
+                    primaryTone
                   )}
                 >
-                  <span className="flex flex-col items-center leading-none">
-                    <span className="text-sm font-medium">
-                      {cell.dayOfMonth}
-                    </span>
-                    {(hasAnchor || indicator) && (
-                      <span className="mt-0.5 flex items-center gap-0.5">
-                        {hasAnchor && (
-                          <span
-                            data-testid={`plan-month-grid-anchor-dot-${cell.iso}`}
-                            className="h-1 w-1 rounded-full bg-sky-500"
-                            aria-hidden="true"
-                          />
-                        )}
-                        {indicator && (
-                          <span
-                            data-testid={`plan-month-grid-indicator-dot-${cell.iso}`}
-                            className={`h-1 w-1 rounded-full ${dayIndicatorDotClass(indicator)}`}
-                            aria-hidden="true"
-                          />
-                        )}
-                      </span>
-                    )}
+                  <span className={numberClasses(cell.inCurrentMonth, isToday)}>
+                    {cell.dayOfMonth}
                   </span>
+                  {chips.map((chip, ci) => (
+                    <span
+                      key={ci}
+                      data-testid={`plan-month-grid-chip-${cell.iso}`}
+                      data-tone={chip.tone}
+                      className={`px-1 py-px rounded text-[10px] leading-tight font-semibold ${chipToneClasses(chip.tone)}`}
+                    >
+                      {chip.label}
+                    </span>
+                  ))}
                 </button>
               );
             })}
