@@ -172,6 +172,10 @@ export function MapTab({
   const [openMobilityLegKey, setOpenMobilityLegKey] = useState<string | null>(
     null,
   );
+  // 所要時間比較: 開いた区間の 徒歩/車/電車 の実 Google duration (推薦せず判断材料)。
+  //   fetch effect は allPins 定義後 (下方) に置く (= TDZ 回避)。
+  const [legDur, setLegDur] = useState<LegDurState | null>(null);
+  const legDurCacheRef = useRef<Map<string, LegDurState>>(new Map());
   // S1-A: 当日の保存済み移動手段を復元 (mount 後 client のみ)。 dayKey 変化で各日のスコープを読む。
   //   破損/未保存/SSR は loadPersistedLegModes が {} を返す (fail-open)。
   useEffect(() => {
@@ -325,6 +329,68 @@ export function MapTab({
     [dayKey],
   );
 
+  // 所要時間比較: カードを開いた区間について 徒歩/車/電車 の実所要時間を取得 (read-only fetch・fail-open)。
+  //   allPins 定義後に置く (TDZ 回避)。 推薦はしない・偽数字は出さない (取れなければ「—」)。
+  useEffect(() => {
+    if (!openMobilityLegKey) {
+      setLegDur(null);
+      return;
+    }
+    const cached = legDurCacheRef.current.get(openMobilityLegKey);
+    if (cached) {
+      setLegDur(cached);
+      return;
+    }
+    const maps = window.google?.maps;
+    if (!maps) {
+      setLegDur(null);
+      return;
+    }
+    // legKey から区間端点 (from/to coord) を再特定 (mobilityCard と同じ時刻順)
+    const sorted = [...allPins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    let from: GmapsLatLng | null = null;
+    let to: GmapsLatLng | null = null;
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      if (
+        legKeyOf(sorted[i]!.anchor.id, sorted[i + 1]!.anchor.id) ===
+        openMobilityLegKey
+      ) {
+        from = sorted[i]!.coord;
+        to = sorted[i + 1]!.coord;
+        break;
+      }
+    }
+    const service = from && to ? createDirectionsService(maps) : null;
+    if (!from || !to || !service) {
+      setLegDur(null);
+      return;
+    }
+    const fromC = from;
+    const toC = to;
+    const tmWalk = toApiTravelMode(maps, "walk");
+    const tmCar = toApiTravelMode(maps, "car");
+    const tmTransit = toApiTravelMode(maps, "train");
+    setLegDur({ loading: true, walk: null, drive: null, transit: null });
+    let cancelled = false;
+    void Promise.all([
+      tmWalk ? fetchLegInfo(service, fromC, toC, tmWalk) : Promise.resolve(null),
+      tmCar ? fetchLegInfo(service, fromC, toC, tmCar) : Promise.resolve(null),
+      tmTransit
+        ? fetchLegInfo(service, fromC, toC, tmTransit)
+        : Promise.resolve(null),
+    ]).then(([walk, drive, transit]) => {
+      if (cancelled) return;
+      const result: LegDurState = { loading: false, walk, drive, transit };
+      legDurCacheRef.current.set(openMobilityLegKey, result);
+      setLegDur(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openMobilityLegKey, allPins]);
+
   // 開いている leg の card data (= from/to title + selectedMode + 過去判定 readOnly)
   const mobilityCard = useMemo(() => {
     if (!openMobilityLegKey) return null;
@@ -394,6 +460,7 @@ export function MapTab({
           toTitle={mobilityCard.toTitle}
           selectedMode={mobilityCard.selectedMode}
           recallMode={mobilityCard.recallMode}
+          durations={legDur}
           readOnly={mobilityCard.readOnly}
           onSelect={handleSelectLegMode}
           onClose={handleMobilityCardClose}
@@ -1049,19 +1116,20 @@ function MapPlaceholder({
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// MobilityLegCard (v2 判断OS化): leg チップ tap で開く移動手段カード
-//   - ✦おすすめ枠 (= 判断OS。 実 recommendedMode が来たら点灯、 無ければ正直に「順次提案」)
+// MobilityLegCard (判断OS化): leg チップ tap で開く移動手段カード
+//   - 所要時間の目安 (= 各手段の実 Google duration + 乗換数。 推薦・断定せず判断材料を出す)
+//   - S2-A: 前回この区間の手段を控えめに想起 (= 履歴の補助。 ワンタップ適用)
 //   - 主な手段 / 制限あり(β) にグルーピング、 注記の氾濫を βバッジ + 1行脚注へ集約
 //   - 選択は mode 色でハイライト、 過去(done) leg は readOnly
-//   - ★経路ジオメトリ・推奨の中身は実データ接続後 (偽の数字は出さない)
+//   - ★偽の数字は出さない (= 実測のみ、 取れなければ「—」)。 距離推定もしない
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function MobilityLegCard({
   legKey,
   fromTitle,
   toTitle,
   selectedMode,
-  recommendedMode,
   recallMode,
+  durations,
   readOnly,
   onSelect,
   onClose,
@@ -1070,8 +1138,8 @@ function MobilityLegCard({
   fromTitle: string;
   toTitle: string;
   selectedMode: RouteTransportMode | null;
-  recommendedMode?: RouteTransportMode | null;
   recallMode?: RouteTransportMode | null; // S2-A: 前回この区間で選んだ手段 (= 想起。 推薦ではない)
+  durations?: LegDurState | null; // 所要時間比較: 各手段の実 Google duration (推薦せず判断材料)
   readOnly: boolean;
   onSelect: (legKey: string, mode: RouteTransportMode) => void;
   onClose: () => void;
@@ -1080,6 +1148,24 @@ function MobilityLegCard({
     backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
     backgroundSize: "contain",
   });
+  // 所要時間比較の 1 行 (= 実測 minutes / 乗換数。 取れなければ「—」。 偽数字は出さない)
+  const durLine = (label: string, info: LegInfo | null, isTransit = false) => (
+    <div className="flex items-baseline justify-between text-sm">
+      <span className="text-slate-600">{label}</span>
+      {info ? (
+        <span className="font-bold text-slate-900">
+          {info.minutes}分
+          {isTransit && info.transfers != null ? (
+            <span className="ml-1 text-[11px] font-medium text-slate-400">
+              乗換{info.transfers}回
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        <span className="text-xs text-slate-400">—</span>
+      )}
+    </div>
+  );
   const modeButton = (mode: RouteTransportMode, limited: boolean) => {
     const active = selectedMode === mode;
     const color = ROUTE_MODE_COLORS[mode];
@@ -1133,28 +1219,29 @@ function MobilityLegCard({
           </button>
         </div>
 
-        {/* ✦おすすめ枠 (= 判断OS): 実 recommendedMode で点灯、 無ければ正直に順次提案 */}
-        <div className="mt-3 rounded-2xl border border-indigo-100 bg-gradient-to-br from-blue-50 to-violet-50 px-3.5 py-3">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-indigo-600">
-            <span aria-hidden>✦</span> おすすめ
-          </div>
-          {recommendedMode ? (
-            <div className="mt-2 flex items-center gap-2.5">
-              <span
-                aria-hidden
-                className="block h-11 w-11 bg-center bg-no-repeat"
-                style={chipBg(recommendedMode)}
-              />
-              <div className="text-sm font-bold text-slate-900">
-                {MOBILITY_MODE_META[recommendedMode].label}
-              </div>
+        {/* この区間の移動・所要時間の目安 (= 実 Google duration の判断材料。 推薦・断定はしない) */}
+        {durations && (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">
+            <div className="text-[11px] font-bold tracking-wide text-slate-500">
+              この区間の移動・所要時間の目安
             </div>
-          ) : (
-            <p className="mt-1 text-xs text-indigo-500/90">
-              予定に合わせた最適な移動を順次提案します
+            {durations.loading ? (
+              <p className="mt-2 text-xs text-slate-400">所要時間を計算中…</p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {durLine("徒歩", durations.walk)}
+                {durLine("車・タクシー", durations.drive)}
+                {durLine("電車・バス", durations.transit, true)}
+                <p className="pt-1 text-[10px] text-slate-400">
+                  自転車・飛行機・新幹線は経路目安なし（未対応）
+                </p>
+              </div>
+            )}
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              Google の実測目安。おすすめではなく判断材料です。
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* S2-A: 前回こう動いた (= 事実の想起。 おすすめ=推薦 とは別。 ワンタップ適用・自動適用しない) */}
         {!readOnly && recallMode && (
@@ -1929,7 +2016,14 @@ interface GmapsLatLngObj {
   lng(): number;
 }
 interface GmapsDirectionsResult {
-  routes?: Array<{ overview_path?: GmapsLatLngObj[] }>;
+  routes?: Array<{
+    overview_path?: GmapsLatLngObj[];
+    // 所要時間比較用 (= 実 Google duration / 乗換数)。 frozen loader 不触の local 拡張。
+    legs?: Array<{
+      duration?: { value?: number; text?: string };
+      steps?: Array<{ travel_mode?: string }>;
+    }>;
+  }>;
 }
 interface GmapsDirectionsService {
   route(
@@ -2070,5 +2164,101 @@ function fetchRoadSegmentPath(
   });
 
   roadSegmentInflight.set(key, promise);
+  return promise;
+}
+
+// ── 所要時間比較 (判断材料): 各手段の実 Google duration / 乗換数 ──
+//   ★推薦はしない。 偽の数字も出さない (= 実測のみ、 取れなければ null=「—」)。
+//   ★距離推定はしない (= Directions の duration をそのまま使う)。
+/** 1 区間 1 手段の所要時間情報 (= 実測 minutes / 乗換数。 transfers は transit のみ非 null)。 */
+interface LegInfo {
+  minutes: number;
+  transfers: number | null;
+}
+/** カード用: 開いた区間の 徒歩/車・タクシー/電車・バス の所要時間 (loading 中は loading=true)。 */
+interface LegDurState {
+  loading: boolean;
+  walk: LegInfo | null;
+  drive: LegInfo | null;
+  transit: LegInfo | null;
+}
+/** 所要時間 cache (key=from|to|mode)。path とは別 cache。 値: LegInfo / null=確定失敗。 */
+const legInfoCache = new Map<string, LegInfo | null>();
+const legInfoInflight = new Map<string, Promise<LegInfo | null>>();
+
+/**
+ * 1 区間 (from→to) 1 手段の所要時間を取得 (= 実 Google duration)。
+ *   cache / in-flight 合流 / timeout / fail-open は fetchRoadSegmentPath と同型。
+ *   transit は steps の TRANSIT 数 − 1 を乗換数に。 取れなければ null (= UI で「—」)。
+ */
+function fetchLegInfo(
+  service: GmapsDirectionsService,
+  from: GmapsLatLng,
+  to: GmapsLatLng,
+  travelMode: string,
+): Promise<LegInfo | null> {
+  if (directionsApiUnavailable) return Promise.resolve(null);
+  const key = roadSegmentKey(from, to, travelMode);
+  if (legInfoCache.has(key)) return Promise.resolve(legInfoCache.get(key) ?? null);
+  const existing = legInfoInflight.get(key);
+  if (existing) return existing;
+
+  const promise = new Promise<LegInfo | null>((resolve) => {
+    let settled = false;
+    const settle = (value: LegInfo | null, cache: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (cache) legInfoCache.set(key, value);
+      resolve(value);
+    };
+    const timer = setTimeout(() => settle(null, false), DIRECTIONS_SEGMENT_TIMEOUT_MS);
+    try {
+      service.route(
+        { origin: from, destination: to, travelMode },
+        (result, status) => {
+          clearTimeout(timer);
+          if (status === "OK") {
+            const legs = result?.routes?.[0]?.legs;
+            if (legs && legs.length > 0) {
+              const sec = legs.reduce((s, l) => s + (l.duration?.value ?? 0), 0);
+              let transitSteps = 0;
+              for (const l of legs) {
+                for (const st of l.steps ?? []) {
+                  if (st.travel_mode === "TRANSIT") transitSteps += 1;
+                }
+              }
+              if (sec > 0) {
+                const transfers =
+                  transitSteps > 0 ? Math.max(0, transitSteps - 1) : null;
+                settle({ minutes: Math.max(1, Math.round(sec / 60)), transfers }, true);
+              } else {
+                settle(null, true); // OK だが duration 無し → 確定失敗
+              }
+            } else {
+              settle(null, true);
+            }
+            return;
+          }
+          if (status === "REQUEST_DENIED") {
+            directionsApiUnavailable = true;
+            settle(null, false);
+            return;
+          }
+          if (status === "ZERO_RESULTS" || status === "NOT_FOUND") {
+            settle(null, true); // 経路なし → 確定失敗 (= 「—」)
+            return;
+          }
+          settle(null, false); // transient → cache せず
+        },
+      );
+    } catch {
+      clearTimeout(timer);
+      settle(null, false);
+    }
+  }).finally(() => {
+    legInfoInflight.delete(key);
+  });
+
+  legInfoInflight.set(key, promise);
   return promise;
 }
