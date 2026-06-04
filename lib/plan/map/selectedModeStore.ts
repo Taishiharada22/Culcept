@@ -138,3 +138,38 @@ export function clearSelectedModeStore(): void {
   if (!ls) return;
   try { ls.removeItem(SELECTED_MODE_STORE_KEY); } catch { /* ignore */ }
 }
+
+// ━━━ S2-A 「前回こう動いた」 recall (= A4・pure) ━━━
+
+/** recall 結果: 過去日の mode とその日。 */
+export interface PriorLegMode {
+  readonly mode: TransportMode;
+  readonly dayISO: string;
+}
+
+/**
+ * S2-A: dayISO より前(過去)の日で legKey の mode を持つ最も新しい日の mode を返す。
+ *   - 未来日は見ない / 同日現在値は対象外 (= d < dayISO 厳密)
+ *   - 破損/不正は fail-open (= null) / dayISO は辞書順=時系列順 (= caps 済 store と整合)
+ */
+export function recallPriorLegMode(
+  store: SelectedModeStore,
+  dayISO: string,
+  legKey: string,
+): PriorLegMode | null {
+  if (!isDayISO(dayISO) || typeof legKey !== "string" || legKey.length === 0) return null;
+  const priorDays = Object.keys(store.byDay).filter((d) => d < dayISO).sort();
+  for (let i = priorDays.length - 1; i >= 0; i--) {
+    const d = priorDays[i];
+    const mode = store.byDay[d]?.[legKey];
+    if (mode !== undefined && isTransportMode(mode)) {
+      return { mode, dayISO: d };
+    }
+  }
+  return null;
+}
+
+/** S2-A recall (localStorage 版・client-only・fail-open)。 */
+export function loadPriorLegMode(dayISO: string, legKey: string): PriorLegMode | null {
+  return recallPriorLegMode(readStore(), dayISO, legKey);
+}
