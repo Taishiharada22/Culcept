@@ -82,7 +82,7 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 import { MobilityLegCard } from "@/components/plan/map/MobilityLegCard";
-import { legChipDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { legChipDataUri, ROUTE_MODE_COLORS, type RouteTransportMode } from "@/lib/plan/map/routeMode";
 import { loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
@@ -318,6 +318,7 @@ export function MapTab({
         selectedAnchorId={selectedPinId}
         onPinClick={handlePinTap}
         onLegTap={handleLegTap}
+        selectedModeByLeg={selectedModeByLeg}
         onBackgroundClick={handleSheetClose}
         dayItemsForPanel={dayItemsForPanel}
         onDayItemTap={handleDayItemTap}
@@ -361,6 +362,7 @@ function PlanMapView({
   loading,
   apiAvailable,
   selectedAnchorId,
+  selectedModeByLeg = {},
   onPinClick,
   onLegTap,
   onBackgroundClick,
@@ -374,6 +376,8 @@ function PlanMapView({
   apiAvailable: boolean;
   /** 現在 selected な anchor id (= sheet/label sync key、 9 closeout で rename 済み) */
   selectedAnchorId: string | null;
+  /** A5-3: leg ごとの選択 mode (= route 色づけ用、store mirror) */
+  selectedModeByLeg?: Readonly<Record<string, RouteTransportMode>>;
   onPinClick?: (anchor: ExternalAnchor) => void;
   /** A5-2: leg(区間)中点の chip tap → 移動手段カードを開く */
   onLegTap?: (legKey: string, fromTitle: string, toTitle: string) => void;
@@ -494,40 +498,11 @@ function PlanMapView({
       map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // ── route polyline (時刻順 pin を dashed 線で connect、CEO mockup 整合) ──
-    //
-    // 設計:
-    //   - sortedPath は anchor.startTime ascending、pin.kind 不問
-    //   - 1 pin 以下は polyline 描画しない
-    //   - dashed style: strokeOpacity=0 で solid 線を隠し、icons で dashed pattern を repeat
-    //   - polyline は pin marker の下層 (z-index 自動、marker が上に重なる)
-    //
-    // 注: baseline pin が混在すると line が baseline 経由になる (= "今日この順で動く" 視覚化)。
-    // CEO 補正「予定→pin guarantee」 整合: baseline pin も日程の一部として line に含める。
+    // ── sortedPins (時刻順、leg-chip + route effect 共用) ──
+    //   route polyline は per-leg 色づけのため独立 effect に分離(A5-3 Step3)。
     const sortedPins = [...pins].sort((a, b) =>
       a.anchor.startTime.localeCompare(b.anchor.startTime),
     );
-    let polyline: GmapsPolyline | null = null;
-    if (sortedPins.length >= 2 && !isSamePointCluster(sortedPins.map((p) => p.coord))) {
-      polyline = new maps.Polyline({
-        map,
-        path: sortedPins.map((p) => p.coord),
-        strokeOpacity: 0, // solid 線を隠す
-        strokeColor: "#94a3b8", // slate-400 (subtle)
-        icons: [
-          {
-            icon: {
-              path: "M 0,-1 0,1", // 1px の縦線
-              strokeOpacity: 0.8,
-              strokeColor: "#94a3b8",
-              scale: 3,
-            },
-            offset: "0",
-            repeat: "12px", // 12px 毎に縦線を打つ → dashed 風
-          },
-        ],
-      });
-    }
 
     // 9 closeout cleanup: orderById Map / markerSpec 削除済み
     //   - orderById: 旧 marker.label "1·09:00" 形式 用、 9 closeout で marker.label 不使用化により dead
@@ -603,11 +578,56 @@ function PlanMapView({
     }
 
     return () => {
-      // pin / baseline / selected 変化で markers + polyline 破棄、Map instance は keep alive
+      // pin / baseline / selected 変化で markers 破棄、Map instance は keep alive
       for (const m of markers) m.setMap(null);
-      polyline?.setMap(null);
     };
   }, [pins, baselineCoords, selectedAnchorId]);
+
+  // ── Effect: route polylines (per-leg・selectedMode で色づけ・A5-3 Step3) ──
+  //   未選択 leg = dashed slate(暫定) / 選択済 = solid mode 色(確定)。
+  //   markers effect から分離 → mode 選択で pin/chip を再生成せず route だけ再描画(flicker 無し)。
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const maps = window.google?.maps;
+    if (!maps) return;
+    const sortedPins = [...pins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    if (sortedPins.length < 2 || isSamePointCluster(sortedPins.map((p) => p.coord))) return;
+    const lines: GmapsPolyline[] = [];
+    for (let i = 0; i < sortedPins.length - 1; i += 1) {
+      const a = sortedPins[i]!;
+      const b = sortedPins[i + 1]!;
+      const legKey = `${a.anchor.id}__${b.anchor.id}`;
+      const mode = selectedModeByLeg[legKey];
+      const line = mode
+        ? new maps.Polyline({
+            map,
+            path: [a.coord, b.coord],
+            strokeColor: ROUTE_MODE_COLORS[mode],
+            strokeOpacity: 0.9,
+            strokeWeight: 4,
+          })
+        : new maps.Polyline({
+            map,
+            path: [a.coord, b.coord],
+            strokeOpacity: 0,
+            strokeColor: "#64748b",
+            icons: [
+              {
+                icon: { path: "M 0,-1 0,1", strokeOpacity: 0.9, strokeColor: "#64748b", scale: 3 },
+                offset: "0",
+                repeat: "10px",
+              },
+            ],
+          });
+      lines.push(line);
+    }
+    return () => {
+      for (const l of lines) l.setMap(null);
+    };
+  }, [pins, selectedModeByLeg]);
 
   // ─── Effect 3 (9b-2): pin screen position 計算 (= MapSelectedPinLabel spatial binding 用) ───
   //   selectedAnchorId 変化 + bounds_changed event で再計算、 setState で label に流す。
