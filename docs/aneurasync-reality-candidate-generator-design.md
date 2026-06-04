@@ -43,6 +43,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-4-2b** | **multi-add 複数配置**(`generateComplete` 拡張): A1-4-2a を厳格に複数 placement へ。全 placement が結合条件 ∧ 各々一意 gap ∧ 配置区間 非競合 のときだけ **単一 CandidateDraft の multi-add**。all-or-nothing(1 つでも不適格/曖昧/不足/競合→全体 null)。実 seed 候補 0・window 分割 synthetic でだけ multi-add。**未配線** | ✅ landed |
 | **A1-4-3a** | **duration enrichment pure seam**(`enrichSeedPlacement`/`enrichSeedPlacements`): PRM/correction/user-confirmed が将来出す `DurationEvidence` で `SeedPlacement.durationMin` を埋める純関数。structured ∧ source 明確 ∧ confidence=high ∧ 範囲内(1分超・1日以下・有限) ∧ seedRef 一致 ∧ 未充足 のときだけ enrich。**PRM 実接続なし・default duration なし・上書きなし**。evidence なし実 seed は null/placeable=false 維持 | ✅ landed |
 | **A1-4-3b** | **複数 evidence resolver/provenance 層**(`resolveDurationEvidence`/`enrichSeedPlacementFromEvidences`): 複数 `DurationEvidence` を deterministic 解決(優先 seed_explicit>correction>prm_typical・同 priority 不一致は no enrich)+provenance(推定 prm_typical は grounding=weak へ倒し候補化しない)。high のみ採用。A1-4-3a primitive 不変・**additive・PRM 実接続なし** | ✅ landed |
+| **A1-4-4a** | **Complete dispatcher pure seam**(`generateCandidates` Complete 分岐): structured `SeedPlacement`/`DurationEvidence` を新 optional 第3引数→`GenerationContext.completeInput` で受け `enrichSeedPlacementsFromEvidences`→`generateComplete` を kernel 内で end-to-end に呼ぶ。**Repair 不変**・**RealityInput/runtime/PRM 未接続**(raw seed 不使用)。duration null→候補0・高信頼 evidence→候補・prm_typical→weak で候補化せず | ✅ landed |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -231,10 +232,21 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test(`realitySeedPlacementEnrich.test.ts`・14→**26**、+12): resolver(eligible なし / 優先順位 deterministic / same-priority conflict→no enrich / agreement→adopted / low は conflict に数えない) / provenance(correction→strong/placeable・prm_typical→weak・conflict→null・上書きなし) / 実 seed(evidence なし→候補 0・correction→候補・prm_typical→候補化されない)。
 - **しない（A1-4-3b 範囲外）**: PRM/correction 実接続 / DB / runtime・route・UI・PlanClient / RealityInput 搭載 / dispatcher・pipeline 配線 / default duration / raw parse / LLM / A1-4-2c / sub-gap / partial / Build・Optimize・R1b / barrel / A1-4-3c 以降。
 
+## 4n. A1-4-4a 実装（landed）— Complete dispatcher pure seam（generateCandidates の Complete 分岐）
+`candidate-generator.ts` の `generateCandidates` に **Complete 分岐**を追加。`complete-generator`/`seed-placement-enrich` を **kernel 内で end-to-end に呼べる**ようにした。**RealityInput/runtime/app/DB/PRM には一切接続しない**(raw seed 不使用)。
+- **structured 別経路**: `generateCandidates(input, goals?, completeInput?)` の **新 optional 第3引数** `CompleteDispatchInput`(seedPlacements / durationEvidences? / activeWindow? / date? / bandBounds?) を `GenerationContext.completeInput`(optional) に載せる。**RealityInput には搭載しない**(別経路)。
+- **dispatch**: `generateFromContext` は **Complete(mode=complete ∧ completeInput 有)優先 → なければ Repair**。`generateCompleteFromContext` は `durationEvidences` を seedRef で group 化 → `enrichSeedPlacementsFromEvidences` → `generateComplete`(existing=context.nodes)。**buildSeedPlacements/raw seed は使わない**。
+- **Repair 既存挙動は不変**: mode≠complete or completeInput 無 → 従来 `generateRepairTrim` のみ(既存 Repair test 全 PASS で実証)。
+- **provenance 連動**: correction/seed_explicit(high)→grounding=strong→**候補化される**。prm_typical→grounding=weak→generateComplete の結合条件(strong)で**候補化されない**。duration null(evidence なし)→候補 0。
+- **循環なし**: candidate-generator→(runtime)complete-generator/seed-placement-enrich は一方向。逆は type-only(erase)。tsc 0。
+- **未接続維持**: `generateCandidates` は app/route/PlanClient から未参照のまま＝production 挙動変更ゼロ。barrel 未追加。
+- test(`realityCompleteDispatch.test.ts`・**6**): Repair 不変(trim) / completeInput 無→0 / duration null→0 / correction→add 候補(evaluate+rank で feasible・best) / seed_explicit→候補 / prm_typical→0。
+- **しない（A1-4-4a 範囲外）**: RealityInput 搭載 / runtime pipeline 配線 / PRM・correction 実接続 / DB / UI・route・PlanClient / raw parse / default duration / A1-4-3c / A1-4-2c / sub-gap / partial / Build・Optimize・R1b / barrel。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-4-3b（複数 evidence resolver/provenance 層・本書 §4m に **landed**）まで完了。高信頼(seed_explicit/correction)だけが実候補に繋がり、推定(prm_typical)は weak で候補化されない。次は **A1-4-3c**（evidence の時間減衰/鮮度・複数 seed 横断の整合 等）か、**A1-4-2c**（sub-gap packing/partial placement）か、**pipeline 配線**（RealityInput→buildSeedPlacements→enrich→generateComplete を dispatcher へ）か、**PRM/correction 実接続**（実データ→DurationEvidence 生成 adapter）を CEO 判断で別 GO。いずれも **現状 NO**。
+A1-4-4a（Complete dispatcher pure seam・本書 §4n に **landed**）まで完了。kernel 内で structured placement+evidence→Complete候補が end-to-end に出る(Repair 不変・RealityInput/runtime 未接続)。次は **pipeline 配線**（RealityInput に構造化 input を渡す adapter・**runtime 境界**）か、**PRM/correction 実接続**（実データ→DurationEvidence）か、**A1-4-3c**（freshness/time decay）か、**A1-4-2c**（sub-gap/partial）を CEO 判断で別 GO。いずれも **現状 NO**。
 A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。

@@ -34,6 +34,9 @@ import type { EngineMode } from "./invariant-check";
 import type { SourceTrace } from "./source-trace";
 import type { ChangeSet, ChangeOp } from "./change-set";
 import type { CandidateDraft } from "./candidate-evaluator";
+import { enrichSeedPlacementsFromEvidences, type DurationEvidence } from "./seed-placement-enrich";
+import { generateComplete, type Interval } from "./complete-generator";
+import type { SeedPlacement, TimeBand } from "./seed-placement";
 
 /**
  * anchor governance が見つからない dayNode への保守的デフォルト = immovable。
@@ -61,6 +64,24 @@ export interface GenerationGoals {
   readonly seeds: readonly SourceTrace[];
 }
 
+/**
+ * A1-4-4a: Complete dispatch 用の **structured optional input**（RealityInput 由来でない別経路）。
+ * raw seed でなく **既に構造化された** SeedPlacement / DurationEvidence のみを受け取る。
+ * 既存ノードは context.nodes を使うため含めない。clock 境界は caller 提供（未指定は generateComplete の既定）。
+ */
+export interface CompleteDispatchInput {
+  /** 配置候補の材料（dispatcher 内で buildSeedPlacements/raw seed は使わない） */
+  readonly seedPlacements: readonly SeedPlacement[];
+  /** duration 証拠（flat・seedRef で内部 group 化して enrich）。任意。 */
+  readonly durationEvidences?: readonly DurationEvidence[];
+  /** 当日 active window（任意・未指定は generateComplete 既定 [0,1440]） */
+  readonly activeWindow?: Interval;
+  /** 当日日付（任意・placement.date 照合用） */
+  readonly date?: string;
+  /** band→clock 境界（任意・banded placement の解決用） */
+  readonly bandBounds?: Readonly<Partial<Record<TimeBand, Interval>>>;
+}
+
 /** 生成 mode が消費する文脈。touchable/preserved は authority を消費して分類済み。 */
 export interface GenerationContext {
   readonly mode: EngineMode;
@@ -71,6 +92,8 @@ export interface GenerationContext {
   /** 保全ノード（immovable ∪ recovery_core）。生成器は決して触れない。 */
   readonly preserved: readonly GovernedNode[];
   readonly goals: GenerationGoals;
+  /** A1-4-4a: Complete dispatch 用 structured input（mode=complete のときのみ消費・任意） */
+  readonly completeInput?: CompleteDispatchInput;
 }
 
 /**
@@ -120,15 +143,56 @@ export function buildGenerationContext(input: RealityInput, goals?: GenerationGo
  * 候補生成器。**CandidateDraft（metrics を持たない）** を出す（評価/metrics は evaluator の責務）。
  * A1-3-R1a: Repair trim-only のみ実装。Complete/Build/Optimize は別 slice。
  */
-export function generateCandidates(input: RealityInput, goals?: GenerationGoals): readonly CandidateDraft[] {
-  const context = buildGenerationContext(input, goals);
+export function generateCandidates(
+  input: RealityInput,
+  goals?: GenerationGoals,
+  completeInput?: CompleteDispatchInput
+): readonly CandidateDraft[] {
+  const base = buildGenerationContext(input, goals);
+  const context: GenerationContext = completeInput ? { ...base, completeInput } : base;
   return generateFromContext(context);
 }
 
-/** mode 別生成の唯一の拡張点。A1-3-R1a では Repair trim-only のみ。 */
+/**
+ * mode 別生成の唯一の拡張点。
+ * Complete（mode=complete ∧ completeInput 有）優先 → なければ Repair trim-only。**Repair 既存挙動は不変**。
+ */
 function generateFromContext(context: GenerationContext): readonly CandidateDraft[] {
+  const complete = generateCompleteFromContext(context);
+  if (complete) return [complete];
   const repair = generateRepairTrim(context);
   return repair ? [repair] : [];
+}
+
+/** DurationEvidence[]（flat）を seedRef→evidence[] の map に group 化（enrich 入力用・純粋）。 */
+function groupEvidenceBySeedRef(evidences: readonly DurationEvidence[]): Record<string, DurationEvidence[]> {
+  const map: Record<string, DurationEvidence[]> = {};
+  for (const e of evidences) {
+    const arr = map[e.seedRef] ?? [];
+    arr.push(e);
+    map[e.seedRef] = arr;
+  }
+  return map;
+}
+
+/**
+ * A1-4-4a: Complete dispatch（mode=complete ∧ completeInput のときだけ candidate）。
+ * structured placements を（evidence があれば）enrich → generateComplete に純粋に流す。
+ * **buildSeedPlacements/raw seed は使わない**。既存ノードは context.nodes。Repair/他 mode は null。
+ */
+function generateCompleteFromContext(context: GenerationContext): CandidateDraft | null {
+  if (context.mode !== "complete") return null;
+  const ci = context.completeInput;
+  if (!ci) return null;
+  const evidenceMap = ci.durationEvidences ? groupEvidenceBySeedRef(ci.durationEvidences) : undefined;
+  const enriched = enrichSeedPlacementsFromEvidences(ci.seedPlacements, evidenceMap);
+  return generateComplete({
+    placements: enriched,
+    existing: context.nodes,
+    activeWindow: ci.activeWindow,
+    date: ci.date,
+    bandBounds: ci.bandBounds,
+  });
 }
 
 const IMPORTANCE_RANK: Record<NodeImportance, number> = { low: 0, normal: 1, high: 2, critical: 3 };
