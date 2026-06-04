@@ -19,8 +19,11 @@ import {
   makeStorageKey,
   toStoredPayload,
   parseStoredPayload,
+  validateDayColumns,
+  MIN_DAY_COLUMN_SPAN,
   DEFAULT_HEADER_OFFSET_RATIO,
   type AssistedRowSelection,
+  type DayColumns,
 } from "@/lib/plan/shift/assistedRowSelection";
 
 const IMG = { imageW: 1860, imageH: 846 };
@@ -196,5 +199,109 @@ describe("storage payload — 画像本体非格納の構造的保証", () => {
         updatedAt: "t",
       })
     ).toBeNull();
+  });
+});
+
+describe("validateDayColumns（S-geo-2 day列中心 X）", () => {
+  const W = 1860;
+  const dc = (first: number, last: number): DayColumns => ({
+    firstDayCenterX: first,
+    lastDayCenterX: last,
+  });
+
+  it("undefined → missing", () => {
+    expect(validateDayColumns(undefined, W).map((i) => i.field)).toContain("missing");
+  });
+  it("first >= last → order", () => {
+    expect(validateDayColumns(dc(1000, 500), W).map((i) => i.field)).toContain("order");
+  });
+  it("image 外 → bounds（firstDayCenterX / lastDayCenterX）", () => {
+    expect(validateDayColumns(dc(-5, 500), W).map((i) => i.field)).toContain("firstDayCenterX");
+    expect(validateDayColumns(dc(100, 2000), W).map((i) => i.field)).toContain("lastDayCenterX");
+  });
+  it("finite でない → field", () => {
+    const fs = validateDayColumns(dc(Number.NaN, Number.POSITIVE_INFINITY), W).map((i) => i.field);
+    expect(fs).toEqual(expect.arrayContaining(["firstDayCenterX", "lastDayCenterX"]));
+  });
+  it("差が小さすぎる（< MIN_DAY_COLUMN_SPAN）→ span", () => {
+    expect(
+      validateDayColumns(dc(100, 100 + MIN_DAY_COLUMN_SPAN - 1), W).map((i) => i.field)
+    ).toContain("span");
+  });
+  it("valid（順序・範囲・間隔 OK）→ issues なし", () => {
+    expect(validateDayColumns(dc(300.75, 1845.75), W)).toEqual([]);
+  });
+});
+
+describe("storage payload — dayColumns（座標のみ・raw 非格納）", () => {
+  const base = (): AssistedRowSelection => ({
+    imageW: 1860,
+    imageH: 846,
+    headerBand: { top: 180, bottom: 226 },
+    personRowBand: { top: 290, bottom: 350 },
+    imageFingerprint: "1234_1860x846_deadbeef",
+    dayColumns: { firstDayCenterX: 300.75, lastDayCenterX: 1845.75 },
+  });
+
+  it("toStoredPayload は valid dayColumns（座標）を載せる", () => {
+    expect(toStoredPayload(base(), "t")?.dayColumns).toEqual({
+      firstDayCenterX: 300.75,
+      lastDayCenterX: 1845.75,
+    });
+  });
+  it("toStoredPayload は invalid dayColumns を載せない（omit・Y は valid のまま保存）", () => {
+    const p = toStoredPayload(
+      { ...base(), dayColumns: { firstDayCenterX: 1000, lastDayCenterX: 500 } },
+      "t"
+    );
+    expect(p).not.toBeNull();
+    expect(p?.dayColumns).toBeUndefined();
+  });
+  it("parseStoredPayload は dayColumns 座標を取り出す", () => {
+    const parsed = parseStoredPayload({
+      imageFingerprint: "a",
+      imageW: 1860,
+      imageH: 846,
+      headerBand: { top: 180, bottom: 226 },
+      personRowBand: { top: 290, bottom: 350 },
+      dayColumns: { firstDayCenterX: 300.75, lastDayCenterX: 1845.75 },
+      updatedAt: "t",
+    });
+    expect(parsed?.dayColumns).toEqual({ firstDayCenterX: 300.75, lastDayCenterX: 1845.75 });
+  });
+  it("parseStoredPayload は dayColumns 内の raw/base64/blob 等を捨て座標のみ通す", () => {
+    const parsed = parseStoredPayload({
+      imageFingerprint: "a",
+      imageW: 1860,
+      imageH: 846,
+      headerBand: { top: 180, bottom: 226 },
+      personRowBand: { top: 290, bottom: 350 },
+      dayColumns: {
+        firstDayCenterX: 300.75,
+        lastDayCenterX: 1845.75,
+        rawImage: "data:image/png;base64,AAAA",
+        blob: {},
+        sourceText: "原稿テキスト",
+      },
+      updatedAt: "t",
+    });
+    expect(parsed?.dayColumns).toEqual({ firstDayCenterX: 300.75, lastDayCenterX: 1845.75 });
+    const s = JSON.stringify(parsed);
+    expect(s).not.toContain("base64");
+    expect(s).not.toContain("rawImage");
+    expect(s).not.toContain("sourceText");
+  });
+  it("parseStoredPayload は invalid dayColumns を無視（Y は通す・dayColumns なし）", () => {
+    const parsed = parseStoredPayload({
+      imageFingerprint: "a",
+      imageW: 1860,
+      imageH: 846,
+      headerBand: { top: 180, bottom: 226 },
+      personRowBand: { top: 290, bottom: 350 },
+      dayColumns: { firstDayCenterX: 1000, lastDayCenterX: 500 },
+      updatedAt: "t",
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.dayColumns).toBeUndefined();
   });
 });

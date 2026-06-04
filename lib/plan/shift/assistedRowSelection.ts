@@ -33,6 +33,15 @@ export interface BandIssue {
 }
 
 /**
+ * day列中心 X（S-geo-2・案A-1）。day1 と月末日の **ヘッダ列中心** の x（px）。
+ * **画像本体ではない座標のみ**（buildShiftGridGeometry が gridLeft/colWidth を逆算する入力）。
+ */
+export interface DayColumns {
+  firstDayCenterX: number;
+  lastDayCenterX: number;
+}
+
+/**
  * 1 画像分の assisted row selection。
  * **画像本体（Blob/base64/dataURI 等）は含まない**（型で構造的に禁止）。
  */
@@ -45,6 +54,8 @@ export interface AssistedRowSelection {
   headerBand: BandY;
   /** 本人行帯（contract 上必須）。 */
   personRowBand: BandY;
+  /** 任意: day列中心 X（S-geo-2・案A-1）。座標のみ・画像本体非依存。 */
+  dayColumns?: DayColumns;
   /** 任意: pure FNV-1a 32bit ハッシュ（画像 byte 不要・size+wh+optional fingerprint をキー化する用途）。 */
   imageFingerprint?: string;
   /** 任意: ISO 文字列。記録時に外部から渡す（pure module は now を生成しない）。 */
@@ -58,6 +69,8 @@ export interface AssistedRowSelectionStored {
   imageH: number;
   headerBand: BandY;
   personRowBand: BandY;
+  /** 任意: day列中心 X（座標のみ・S-geo-2）。 */
+  dayColumns?: DayColumns;
   updatedAt: string;
 }
 
@@ -118,6 +131,50 @@ export function validateSelection(s: AssistedRowSelection): SelectionValidation 
   const ok =
     !headerIssues.length && !personRowIssues.length && orderingIssue === null;
   return { ok, ctaActive: ok, headerIssues, personRowIssues, orderingIssue };
+}
+
+// ─────────────────────────────────────────────────────────────
+// day列中心 X validation（S-geo-2・案A-1）
+// ─────────────────────────────────────────────────────────────
+
+/** day列中心 X の妥当性（field + メッセージ）。 */
+export interface DayColumnsIssue {
+  field: "missing" | "firstDayCenterX" | "lastDayCenterX" | "order" | "span";
+  message: string;
+}
+
+/** 2 点が「画像上の day列中心ペア」として近すぎない最小間隔(px)。 */
+export const MIN_DAY_COLUMN_SPAN = 8;
+
+/**
+ * day列中心 X（day1中心 / 月末日中心）が画像上の 2 点として成立するか（pure）。
+ * `dayCount` 依存の詳細（colWidth/gridLeft の妥当性）は buildShiftGridGeometry 側。
+ * ここでは「2 点が finite・範囲 [0,imageW]・順序 first<last・最小間隔」だけを見る。
+ */
+export function validateDayColumns(
+  dc: DayColumns | undefined,
+  imageW: number
+): DayColumnsIssue[] {
+  const issues: DayColumnsIssue[] = [];
+  if (!dc) {
+    issues.push({ field: "missing", message: "day columns are not set" });
+    return issues;
+  }
+  if (!Number.isFinite(dc.firstDayCenterX))
+    issues.push({ field: "firstDayCenterX", message: "must be a finite number" });
+  if (!Number.isFinite(dc.lastDayCenterX))
+    issues.push({ field: "lastDayCenterX", message: "must be a finite number" });
+  if (issues.length) return issues; // finite でなければ以降の比較をしない
+
+  if (dc.firstDayCenterX < 0 || dc.firstDayCenterX > imageW)
+    issues.push({ field: "firstDayCenterX", message: "must lie within [0, imageW]" });
+  if (dc.lastDayCenterX < 0 || dc.lastDayCenterX > imageW)
+    issues.push({ field: "lastDayCenterX", message: "must lie within [0, imageW]" });
+  if (dc.firstDayCenterX >= dc.lastDayCenterX)
+    issues.push({ field: "order", message: "firstDayCenterX must be < lastDayCenterX" });
+  else if (dc.lastDayCenterX - dc.firstDayCenterX < MIN_DAY_COLUMN_SPAN)
+    issues.push({ field: "span", message: "the two day-column centers are too close" });
+  return issues;
 }
 
 /** 整数 px に snap し、[0, imageH] に clamp。 */
@@ -247,7 +304,7 @@ export function toStoredPayload(
   if (!s.imageFingerprint) return null;
   const v = validateSelection(s);
   if (!v.ok) return null;
-  return {
+  const stored: AssistedRowSelectionStored = {
     imageFingerprint: s.imageFingerprint,
     imageW: s.imageW,
     imageH: s.imageH,
@@ -255,6 +312,14 @@ export function toStoredPayload(
     personRowBand: s.personRowBand,
     updatedAt,
   };
+  // day列中心 X は valid な時のみ載せる（座標のみ・画像本体は型で構造的に乗らない）。
+  if (s.dayColumns && validateDayColumns(s.dayColumns, s.imageW).length === 0) {
+    stored.dayColumns = {
+      firstDayCenterX: s.dayColumns.firstDayCenterX,
+      lastDayCenterX: s.dayColumns.lastDayCenterX,
+    };
+  }
+  return stored;
 }
 
 /**
@@ -289,6 +354,20 @@ export function parseStoredPayload(
     personRowBand: { top: personRowBand.top, bottom: personRowBand.bottom },
     updatedAt: o.updatedAt,
   };
+  // day列中心 X は **座標(number)のみ**読む。raw 画像/base64/dataURI/blob 等の余計な field は
+  // 一切読まない（out に明示 field しか入れない＝黙って捨てる設計を維持）。
+  const dcRaw = o.dayColumns as Partial<DayColumns> | undefined;
+  if (
+    dcRaw &&
+    typeof dcRaw.firstDayCenterX === "number" &&
+    typeof dcRaw.lastDayCenterX === "number"
+  ) {
+    const dc: DayColumns = {
+      firstDayCenterX: dcRaw.firstDayCenterX,
+      lastDayCenterX: dcRaw.lastDayCenterX,
+    };
+    if (validateDayColumns(dc, out.imageW).length === 0) out.dayColumns = dc;
+  }
   // 構造検証も通す（範囲は imageH 依存・persisted 値の sanity）
   const v = validateSelection({
     imageW: out.imageW,
