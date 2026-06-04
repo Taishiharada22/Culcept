@@ -9,30 +9,22 @@
  * 不変: client-only / SSR・localStorage 不在は fail-open / DB・network・server 不使用 / 破損は fail-open /
  *   versioned key + 保存日数・件数上限 / transport 正本層(lib/plan/transport)には置かない。
  */
-import type { TransportMode } from "@/lib/plan/transport/transportTypes";
+import { isRouteTransportMode, type RouteTransportMode } from "@/lib/plan/map/routeMode";
 
 export const SELECTED_MODE_STORE_KEY = "aneurasync.plan.map.selectedMode.v1";
 export const SELECTED_MODE_STORE_VERSION = 1 as const;
 export const MAX_STORED_DAYS = 60;
 export const MAX_LEGS_PER_DAY = 100;
 
-const VALID_MODES: ReadonlySet<TransportMode> = new Set<TransportMode>([
-  "walking", "driving", "transit", "flight", "unknown",
-]);
-
 export interface SelectedModeStore {
   readonly version: typeof SELECTED_MODE_STORE_VERSION;
-  readonly byDay: Readonly<Record<string, Readonly<Record<string, TransportMode>>>>;
+  readonly byDay: Readonly<Record<string, Readonly<Record<string, RouteTransportMode>>>>;
 }
 
 export const EMPTY_SELECTED_MODE_STORE: SelectedModeStore = {
   version: SELECTED_MODE_STORE_VERSION,
   byDay: {},
 };
-
-export function isTransportMode(value: unknown): value is TransportMode {
-  return typeof value === "string" && VALID_MODES.has(value as TransportMode);
-}
 
 function isDayISO(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -48,14 +40,14 @@ export function parseStore(raw: string | null): SelectedModeStore {
   ) { return EMPTY_SELECTED_MODE_STORE; }
   const rawByDay = (parsed as { byDay?: unknown }).byDay;
   if (typeof rawByDay !== "object" || rawByDay === null) return EMPTY_SELECTED_MODE_STORE;
-  const byDay: Record<string, Record<string, TransportMode>> = {};
+  const byDay: Record<string, Record<string, RouteTransportMode>> = {};
   for (const [day, legs] of Object.entries(rawByDay as Record<string, unknown>)) {
     if (!isDayISO(day)) continue;
     if (typeof legs !== "object" || legs === null) continue;
-    const cleanLegs: Record<string, TransportMode> = {};
+    const cleanLegs: Record<string, RouteTransportMode> = {};
     for (const [legKey, mode] of Object.entries(legs as Record<string, unknown>)) {
       if (typeof legKey !== "string" || legKey.length === 0) continue;
-      if (!isTransportMode(mode)) continue;
+      if (!isRouteTransportMode(mode)) continue;
       cleanLegs[legKey] = mode;
     }
     if (Object.keys(cleanLegs).length > 0) byDay[day] = cleanLegs;
@@ -69,11 +61,11 @@ export function serializeStore(store: SelectedModeStore): string {
 
 export function applyCaps(store: SelectedModeStore): SelectedModeStore {
   const keptDays = Object.keys(store.byDay).sort().slice(-MAX_STORED_DAYS);
-  const byDay: Record<string, Record<string, TransportMode>> = {};
+  const byDay: Record<string, Record<string, RouteTransportMode>> = {};
   for (const day of keptDays) {
     const legs = store.byDay[day];
     const keptLegKeys = Object.keys(legs).slice(0, MAX_LEGS_PER_DAY);
-    const clean: Record<string, TransportMode> = {};
+    const clean: Record<string, RouteTransportMode> = {};
     for (const k of keptLegKeys) clean[k] = legs[k];
     byDay[day] = clean;
   }
@@ -81,9 +73,9 @@ export function applyCaps(store: SelectedModeStore): SelectedModeStore {
 }
 
 export function setMode(
-  store: SelectedModeStore, dayISO: string, legKey: string, mode: TransportMode,
+  store: SelectedModeStore, dayISO: string, legKey: string, mode: RouteTransportMode,
 ): SelectedModeStore {
-  if (!isDayISO(dayISO) || typeof legKey !== "string" || legKey.length === 0 || !isTransportMode(mode)) {
+  if (!isDayISO(dayISO) || typeof legKey !== "string" || legKey.length === 0 || !isRouteTransportMode(mode)) {
     return store;
   }
   const prevDay = store.byDay[dayISO] ?? {};
@@ -94,11 +86,11 @@ export function setMode(
   return applyCaps(next);
 }
 
-export function getMode(store: SelectedModeStore, dayISO: string, legKey: string): TransportMode | null {
+export function getMode(store: SelectedModeStore, dayISO: string, legKey: string): RouteTransportMode | null {
   return store.byDay[dayISO]?.[legKey] ?? null;
 }
 
-export function getModesForDay(store: SelectedModeStore, dayISO: string): Record<string, TransportMode> {
+export function getModesForDay(store: SelectedModeStore, dayISO: string): Record<string, RouteTransportMode> {
   return { ...(store.byDay[dayISO] ?? {}) };
 }
 
@@ -121,15 +113,15 @@ function writeStore(store: SelectedModeStore): void {
   try { ls.setItem(SELECTED_MODE_STORE_KEY, serializeStore(store)); } catch { /* quota 等は fail-open */ }
 }
 
-export function saveSelectedMode(dayISO: string, legKey: string, mode: TransportMode): void {
+export function saveSelectedMode(dayISO: string, legKey: string, mode: RouteTransportMode): void {
   writeStore(setMode(readStore(), dayISO, legKey, mode));
 }
 
-export function loadSelectedMode(dayISO: string, legKey: string): TransportMode | null {
+export function loadSelectedMode(dayISO: string, legKey: string): RouteTransportMode | null {
   return getMode(readStore(), dayISO, legKey);
 }
 
-export function loadSelectedModesForDay(dayISO: string): Record<string, TransportMode> {
+export function loadSelectedModesForDay(dayISO: string): Record<string, RouteTransportMode> {
   return getModesForDay(readStore(), dayISO);
 }
 
@@ -143,7 +135,7 @@ export function clearSelectedModeStore(): void {
 
 /** recall 結果: 過去日の mode とその日。 */
 export interface PriorLegMode {
-  readonly mode: TransportMode;
+  readonly mode: RouteTransportMode;
   readonly dayISO: string;
 }
 
@@ -162,7 +154,7 @@ export function recallPriorLegMode(
   for (let i = priorDays.length - 1; i >= 0; i--) {
     const d = priorDays[i];
     const mode = store.byDay[d]?.[legKey];
-    if (mode !== undefined && isTransportMode(mode)) {
+    if (mode !== undefined && isRouteTransportMode(mode)) {
       return { mode, dayISO: d };
     }
   }

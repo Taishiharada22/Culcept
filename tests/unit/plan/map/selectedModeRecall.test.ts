@@ -9,35 +9,35 @@ const D1 = "2026-06-01", D2 = "2026-06-02", D3 = "2026-06-03", TODAY = "2026-06-
 
 describe("recallPriorLegMode — S2-A 前回こう動いた (pure)", () => {
   it("過去日の mode + その日を返す", () => {
-    const s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-1", "transit");
-    expect(recallPriorLegMode(s, TODAY, "leg-1")).toEqual({ mode: "transit", dayISO: D2 });
+    const s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-1", "train");
+    expect(recallPriorLegMode(s, TODAY, "leg-1")).toEqual({ mode: "train", dayISO: D2 });
   });
   it("複数過去日 → 最も新しい過去日", () => {
-    let s = setMode(EMPTY_SELECTED_MODE_STORE, D1, "leg-1", "walking");
-    s = setMode(s, D2, "leg-1", "driving");
-    s = setMode(s, D3, "leg-1", "transit");
-    expect(recallPriorLegMode(s, TODAY, "leg-1")).toEqual({ mode: "transit", dayISO: D3 });
+    let s = setMode(EMPTY_SELECTED_MODE_STORE, D1, "leg-1", "walk");
+    s = setMode(s, D2, "leg-1", "car");
+    s = setMode(s, D3, "leg-1", "train");
+    expect(recallPriorLegMode(s, TODAY, "leg-1")).toEqual({ mode: "train", dayISO: D3 });
   });
-  it("同日現在値は対象外 (当日のみ → null)", () => {
-    const s = setMode(EMPTY_SELECTED_MODE_STORE, TODAY, "leg-1", "driving");
+  it("同日現在値は対象外(当日のみ → null)", () => {
+    const s = setMode(EMPTY_SELECTED_MODE_STORE, TODAY, "leg-1", "car");
     expect(recallPriorLegMode(s, TODAY, "leg-1")).toBeNull();
   });
-  it("未来日は見ない (未来のみ → null)", () => {
-    const s = setMode(EMPTY_SELECTED_MODE_STORE, "2026-06-10", "leg-1", "driving");
+  it("未来日は見ない(未来のみ → null)", () => {
+    const s = setMode(EMPTY_SELECTED_MODE_STORE, "2026-06-10", "leg-1", "car");
     expect(recallPriorLegMode(s, TODAY, "leg-1")).toBeNull();
   });
-  it("当日と過去日 両方 → 過去日を返す (当日除外)", () => {
-    let s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-1", "walking");
-    s = setMode(s, TODAY, "leg-1", "driving");
-    expect(recallPriorLegMode(s, TODAY, "leg-1")).toEqual({ mode: "walking", dayISO: D2 });
+  it("当日と過去日 両方 → 過去日を返す", () => {
+    let s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-1", "walk");
+    s = setMode(s, TODAY, "leg-1", "car");
+    expect(recallPriorLegMode(s, TODAY, "leg-1")).toEqual({ mode: "walk", dayISO: D2 });
   });
   it("legKey が過去日に無ければ null", () => {
-    const s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-other", "transit");
+    const s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-other", "train");
     expect(recallPriorLegMode(s, TODAY, "leg-1")).toBeNull();
   });
   it("空 store / 不正 dayISO / 空 legKey → null", () => {
     expect(recallPriorLegMode(EMPTY_SELECTED_MODE_STORE, TODAY, "leg-1")).toBeNull();
-    const s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-1", "transit");
+    const s = setMode(EMPTY_SELECTED_MODE_STORE, D2, "leg-1", "train");
     expect(recallPriorLegMode(s, "bad-date", "leg-1")).toBeNull();
     expect(recallPriorLegMode(s, TODAY, "")).toBeNull();
   });
@@ -57,8 +57,8 @@ describe("loadPriorLegMode — localStorage 版 (mocked)", () => {
   });
   afterEach(() => { (globalThis as { localStorage?: unknown }).localStorage = orig; });
   it("過去日に保存 → 当日 recall で返る", () => {
-    saveSelectedMode(D2, "leg-1", "transit");
-    expect(loadPriorLegMode(TODAY, "leg-1")).toEqual({ mode: "transit", dayISO: D2 });
+    saveSelectedMode(D2, "leg-1", "train");
+    expect(loadPriorLegMode(TODAY, "leg-1")).toEqual({ mode: "train", dayISO: D2 });
   });
   it("過去日に無ければ null", () => {
     expect(loadPriorLegMode(TODAY, "leg-x")).toBeNull();
