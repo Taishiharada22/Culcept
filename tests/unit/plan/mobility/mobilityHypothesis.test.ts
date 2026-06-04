@@ -91,9 +91,15 @@ describe("buildMobilityHypothesis (v0-A pure builder)", () => {
     expect(h.signalStrength).toBe(0.5);
   });
 
-  it("strength 段階: moderate(total 4・share 0.5) / strong(total 10・share 0.7)", () => {
+  it("strength 段階: ★split(share 0.5)=weak / moderate(share 0.6) / strong(share 0.7)", () => {
+    // ★50/50 split は明確な多数でない＝習慣でない → weak（gate が沈黙・「いつもはX」と断定しない）
+    const split = buildMobilityHypothesis(
+      belief({ counts: { train: 2, walk: 2 }, total: 4, topMode: "train", topShare: 0.5 }),
+      {},
+    );
+    expect(split.habitualStrength).toBe("weak");
     const mod = buildMobilityHypothesis(
-      belief({ counts: { bus: 2, walk: 1, car: 1 }, total: 4, topMode: "bus", topShare: 0.5 }),
+      belief({ counts: { bus: 3, walk: 2 }, total: 5, topMode: "bus", topShare: 0.6 }),
       {},
     );
     expect(mod.habitualStrength).toBe("moderate");

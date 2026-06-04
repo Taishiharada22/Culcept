@@ -92,7 +92,7 @@ export interface MobilityHypothesis {
 function deriveHabitualStrength(topShare: number, total: number): HabitualStrength {
   if (total <= 0) return "none";
   if (total >= 5 && topShare >= 0.7) return "strong";
-  if (total >= 3 && topShare >= 0.5) return "moderate";
+  if (total >= 3 && topShare >= 0.6) return "moderate"; // ★split(50/50=topShare 0.5)除外: 明確な多数のみ（GPT conflict-aware 補正）
   if (total >= 1) return "weak";
   return "none";
 }
