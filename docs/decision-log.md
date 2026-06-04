@@ -15675,3 +15675,20 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **申し送り（運用負債）**: 校正値（gridLeft/colWidth 調整）は**画面ローカル state**でリロードで消える。実ユーザーが毎回校正し直すのは productization 上未完成 → **校正値の恒久化**（座標値のみ・raw非保存）を次工程の readiness で設計。本番有効化（production migration apply / flag ON / branch merge）は review UX を固めてから（CEO 方針）。[承認: CEO（PASS 受理・「合格」明言・dev server 停止指示）]
 
 ---
+
+## SR Persist 帯（校正値の恒久化・2026-06-05）
+
+> S-geo 帯の運用負債「校正値が画面ローカル state でリロードで消える」を、reducer 正本化 → close/reopen survival → localStorage/reload 復元の 3 段で恒久化し、smoke 6/6 PASS でクローズした帯。座標メタデータのみ保存・raw 非保存。
+
+[2026-06-05] [Build] **Persist 帯クローズ（校正値の恒久化・smoke 6/6 PASS）** — グリッド校正値（`gridLeft`/`colWidth` + 誤適用防止 context）を「画面ローカル state」から「reducer 正本 → localStorage 永続 → reload 復元」へ昇格し、CEO in the loop の live smoke（`/plan/dev-shift-draft`・dev server :3001・inline `PLAN_SHIFT_IMPORT_SAVE=false`）で **6/6 PASS**。
+
+- **Persist-1（`219d377c`）**: `GridCalibration` 型（座標 + `source:"manual_overlay"` + 誤適用防止 `imageW/imageH/dayCount` + 任意 `calibratedAt`）+ storage 契約（`toStoredPayload`/`parseStoredPayload` に gridCalibration を構造検証付きで追加）+ `resolveEffectiveGeometry` pure helper（3 層: dayColumns / gridCalibration / effectiveGeometry。gridCalibration は現コンテキスト整合時のみ採用、不整合は dayColumns fallback）。
+- **Persist-2（`90e2b211`）**: **校正値の正本を ShiftReviewGrid local state から reducer `selection.gridCalibration` へ移し controlled 化**。reducer action `set_grid_calibration`（`cells_loaded` のみ・`null`=reset・**dayColumns は温存**）。selector を `computeReviewGeometry`（dayColumns 専用）→ `resolveEffectiveGeometry` へ置換。slider を相対オフセット → **絶対値編集**に。= reducer state 正本化 + **close/reopen survival** まで。
+- **Persist-3（`be50d4fd`）**: 既存 pure 契約（`toStoredPayload`/`parseStoredPayload`/`makeStorageKey`/`buildImageFingerprint`）に **SSR 安全 IO だけを足した** `assistedSelectionStorage.ts`（`getStorage()` funnel・save/load/remove・per-image fingerprint key）で localStorage 永続化（**新 serialize 経路は新設せず**、既存契約に乗せる）。`useShiftDraftFlow` に RESTORE effect（`cells_loaded` 到達時に fingerprint ごと 1 回・read-only・再 mount で復元）+ `onSetGridCalibration` の **write-through**（set=保存 / reset=calibration を外して再保存）。「校正済」表示を **raw 存在ではなく applied**（`resolveEffectiveGeometry` が calibration 由来を採用＝geometry が cal 値と一致）に寄せ、`imageW/imageH/dayCount` mismatch は「（別の画像/月の校正値・未適用）」表示で**校正済を誤点灯させず** dayColumns fallback（3-state バッジ `data-calibration-state`）。reset は raw 存在で活性（不一致の古い校正値も消せる）。
+- **dev-host 配線 fix（`34377fe7`）**: `DevShiftDraftClient`（`/plan/dev-shift-draft`）が `ShiftImportModal` に `geometry` を未配線で校正パネルが dev host で描画されなかった（smoke 中に CEO が捕捉）のを、在app(`ShiftDraftInApp`)と同じ 3 prop（`geometry`/`gridCalibration`/`onGridCalibrationChange`）配線で解消。dev host の prop 配線のみ・永続化ロジック非接触。
+- **smoke 6/6**（CEO 目視）: ①校正→「（校正済）」点灯 + localStorage に `gridCalibration`（数値）出現 / ②modal close→reopen で校正値残存 / ③**reload 相当で localStorage から復元**（Persist-3 本体）/ ④reset で「（自動・未校正）」へ + payload から gridCalibration 消失（dayColumns 残存）/ ⑤reset 後 reload で**古い校正値が復活しない** / ⑥localStorage 値に `base64`/`data:image`/画像データなし（座標 + `manual_overlay` のみ）。
+- **安全性**: 保存 / save payload / DB / production **非接触**（storage 層は server/DB/action/supabase 非 import・client localStorage のみ。save controller/action に gridCalibration 不在）。VLM 再実行は各シナリオ最小（連打なし）。**raw画像 / base64 / blob / VLM raw response 非保存**（型 + parse 両方向で構造排除）。tsc **1112** 維持 / plan 全体 **4762 PASS**。
+- **凍結**: 校正・review 体験（S-geo + Persist）を**保守対象に凍結**。本番有効化（production migration apply / `PLAN_SHIFT_IMPORT_SAVE` flag ON / branch merge）は CEO 方針通り未実施。branch `feat/plan-shift-import-productization` にローカル積み上げ・**未 merge / 未 push**。
+- **申し送り（運用観測・非ブロッカー）**: write-through が slider tick ごとに `setItem` を呼ぶ（小 JSON・実害軽微）。高頻度が問題化したら debounce を別トラックで検討。page-reload 実復元・remount 復元は runtime 挙動のため静的 test 対象外＝本 smoke で担保。[承認: CEO（smoke 6/6 PASS 受理・「次に進みましょう」・decision-log 記録 + 帯 freeze 選択）]
+
+---
