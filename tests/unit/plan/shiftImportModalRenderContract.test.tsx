@@ -154,16 +154,17 @@ describe("ShiftImportModal — S-geo-2C-2 geometry → 照合枠 pass-through", 
     expect(html).toContain('data-testid="source-image-highlight"');
   });
 
-  it("imageSrc + geometry でも S3A-2-4 全体照合トグルは残る（両立）", () => {
+  it("imageSrc + geometry → 原稿全体は SourceImageHighlight に一本化（重複トグルは廃止）", () => {
     const html = render({ imageSrc: IMG, geometry: HARADA_SPRIX_JULY_GEOMETRY });
-    expect(html).toContain('data-testid="shift-review-source-section"');
-    expect(html).toContain('data-testid="shift-review-source-toggle"');
+    expect(html).toContain('data-testid="source-image-highlight"');
+    expect(html).not.toContain('data-testid="shift-review-source-section"');
+    expect(html).not.toContain('data-testid="shift-review-source-toggle"');
   });
 
-  it("geometry なし（imageSrc のみ）→ highlight 不在・全体トグルは残る（fail-soft degrade）", () => {
+  it("geometry なし（imageSrc のみ）→ highlight 不在（原稿照合は geometry 必須に一本化）", () => {
     const html = render({ imageSrc: IMG });
     expect(html).not.toContain('data-testid="source-image-highlight"');
-    expect(html).toContain('data-testid="shift-review-source-section"');
+    expect(html).not.toContain('data-testid="shift-review-source-section"');
   });
 
   it("geometry のみ（imageSrc なし）→ highlight 不在（imageSrc と geometry 両方必須）", () => {
@@ -187,8 +188,8 @@ describe("ShiftImportModal — S-geo-2C-2 geometry → 照合枠 pass-through", 
       <ShiftImportModal {...p} onSuccess={() => {}} onClose={() => {}} />
     );
     expect(html).not.toContain('data-testid="source-image-highlight"');
-    // fail-soft: 全体トグルは残る
-    expect(html).toContain('data-testid="shift-review-source-section"');
+    // 原稿照合は geometry 必須に一本化（重複トグル廃止）
+    expect(html).not.toContain('data-testid="shift-review-source-section"');
   });
 
   it("geometry present でも saveEnabled 既定 false は維持（dormant・geometry は保存に無関係）", () => {

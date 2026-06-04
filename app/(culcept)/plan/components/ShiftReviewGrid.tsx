@@ -149,8 +149,20 @@ export function ShiftReviewGrid({
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const highlightDay = hoveredDay ?? selectedDay;
-  // S3A-2-4: 原稿（元画像）インライン照合の開閉。既定=閉（確認画面を重くしない）。
-  const [showSource, setShowSource] = useState(false);
+  // S-geo グリッド校正: 2 点 capture の端点誤差を、全列オーバーレイを見ながら gridLeft/colWidth で微調整。
+  const [gridLeftAdj, setGridLeftAdj] = useState(0);
+  const [colWidthAdj, setColWidthAdj] = useState(0);
+  const calibratedGeometry = useMemo<ShiftGridGeometry | undefined>(
+    () =>
+      geometry
+        ? {
+            ...geometry,
+            gridLeft: geometry.gridLeft + gridLeftAdj,
+            colWidth: Math.max(1, geometry.colWidth + colWidthAdj),
+          }
+        : undefined,
+    [geometry, gridLeftAdj, colWidthAdj]
+  );
 
   // 空の日（コード無し）= 原画像で詰められた日。highlight/crop の列写像で空をスキップ
   const blankDays = useMemo(
@@ -327,73 +339,73 @@ export function ShiftReviewGrid({
         })}
       </div>
 
-      {/* 原稿の該当セル拡大（S-geo-3: hover/tap した日のセルを crop 拡大＋太枠＝参照元を四角く強調）。
-          highlightDay null（未 hover/未選択）なら SourceCellZoom 側で非表示（fail-soft）。 */}
+      {/* S-geo グリッド校正パネル（全列の青線が原稿の各列に合うまで調整 → 端点誤差を全列で吸収）。 */}
       {imageSrc && geometry && (
+        <div
+          data-testid="shift-review-calibration"
+          className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 p-2 text-[11px]"
+        >
+          <p className="mb-1 font-medium text-sky-800">
+            原稿グリッド校正 — 下の青線（全列）が原稿の各列に合うよう調整
+          </p>
+          <label className="flex items-center gap-2">
+            <span className="w-14 shrink-0 text-sky-700">左位置</span>
+            <input
+              type="range"
+              min={-150}
+              max={150}
+              step={1}
+              value={gridLeftAdj}
+              onChange={(e) => setGridLeftAdj(Number(e.target.value))}
+              className="flex-1"
+              data-testid="shift-review-calibration-gridleft"
+            />
+            <span className="w-10 text-right tabular-nums text-sky-700">{gridLeftAdj}</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="w-14 shrink-0 text-sky-700">列間隔</span>
+            <input
+              type="range"
+              min={-15}
+              max={15}
+              step={0.1}
+              value={colWidthAdj}
+              onChange={(e) => setColWidthAdj(Number(e.target.value))}
+              className="flex-1"
+              data-testid="shift-review-calibration-colwidth"
+            />
+            <span className="w-10 text-right tabular-nums text-sky-700">
+              {colWidthAdj.toFixed(1)}
+            </span>
+          </label>
+          {calibratedGeometry && (
+            <p className="mt-0.5 font-mono text-[10px] text-sky-600">
+              gridL {calibratedGeometry.gridLeft.toFixed(0)} · colW{" "}
+              {calibratedGeometry.colWidth.toFixed(1)}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* 原稿の該当セル拡大（S-geo-3）。calibratedGeometry を使用。 */}
+      {imageSrc && calibratedGeometry && (
         <SourceCellZoom
           imageSrc={imageSrc}
-          geometry={geometry}
+          geometry={calibratedGeometry}
           day={highlightDay}
           blankDays={blankDays}
         />
       )}
 
-      {/* 原稿画像 全体 + 該当日ハイライト（俯瞰・hover/tap で光る）。案A 推奨で併存。 */}
-      {imageSrc && geometry && (
+      {/* 原稿画像 全体 + 該当日ハイライト + 全列グリッド線（校正）。calibratedGeometry を使用。 */}
+      {imageSrc && calibratedGeometry && (
         <SourceImageHighlight
           imageSrc={imageSrc}
-          geometry={geometry}
+          geometry={calibratedGeometry}
           highlightDay={highlightDay}
           blankDays={blankDays}
+          gridDayCount={daysInMonth(year, month)}
         />
-      )}
-
-      {/* S3A-2-4: 原稿（元画像）インライン照合。imageSrc がある時だけ（fixture 経路は無→非表示）。
-          geometry 不要の簡易照合（別ウィンドウ不要で並べて目視）。折りたたみ初期=閉。
-          ObjectURL lifecycle は呼出側 hook の責務（ここで生成/revoke せず src を表示するだけ）。
-          collapse は CSS（hidden）で img は DOM 常在（ObjectURL は in-memory・render contract 固定用）。 */}
-      {imageSrc && (
-        <div data-testid="shift-review-source-section" className="mt-3">
-          <button
-            type="button"
-            data-testid="shift-review-source-toggle"
-            onClick={() => setShowSource((v) => !v)}
-            aria-expanded={showSource}
-            className="flex w-full items-center justify-between rounded-xl border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-[12px] font-medium text-sky-800 transition hover:bg-sky-50"
-          >
-            <span className="flex items-center gap-1.5">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="2" />
-                <path d="m3 16 5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="2" />
-              </svg>
-              原稿を表示して照合
-            </span>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              aria-hidden="true"
-              className={`transition-transform ${showSource ? "rotate-180" : ""}`}
-            >
-              <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" />
-            </svg>
-          </button>
-          <div
-            data-testid="shift-review-source-body"
-            className={showSource ? "mt-2" : "hidden"}
-          >
-            <img
-              data-testid="shift-review-source-image"
-              src={imageSrc}
-              alt="取り込んだ原稿（シフト表）"
-              className="max-h-[50vh] w-full rounded-xl border border-slate-200 bg-white object-contain"
-            />
-            <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
-              原稿と上のセルを見比べて、コード・曜日・空欄をご確認ください。
-            </p>
-          </div>
-        </div>
       )}
 
       {/* SR B1b-2B: draft risk hints（原稿照合の補助）。hard=保存前解消必須 / soft=確認おすすめ。

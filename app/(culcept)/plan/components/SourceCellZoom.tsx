@@ -35,9 +35,14 @@ interface SourceCellZoomProps {
   displayWidth?: number;
 }
 
-/** 該当セルの左右/上下に見せる文脈（セル幅・高さ比）。最小文脈（CEO: 最初は最小）。 */
-const CONTEXT_X = 0.5;
-const CONTEXT_Y = 0.4;
+/**
+ * 該当セルの左右/上下に見せる文脈（セル幅・高さ比）。
+ * 広めに取り、2点校正の線形ドリフト（±1列程度）でも該当セルが視野に残るようにする。
+ */
+const CONTEXT_X = 1.5;
+const CONTEXT_Y = 0.8;
+/** パネル最大高さ(px)。倍率を上限で頭打ちし、縦長ストリップ/過剰拡大を防ぐ（有界ボックス）。幅は displayWidth。 */
+const MAX_PANEL_H = 200;
 
 export function SourceCellZoom({
   imageSrc,
@@ -63,7 +68,9 @@ export function SourceCellZoom({
   if (!(vw > 0) || !(vh > 0)) return null;
 
   const viewRegion: CropRegion = { x: vx, y: vy, width: vw, height: vh };
-  const scale = displayWidth / vw;
+  // 有界ボックスに fit（幅 displayWidth / 高さ MAX_PANEL_H の小さい方で頭打ち）→ 過剰拡大・縦長を防ぐ。
+  const scale = Math.min(displayWidth / vw, MAX_PANEL_H / vh);
+  const effW = Math.round(vw * scale); // 実表示幅（高さ上限で頭打ちした分縮む）
 
   // cell を view 内の表示座標へ写像（太枠の位置）。SourceCellCrop と同 scale。
   const frame = {
@@ -88,7 +95,7 @@ export function SourceCellZoom({
           imageWidth={geometry.imageWidth}
           imageHeight={geometry.imageHeight}
           region={viewRegion}
-          displayWidth={displayWidth}
+          displayWidth={effW}
         />
         {/* 太枠（現在参照しているセルを四角く強調）。crop の上に重ねる。 */}
         <div

@@ -101,35 +101,13 @@ function renderWithImage(imageSrc?: string) {
   );
 }
 
-describe("ShiftReviewGrid — S3A-2-4 原稿インライン照合", () => {
-  it("imageSrc が無い時は原稿照合セクションが出ない（fixture 経路に影響しない）", () => {
-    const html = render(); // imageSrc 未指定
+describe("ShiftReviewGrid — 原稿インライン照合トグルは廃止（SourceImageHighlight に統合・重複排除）", () => {
+  it("「原稿を表示して照合」トグル/セクションは出ない（CEO 2026-06-05・SourceImageHighlight が校正付きで原稿全体を表示）", () => {
+    const html = renderWithImage(SOURCE_SENTINEL);
     expect(html).not.toContain('data-testid="shift-review-source-section"');
     expect(html).not.toContain('data-testid="shift-review-source-toggle"');
     expect(html).not.toContain('data-testid="shift-review-source-image"');
-  });
-
-  it("imageSrc がある時は「原稿を表示」トグルが出る", () => {
-    const html = renderWithImage(SOURCE_SENTINEL);
-    expect(html).toContain('data-testid="shift-review-source-section"');
-    expect(html).toContain('data-testid="shift-review-source-toggle"');
-    expect(html).toContain("原稿を表示して照合");
-  });
-
-  it("img の src に imageSrc が渡る（折りたたみ初期=閉・body は hidden・img は DOM 常在）", () => {
-    const html = renderWithImage(SOURCE_SENTINEL);
-    expect(html).toContain('data-testid="shift-review-source-image"');
-    expect(html).toContain(`src="${SOURCE_SENTINEL}"`);
-    // 初期は閉（body に hidden class）
-    expect(html).toMatch(
-      /data-testid="shift-review-source-body"[^>]*class="hidden"/
-    );
-  });
-
-  it("geometry 無しでも照合トグルは出る（geometry 不要の簡易照合）", () => {
-    // geometry を渡さない → SourceImageHighlight（geometry 依存）は出ないが、原稿トグルは出る
-    const html = renderWithImage(SOURCE_SENTINEL);
-    expect(html).toContain('data-testid="shift-review-source-toggle"');
+    expect(html).not.toContain("原稿を表示して照合");
   });
 
   it("imageSrc があっても保存 CTA は変わらず disabled（saveEnabled 未指定）", () => {
@@ -171,10 +149,11 @@ describe("ShiftReviewGrid — S-geo-3-2 SourceCellZoom 配線", () => {
     );
   });
 
-  it("geometry あっても S3A-2-4 原稿全体トグルは残る（regression）", () => {
+  it("geometry あり時、原稿全体は SourceImageHighlight に一本化（重複トグルは廃止）", () => {
     const html = renderWithGeometry(SRC);
-    expect(html).toContain('data-testid="shift-review-source-section"');
-    expect(html).toContain('data-testid="shift-review-source-toggle"');
+    expect(html).toContain('data-testid="source-image-highlight"');
+    expect(html).not.toContain('data-testid="shift-review-source-section"');
+    expect(html).not.toContain('data-testid="shift-review-source-toggle"');
   });
 
   it("geometry が無ければ俯瞰も拡大も出ない（imageSrc のみ・既存 fail-soft）", () => {
