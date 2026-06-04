@@ -47,7 +47,7 @@ const MIN_DURATION_MIN = 1;
 const MAX_DURATION_MIN = 24 * 60; // 1440
 
 /** duration が採用可能な範囲・有限か（NaN/Infinity/1 分以下/1 日超を reject）。 */
-function isValidEvidenceDuration(d: number): boolean {
+export function isValidEvidenceDuration(d: number): boolean {
   return Number.isFinite(d) && d > MIN_DURATION_MIN && d <= MAX_DURATION_MIN;
 }
 
@@ -58,7 +58,7 @@ const VALID_EVIDENCE_SOURCES: ReadonlySet<DurationEvidenceSource> = new Set<Dura
 ]);
 
 /** source が明確な enum 値か（runtime malformed evidence への防御）。 */
-function isValidEvidenceSource(s: DurationEvidenceSource): boolean {
+export function isValidEvidenceSource(s: DurationEvidenceSource): boolean {
   return VALID_EVIDENCE_SOURCES.has(s);
 }
 

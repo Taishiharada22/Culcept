@@ -280,4 +280,19 @@ A1-5-2-2-2c（`lib/plan/reality/integration/seed-source.ts`・新規・**barrel 
 - tsc: 自ファイル **0 error**（project baseline 1114 は無関係既存ファイル）。reality **461 tests** PASS。
 - **しない（A1-5-2-2-2c 範囲外）**: seed capture / INSERT·UPDATE·DELETE / DB write smoke / PRM·correction / runtime·route·UI·PlanClient / RealityInput 搭載 / generateCandidates 接続 / default duration / raw parse / source_ref を allowed columns に / A1-5-3 / barrel export。
 
-> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / A1-5-2-2-0+2-1（§8.9・migration draft）/ A1-5-2-2-2a runbook（§8.10）/ **A1-5-2-2-2b staging apply 完了 + A1-5-2-2-2c seed DB read seam（landed・§8.11・column-restricted・gated fail-closed・rowsRead=0/candidateCount=0・barrel 非 export）**。次は A1-5-3（PRM→DurationEvidence で candidateCount>0 解禁）/ seed capture（write 境界・raw 分離）を各別 GO。raw を同じ読み取り表面に置かない・column-restricted・redaction guard・fail-closed・flag off default・no DB write・no push を全段で維持する。
+### 8.12 A1-5-3a 実装（landed）— DurationEvidence adapter / assembler（pure・candidateCount>0 を fixture 実証）
+
+A1-5-3a（`lib/plan/reality/duration-evidence-adapter.ts`・新規・pure・**barrel 非 export** / `seed-placement-enrich.ts` に検証器 +2 export・**非挙動**）:
+- **producer / assembler**: PRM(typicalDuration) / correction / seed_explicit が将来出す**構造化 duration 入力**を `DurationEvidence` に整形し `seedRef→DurationEvidence[]` map（= CompleteDispatchInput.durationEvidences）を組む。
+  - `seedExplicitToEvidence` / `correctionToEvidence` / `prmTypicalToEvidence`（prm_typical は typicalDuration の high/medium/low → DurationConfidence high/low に写像・**medium/low→low**）/ generic `toDurationEvidence` / `assembleDurationEvidenceMap`。
+  - well-formed 検証（range 1<分≤1440 / source 妥当 / seedRef 非空）は enrich の検証器を**再利用**（単一権威）→ 不適は **null(reject)**。採用方針（confidence-high / priority / conflict / **prm_typical→grounding weak**）は enrich が決定。
+  - **PRM/correction 実接続なし**（typicalDuration/correctionMemoryFrame 非 import・入力は構造化 fixture）。**raw parse なし・default duration なし・DB read/write なし・runtime 非接続**。
+- **candidateCount 実証**（adapter→assemble→enrichSeedPlacementsFromEvidences→generateComplete）:
+  - **seed_explicit / correction（high・strong 維持）+ fixture placement + gap → candidateCount>0**（pure pipeline が候補を出せることを初めて実証）。
+  - **prm_typical（high）→ grounding weak → candidateCount=0**（安全床固定）。
+  - low confidence / range外 / invalid source / seedRef mismatch / same-priority conflict → no enrich → candidateCount=0。priority seed_explicit>correction>prm_typical。
+- test(`realityDurationEvidenceAdapter.test.ts`・**19**): 整形 / reject(null) / assembler / pipeline candidateCount>0・=0 / 静的(raw·DB·PRM·correction·default·server-only 不在 / barrel 非 export)。
+- tsc: 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114 は無関係な既存ファイル）。reality **480 tests** PASS（enrich +export 回帰なし）。
+- **しない（A1-5-3a 範囲外）**: PRM/correction 実接続 / seed capture / DB read·write / INSERT·UPDATE·DELETE / runtime·route·UI·PlanClient / RealityInput 搭載 / generateCandidates 実配線 / default duration / raw parse / plan_seed_sources / evidence store migration / A1-5-4 / barrel export。
+
+> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / A1-5-2-2-0+2-1（§8.9）/ A1-5-2-2-2a runbook（§8.10）/ A1-5-2-2-2b apply + A1-5-2-2-2c read seam（§8.11）/ **A1-5-3a DurationEvidence adapter/assembler（landed・§8.12・pure・seed_explicit/correction→candidateCount>0 を fixture 実証・prm_typical→weak→0 安全床・barrel 非 export）**。次は A1-5-4（seed capture: write 境界・raw 分離・DB write・要強い GO）/ A1-5-3b（DurationEvidence 永続 store 設計）を各別 GO。candidateCount>0 の実 staging 発火には capture（seed 実在）+ strong-grounding evidence が要る。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
