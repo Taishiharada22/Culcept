@@ -219,4 +219,16 @@ A1-5-2-1（`lib/plan/reality/integration/seed-column-restricted.ts`・新規 **p
 - test(`realitySeedColumnRestricted.test.ts`・**11**): 許可列 structured-only / 禁止列に signal·desired_action / SQL に signal·desired_action·"*" なし / row 型に raw なし(ts-expect-error) / active のみ / durationMin null·durationSource unknown / raw 混入 row でも非出力 / 不正 enum は default / buildSeedPlacements 同等 / generateComplete→candidateCount=0。
 - **しない（A1-5-2-1 範囲外）**: 実 seed read / DB source factory / Supabase client / `.from("plan_seeds")` / migration / plan_seeds table 作成 / seed capture·loader·repository / PRM·correction / RealityInput 搭載 / runtime·route·UI / barrel。
 
-> A1-5-0 design / A1-5-1a(§8.6) / A1-5-1b(§8.7・実 read CEO 手動 smoke のみ) / **A1-5-2-0 audit + A1-5-2-1 column-restricted seed projection（landed・§8.8・pure・実 read なし・table 不在で BLOCKED）**。次は A1-5-2-2（plan_seeds migration + 実 seed read・要承認）/ A1-5-3（PRM evidence）/ A1-5-N（UI surface）を各別 GO。raw を持ち込まない・column-restricted・redaction guard・fail-closed・flag off default・no DB・no push を全段で維持する。
+### 8.9 A1-5-2-2-0 design + A1-5-2-2-1 実装（landed）— plan_seeds structured-only migration draft（**未 apply**）
+> A1-5-2-2-0 design: 既存 `external_anchor_sources`（raw を DB 列に置かず Storage 参照・破棄既定・短期失効・整合 CHECK・owner-only RLS）を手本に、**plan_seeds は structured-only**（「raw を同じ読み取り表面に置かない」）。raw が必要なら別層へ隔離し Complete/projection から到達不能に。
+
+A1-5-2-2-1（`supabase/migrations/20260605100000_plan_seeds_structured_only.sql`・新規・**draft / 未 apply**）:
+- **structured-only `plan_seeds`**: id/user_id/desired_date/desired_time_hint/action_shape/confidence/status/source/captured_at/expires_at/**source_ref(opaque)**/created_at/updated_at。**`signal`/`desired_action`/raw_text/title/location 列は無い**。
+- **CHECK**: confidence 0..1 / status(active/consumed/expired/rejected) / action_shape(ActionShape 8 値) / desired_time_hint(morning/afternoon/evening/anytime) / source(chat/manual)。
+- **RLS owner-only**（`auth.uid() = user_id`・select/insert/update/delete 各 policy・**service_role 非前提**）。indexes(user_id+status / user_id+desired_date / active 期限 partial)・updated_at trigger。
+- **source_ref は opaque**（A1-5-2-1 `ALLOWED_SEED_COLUMNS` には含めない）。
+- **apply しない**（`supabase db push/reset` 未実行・実 DB 変更ゼロ）。実 read / Supabase client / `.from("plan_seeds")` / DB source factory なし。
+- test(`realityPlanSeedsMigration.test.ts`・**15**・static/schema): raw 列不在 / structured-only / ALLOWED_SEED_COLUMNS 整合 / FORBIDDEN に signal·desired_action / CHECK 各種 / RLS enabled・auth.uid()=user_id ×4・service_role なし / 追加のみ(DROP TABLE なし) / updated_at→trigger / anytime→projection no-window。
+- **しない（A1-5-2-2-1 範囲外）**: migration apply / db push·reset / 実 DB read·write / Supabase client / DB source factory / `.from("plan_seeds")` / seed capture / plan_seed_sources raw table / PRM / runtime·route·UI / barrel。
+
+> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / **A1-5-2-2-0 design + A1-5-2-2-1 plan_seeds structured-only migration draft（landed・§8.9・未 apply・raw 列なし・RLS owner-only）**。次は A1-5-2-2-2（migration apply・要 CEO 承認 + 実 seed read smoke）/ A1-5-3（PRM evidence）/ A1-5-N（UI surface）を各別 GO。raw を同じ読み取り表面に置かない・column-restricted・redaction guard・fail-closed・flag off default・no DB write・no push を全段で維持する。
