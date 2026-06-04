@@ -29,6 +29,10 @@ import type {
   ShiftImportSummary,
   ShiftImportSaveError,
 } from "./shiftImportRepository";
+import {
+  isShiftImportSaveConnectionAllowed,
+  type ShiftImportSaveConnectionEnv,
+} from "./shiftImportSaveGuard";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 入出力
@@ -52,6 +56,8 @@ export interface RunShiftImportSaveDeps {
   getUserId: () => Promise<string | null>;
   /** 本保存 flag（OFF なら dormant）。 */
   isEnabled: () => boolean;
+  /** S-save-0: 接続先 guard（staging allowlist + production deny）。fail-closed。 */
+  connection: ShiftImportSaveConnectionEnv;
   /** 保存先 repository（6B-apply-C: 実 Supabase RPC repo）。 */
   repo: ShiftImportRepository;
   /** rawCode 解決辞書（MVP: HARADA_SPRIX seed。per-user は将来）。 */
@@ -172,6 +178,13 @@ export async function runShiftImportSave(
 ): Promise<ShiftImportActionResult> {
   // 0. flag（OFF なら dormant。getUserId/repo を呼ばない）
   if (!deps.isEnabled()) {
+    return { ok: false, kind: "disabled", message: SHIFT_IMPORT_ACTION_MESSAGES.disabled };
+  }
+
+  // 0.5 S-save-0: 接続先 guard（staging allowlist + production deny。fail-closed）。
+  //     NG（接続先が production / staging 不一致 / URL 未設定）なら **auth/projection/RPC に到達せず**
+  //     disabled で停止。env 誤設定でも production への保存をコードで遮断する多重防御。
+  if (!isShiftImportSaveConnectionAllowed(deps.connection)) {
     return { ok: false, kind: "disabled", message: SHIFT_IMPORT_ACTION_MESSAGES.disabled };
   }
 
