@@ -15662,3 +15662,16 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 [2026-06-05] [Build] **S-save-4B manual conflict smoke PASS** — 手動休み（`plan_day_indicators` source_type=`manual`）がある日を含むシフト取込で、RPC が conflict を返し**手動を黙って上書きしない**ことを CEO in the loop で検証し PASS。手順: 一意 label `S-save-4B-fixture` の manual day_indicator を `2025-06-02`（off）に seed（UNIQUE ガード事前確認・実 manual 非巻き込み）→ 在app product 入口から 2025/6 を取込→保存試行 → **conflict 返却**: UI「手動で設定した休みと重なる日があります。ご確認ください。（2025-06-02）」= **綺麗な conflict**（generic error でなく日付特定）。結果: **shift_image 無書込**（`shift_sources=0`）/ **manual fixture 残存**（`{2025-06-02, off, S-save-4B-fixture}` 1 行）。fixture cleanup（label 指定 DELETE）後 **0/0/0**（fixture_remaining/shift_sources/shift_indicators 全 0）で staging clean 復帰。= RPC の conflict 保護が在app経路で正しく効き、ユーザーの手動休みをシフト取込が破壊しないことを実証。**env rollback 済**（私の :3001 save-enabled server のみ停止・別セッションの :3000 dormant server は無干渉・`.env.local` `=false` dormant）。**production 不接触**。**raw画像/base64/VLM raw response 非保存**。VLM 1 回（連打なし）。範囲外（未実施）: manual work anchor conflict / 保存後の月grid自動遷移 / geometry。[承認: CEO（PASS 受理・cleanup 0/0/0 確認）]
 
 ---
+
+## SR S-geo 帯（原稿セル照合の geometry 校正・2026-06-05）
+
+[2026-06-05] [Build] **S-geo geometry calibration PASS（原稿セル hover/tap 照合）** — 確認画面で「カレンダーの日を hover/tap → 原稿の該当セルが拡大＋太枠で正確に光る」を CEO in the loop の live smoke で達成し PASS。経緯と結論:
+- **決定論 geometry を確認画面へ配線**: `selectImportModalProps` が cells_loaded の `selection.dayColumns`（day1中心 + 月末日中心の 2 点・ヘッダ tap）から `buildShiftGridGeometry` で geometry を pure 算出（`41bcb2bb`）→ ShiftDraftInApp が `geometry={modalProps.geometry}` を ShiftImportModal へ渡し既存 pass-through で照合枠が live 接続（`a31d218c`）。`blankDays` は ShiftReviewGrid の cells 自己算出を正本として維持（selector で二重持ちしない）。
+- **band-interaction バグ修正**: dayColumn モードで header/personRow 帯 overlay が `stopPropagation` で tap を横取りし day列中心 capture が無反応だったのを、当該モード時のみ両帯を `pointer-events-none` にして透過（`04ca11b0`）。live smoke が捕捉した実バグ。
+- **該当セル拡大（案A）**: フル表の極小枠ではなく、hover した日の source セルを `cellCropRegion` で crop 拡大＋太枠で強調する `SourceCellZoom` を追加。crop 実描画は既存 `SourceCellCrop` の合成に寄せ技法重複を排除（`b33b9975` → `5e9dd323`）。`SourceImageHighlight`（俯瞰）と併存。
+- **drift の真因と恒久解**: 2 点ヘッダ tap の端点誤差が月全体に線形ドリフト（初め左・中盤一致・終わり右／実測 colW −9%・gridLeft −62px）。解決は **全列グリッド・オーバーレイ校正**: 原稿全体に全列の縦線を重ね、`gridLeft`(左位置) / `colWidth`(列間隔) の手動 2 微調整で全列を原稿の列に合わせ込み、端点誤差を全列で吸収。校正後の `calibratedGeometry` を highlight/zoom に反映。CEO 目視で「拡大セル＋太枠が全日（1日/中盤/月末）正しいセルを指す」ことを確認（`56af9831`）。`SourceCellZoom` は有界ボックス化（過剰拡大/縦長解消）。
+- **重複排除**: geometry 不要の旧「原稿を表示して照合」トグル（S3A-2-4）を削除し、原稿全体表示を `SourceImageHighlight`（校正グリッド付き）に一本化（`56af9831`）。
+- **安全性**: 保存 / DB / production **非接触**。VLM 再実行なし（既存 cells 使用）。**raw画像 / base64 / VLM raw response 非保存**（geometry は座標のみ・SourceCellCrop は ObjectURL の background-image・canvas/dataURI なし）。plan 全体 4711 PASS / tsc 1112。
+- **申し送り（運用負債）**: 校正値（gridLeft/colWidth 調整）は**画面ローカル state**でリロードで消える。実ユーザーが毎回校正し直すのは productization 上未完成 → **校正値の恒久化**（座標値のみ・raw非保存）を次工程の readiness で設計。本番有効化（production migration apply / flag ON / branch merge）は review UX を固めてから（CEO 方針）。[承認: CEO（PASS 受理・「合格」明言・dev server 停止指示）]
+
+---
