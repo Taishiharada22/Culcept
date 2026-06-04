@@ -354,4 +354,21 @@ A1-5-3b-1（`supabase/migrations/20260605110000_plan_seed_duration_evidences.sql
 - **apply / db push / reset / SQL Editor / DB read·write 0**。実 read / Supabase client / DB source factory なし。
 - **しない（A1-5-3b-1 範囲外）**: migration apply / DB read·write / seed capture / PRM·correction 実接続 / runtime·UI / RealityInput 搭載 / raw parse / default duration / evidence read source / barrel export / A1-5-4。
 
-> A1-5-0…§8.13（store 設計）/ **A1-5-3b-1 plan_seed_duration_evidences migration draft（landed・§8.14・未 apply・duration_min>1・composite FK owner integrity・raw 列なし・owner-only RLS・15 static tests）**。次は A1-5-3b-2（staging apply・別 GO・A1-5-2-2-2b 同手順・**plan_seeds への additive ALTER 含む**）/ A1-5-4（seed capture・write・要強い GO）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
+### 8.15 A1-5-3b-2 staging apply（完了）+ A1-5-3b-3 実装（landed）— evidence DB read seam（column-restricted）
+
+> **A1-5-3b-2**: `20260605110000_plan_seed_duration_evidences.sql` を **culcept-staging に CLI `db push` で apply 完了**（dry-run で pending=evidence migration 1 件確認後）。検証: migration history 記録 / table exists / raw 列 0 / duration_min>1 / composite FK owner integrity / RLS owner-only / plan_seeds に UNIQUE(id,user_id) 追加 / rows=0 / user-RLS smoke PASS。service_role·DB write·db reset·SQL Editor·production·remote 0。NOTICE は `DROP TRIGGER IF EXISTS` の冪等ガード正常。
+
+A1-5-3b-3（`lib/plan/reality/integration/duration-evidence-source.ts`・新規・**barrel 非 export**・`server-only`）:
+- **`createColumnRestrictedDurationEvidenceSource(client, bounds)`**: `plan_seed_duration_evidences` から **許可列のみ**読み `seedRef→DurationEvidence[]` map（= CompleteDispatchInput.durationEvidences）に変換する read seam。
+  - query: `from(EVIDENCE_TABLE).select(DURATION_EVIDENCE_COLUMNS_SQL).eq("user_id",uid).in("seed_id",seedIds)[.or(expires_at 境界)].limit(clamp)`。
+  - **column-restricted**（`ALLOWED_DURATION_EVIDENCE_COLUMNS=[id,user_id,seed_id,duration_min,source,confidence]`・`"*"` なし・**`source_ref`/raw を select も型も持たない**）。table 固定（`EVIDENCE_TABLE`・本ファイルのみ）。
+  - **adoptable のみ surface**: `projectDurationEvidenceRowsToMap` が confidence=high ∧ range(1<分≤1440) ∧ source 妥当（A1-5-3a `toDurationEvidence`/`assembleDurationEvidenceMap` 再利用）→ low/invalid/範囲外 は **非 evidence 化**。**prm_typical(high) は map に入るが enrich で grounding=weak → 候補化しない**。
+  - **bounded**（user_id + seedIds(.in) + 任意 expires_at 境界 + `MAX_DURATION_EVIDENCE_LIMIT=200` clamp・**seedIds 空→load 0**）。
+- **`loadGatedDurationEvidenceMap(gate, source)`**: `evaluateSmokeGate` fail-closed（production/flag off/capability/user mismatch → {}）。
+- **DI**: `DurationEvidenceUserContextClient`（from/select/eq/in/or/limit）・**createClient/service_role 非 import**（user-RLS）。
+- test(`realityDurationEvidenceSource.test.ts`・**32**): column 契約 / query shape(allowed·"*"·source_ref·raw·table·bounded·clamp·expiry·seedIds空) / projection(high のみ·duration>1·invalid source·low conf·集約·raw 非出力) / pipeline(seed_explicit·correction→candidateCount>0 / prm_typical→weak→0 / 空→0) / gate×4→{} / 静的(service_role·createClient·DB write 不在·`.from(EVIDENCE_TABLE)` は本ファイルのみ·barrel 非 export)。
+- user-RLS empty smoke（untracked・1回・project-pin hjcr…wc・anon+user）: source の query 形で **rowsRead=0 / mapKeys=0 / candidateCount=0 / service_role 0 / raw·secret·UUID 非出力**。
+- tsc: 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114 は無関係既存）。reality **527 tests** PASS。
+- **しない（A1-5-3b-3 範囲外）**: seed capture / PRM·correction 実接続 / INSERT·UPDATE·DELETE / DB write smoke / runtime·route·UI·PlanClient / RealityInput 搭載 / generateCandidates 実配線 / raw parse / default duration / source_ref を allowed columns に / migration 追加 / barrel export / A1-5-4。
+
+> A1-5-0…§8.14 / **A1-5-3b-2 evidence staging apply 完了 + A1-5-3b-3 evidence DB read seam（landed・§8.15・column-restricted・gated fail-closed・adoptable のみ surface・rowsRead=0/candidateCount=0・barrel 非 export）**。次は A1-5-4（seed capture: write 境界・raw 分離・DB write・要強い GO）。candidateCount>0 の実 staging 発火には capture（seed + evidence の実在）が要る。**read 経路（seed[§8.7=2-2-2c] + evidence[§8.15=3b-3] → enrich → candidate）は fixture で実証済**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
