@@ -42,6 +42,29 @@ export interface DayColumns {
 }
 
 /**
+ * グリッド校正（S-geo・全列オーバーレイで人間が合わせ込んだ最終 geometry の X 成分）。
+ * **座標値のみ**（画像本体・base64・dataURI 等は型で構造的に含まない）。
+ * `imageW/imageH/dayCount` は**適用時の誤適用防止コンテキスト**: 校正時とは違う画像・違う月日数に
+ * 誤って再利用しないよう、resolve 時に現コンテキストと一致する場合だけ採用する。
+ */
+export interface GridCalibration {
+  /** 校正後の day1 セル左端 x(px)。 */
+  gridLeft: number;
+  /** 校正後の 1 列幅(px)。> 0。 */
+  colWidth: number;
+  /** 由来。全列オーバーレイの手動合わせ込み。 */
+  source: "manual_overlay";
+  /** 校正時の元画像 px 幅（現画像と不一致なら無視）。 */
+  imageW: number;
+  /** 校正時の元画像 px 高（現画像と不一致なら無視）。 */
+  imageH: number;
+  /** 校正時の対象月日数（現 dayCount と不一致なら無視）。 */
+  dayCount: number;
+  /** 任意: ISO 文字列。**pure module は生成しない**（UI 側が後段で渡す）。 */
+  calibratedAt?: string;
+}
+
+/**
  * 1 画像分の assisted row selection。
  * **画像本体（Blob/base64/dataURI 等）は含まない**（型で構造的に禁止）。
  */
@@ -56,6 +79,8 @@ export interface AssistedRowSelection {
   personRowBand: BandY;
   /** 任意: day列中心 X（S-geo-2・案A-1）。座標のみ・画像本体非依存。 */
   dayColumns?: DayColumns;
+  /** 任意: グリッド校正（全列オーバーレイの最終 geometry X 成分）。座標のみ・誤適用防止コンテキスト付き。 */
+  gridCalibration?: GridCalibration;
   /** 任意: pure FNV-1a 32bit ハッシュ（画像 byte 不要・size+wh+optional fingerprint をキー化する用途）。 */
   imageFingerprint?: string;
   /** 任意: ISO 文字列。記録時に外部から渡す（pure module は now を生成しない）。 */
@@ -71,6 +96,8 @@ export interface AssistedRowSelectionStored {
   personRowBand: BandY;
   /** 任意: day列中心 X（座標のみ・S-geo-2）。 */
   dayColumns?: DayColumns;
+  /** 任意: グリッド校正（座標 + 誤適用防止コンテキストのみ・S-geo persist）。 */
+  gridCalibration?: GridCalibration;
   updatedAt: string;
 }
 
@@ -174,6 +201,70 @@ export function validateDayColumns(
     issues.push({ field: "order", message: "firstDayCenterX must be < lastDayCenterX" });
   else if (dc.lastDayCenterX - dc.firstDayCenterX < MIN_DAY_COLUMN_SPAN)
     issues.push({ field: "span", message: "the two day-column centers are too close" });
+  return issues;
+}
+
+// ─────────────────────────────────────────────────────────────
+// グリッド校正 validation（S-geo persist・誤適用防止）
+// ─────────────────────────────────────────────────────────────
+
+/** 校正適用時の現コンテキスト（誤適用防止の照合先）。 */
+export interface GridCalibrationContext {
+  imageW: number;
+  imageH: number;
+  dayCount: number;
+}
+
+/** グリッド校正の妥当性（field + メッセージ）。 */
+export interface GridCalibrationIssue {
+  field:
+    | "missing"
+    | "gridLeft"
+    | "colWidth"
+    | "source"
+    | "imageW"
+    | "imageH"
+    | "dayCount";
+  message: string;
+}
+
+/**
+ * グリッド校正が「構造的に妥当」かつ「現コンテキストと整合」するか（pure・throw しない）。
+ * - 構造: gridLeft finite / colWidth finite>0 / source=="manual_overlay" / imageW/imageH/dayCount finite。
+ * - 整合（誤適用防止）: 校正時の imageW/imageH/dayCount が現コンテキストと一致すること。
+ * 1 つでも issue があれば呼出側は校正を**採用しない**（dayColumns fallback へ）。
+ * storage 時は context にカ校正自身の imageW/imageH/dayCount を渡せば構造検証のみになる。
+ */
+export function validateGridCalibration(
+  cal: GridCalibration | undefined,
+  context: GridCalibrationContext
+): GridCalibrationIssue[] {
+  const issues: GridCalibrationIssue[] = [];
+  if (!cal) {
+    issues.push({ field: "missing", message: "grid calibration is not set" });
+    return issues;
+  }
+  // ── 構造 ──
+  if (!Number.isFinite(cal.gridLeft))
+    issues.push({ field: "gridLeft", message: "must be a finite number" });
+  if (!Number.isFinite(cal.colWidth) || cal.colWidth <= 0)
+    issues.push({ field: "colWidth", message: "must be a finite number > 0" });
+  if (cal.source !== "manual_overlay")
+    issues.push({ field: "source", message: 'source must be "manual_overlay"' });
+  if (!Number.isFinite(cal.imageW))
+    issues.push({ field: "imageW", message: "imageW must be a finite number" });
+  if (!Number.isFinite(cal.imageH))
+    issues.push({ field: "imageH", message: "imageH must be a finite number" });
+  if (!Number.isInteger(cal.dayCount))
+    issues.push({ field: "dayCount", message: "dayCount must be an integer" });
+  if (issues.length) return issues;
+  // ── 誤適用防止: 校正時コンテキスト == 現コンテキスト ──
+  if (cal.imageW !== context.imageW)
+    issues.push({ field: "imageW", message: "calibration imageW does not match current image" });
+  if (cal.imageH !== context.imageH)
+    issues.push({ field: "imageH", message: "calibration imageH does not match current image" });
+  if (cal.dayCount !== context.dayCount)
+    issues.push({ field: "dayCount", message: "calibration dayCount does not match current month" });
   return issues;
 }
 
@@ -319,6 +410,29 @@ export function toStoredPayload(
       lastDayCenterX: s.dayColumns.lastDayCenterX,
     };
   }
+  // グリッド校正は **構造的に valid な時のみ** 座標 + 誤適用防止コンテキスト + source を載せる
+  // （self-context で構造検証のみ・apply 時の match は resolve で照合）。raw 画像は型で乗らない。
+  if (
+    s.gridCalibration &&
+    validateGridCalibration(s.gridCalibration, {
+      imageW: s.gridCalibration.imageW,
+      imageH: s.gridCalibration.imageH,
+      dayCount: s.gridCalibration.dayCount,
+    }).length === 0
+  ) {
+    const c = s.gridCalibration;
+    stored.gridCalibration = {
+      gridLeft: c.gridLeft,
+      colWidth: c.colWidth,
+      source: "manual_overlay",
+      imageW: c.imageW,
+      imageH: c.imageH,
+      dayCount: c.dayCount,
+      ...(typeof c.calibratedAt === "string"
+        ? { calibratedAt: c.calibratedAt }
+        : {}),
+    };
+  }
   return stored;
 }
 
@@ -367,6 +481,39 @@ export function parseStoredPayload(
       lastDayCenterX: dcRaw.lastDayCenterX,
     };
     if (validateDayColumns(dc, out.imageW).length === 0) out.dayColumns = dc;
+  }
+  // グリッド校正は **number / "manual_overlay" / 任意 string のみ**読む。
+  // raw 画像/base64/dataURI/blob 等の余計な field は一切読まない（out に明示 field のみ＝黙って捨てる）。
+  const gcRaw = o.gridCalibration as Partial<GridCalibration> | undefined;
+  if (
+    gcRaw &&
+    typeof gcRaw.gridLeft === "number" &&
+    typeof gcRaw.colWidth === "number" &&
+    gcRaw.source === "manual_overlay" &&
+    typeof gcRaw.imageW === "number" &&
+    typeof gcRaw.imageH === "number" &&
+    typeof gcRaw.dayCount === "number"
+  ) {
+    const gc: GridCalibration = {
+      gridLeft: gcRaw.gridLeft,
+      colWidth: gcRaw.colWidth,
+      source: "manual_overlay",
+      imageW: gcRaw.imageW,
+      imageH: gcRaw.imageH,
+      dayCount: gcRaw.dayCount,
+      ...(typeof gcRaw.calibratedAt === "string"
+        ? { calibratedAt: gcRaw.calibratedAt }
+        : {}),
+    };
+    // 自身のコンテキストで構造検証（self-context ＝ match は通り構造のみ判定）。
+    if (
+      validateGridCalibration(gc, {
+        imageW: gc.imageW,
+        imageH: gc.imageH,
+        dayCount: gc.dayCount,
+      }).length === 0
+    )
+      out.gridCalibration = gc;
   }
   // 構造検証も通す（範囲は imageH 依存・persisted 値の sanity）
   const v = validateSelection({

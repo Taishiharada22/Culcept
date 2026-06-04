@@ -20,10 +20,12 @@ import {
   toStoredPayload,
   parseStoredPayload,
   validateDayColumns,
+  validateGridCalibration,
   MIN_DAY_COLUMN_SPAN,
   DEFAULT_HEADER_OFFSET_RATIO,
   type AssistedRowSelection,
   type DayColumns,
+  type GridCalibration,
 } from "@/lib/plan/shift/assistedRowSelection";
 
 const IMG = { imageW: 1860, imageH: 846 };
@@ -230,6 +232,127 @@ describe("validateDayColumns（S-geo-2 day列中心 X）", () => {
   });
   it("valid（順序・範囲・間隔 OK）→ issues なし", () => {
     expect(validateDayColumns(dc(300.75, 1845.75), W)).toEqual([]);
+  });
+});
+
+describe("validateGridCalibration（S-geo persist・誤適用防止）", () => {
+  const CAL = (over: Partial<GridCalibration> = {}): GridCalibration => ({
+    gridLeft: 275,
+    colWidth: 51.5,
+    source: "manual_overlay",
+    imageW: 1860,
+    imageH: 846,
+    dayCount: 31,
+    ...over,
+  });
+  const CTX = { imageW: 1860, imageH: 846, dayCount: 31 };
+
+  it("undefined → missing（throw しない）", () => {
+    expect(validateGridCalibration(undefined, CTX).map((i) => i.field)).toContain("missing");
+  });
+  it("valid + 一致コンテキスト → issues なし", () => {
+    expect(validateGridCalibration(CAL(), CTX)).toEqual([]);
+  });
+  it("colWidth <= 0 → colWidth", () => {
+    expect(validateGridCalibration(CAL({ colWidth: 0 }), CTX).map((i) => i.field)).toContain("colWidth");
+  });
+  it("gridLeft NaN → gridLeft", () => {
+    expect(validateGridCalibration(CAL({ gridLeft: Number.NaN }), CTX).map((i) => i.field)).toContain("gridLeft");
+  });
+  it("source 不正 → source", () => {
+    const bad = CAL({ source: "auto" as unknown as "manual_overlay" });
+    expect(validateGridCalibration(bad, CTX).map((i) => i.field)).toContain("source");
+  });
+  it("imageW 不一致 → imageW（誤適用防止）", () => {
+    expect(
+      validateGridCalibration(CAL(), { ...CTX, imageW: 2000 }).map((i) => i.field)
+    ).toContain("imageW");
+  });
+  it("imageH 不一致 → imageH", () => {
+    expect(
+      validateGridCalibration(CAL(), { ...CTX, imageH: 900 }).map((i) => i.field)
+    ).toContain("imageH");
+  });
+  it("dayCount 不一致 → dayCount", () => {
+    expect(
+      validateGridCalibration(CAL(), { ...CTX, dayCount: 30 }).map((i) => i.field)
+    ).toContain("dayCount");
+  });
+});
+
+describe("storage payload — gridCalibration（座標+コンテキストのみ・raw 非格納）", () => {
+  const withCal = (over: Partial<GridCalibration> = {}): AssistedRowSelection => ({
+    ...ok(),
+    gridCalibration: {
+      gridLeft: 275,
+      colWidth: 51.5,
+      source: "manual_overlay",
+      imageW: 1860,
+      imageH: 846,
+      dayCount: 31,
+      calibratedAt: "2026-06-05T00:00:00.000Z",
+      ...over,
+    },
+  });
+
+  it("valid gridCalibration は stored payload に残る（座標+source+context+calibratedAt）", () => {
+    const stored = toStoredPayload(withCal(), "t")!;
+    expect(stored.gridCalibration).toEqual({
+      gridLeft: 275,
+      colWidth: 51.5,
+      source: "manual_overlay",
+      imageW: 1860,
+      imageH: 846,
+      dayCount: 31,
+      calibratedAt: "2026-06-05T00:00:00.000Z",
+    });
+  });
+
+  it("invalid gridCalibration（colWidth=0）は stored に載らない", () => {
+    const stored = toStoredPayload(withCal({ colWidth: 0 }), "t")!;
+    expect(stored.gridCalibration).toBeUndefined();
+  });
+
+  it("roundtrip: toStored → JSON → parseStored で gridCalibration が保たれる", () => {
+    const stored = toStoredPayload(withCal(), "t")!;
+    const parsed = parseStoredPayload(JSON.parse(JSON.stringify(stored)));
+    expect(parsed?.gridCalibration?.gridLeft).toBe(275);
+    expect(parsed?.gridCalibration?.colWidth).toBe(51.5);
+    expect(parsed?.gridCalibration?.source).toBe("manual_overlay");
+    expect(parsed?.gridCalibration?.dayCount).toBe(31);
+  });
+
+  it("parseStoredPayload: gridCalibration 内の raw画像/base64/blob 等 余計な field は捨て、座標+context のみ通す", () => {
+    const stored = toStoredPayload(withCal(), "t")!;
+    const tainted = {
+      ...stored,
+      gridCalibration: {
+        ...stored.gridCalibration,
+        rawImage: "data:image/png;base64,AAAA",
+        blob: { x: 1 },
+        bitmap: [1, 2, 3],
+      },
+    };
+    const parsed = parseStoredPayload(tainted);
+    expect(parsed?.gridCalibration).toEqual({
+      gridLeft: 275,
+      colWidth: 51.5,
+      source: "manual_overlay",
+      imageW: 1860,
+      imageH: 846,
+      dayCount: 31,
+      calibratedAt: "2026-06-05T00:00:00.000Z",
+    });
+    // raw 系 key は parse 結果に一切出ない
+    expect(JSON.stringify(parsed?.gridCalibration)).not.toMatch(/rawImage|blob|bitmap|base64/i);
+  });
+
+  it("parseStoredPayload: source 不正 / colWidth 非 number → gridCalibration を落とす", () => {
+    const stored = toStoredPayload(withCal(), "t")!;
+    const bad1 = { ...stored, gridCalibration: { ...stored.gridCalibration, source: "auto" } };
+    const bad2 = { ...stored, gridCalibration: { ...stored.gridCalibration, colWidth: "x" } };
+    expect(parseStoredPayload(bad1)?.gridCalibration).toBeUndefined();
+    expect(parseStoredPayload(bad2)?.gridCalibration).toBeUndefined();
   });
 });
 
