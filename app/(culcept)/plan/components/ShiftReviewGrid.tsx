@@ -34,6 +34,7 @@ import {
 } from "@/lib/plan/shift/shiftGridGeometry";
 import { SourceCellCrop } from "./SourceCellCrop";
 import { SourceImageHighlight } from "./SourceImageHighlight";
+import { SourceCellZoom } from "./SourceCellZoom";
 import {
   type ShiftReviewCell,
   computeEmptyDays,
@@ -326,7 +327,18 @@ export function ShiftReviewGrid({
         })}
       </div>
 
-      {/* 原稿画像 + 該当日ハイライト（hover/tap で光る） */}
+      {/* 原稿の該当セル拡大（S-geo-3: hover/tap した日のセルを crop 拡大＋太枠＝参照元を四角く強調）。
+          highlightDay null（未 hover/未選択）なら SourceCellZoom 側で非表示（fail-soft）。 */}
+      {imageSrc && geometry && (
+        <SourceCellZoom
+          imageSrc={imageSrc}
+          geometry={geometry}
+          day={highlightDay}
+          blankDays={blankDays}
+        />
+      )}
+
+      {/* 原稿画像 全体 + 該当日ハイライト（俯瞰・hover/tap で光る）。案A 推奨で併存。 */}
       {imageSrc && geometry && (
         <SourceImageHighlight
           imageSrc={imageSrc}

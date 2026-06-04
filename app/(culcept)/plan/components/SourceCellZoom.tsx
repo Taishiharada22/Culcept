@@ -1,21 +1,26 @@
 /**
- * 原稿の該当セル拡大表示（Source Cell Zoom）— S-geo-3-1
+ * 原稿の該当セル拡大表示（Source Cell Zoom）— S-geo-3-1 / 3-1b（SourceCellCrop 合成）
  *
  * 設計: docs/alter-plan-s-geo-3-source-cell-zoom-readiness.md（CEO 案A・2026-06-05）。
- * 巨大なフル表に極小枠ではなく、hover/tap した日の **source セルだけを crop して拡大**し、
+ * 巨大なフル表に極小枠ではなく、hover/tap した日の **source セルを crop して拡大**し、
  * 太枠で囲って「参照元」を四角く強調する。
  *
- * 不変原則: 純 presentational（hooks/state/effect なし）。calibrated grid geometry から
- *   決定論的に crop region を算出（cellCropRegion + sourceColumnForDay を共有）。
- *   **CSS の crop+zoom のみ**（canvas / 画像生成 / base64 / dataURI を作らない）。
- *   raw 画像非依存（src は呼出側の ObjectURL）。VLM / DB / save に触れない。
+ * 責務（CEO Option A・reuse）:
+ *   - **crop の実描画は既存 SourceCellCrop に委譲**（background-image crop プリミティブを再利用・技法を一本化）。
+ *   - SourceCellZoom は「viewRegion（セル + 文脈）を決める / 拡大幅を渡す / 太枠を重ねる」に限定。
+ *
+ * 不変原則: 純 presentational（hooks/state/effect なし）。crop region は
+ *   cellCropRegion + sourceColumnForDay（packing 補正）を共有。canvas / 画像生成 / base64 を作らない。
+ *   VLM / DB / save に触れない。
  */
 
 import {
   cellCropRegion,
   sourceColumnForDay,
+  type CropRegion,
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
+import { SourceCellCrop } from "./SourceCellCrop";
 
 interface SourceCellZoomProps {
   /** 原画像（ObjectURL 等）。欠ければ非表示。 */
@@ -57,15 +62,15 @@ export function SourceCellZoom({
   const vh = Math.min(geometry.imageHeight - vy, cell.height + 2 * marginY);
   if (!(vw > 0) || !(vh > 0)) return null;
 
-  const zoom = displayWidth / vw;
-  const displayHeight = Math.round(vh * zoom);
+  const viewRegion: CropRegion = { x: vx, y: vy, width: vw, height: vh };
+  const scale = displayWidth / vw;
 
-  // cell を view 内の表示座標へ写像（太枠の位置）。
+  // cell を view 内の表示座標へ写像（太枠の位置）。SourceCellCrop と同 scale。
   const frame = {
-    left: (cell.x - vx) * zoom,
-    top: (cell.y - vy) * zoom,
-    width: cell.width * zoom,
-    height: cell.height * zoom,
+    left: (cell.x - vx) * scale,
+    top: (cell.y - vy) * scale,
+    width: cell.width * scale,
+    height: cell.height * scale,
   };
 
   return (
@@ -76,25 +81,16 @@ export function SourceCellZoom({
       data-source-day={day}
     >
       <p className="mb-1 text-[11px] text-gray-500">原稿の該当セル（拡大）</p>
-      <div
-        className="relative overflow-hidden rounded-xl border border-emerald-200 bg-white/50 shadow-sm"
-        style={{ width: displayWidth, height: displayHeight }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageSrc}
-          alt="原稿の該当セル拡大"
-          draggable={false}
-          className="absolute select-none"
-          style={{
-            left: -vx * zoom,
-            top: -vy * zoom,
-            width: geometry.imageWidth * zoom,
-            height: geometry.imageHeight * zoom,
-            maxWidth: "none",
-          }}
+      <div className="relative inline-block">
+        {/* crop の実描画は既存プリミティブに委譲（view 範囲を拡大幅で切り出し）。 */}
+        <SourceCellCrop
+          imageSrc={imageSrc}
+          imageWidth={geometry.imageWidth}
+          imageHeight={geometry.imageHeight}
+          region={viewRegion}
+          displayWidth={displayWidth}
         />
-        {/* 太枠（現在参照しているセルを四角く強調） */}
+        {/* 太枠（現在参照しているセルを四角く強調）。crop の上に重ねる。 */}
         <div
           data-testid="source-cell-zoom-frame"
           aria-hidden="true"

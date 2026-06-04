@@ -30,13 +30,15 @@ function render(over: Partial<React.ComponentProps<typeof SourceCellZoom>> = {})
 }
 
 describe("SourceCellZoom — 表示条件", () => {
-  it("imageSrc + geometry + day → zoom section + 太枠 + 文言が出る", () => {
+  it("imageSrc + geometry + day → zoom section + 太枠 + SourceCellCrop 委譲", () => {
     const html = render();
     expect(html).toContain('data-testid="source-cell-zoom"');
     expect(html).toContain('data-testid="source-cell-zoom-frame"');
     expect(html).toContain("原稿の該当セル（拡大）");
-    // 原画像 src はそのまま img に入る
-    expect(html).toMatch(/src="blob:http:\/\/localhost\/src"/);
+    // crop の実描画は既存 SourceCellCrop に委譲（reuse・crop 技法を再実装しない）
+    expect(html).toContain('data-testid="source-cell-crop"');
+    // 原画像は SourceCellCrop の background-image で参照（img src の再実装ではない）
+    expect(html).toMatch(/background-image:\s*url\(blob:http:\/\/localhost\/src\)/);
   });
 
   it("imageSrc が無いと非表示（空文字）", () => {
@@ -79,16 +81,17 @@ describe("SourceCellZoom — 安全性（canvas/base64/dataURI/raw 非使用）"
     expect(render()).not.toContain("<canvas");
   });
 
-  it("data:image / base64 / dataURI を内部に作らない（src は blob: のみ）", () => {
+  it("data:image / base64 / dataURI を内部に作らない（background-image は blob: のみ）", () => {
     const html = render();
     expect(html).not.toMatch(/data:image\/[a-z]+;base64,/i);
     expect(html).not.toMatch(/[A-Za-z0-9+/]{200,}=*/); // 巨大 base64 塊なし
   });
 
-  it("CSS crop+zoom のみ（img の幅は imageWidth*zoom で拡大・maxWidth:none）", () => {
+  it("CSS crop のみ（SourceCellCrop の background-image/size で切り出し・img 再実装なし）", () => {
     const html = render();
-    // 拡大表示のため img は元画像幅を超える（max-width:none で上限解除）
-    expect(html).toMatch(/max-width:\s*none/i);
+    expect(html).toMatch(/background-image:\s*url\(/i);
+    expect(html).toContain("background-size"); // crop は background-size/position で拡大
+    expect(html).not.toContain("<img"); // img を自前で再実装しない（crop は委譲）
   });
 
   it("user-facing copy に error / 失敗 等を含まない", () => {

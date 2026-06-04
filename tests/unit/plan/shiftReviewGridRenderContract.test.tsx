@@ -5,6 +5,7 @@ import {
   type ShiftReviewCell,
 } from "@/app/(culcept)/plan/components/ShiftReviewGrid";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
+import { HARADA_SPRIX_JULY_GEOMETRY } from "@/lib/plan/shift/shiftGridGeometry";
 
 // 全 cell kind + blank-risk を網羅する fixture（2025年7月）
 const FIXTURE: ShiftReviewCell[] = [
@@ -134,5 +135,55 @@ describe("ShiftReviewGrid — S3A-2-4 原稿インライン照合", () => {
   it("imageSrc があっても保存 CTA は変わらず disabled（saveEnabled 未指定）", () => {
     const html = renderWithImage(SOURCE_SENTINEL);
     expect(html).toMatch(/shift-review-save"[^>]*disabled/);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// S-geo-3-2: SourceCellZoom（該当セル拡大）配線
+function renderWithGeometry(imageSrc?: string) {
+  return renderToStaticMarkup(
+    <ShiftReviewGrid
+      cells={FIXTURE}
+      dictionary={HARADA_SPRIX_DICTIONARY}
+      monthLabel="2025年7月"
+      year={2025}
+      month={7}
+      imageSrc={imageSrc}
+      geometry={HARADA_SPRIX_JULY_GEOMETRY}
+    />
+  );
+}
+
+describe("ShiftReviewGrid — S-geo-3-2 SourceCellZoom 配線", () => {
+  const SRC = "blob:sgeo3-src";
+
+  it("imageSrc + geometry → 俯瞰の SourceImageHighlight が出る（案A 併存・既存維持）", () => {
+    expect(renderWithGeometry(SRC)).toContain(
+      'data-testid="source-image-highlight"'
+    );
+  });
+
+  it("未 hover/未選択（highlightDay null）→ SourceCellZoom は出ない（fail-soft gating）", () => {
+    // 静的 render は hover/選択が無く highlightDay=null → 拡大は非表示。
+    // 拡大出現の実検証は 3-1 component test + 3-3 ライブ smoke。
+    expect(renderWithGeometry(SRC)).not.toContain(
+      'data-testid="source-cell-zoom"'
+    );
+  });
+
+  it("geometry あっても S3A-2-4 原稿全体トグルは残る（regression）", () => {
+    const html = renderWithGeometry(SRC);
+    expect(html).toContain('data-testid="shift-review-source-section"');
+    expect(html).toContain('data-testid="shift-review-source-toggle"');
+  });
+
+  it("geometry が無ければ俯瞰も拡大も出ない（imageSrc のみ・既存 fail-soft）", () => {
+    const html = renderWithImage(SOURCE_SENTINEL); // geometry なし
+    expect(html).not.toContain('data-testid="source-image-highlight"');
+    expect(html).not.toContain('data-testid="source-cell-zoom"');
+  });
+
+  it("geometry あっても保存 CTA は disabled 維持（saveEnabled 未指定）", () => {
+    expect(renderWithGeometry(SRC)).toMatch(/shift-review-save"[^>]*disabled/);
   });
 });
