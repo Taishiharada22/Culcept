@@ -44,6 +44,7 @@ import {
   SENSITIVE_LABEL,
   anchorsForDay,
   formatTime,
+  maskedAnchorTitle,
   utcMidnight,
 } from "./_helpers";
 import {
@@ -83,7 +84,8 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
 import { legChipDataUri, ROUTE_MODE_COLORS, type RouteTransportMode } from "@/lib/plan/map/routeMode";
-import { loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
+import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
+import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
   MapSelectedPinLabel,
@@ -288,6 +290,39 @@ export function MapTab({
     return pins;
   }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
 
+  // Slice 1 (API不要): 開いた leg の card data — focus 階層 state / readOnly(過去=実績) / recall / sensitive mask。
+  //   FH mobilityCard を NT 構造へ忠実 port。視覚復元(ガラス線/chip/オーラ)は Tier 2。
+  const mobilityCardData = useMemo(() => {
+    if (!openLeg) return null;
+    const sorted = [...allPins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    let idx = -1;
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      if (`${sorted[i]!.anchor.id}__${sorted[i + 1]!.anchor.id}` === openLeg.legKey) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return null;
+    const ref = now ?? new Date();
+    const nowMin = ref.getHours() * 60 + ref.getMinutes();
+    const state = resolveLegState(idx, resolveFocusLegIndex(sorted, nowMin));
+    const isDone = state === "done"; // 過去(2個前以前)=編集不可(実績の器)
+    const todaySelected = selectedModeByLeg[openLeg.legKey] ?? null;
+    return {
+      legKey: openLeg.legKey,
+      fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
+      toTitle: maskedAnchorTitle(sorted[idx + 1]!.anchor),
+      readOnly: isDone,
+      // S2-A: 今日未選択 かつ 過去 leg でない時だけ「前回」想起(localStorage 読取のみ・推薦ではない)
+      recallMode:
+        todaySelected || isDone
+          ? null
+          : (loadPriorLegMode(dayKey, openLeg.legKey)?.mode ?? null),
+    };
+  }, [openLeg, allPins, selectedModeByLeg, now, dayKey]);
+
   // A2: leg ごとの from/to 座標(時刻順・store/route と同一 legKey)。durations fetch 用。
   const legCoordsByKey = useMemo(() => {
     const sorted = [...allPins].sort((a, b) =>
@@ -375,15 +410,15 @@ export function MapTab({
         onOpenDetail={onAnchorClick ? handleOpenDetail : undefined}
         routeUrl={routeUrl}
       />
-      {openLeg && (
+      {openLeg && mobilityCardData && (
         <MobilityLegCard
-          legKey={openLeg.legKey}
-          fromTitle={openLeg.fromTitle}
-          toTitle={openLeg.toTitle}
-          selectedMode={selectedModeByLeg[openLeg.legKey] ?? null}
-          durations={durationsByLeg[openLeg.legKey] ?? null}
-          recallMode={null}
-          readOnly={false}
+          legKey={mobilityCardData.legKey}
+          fromTitle={mobilityCardData.fromTitle}
+          toTitle={mobilityCardData.toTitle}
+          selectedMode={selectedModeByLeg[mobilityCardData.legKey] ?? null}
+          durations={durationsByLeg[mobilityCardData.legKey] ?? null}
+          recallMode={mobilityCardData.recallMode}
+          readOnly={mobilityCardData.readOnly}
           onSelect={handleLegSelect}
           onClose={handleLegClose}
         />
