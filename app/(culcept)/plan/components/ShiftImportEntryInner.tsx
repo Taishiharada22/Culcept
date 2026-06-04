@@ -8,14 +8,16 @@
  *
  * 安全設計（CEO 2026-06-04・gate 分離）:
  *   - **cells は fixture 注入**（`buildShiftFixture`）→ **live VLM を発火させない**（S2 段階）。
- *   - **`saveEnabled={false}`** → ShiftImportModal の保存 controller は disabled → **DB write しない**。
+ *   - **fixture fallback は `saveEnabled={false}` 固定** → ShiftImportModal の保存 controller は disabled → **DB write しない**。
  *   - 実 VLM 抽出 / 保存は後段（別 gate: `PLAN_SHIFT_IMPORT_SAVE` / VLM live）で接続する。
  *
  * S3A-2-2-1: `draftLiveEnabled` prop を server→prop で受ける（client 直読み禁止）。data 属性にも反映。
  * S3A-2-2-2: `draftLiveEnabled=true` で **live VLM flow（ShiftDraftInApp）** を出す。
- *   `false`（既定/本番）では従来の **fixture modal**（debug fallback）を維持。
+ *   `false`（既定/本番）では従来の **fixture modal**（debug fallback・saveEnabled 固定 false）を維持。
  *   ShiftDraftInApp は conditional mount（閉じる/unmount で hook が ObjectURL revoke）。
- *   saveEnabled=false 固定は ShiftDraftInApp 側で担保（本 component は保存 flag を読まない）。
+ * S-save-2: 保存 flag を `saveEnabled` prop（server-only PLAN_SHIFT_IMPORT_SAVE → server→prop）で受け、
+ *   **live 経路（ShiftDraftInApp）にのみ素通し**。default false で dormant（保存ボタン無効・action 未呼出）。
+ *   本 component は保存 flag を**直読みしない**（prop で受けるだけ）。
  */
 
 import { useMemo, useState } from "react";
@@ -28,11 +30,14 @@ export function ShiftImportEntryInner({
   now,
   draftLiveEnabled = false,
   vlmInputMode = "combined",
+  saveEnabled = false,
 }: {
   now?: Date;
   draftLiveEnabled?: boolean;
   /** live draft flow の VLM 入力モード（server→prop・combined-biased）。default combined。 */
   vlmInputMode?: "split" | "combined";
+  /** S-save-2: 保存導線（server-only PLAN_SHIFT_IMPORT_SAVE → prop）。default false で dormant。live 経路へ素通し。 */
+  saveEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // 確認画面に流す cells（fixture・live VLM 非依存・deterministic）。now は test 注入可。
@@ -69,6 +74,7 @@ export function ShiftImportEntryInner({
         open && (
           <ShiftDraftInApp
             vlmInputMode={vlmInputMode}
+            saveEnabled={saveEnabled}
             onClose={() => setOpen(false)}
           />
         )

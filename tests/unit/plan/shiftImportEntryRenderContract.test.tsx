@@ -10,6 +10,7 @@
  *       （= live VLM 非依存・DB write なしの確認のみ経路）
  *   §4 S3A-2-2-1: draftLiveEnabled の prop chain（default false・閉状態では live UI 非表示）
  *   §5 S3A-2-2-2: ShiftDraftInApp（在app live flow 初期 shell・saveEnabled=false・raw 非保持）
+ *   §6 S-save-2: saveEnabled の server→prop plumbing（flag default OFF・endpoint forwarding・dormant 不変）
  */
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,6 +22,7 @@ import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { ShiftImportEntryInner } from "@/app/(culcept)/plan/components/ShiftImportEntryInner";
 import { ShiftDraftInApp } from "@/app/(culcept)/plan/components/ShiftDraftInApp";
 import { ShiftImportModal } from "@/app/(culcept)/plan/components/ShiftImportModal";
+import type { ShiftReviewCell } from "@/app/(culcept)/plan/components/ShiftReviewGrid";
 import { buildShiftFixture } from "@/lib/plan/shift/devFixtureHost";
 
 const NOW = new Date("2025-06-12T00:00:00.000Z");
@@ -136,5 +138,73 @@ describe("§5 ShiftDraftInApp（在app live flow）", () => {
     expect(html).not.toContain("検証 host");
     expect(html).not.toContain('data-testid="dev-shift-draft-debug-summary"');
     expect(html).not.toContain("製品の取り込み入口ではありません");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §6 S-save-2: saveEnabled の server→prop plumbing
+//   - PLAN_SHIFT_IMPORT_SAVE（server-only flag）を server で読み boolean prop で leaf まで流す。
+//   - flag OFF（既定）→ 確認画面の保存導線は dormant placeholder（「この内容で保存」なし＝action 到達不能）。
+//   - flag ON 相当（saveEnabled=true）→ 在app live review の endpoint（ShiftImportModal）で active 保存 CTA。
+//   - ShiftDraftInApp idle では saveEnabled は inert（保存は cells_loaded のみ・auto なし）。
+//   注: rawCode N/G は HARADA_SPRIX で解決（unresolved なし）→ saveEnabled=true で active CTA が出る。
+
+const RESOLVED_CELLS: ShiftReviewCell[] = [
+  { day: 1, date: "2025-06-01", rawCode: "N", confidence: 1 },
+  { day: 2, date: "2025-06-02", rawCode: "G", confidence: 1 },
+];
+
+describe("§6 saveEnabled plumbing（PLAN_SHIFT_IMPORT_SAVE → server→prop）", () => {
+  it("PLAN_FLAGS.shiftImportSave は default false（commit ガード = 保存 dormant）", () => {
+    expect(PLAN_FLAGS.shiftImportSave).toBe(false);
+  });
+
+  it("endpoint: saveEnabled=false（flag OFF 相当）→ 確認画面は dormant placeholder（「この内容で保存」なし＝保存 action 到達不能）", () => {
+    const html = renderToStaticMarkup(
+      <ShiftImportModal
+        open={true}
+        year={2025}
+        month={6}
+        cells={RESOLVED_CELLS}
+        saveEnabled={false}
+        onSuccess={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(html).toContain("反映（次段で有効化）"); // dormant placeholder
+    expect(html).not.toContain("この内容で保存"); // active 保存 trigger なし
+  });
+
+  it("endpoint: saveEnabled=true（flag ON 相当）+ resolved cells → active 保存 CTA（「この内容で保存」・enabled 構造）", () => {
+    const html = renderToStaticMarkup(
+      <ShiftImportModal
+        open={true}
+        year={2025}
+        month={6}
+        cells={RESOLVED_CELLS}
+        saveEnabled={true}
+        onSuccess={() => {}}
+        onClose={() => {}}
+      />
+    );
+    expect(html).toContain("この内容で保存"); // active 保存 CTA（structure のみ・click は別経路）
+    expect(html).not.toContain("反映（次段で有効化）");
+  });
+
+  it("ShiftDraftInApp: saveEnabled 未指定（default false）→ idle に保存 CTA なし", () => {
+    const html = renderToStaticMarkup(<ShiftDraftInApp onClose={() => {}} />);
+    expect(html).not.toContain("この内容で保存");
+  });
+
+  it("ShiftDraftInApp: saveEnabled は idle で inert（true/false で idle shell 完全同一・保存は cells_loaded のみ）", () => {
+    const htmlOn = renderToStaticMarkup(
+      <ShiftDraftInApp saveEnabled={true} onClose={() => {}} />
+    );
+    const htmlOff = renderToStaticMarkup(
+      <ShiftDraftInApp saveEnabled={false} onClose={() => {}} />
+    );
+    // idle では確認画面が mount されないため saveEnabled は描画に影響しない（保存導線は cells_loaded のみ）
+    expect(htmlOn).toBe(htmlOff);
+    expect(htmlOn).not.toContain("この内容で保存");
   });
 });

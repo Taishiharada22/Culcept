@@ -4,13 +4,14 @@
  * ShiftDraftInApp — 在app入口の live VLM 下書き取り込み flow（S3A-2-2-2・product presentation）
  *
  * 役割: 画像選択 → 本人行/ヘッダ帯選択 → crop 確認 → live VLM 抽出 → cells_loaded →
- *   確認画面（ShiftImportModal / ShiftReviewGrid）まで。**保存はしない**（saveEnabled=false 固定）。
+ *   確認画面（ShiftImportModal / ShiftReviewGrid）まで。保存導線は `saveEnabled` prop（既定 false=dormant）。
  *
  * 設計（CEO 2026-06-04）:
  *   - dev route（DevShiftDraftClient）と**同じ `useShiftDraftFlow` hook**を消費し、危険ロジック
  *     （state machine / ObjectURL lifecycle / crop / VLM submit / 連打防止 / safe error）を共有。
  *     presentation のみ product 版（debug chrome なし・モーダル）。
- *   - **saveEnabled={false} 固定**。`PLAN_SHIFT_IMPORT_SAVE` は読まない（保存 flag と非接続）。
+ *   - **saveEnabled は prop**（server-only PLAN_SHIFT_IMPORT_SAVE → server→prop・既定 false=dormant）。
+ *     client は flag を直読みしない（prop のみ）。action 側も isShiftImportSaveEnabled で再 gate（多重防御）。
  *   - VLM は user が「この画像で読み取る」を押した時のみ（auto 実行なし）。連打は state machine が防止。
  *   - 画像は ObjectURL のみ（base64/dataURL 不使用）。結果は cells のみ（raw response 非保持）。
  *   - ObjectURL revoke は hook 所有（画像差し替え / cancel / unmount）。**cells_loaded 直後は
@@ -36,12 +37,19 @@ export interface ShiftDraftInAppProps {
    * 注: action は split-bias なので client==action には env を明示設定（smoke で combined）。
    */
   vlmInputMode?: "split" | "combined";
+  /**
+   * S-save-2: 確認画面の保存導線を出すか（server-only PLAN_SHIFT_IMPORT_SAVE → server→prop で受ける）。
+   * **既定 false で dormant**（保存ボタン無効・controller が disabled を返し action 未呼出・DB write なし）。
+   * client は本 flag を直読みしない（prop のみ）。action 側も isShiftImportSaveEnabled で再 gate（多重防御）。
+   */
+  saveEnabled?: boolean;
   /** モーダルを閉じる（親が conditional mount を解除＝unmount → hook が ObjectURL revoke）。 */
   onClose?: () => void;
 }
 
 export function ShiftDraftInApp({
   vlmInputMode = "combined",
+  saveEnabled = false,
   onClose,
 }: ShiftDraftInAppProps) {
   const {
@@ -68,8 +76,8 @@ export function ShiftDraftInApp({
   const isSelecting =
     state.kind === "image_loaded" || state.kind === "row_selected";
 
-  // 確認画面（ShiftImportModal）— cells_loaded.reviewOpen のみ mount。**saveEnabled=false 固定**。
-  const modalProps = selectImportModalProps(state, { saveEnabled: false });
+  // 確認画面（ShiftImportModal）— cells_loaded.reviewOpen のみ mount。saveEnabled は prop（既定 false=dormant）。
+  const modalProps = selectImportModalProps(state, { saveEnabled });
 
   return (
     <div
@@ -300,14 +308,15 @@ export function ShiftDraftInApp({
       </div>
 
       {/* 確認画面（ShiftImportModal / ShiftReviewGrid）。cells_loaded.reviewOpen のみ mount。
-          **saveEnabled={false} 固定**（保存しない）。imageSrc は元画像 ObjectURL（原稿照合用）。 */}
+          saveEnabled は prop（server-only PLAN_SHIFT_IMPORT_SAVE → server→prop・既定 false=dormant）。
+          imageSrc は元画像 ObjectURL（原稿照合用）。 */}
       {modalProps && (
         <ShiftImportModal
           open={modalProps.open}
           year={modalProps.year}
           month={modalProps.month}
           cells={modalProps.cells}
-          saveEnabled={false}
+          saveEnabled={saveEnabled}
           imageSrc={modalProps.imageSrc}
           riskReviewEnabled
           chunkBoundaries={modalProps.chunkBoundaries}

@@ -202,6 +202,12 @@ export interface PlanClientProps {
    * 注: action 側は split-bias なので client==action には env を明示設定（smoke で combined）。
    */
   shiftDraftVlmInputMode?: "split" | "combined";
+  /**
+   * S-save-2: 在app live draft 確認画面の保存導線を出すか（server-only flag PLAN_SHIFT_IMPORT_SAVE）。
+   * server（plan/page.tsx）が PLAN_FLAGS.shiftImportSave を読み prop で渡す（client 直読み禁止）。
+   * **default false で dormant**（保存ボタン無効・action 未呼出・DB write なし）。本番既定 OFF。
+   */
+  shiftImportSaveEnabled?: boolean;
 }
 
 export default function PlanClient({
@@ -209,6 +215,7 @@ export default function PlanClient({
   composeTimelineEnabled = false,
   draftLiveEnabled = false,
   shiftDraftVlmInputMode = "combined",
+  shiftImportSaveEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -855,6 +862,7 @@ export default function PlanClient({
             <PlanShiftImportEntry
               draftLiveEnabled={draftLiveEnabled}
               vlmInputMode={shiftDraftVlmInputMode}
+              saveEnabled={shiftImportSaveEnabled}
             />
           )}
         </div>

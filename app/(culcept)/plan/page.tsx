@@ -53,6 +53,8 @@ export default async function PlanPage() {
   //    A-4b: compose flag は server-only（PLAN_FLAGS）。ここで読み取り prop で client に渡す
   //    （homeSwipeEnabled と同方式。client 直読みは不可）。
   //    S3A-2-2-1: shiftDraftLiveEnabled も同方式（server-only flag → boolean prop）。
+  //    S-save-2: shiftImportSaveEnabled（= PLAN_SHIFT_IMPORT_SAVE）も同方式。server で読み prop で渡す
+  //    （client 直読み禁止）。OFF（本番既定）で保存 dormant＝確認画面の保存ボタン無効・action 未呼出。
   return (
     <PlanClient
       composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
@@ -60,6 +62,7 @@ export default async function PlanPage() {
       shiftDraftVlmInputMode={resolveShiftDraftVlmInputMode(
         process.env.PLAN_SHIFT_VLM_INPUT_MODE
       )}
+      shiftImportSaveEnabled={PLAN_FLAGS.shiftImportSave}
     />
   );
 }
