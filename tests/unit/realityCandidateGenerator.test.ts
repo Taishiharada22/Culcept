@@ -107,8 +107,11 @@ describe("candidate-generator — authority 消費の整合 + goals", () => {
 
 // ── A1-3-R1a: Repair overlap trim-only ──
 
-function repairInput(specs: Array<{ id: string; startMin: number; endMin: number; governance: PlanItemGovernance }>): RealityInput {
-  const dayNodes = specs.map((s) => ({ id: s.id, startMin: s.startMin, endMin: s.endMin, importance: "normal" as const, hard: false }));
+const PLAIN_SHORTENABLE = gov({ flexibility: "shortenable", protectionReasons: ["tentative"] });
+
+type Imp = "low" | "normal" | "high" | "critical";
+function repairInput(specs: Array<{ id: string; startMin: number; endMin: number; governance: PlanItemGovernance; importance?: Imp }>): RealityInput {
+  const dayNodes = specs.map((s) => ({ id: s.id, startMin: s.startMin, endMin: s.endMin, importance: (s.importance ?? "normal") as Imp, hard: false }));
   const anchors: RealityInput["anchors"] = {};
   for (const s of specs) anchors[s.id] = { governance: s.governance, importance: "normal", sensitive: false };
   return { mode: "repair", dayNodes, anchors, seedTraces: [] };
@@ -196,5 +199,53 @@ describe("candidate-generator — A1-3-R1a pipeline（generate→evaluate→rank
     expect(rankCandidates([cand]).best?.candidate.id).toBe(cand.id);
     const unsafe = { ...cand, id: "unsafe", metrics: { ...cand.metrics, feasible: false } };
     expect(rankCandidates([cand, unsafe]).best?.candidate.id).toBe(cand.id);
+  });
+});
+
+describe("candidate-generator — A1-3-R1a-2a coverage expansion（multi-overlap・優先度厳格化）", () => {
+  it("連鎖 overlap（A<B<C, flexibility 厳密降順）→ 1 件の multi-op（trim A, trim B）", () => {
+    const drafts = generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },   // flex 0
+      { id: "b", startMin: 600, endMin: 680, governance: PLAIN_SHORTENABLE }, // flex 1
+      { id: "c", startMin: 660, endMin: 720, governance: PLAIN_MOVABLE },     // flex 2
+    ]));
+    expect(drafts).toHaveLength(1);
+    const ops = drafts[0].changeSet.ops;
+    expect(ops).toHaveLength(2);
+    expect(ops.every((o) => o.kind === "update")).toBe(true);
+    expect(ops.map((o) => o.itemId)).toEqual(["a", "b"]); // earlier 2 つを trim（C は不変）
+    if (ops[0].kind === "update") expect(ops[0].after.endMin).toBe(600); // a → b.start
+    if (ops[1].kind === "update") expect(ops[1].after.endMin).toBe(660); // b → c.start
+  });
+
+  it("重要度逆転: earlier が more-flexible でも more-important なら trim しない → no candidate", () => {
+    // A: droppable だが importance high / B: movable だが importance low（CEO 例）
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE, importance: "high" },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE, importance: "low" },
+    ]))).toEqual([]);
+  });
+
+  it("all-or-nothing: 1 つの overlap が解消不能（同 flexibility）なら全体 no candidate", () => {
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },   // A-B は解消可
+      { id: "b", startMin: 600, endMin: 680, governance: PLAIN_SHORTENABLE },
+      { id: "c", startMin: 660, endMin: 720, governance: PLAIN_SHORTENABLE }, // B-C は同 flex→曖昧
+    ]))).toEqual([]);
+  });
+
+  it("pipeline: 連鎖を全解消する multi-op は feasible で best", () => {
+    const inp = repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 680, governance: PLAIN_SHORTENABLE },
+      { id: "c", startMin: 660, endMin: 720, governance: PLAIN_MOVABLE },
+    ]);
+    const drafts = generateCandidates(inp);
+    expect(drafts).toHaveLength(1);
+    const cand = evaluateCandidate(drafts[0], buildGenerationContext(inp));
+    expect(cand.metrics.feasible).toBe(true); // 全 overlap 解消
+    expect(cand.metrics.recoveryProtected).toBe(true);
+    expect(cand.metrics.deadlineSatisfied).toBe(true);
+    expect(rankCandidates([cand]).best?.candidate.id).toBe(cand.id);
   });
 });

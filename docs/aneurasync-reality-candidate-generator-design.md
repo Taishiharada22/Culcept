@@ -36,6 +36,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-2-3** | `evaluateCandidate`（draft→BestActionCandidate・safety=evaluator 由来・客観 instability のみ・主観中立 0・rank は test 検証のみ） | ✅ landed |
 | **A1-2-4a** | `overpack` のみ算出（過密 penalty・一方向・保守・util>0.7 のみ・unknown→0）。slackHealth/contextSwitches は defer | ✅ landed |
 | **A1-3-R1a** | Repair overlap **trim-only**（earlier=lower-priority=touchable の end を B.start へ短縮・最大1件・update op 1・no move/add/remove/cascade） | ✅ landed |
+| **A1-3-R1a-2a** | Repair trim-only **coverage expansion**（多重 overlap を all-or-nothing で全解消する 1 件の multi-op・trim 対象は明確に lower-priority/more-flexible な earlier のみ） | ✅ landed |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -110,6 +111,19 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test: trim 生成（update 1・A のみ・start 固定）/ 各 no-candidate 条件 / **pipeline: generate→evaluate→rank で
   trim は safe(全 gate 通過)で best・unsafe を並べても trim が best（gate-first）**。
 - 型: candidate-generator↔candidate-evaluator は **type-only 循環 import**（実行時に erase・runtime 循環なし・tsc 0）。
+
+## 4g. A1-3-R1a-2a 実装（landed）— Repair trim-only coverage expansion
+`generateRepairTrim` を R1a（最初の 1 overlap・1 op）→ **多重 overlap 対応**に一般化。
+- **all-or-nothing**: sorted nodes の隣接 overlapping pair を全走査し、**全 pair が trim-only で解消可能なら**
+  各 earlier node の end を直後 neighbor の start へ短縮する **1 件の multi-op CandidateDraft**。
+  全 overlap を解消しない部分候補は feasible gate で落ちる可能性が高いため**全解消 1 件に限定**。
+- **trim 対象厳格化（CEO 補正）**: 「earlier だから切る」ではなく、`isClearlyLowerPriority(A,B)` ＝
+  **flexibilityRank(A) < flexibilityRank(B)（明確に more-flexible）∧ importance(A) ≤ importance(B)（重要度逆転でない）**
+  かつ A が touchable のときのみ。＝**重要な前予定を切らない**。
+- 各 node は隣接で earlier に最大 1 回＝**1 回だけ trim**（dedupe 構造的）。
+- **no candidate**: mode≠repair / 重複なし / 包含 / trim 後 duration≤0 / A 非 touchable / 明確に lower-priority でない（同 flexibility・重要度逆転）。1 つでも該当で全体 null。
+- move/cascade/reschedule/add/remove なし。preserved/protected/later は不変。R1a（単一 overlap）は N=1 の特殊例として subsume。
+- test: 連鎖（A<B<C flexibility 降順）→2-op / 重要度逆転→no candidate(CEO 例) / all-or-nothing→no candidate / pipeline 全解消→feasible で best。
 
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）

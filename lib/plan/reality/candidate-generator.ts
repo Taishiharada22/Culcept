@@ -10,8 +10,10 @@
  *
  * 【範囲】:
  *   - A1-1: GenerationContext（器）＋ generateCandidates は safe no-op。
- *   - A1-3-R1a: **Repair overlap trim-only** のみ実装（generateRepairTrim・最大 1 件・update op 1 つ）。
- *     Complete/Build/Optimize は別 slice。生成物は **CandidateDraft（metrics を持たない）**。
+ *   - A1-3-R1a-2a: **Repair overlap trim-only coverage expansion**（generateRepairTrim）。
+ *     全隣接 overlap を trim-only で全解消できる場合のみ **1 件の multi-op CandidateDraft**（各 op は update trim）。
+ *     trim 対象は touchable かつ later より明確に lower-priority/more-flexible な earlier node のみ。
+ *     move/cascade/add/remove・Complete/Build/Optimize は別 slice。生成物は metrics を持たない。
  *   - 安全 metrics 評価器（feasible/recoveryProtected 等）は **A1-2**（candidate-evaluator）。
  *   - 本ファイルが作る GenerationContext:
  *       dayNode ↔ anchors.governance の join を明示し、authority の述語を *消費*（再実装しない）して
@@ -129,43 +131,63 @@ function generateFromContext(context: GenerationContext): readonly CandidateDraf
   return repair ? [repair] : [];
 }
 
+const IMPORTANCE_RANK: Record<NodeImportance, number> = { low: 0, normal: 1, high: 2, critical: 3 };
+
 /**
- * A1-3-R1a: Repair overlap **trim-only / shorten-only**（最大 1 件・update op 1 つ）。
+ * trim 対象 A が相手 B より **明確に lower-priority / more-flexible** か（CEO 補正・重要な前予定を切らない）。
+ *   - 明確に more-flexible: flexibilityRank(A) < flexibilityRank(B)（同 flexibility は不可＝推測しない）。
+ *   - 重要度が逆転していない: importance(A) ≤ importance(B)（A が B より重要なら切らない）。
+ * ＝「earlier だから切る」ではなく「明確に lower-priority な時だけ切る」。
+ */
+function isClearlyLowerPriority(a: GovernedNode, b: GovernedNode): boolean {
+  return (
+    flexibilityRank(a.governance.flexibility) < flexibilityRank(b.governance.flexibility) &&
+    IMPORTANCE_RANK[a.importance] <= IMPORTANCE_RANK[b.importance]
+  );
+}
+
+/**
+ * A1-3-R1a-2a: Repair overlap **trim-only / shorten-only coverage expansion**（R1a の延長）。
  *
- * 戦略（reschedule しない最小修復）: 重複する隣接 2 node (A=earlier, B=later) のうち、
- *   **earlier かつ lower-priority かつ touchable な A の end を B.start まで短縮**する（A.start 固定）。
- *   ＝重複部分だけを切る。move/shift/cascade/add/remove はしない。
+ * 戦略（all-or-nothing 全解消）: sorted nodes の隣接 overlapping pair を全走査し、**全 pair が
+ *   trim-only で解消可能なら**、各 earlier node の end を直後 neighbor の start へ短縮する
+ *   **1 件の multi-op CandidateDraft** を生成（各 op は update trim・start 固定）。
+ *   全 overlap を解消しない部分候補は feasible gate で落ちる可能性が高いため、**全解消 1 件に限定**。
  *
- * no candidate にする条件（CEO 補足・推測しない）:
- *   - mode が repair でない / 重複なし。
- *   - A が touchable でない（preserved/immovable/recovery 等）。
- *   - 包含（A.end ≥ B.end）/ trim 後 duration ≤ 0（A.start ≥ B.start）。
- *   - A と B が共に touchable で **優先度が決め切れない**（A が B より strictly more-touchable でない）。
+ * trim 対象は **earlier かつ touchable かつ later より明確に lower-priority/more-flexible** な node のみ
+ *   （isClearlyLowerPriority）。各 node は隣接で earlier に最大 1 回＝**1 回だけ trim**（dedupe 構造的）。
+ *
+ * **no candidate**（1 つでも該当で全体 null・推測しない）:
+ *   mode≠repair / 重複なし / 包含(A.end≥B.end) / trim 後 duration≤0(A.start≥B.start) /
+ *   A 非 touchable / A が B より明確に lower-priority でない（同 flexibility・重要度逆転 等）。
+ *
+ * move/shift/cascade/reschedule/add/remove はしない。later/preserved/protected は絶対に触れない。
  */
 function generateRepairTrim(context: GenerationContext): CandidateDraft | null {
   if (context.mode !== "repair") return null;
   const nodes = [...context.nodes].sort((a, b) => a.startMin - b.startMin || a.id.localeCompare(b.id));
+  const ops: ChangeOp[] = [];
+  const traces: SourceTrace[] = [];
   for (let i = 0; i < nodes.length - 1; i++) {
     const A = nodes[i];
     const B = nodes[i + 1];
-    if (B.startMin >= A.endMin) continue; // 重複なし
-    if (A.endMin >= B.endMin) continue; // 包含は defer
-    if (A.startMin >= B.startMin) continue; // trim 後 duration ≤ 0
-    if (!isTouchableForGeneration(A.governance)) continue; // A 不可侵
-    if (isTouchableForGeneration(B.governance)) {
-      // 両 touchable: A が strictly lower-priority(more touchable) でなければ推測しない
-      if (!(flexibilityRank(A.governance.flexibility) < flexibilityRank(B.governance.flexibility))) continue;
-    }
-    // A の end を B.start へ trim（start 固定・純 shorten）
-    const trace: SourceTrace = { kind: "anchor", ref: A.id, reason: "重複解消のため短縮(trim)", confidence: 0.8 };
-    const op: ChangeOp = {
+    if (B.startMin >= A.endMin) continue; // この pair は重複なし
+    // 以下いずれかに該当する overlap があれば trim-only で全解消できない → 全体 no candidate
+    if (A.endMin >= B.endMin) return null; // 包含は defer
+    if (A.startMin >= B.startMin) return null; // trim 後 duration ≤ 0
+    if (!isTouchableForGeneration(A.governance)) return null; // A 不可侵
+    if (!isClearlyLowerPriority(A, B)) return null; // A が明確に lower-priority でない → 推測しない
+    // A の end を B.start へ trim（start 固定・純 shorten）。各 node は最大 1 回 trim。
+    ops.push({
       kind: "update",
       itemId: A.id,
       before: { itemId: A.id, startMin: A.startMin, endMin: A.endMin, governance: A.governance },
       after: { itemId: A.id, startMin: A.startMin, endMin: B.startMin, governance: A.governance },
-    };
-    const changeSet: ChangeSet = { id: `repair-trim-${A.id}`, ops: [op], reason: "trim overlap", sourceTraces: [trace] };
-    return { id: `repair-trim-${A.id}`, changeSet, sourceTraces: [trace], proposedDisposition: "confirm" };
+    });
+    traces.push({ kind: "anchor", ref: A.id, reason: "重複解消のため短縮(trim)", confidence: 0.8 });
   }
-  return null;
+  if (ops.length === 0) return null; // 解消すべき overlap なし
+  const id = `repair-trim-${ops.map((o) => o.itemId).join("-")}`;
+  const changeSet: ChangeSet = { id, ops, reason: "trim overlaps", sourceTraces: traces };
+  return { id, changeSet, sourceTraces: traces, proposedDisposition: "confirm" };
 }
