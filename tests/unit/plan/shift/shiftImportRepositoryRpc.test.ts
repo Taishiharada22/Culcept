@@ -240,3 +240,102 @@ describe("RPC ShiftImportRepository — conflict-safe replace contract", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// S-save-1A: payload CHECK-mirror contract（DB CHECK 落ち防止）
+//
+// 目的: migration apply 前に、保存 payload が DB の CHECK 制約に「app 側で先に弾かれる」
+//   （= CHECK 違反 payload が RPC/DB に届かない）ことを固定する。
+//     - external_anchors.rigidity CHECK ('hard','soft') ← validateCreateExternalAnchorInput
+//     - plan_day_indicators.kind CHECK ('off','off_request') / btrim(label)<>'' /
+//       request_not_public（off_request は公休にしない）← validateShiftDayIndicatorInput
+//   いずれも RPC 呼出**前**に走り、不正なら RPC 未呼出（DB 非到達）= 全 rollback すら起きない。
+const OK_RESULT = (p: ShiftImportRpcParams): ShiftImportRpcResult => ({
+  status: "ok",
+  summary: {
+    sourceId: "src-ok",
+    insertedAnchors: p.anchors.length,
+    deletedAnchors: 0,
+    insertedIndicators: p.indicators.length,
+    deletedIndicators: 0,
+    conflicts: [],
+  },
+});
+
+describe("S-save-1A: payload CHECK-mirror contract（DB CHECK 落ち防止）", () => {
+  it("work anchor の rigidity が RPC payload に必ず含まれ 'hard'|'soft' のみ（既定 hard）", async () => {
+    const { client, calls } = fakeRpc(OK_RESULT);
+    const repo = createRpcShiftImportRepository(client, deps());
+    const r = await repo.saveShiftImportBundle("user-1", BUNDLE);
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].anchors.length).toBeGreaterThan(0);
+    // RPC へ渡る anchors は全て rigidity を持ち、hard|soft のみ（external_anchors CHECK と一致）
+    for (const a of calls[0].anchors) {
+      expect(a.rigidity === "hard" || a.rigidity === "soft").toBe(true);
+    }
+    expect(calls[0].anchors[0].rigidity).toBe("hard");
+  });
+
+  it("不正 rigidity → anchor_invalid で reject、RPC 未呼出（external_anchors CHECK 落ち防止）", async () => {
+    const { client, calls } = fakeRpc(OK_RESULT);
+    const repo = createRpcShiftImportRepository(client, deps());
+    const bad: ShiftImportBundleInput = {
+      ...BUNDLE,
+      anchors: [
+        { ...ANCHORS[0], rigidity: "rigid" } as unknown as CreateExternalAnchorInput,
+      ],
+    };
+    const r = await repo.saveShiftImportBundle("user-1", bad);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((x) => x.kind === "anchor_invalid")).toBe(true);
+    expect(calls).toHaveLength(0); // DB 非到達
+  });
+
+  it("不正 indicator kind → indicator_invalid で reject、RPC 未呼出（kind CHECK 落ち防止）", async () => {
+    const { client, calls } = fakeRpc(OK_RESULT);
+    const repo = createRpcShiftImportRepository(client, deps());
+    const bad: ShiftImportBundleInput = {
+      ...BUNDLE,
+      dayIndicators: [
+        { ...INDICATORS[0], kind: "holiday" } as unknown as ShiftDayImportIndicator,
+      ],
+    };
+    const r = await repo.saveShiftImportBundle("user-1", bad);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((x) => x.kind === "indicator_invalid")).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("空白のみ label → indicator_invalid で reject、RPC 未呼出（btrim(label)<>'' 落ち防止）", async () => {
+    const { client, calls } = fakeRpc(OK_RESULT);
+    const repo = createRpcShiftImportRepository(client, deps());
+    const bad: ShiftImportBundleInput = {
+      ...BUNDLE,
+      dayIndicators: [{ ...INDICATORS[0], label: "   " }],
+    };
+    const r = await repo.saveShiftImportBundle("user-1", bad);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((x) => x.kind === "indicator_invalid")).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("off_request なのに公休 → indicator_invalid で reject、RPC 未呼出（request_not_public 落ち防止）", async () => {
+    const { client, calls } = fakeRpc(OK_RESULT);
+    const repo = createRpcShiftImportRepository(client, deps());
+    const bad: ShiftImportBundleInput = {
+      ...BUNDLE,
+      dayIndicators: [
+        { ...INDICATORS[0], kind: "off_request", countsAsPublicHoliday: true },
+      ],
+    };
+    const r = await repo.saveShiftImportBundle("user-1", bad);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((x) => x.kind === "indicator_invalid")).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+});
