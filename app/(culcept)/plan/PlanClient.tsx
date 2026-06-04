@@ -196,12 +196,19 @@ export interface PlanClientProps {
    * default false。S3A-2-2-1 は plumbing のみ＝この prop で live UI はまだ出さない。
    */
   draftLiveEnabled?: boolean;
+  /**
+   * S3A-2-2-2: 在app live draft flow の VLM 入力モード（combined-biased）。server（plan/page.tsx）が
+   * PLAN_SHIFT_VLM_INPUT_MODE を resolveShiftDraftVlmInputMode で正規化し prop で渡す。default combined。
+   * 注: action 側は split-bias なので client==action には env を明示設定（smoke で combined）。
+   */
+  shiftDraftVlmInputMode?: "split" | "combined";
 }
 
 export default function PlanClient({
   displayMode = "route",
   composeTimelineEnabled = false,
   draftLiveEnabled = false,
+  shiftDraftVlmInputMode = "combined",
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -844,7 +851,12 @@ export default function PlanClient({
             </button>
           )}
           {/* S1: シフト表（画像/PDF）取込 入口。flag OFF（本番既定）なら null = UI 不変。 */}
-          {!isPane && <PlanShiftImportEntry draftLiveEnabled={draftLiveEnabled} />}
+          {!isPane && (
+            <PlanShiftImportEntry
+              draftLiveEnabled={draftLiveEnabled}
+              vlmInputMode={shiftDraftVlmInputMode}
+            />
+          )}
         </div>
         {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
             固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}

@@ -11,23 +11,28 @@
  *   - **`saveEnabled={false}`** → ShiftImportModal の保存 controller は disabled → **DB write しない**。
  *   - 実 VLM 抽出 / 保存は後段（別 gate: `PLAN_SHIFT_IMPORT_SAVE` / VLM live）で接続する。
  *
- * S3A-2-2-1: `draftLiveEnabled` prop を受け取る（server→prop 経由の live VLM gate）。
- *   **本段は plumbing のみ**＝prop を受けて data 属性に反映するだけで、live UI（ShiftDraftInApp /
- *   useShiftDraftFlow）はまだ出さない。draftLiveEnabled の値に関わらず fixture fallback で不変。
- *   live flow 接続は S3A-2-2-2。
+ * S3A-2-2-1: `draftLiveEnabled` prop を server→prop で受ける（client 直読み禁止）。data 属性にも反映。
+ * S3A-2-2-2: `draftLiveEnabled=true` で **live VLM flow（ShiftDraftInApp）** を出す。
+ *   `false`（既定/本番）では従来の **fixture modal**（debug fallback）を維持。
+ *   ShiftDraftInApp は conditional mount（閉じる/unmount で hook が ObjectURL revoke）。
+ *   saveEnabled=false 固定は ShiftDraftInApp 側で担保（本 component は保存 flag を読まない）。
  */
 
 import { useMemo, useState } from "react";
 
 import { buildShiftFixture } from "@/lib/plan/shift/devFixtureHost";
+import { ShiftDraftInApp } from "./ShiftDraftInApp";
 import { ShiftImportModal } from "./ShiftImportModal";
 
 export function ShiftImportEntryInner({
   now,
   draftLiveEnabled = false,
+  vlmInputMode = "combined",
 }: {
   now?: Date;
   draftLiveEnabled?: boolean;
+  /** live draft flow の VLM 入力モード（server→prop・combined-biased）。default combined。 */
+  vlmInputMode?: "split" | "combined";
 }) {
   const [open, setOpen] = useState(false);
   // 確認画面に流す cells（fixture・live VLM 非依存・deterministic）。now は test 注入可。
@@ -58,16 +63,28 @@ export function ShiftImportEntryInner({
         <span>シフト表</span>
       </button>
 
-      <ShiftImportModal
-        open={open}
-        year={fixture.year}
-        month={fixture.month}
-        cells={fixture.cells}
-        saveEnabled={false}
-        riskReviewEnabled
-        onSuccess={() => setOpen(false)}
-        onClose={() => setOpen(false)}
-      />
+      {draftLiveEnabled ? (
+        // live VLM 経路（S3A-2-2-2）: conditional mount → 閉じる/unmount で hook が ObjectURL revoke。
+        //   VLM は ShiftDraftInApp 内の「この画像で読み取る」押下時のみ発火（auto なし）。
+        open && (
+          <ShiftDraftInApp
+            vlmInputMode={vlmInputMode}
+            onClose={() => setOpen(false)}
+          />
+        )
+      ) : (
+        // fixture fallback（debug・既存挙動不変）。live で詰まった時の確認手段として残す。
+        <ShiftImportModal
+          open={open}
+          year={fixture.year}
+          month={fixture.month}
+          cells={fixture.cells}
+          saveEnabled={false}
+          riskReviewEnabled
+          onSuccess={() => setOpen(false)}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }

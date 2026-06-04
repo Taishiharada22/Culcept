@@ -24,6 +24,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { supabaseServer } from "@/lib/supabase/server";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import { resolveShiftDraftVlmInputMode } from "@/lib/plan/shift/shiftDraftVlmInputMode";
 import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 
 import PlanClient from "./PlanClient";
@@ -56,6 +57,9 @@ export default async function PlanPage() {
     <PlanClient
       composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
       draftLiveEnabled={PLAN_FLAGS.shiftDraftLiveEnabled}
+      shiftDraftVlmInputMode={resolveShiftDraftVlmInputMode(
+        process.env.PLAN_SHIFT_VLM_INPUT_MODE
+      )}
     />
   );
 }

@@ -20,10 +20,19 @@ import { ShiftImportEntryInner } from "./ShiftImportEntryInner";
 export function PlanShiftImportEntry({
   now,
   draftLiveEnabled = false,
+  vlmInputMode = "combined",
 }: {
   now?: Date;
   draftLiveEnabled?: boolean;
+  /** live draft flow の VLM 入力モード（server→prop・combined-biased）。default combined。 */
+  vlmInputMode?: "split" | "combined";
 }) {
   if (!PLAN_FLAGS.shiftImportEntryEnabled) return null;
-  return <ShiftImportEntryInner now={now} draftLiveEnabled={draftLiveEnabled} />;
+  return (
+    <ShiftImportEntryInner
+      now={now}
+      draftLiveEnabled={draftLiveEnabled}
+      vlmInputMode={vlmInputMode}
+    />
+  );
 }
