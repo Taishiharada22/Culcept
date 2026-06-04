@@ -38,6 +38,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-3-R1a** | Repair overlap **trim-only**（earlier=lower-priority=touchable の end を B.start へ短縮・最大1件・update op 1・no move/add/remove/cascade） | ✅ landed |
 | **A1-3-R1a-2a** | Repair trim-only **coverage expansion**（多重 overlap を all-or-nothing で全解消する 1 件の multi-op・trim 対象は明確に lower-priority/more-flexible な earlier のみ） | ✅ landed |
 | **A1-4-0** | **Seed Placement Context / Complete prerequisite（design only）**: Complete を阻むのは placement 入力の不在。Gap-1(`PlanSeed` に duration 無)・Gap-2(`seedTraces` は lossy reduction)。`SeedPlacement`(構造化・redacted・自由文なし)＋`durationMin:number\|null` 第一級値→no candidate＋duration source(PRM seam)。型/実装は A1-4-1 以降 | 📐 設計のみ（実装別 GO） |
+| **A1-4-1** | **SeedPlacement 変換・判定の土台**: `SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`(active のみ・構造化のみ・raw 不持込・推測なし) + `isPlaceable`(duration 不明→false) + `isTentative`。durationMin 常に null＝実 seed は全て not-placeable。**候補/add op/default duration なし** | ✅ landed |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -169,10 +170,22 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - **A1-4-3+**: `enrichSeedPlacement`（PRM 配線）。
 - **分離**: Build（多 seed から日構築）/ Optimize（feasible 日の品質改善・slackHealth 等が要る）/ R1b（move/cascade Repair）とは別トラック。A1-4-0 はこれらに触れない。
 
+## 4i. A1-4-1 実装（landed）— SeedPlacement 変換・判定の土台（候補生成なし）
+`lib/plan/reality/seed-placement.ts`（新規 pure・**barrel 未追加・runtime 未接続**）。A1-4-0 §4h の型/判定を実装。**候補・CandidateDraft・add op は作らない**。
+- **型**: `TimeBand`(morning/afternoon/evening) / `TimeWindow {band}`(ソフト・clock 数値なし) / `DurationSource`(seed_explicit/prm_typical/correction/unknown) / `SeedDispositionHint`(place/tentative/skip) / `PlacementGrounding`(strong/weak) / `SeedPlacement {seedRef,date?,window?,durationMin:number|null,durationSource,dispositionHint,confidence,grounding}`。
+- **`buildSeedPlacements(seeds) → SeedPlacement[]`**: **active のみ**通す（consumed/expired/rejected 除外）。**PlanSeed から直接** 構造化のみ写す（Gap-2 回避）。`signal`/`desiredAction`(自由文) は読まない（raw 不持込）。
+  - `date`=desiredDate（解釈しない）/ `window`=desiredTimeHint 由来（anytime・未指定→undefined）/ `dispositionHint`=actionShape の **enum→enum 決定的写像**（確定→place・探索/委譲→tentative・defer/skip→skip・未指定→place）/ `grounding`=confidence<0.5→weak / `confidence`=clamp01。
+  - **`durationMin` は常に `null`・`durationSource`=`unknown`**（PlanSeed に duration 欄が無い・**default duration を付与しない**＝捏造しない）。
+- **判定**: `isPlaceable(p)`=`durationMin!=null ∧ >0`（**duration 不明は placeable でない**＝CEO 明示ルール・第一級の保守）。`isTentative(p)`=weak grounding ∨ tentative disposition（push 抑制の材料）。
+  - 二軸分離: duration 軸＝placeable / confidence 軸＝grounding。skip/tentative は dispositionHint として材料保持し、結合は将来 Complete。
+- **帰結**: PlanSeed に duration 欄が無いため、**実 seed から作った材料は全て placeable=false**（既知状態・PRM が durationMin を埋めて初めて placeable=true 経路が活性化）。
+- test（`tests/unit/realitySeedPlacement.test.ts`・**16**）: active filter / 構造化写像 / durationMin=null・unknown / window 写像 / disposition 写像 / grounding 閾値 / **raw 不持込（signal/desiredAction が出力に現れない）** / 入力順 / clamp / isPlaceable(null→false・>0→true・≤0→false・実 seed 全 false) / isTentative。
+- **しない（A1-4-1 範囲外）**: generateComplete / CandidateDraft / add op 生成 / default duration / 自由文 parse / LLM / PRM 実接続 / UI・DB・runtime・route・PlanClient / barrel。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-4-0（Seed Placement Context・本書 §4h に記録済・**design only**）の次は **A1-4-1**（`SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`・純粋・未接続・テスト付）を別 GO で判断。
+A1-4-1（SeedPlacement 変換・判定の土台・本書 §4i に **landed**）まで完了。次の **A1-4-2（`generateComplete`: fill-only add・durationMin=null⇒no candidate）は CEO 判断で別 GO**（現状 NO）。A1-4-3+（`enrichSeedPlacement`: PRM 配線で durationMin を埋める）はさらに後。
 A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。
