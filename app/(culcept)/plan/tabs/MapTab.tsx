@@ -81,6 +81,9 @@ import type { MapSheetViewModel } from "@/lib/plan/map/types";
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
+import { MobilityLegCard } from "@/components/plan/map/MobilityLegCard";
+import { legChipDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
   MapSelectedPinLabel,
@@ -152,6 +155,8 @@ export function MapTab({
   // 9 closeout: selectedDate は 「今日」 固定 (= DaySwitcher 削除済み)
   //   将来 day 切替再導入時は新設計で作り直す (= CEO Q3 判定)
   const selectedDate = todayDate;
+  // A5-3: store の永続化キー(YYYY-MM-DD・utcMidnight 由来で安定)
+  const dayKey = selectedDate.toISOString().slice(0, 10);
 
   // ── selectedPinId state (= 旧 newSelectedPinId、 9 closeout で rename) ──
   //   default null = 8 場面表 #1 「初期 selected なし」
@@ -184,6 +189,27 @@ export function MapTab({
   const handleSheetClose = useCallback(() => {
     setSelectedPinId(null);
   }, []);
+
+  // A5-2: leg tap で MobilityLegCard を開く。store/recall/durations は未接続(後 slice)。
+  const [openLeg, setOpenLeg] = useState<{ legKey: string; fromTitle: string; toTitle: string } | null>(null);
+  const handleLegTap = useCallback((legKey: string, fromTitle: string, toTitle: string) => {
+    setSelectedPinId(null);
+    setOpenLeg({ legKey, fromTitle, toTitle });
+  }, []);
+  const handleLegClose = useCallback(() => setOpenLeg(null), []);
+
+  // A5-3: selectedMode を localStorage 永続化(RouteTransportMode・9語)。store を mirror する state。
+  const [selectedModeByLeg, setSelectedModeByLeg] = useState<Record<string, RouteTransportMode>>({});
+  useEffect(() => {
+    setSelectedModeByLeg(loadSelectedModesForDay(dayKey));
+  }, [dayKey]);
+  const handleLegSelect = useCallback(
+    (legKey: string, mode: RouteTransportMode) => {
+      saveSelectedMode(dayKey, legKey, mode);
+      setSelectedModeByLeg((prev) => ({ ...prev, [legKey]: mode }));
+    },
+    [dayKey],
+  );
 
   // ── selected anchor (= sheet/label/CTA 共通参照) ──
   const selectedAnchor = useMemo<ExternalAnchor | null>(() => {
@@ -291,6 +317,7 @@ export function MapTab({
         apiAvailable={apiAvailable}
         selectedAnchorId={selectedPinId}
         onPinClick={handlePinTap}
+        onLegTap={handleLegTap}
         onBackgroundClick={handleSheetClose}
         dayItemsForPanel={dayItemsForPanel}
         onDayItemTap={handleDayItemTap}
@@ -302,6 +329,18 @@ export function MapTab({
         onOpenDetail={onAnchorClick ? handleOpenDetail : undefined}
         routeUrl={routeUrl}
       />
+      {openLeg && (
+        <MobilityLegCard
+          legKey={openLeg.legKey}
+          fromTitle={openLeg.fromTitle}
+          toTitle={openLeg.toTitle}
+          selectedMode={selectedModeByLeg[openLeg.legKey] ?? null}
+          recallMode={null}
+          readOnly={false}
+          onSelect={handleLegSelect}
+          onClose={handleLegClose}
+        />
+      )}
     </div>
   );
 }
@@ -323,6 +362,7 @@ function PlanMapView({
   apiAvailable,
   selectedAnchorId,
   onPinClick,
+  onLegTap,
   onBackgroundClick,
   dayItemsForPanel,
   onDayItemTap,
@@ -335,6 +375,8 @@ function PlanMapView({
   /** 現在 selected な anchor id (= sheet/label sync key、 9 closeout で rename 済み) */
   selectedAnchorId: string | null;
   onPinClick?: (anchor: ExternalAnchor) => void;
+  /** A5-2: leg(区間)中点の chip tap → 移動手段カードを開く */
+  onLegTap?: (legKey: string, fromTitle: string, toTitle: string) => void;
   /**
    * 9 closeout (= 旧 9a-impl-fix1 carry): background tap → selected 解除 (= 8 場面表 #7)
    *   常に attach (= 単一 path 化済み)、 marker click 別 listener で消費後のみ発火。
@@ -352,6 +394,8 @@ function PlanMapView({
   const mapInstanceRef = useRef<GmapsMap | null>(null);
   const onPinClickRef = useRef(onPinClick);
   onPinClickRef.current = onPinClick;
+  const onLegTapRef = useRef(onLegTap);
+  onLegTapRef.current = onLegTap;
   // 9a-impl-fix1: background click handler ref (= Effect 1 内 listener が prop 変化に追従)
   const onBackgroundClickRef = useRef(onBackgroundClick);
   onBackgroundClickRef.current = onBackgroundClick;
@@ -538,6 +582,24 @@ function PlanMapView({
         onPinClickRef.current?.(pin.anchor);
       });
       markers.push(marker);
+    }
+
+    // ── leg chips (A5-2): 隣接 pin ペアの中点に tappable marker、 tap → onLegTap ──
+    for (let i = 0; i < sortedPins.length - 1; i += 1) {
+      const a = sortedPins[i]!;
+      const b = sortedPins[i + 1]!;
+      const legMid = { lat: (a.coord.lat + b.coord.lat) / 2, lng: (a.coord.lng + b.coord.lng) / 2 };
+      const legKey = `${a.anchor.id}__${b.anchor.id}`;
+      const fromTitle = a.anchor.title;
+      const toTitle = b.anchor.title;
+      const legMarker = new maps.Marker({
+        map,
+        position: legMid,
+        icon: { url: legChipDataUri(), anchor: new maps.Point(11, 11) },
+        title: "移動手段",
+      });
+      legMarker.addListener("click", () => onLegTapRef.current?.(legKey, fromTitle, toTitle));
+      markers.push(legMarker);
     }
 
     return () => {
