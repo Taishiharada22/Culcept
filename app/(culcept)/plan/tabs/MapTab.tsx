@@ -83,7 +83,8 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
-import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { buildGlassyLegLines, getRouteStyleForLeg } from "@/lib/plan/map/routeStyle";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -665,32 +666,19 @@ function PlanMapView({
       const b = sortedPins[i + 1]!;
       const legKey = `${a.anchor.id}__${b.anchor.id}`;
       const mode = selectedModeByLeg[legKey];
-      const line = mode
-        ? new maps.Polyline({
-            map,
-            path: [a.coord, b.coord],
-            strokeColor: ROUTE_MODE_COLORS[mode],
-            strokeOpacity: 0.9,
-            strokeWeight: 4,
-          })
-        : new maps.Polyline({
-            map,
-            path: [a.coord, b.coord],
-            strokeOpacity: 0,
-            strokeColor: "#64748b",
-            icons: [
-              {
-                icon: { path: "M 0,-1 0,1", strokeOpacity: 0.9, strokeColor: "#64748b", scale: 3 },
-                offset: "0",
-                repeat: "10px",
-              },
-            ],
-          });
-      lines.push(line);
+      const state = resolveLegState(i, focusLegIndex);
+      const displayMode: RouteTransportMode = mode ?? "unknown";
+      // Slice 2b: per-state ガラス質線(body+glow+白芯 / done=丸点線)。線は直線(道路沿いは Tier 3)。
+      const built = buildGlassyLegLines(
+        maps,
+        map,
+        [a.coord, b.coord],
+        getRouteStyleForLeg(state, displayMode),
+      );
+      for (const ln of built.lines) lines.push(ln);
 
       // Slice 2a: mode 色つき leg チップ(状態別サイズ)。markers effect から移設(flicker なし・FH 忠実)。
-      const chipState = mapChipStateForLeg(resolveLegState(i, focusLegIndex));
-      const displayMode = mode ?? "unknown";
+      const chipState = mapChipStateForLeg(state);
       const px = mobilityChipPx(chipState);
       const chip = new maps.Marker({
         map,
