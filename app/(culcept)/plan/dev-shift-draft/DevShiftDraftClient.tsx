@@ -141,6 +141,7 @@ export function DevShiftDraftClient({
     onOpenReview,
     onCloseReview,
     onSaveSucceeded,
+    onSetGridCalibration,
   } = useShiftDraftFlow({ vlmInputMode, defaultYear, defaultMonth });
 
   // isSelecting はローカル導出（hook 由来の boolean だと JSX 内で state を narrow できないため）。
@@ -485,6 +486,9 @@ export function DevShiftDraftClient({
             cells={modalProps.cells}
             saveEnabled={modalProps.saveEnabled}
             imageSrc={modalProps.imageSrc}
+            geometry={modalProps.geometry}
+            gridCalibration={modalProps.gridCalibration}
+            onGridCalibrationChange={onSetGridCalibration}
             riskReviewEnabled={modalProps.riskReviewEnabled}
             chunkBoundaries={modalProps.chunkBoundaries}
             onSuccess={onSaveSucceeded}
