@@ -35,7 +35,8 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-2-2.5** | Deadline Gate Alignment: best-action に独立 `deadline` gate（deadlineSatisfied=false→hard reject）。GateKind を 3 箇所同期 | ✅ landed |
 | **A1-2-3** | `evaluateCandidate`（draft→BestActionCandidate・safety=evaluator 由来・客観 instability のみ・主観中立 0・rank は test 検証のみ） | ✅ landed |
 | **A1-2-4a** | `overpack` のみ算出（過密 penalty・一方向・保守・util>0.7 のみ・unknown→0）。slackHealth/contextSwitches は defer | ✅ landed |
-| A1-3〜6 | Build / Complete / Repair / Optimize 生成（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
+| **A1-3-R1a** | Repair overlap **trim-only**（earlier=lower-priority=touchable の end を B.start へ短縮・最大1件・update op 1・no move/add/remove/cascade） | ✅ landed |
+| A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
 - `lib/plan/reality/candidate-generator.ts`: `generateCandidates` は safe no-op（`[]`）。`buildGenerationContext` が
@@ -98,9 +99,21 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test: sparse→0 / 過密(util>0.7)→>0 / apply 失敗→0 / **rank で高 overpack 安全候補は低 overpack 候補より下位** /
   gate-false は依然 score 救済されない。
 
+## 4f. A1-3-R1a 実装（landed）— Repair overlap trim-only（初の生成器）
+`candidate-generator.ts` の `generateFromContext` に Repair 分岐 `generateRepairTrim`。
+- **生成物は CandidateDraft（metrics 持たない）**。generateCandidates の戻り型を CandidateDraft[] に。
+- 戦略: 重複する隣接 2 node (A=earlier, B=later) のうち **earlier かつ lower-priority かつ touchable な A の end を
+  B.start へ短縮**（A.start 固定＝純 shorten・reschedule なし）。重複部分だけを切る。
+- **不可侵**: preserved/immovable/hard_external/recovery_core/import_locked/locked は絶対に触らない（context.touchable のみ）。
+- **no candidate**: 重複なし / A 非 touchable / 包含 / trim 後 duration≤0 / 両 touchable で優先度同（推測しない） / mode≠repair。
+- move/shift/cascade/add/remove はしない（後続 slice）。
+- test: trim 生成（update 1・A のみ・start 固定）/ 各 no-candidate 条件 / **pipeline: generate→evaluate→rank で
+  trim は safe(全 gate 通過)で best・unsafe を並べても trim が best（gate-first）**。
+- 型: candidate-generator↔candidate-evaluator は **type-only 循環 import**（実行時に erase・runtime 循環なし・tsc 0）。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-2-4b（slackHealth: active window/gap meaning/recovery core/user rhythm が入ってから）/ contextSwitches（domain/activityType/purpose が入ってから）は別 slice で設計。その後 A1-3+（Build/Complete/Repair/Optimize）。merge / 統合は CEO 判断待ち。
+A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。

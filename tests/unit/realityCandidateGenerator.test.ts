@@ -5,6 +5,8 @@ import {
   isTouchableForGeneration,
   isPreservedForGeneration,
 } from "@/lib/plan/reality/candidate-generator";
+import { evaluateCandidate } from "@/lib/plan/reality/candidate-evaluator";
+import { rankCandidates } from "@/lib/plan/reality/best-action";
 import type { RealityInput } from "@/lib/plan/reality/integration/input-adapter";
 import type { PlanItemGovernance } from "@/lib/plan/reality/authority";
 import type { SourceTrace } from "@/lib/plan/reality/source-trace";
@@ -100,5 +102,99 @@ describe("candidate-generator — authority 消費の整合 + goals", () => {
     const prm: SourceTrace = { kind: "prm", ref: "p1", reason: "x", confidence: 0.5 };
     const ctx = buildGenerationContext(input({ seedTraces: [seed, prm] }));
     expect(ctx.goals.seeds).toEqual([seed]);
+  });
+});
+
+// ── A1-3-R1a: Repair overlap trim-only ──
+
+function repairInput(specs: Array<{ id: string; startMin: number; endMin: number; governance: PlanItemGovernance }>): RealityInput {
+  const dayNodes = specs.map((s) => ({ id: s.id, startMin: s.startMin, endMin: s.endMin, importance: "normal" as const, hard: false }));
+  const anchors: RealityInput["anchors"] = {};
+  for (const s of specs) anchors[s.id] = { governance: s.governance, importance: "normal", sensitive: false };
+  return { mode: "repair", dayNodes, anchors, seedTraces: [] };
+}
+
+describe("candidate-generator — A1-3-R1a Repair trim-only（生成）", () => {
+  it("earlier=lower-priority(droppable) と later(movable) の重複 → A の end を B.start へ trim（1件・update のみ）", () => {
+    const drafts = generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE },
+    ]));
+    expect(drafts).toHaveLength(1);
+    const d = drafts[0];
+    expect("metrics" in d).toBe(false); // CandidateDraft（metrics 持たない）
+    expect(d.changeSet.ops).toHaveLength(1);
+    const op = d.changeSet.ops[0];
+    expect(op.kind).toBe("update");
+    expect(op.itemId).toBe("a"); // A のみ touch（B 不変）
+    if (op.kind === "update") {
+      expect(op.before).toMatchObject({ itemId: "a", startMin: 540, endMin: 620 });
+      expect(op.after).toMatchObject({ itemId: "a", startMin: 540, endMin: 600 }); // start 固定・end のみ短縮
+    }
+  });
+
+  it("重複なし → no candidate", () => {
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 600, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 660, endMin: 720, governance: PLAIN_MOVABLE },
+    ]))).toEqual([]);
+  });
+  it("earlier が preserved(recovery) → no candidate（不可侵を切らない）", () => {
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: RECOVERY_MOVABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE },
+    ]))).toEqual([]);
+  });
+  it("両 touchable で優先度が同じ → no candidate（推測しない）", () => {
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_MOVABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE },
+    ]))).toEqual([]);
+  });
+  it("包含（A が B を完全包含）→ no candidate（defer）", () => {
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 700, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE },
+    ]))).toEqual([]);
+  });
+  it("trim 後 duration ≤ 0（同 start）→ no candidate", () => {
+    expect(generateCandidates(repairInput([
+      { id: "a", startMin: 600, endMin: 660, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 680, governance: PLAIN_MOVABLE },
+    ]))).toEqual([]);
+  });
+  it("later が preserved・earlier が touchable → earlier のみ trim（preserved 不変）", () => {
+    const drafts = generateCandidates(repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: RECOVERY_MOVABLE },
+    ]));
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].changeSet.ops[0].itemId).toBe("a");
+  });
+  it("mode が repair でない → no candidate", () => {
+    const inp = repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE },
+    ]);
+    expect(generateCandidates({ ...inp, mode: "complete" })).toEqual([]);
+  });
+});
+
+describe("candidate-generator — A1-3-R1a pipeline（generate→evaluate→rank・Gate-first）", () => {
+  it("生成 trim 候補は safe で best / unsafe を並べても trim が best", () => {
+    const inp = repairInput([
+      { id: "a", startMin: 540, endMin: 620, governance: PLAIN_DROPPABLE },
+      { id: "b", startMin: 600, endMin: 660, governance: PLAIN_MOVABLE },
+    ]);
+    const drafts = generateCandidates(inp);
+    expect(drafts).toHaveLength(1);
+    const cand = evaluateCandidate(drafts[0], buildGenerationContext(inp));
+    expect(cand.metrics.feasible).toBe(true);
+    expect(cand.metrics.recoveryProtected).toBe(true);
+    expect(cand.metrics.deadlineSatisfied).toBe(true);
+    expect(cand.metrics.wholePartCoherent).toBe(true);
+    expect(rankCandidates([cand]).best?.candidate.id).toBe(cand.id);
+    const unsafe = { ...cand, id: "unsafe", metrics: { ...cand.metrics, feasible: false } };
+    expect(rankCandidates([cand, unsafe]).best?.candidate.id).toBe(cand.id);
   });
 });
