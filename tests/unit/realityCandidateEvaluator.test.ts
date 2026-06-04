@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { applyChangeSet, evaluateSafetyMetrics, type CandidateDraft, type PlanNode } from "@/lib/plan/reality/candidate-evaluator";
+import { applyChangeSet, evaluateSafetyMetrics, evaluateCandidate, type CandidateDraft, type PlanNode } from "@/lib/plan/reality/candidate-evaluator";
 import { buildGenerationContext, type GenerationContext } from "@/lib/plan/reality/candidate-generator";
+import { rankCandidates } from "@/lib/plan/reality/best-action";
 import type { ChangeSet, ChangeOp, PlanItemSnapshot } from "@/lib/plan/reality/change-set";
 import type { PlanItemGovernance } from "@/lib/plan/reality/authority";
+import type { SourceTrace } from "@/lib/plan/reality/source-trace";
 import type { RealityInput } from "@/lib/plan/reality/integration/input-adapter";
 
 function node(id: string, startMin: number, endMin: number, governance?: PlanNode["governance"]): PlanNode {
@@ -135,8 +137,9 @@ function ctxFrom(specs: NodeSpec[]): GenerationContext {
   for (const s of specs) anchors[s.id] = { governance: s.governance, importance: "normal", sensitive: false };
   return buildGenerationContext({ mode: "repair", dayNodes, anchors, seedTraces: [] });
 }
-function draft(ops: ChangeOp[]): CandidateDraft {
-  return { id: "d", changeSet: { id: "cs", ops, reason: "r", sourceTraces: [] }, sourceTraces: [], proposedDisposition: "confirm" };
+const TRACE: SourceTrace = { kind: "seed", ref: "s1", reason: "目的", confidence: 0.8 };
+function draft(ops: ChangeOp[], sourceTraces: readonly SourceTrace[] = []): CandidateDraft {
+  return { id: "d", changeSet: { id: "cs", ops, reason: "r", sourceTraces: [TRACE] }, sourceTraces, proposedDisposition: "confirm" };
 }
 
 describe("evaluateSafetyMetrics — 非空性（genuinely safe → 全 true）", () => {
@@ -205,5 +208,70 @@ describe("evaluateSafetyMetrics — feasible / wholePart（幾何・budget 違�
     const m = evaluateSafetyMetrics(draft([{ kind: "add", itemId: "b", after: snap("b", 1400, 1500) }]), ctx);
     expect(m.feasible).toBe(false);
     expect(m.wholePartCoherent).toBe(false);
+  });
+});
+
+// ── A1-2-3: evaluateCandidate（draft → BestActionCandidate） ──
+
+describe("evaluateCandidate — 組立（safety=evaluator 由来 / subjective=中立 0 / instability=客観）", () => {
+  it("safety metrics は evaluateSafetyMetrics と一致（self-report 不使用）", () => {
+    const ctx = ctxFrom([{ id: "r", startMin: 540, endMin: 600, governance: RECOVERY }]);
+    const d = draft([{ kind: "remove", itemId: "r", before: snap("r", 540, 600) }], [TRACE]);
+    const cand = evaluateCandidate(d, ctx);
+    const safety = evaluateSafetyMetrics(d, ctx);
+    expect(cand.metrics.feasible).toBe(safety.feasible);
+    expect(cand.metrics.recoveryProtected).toBe(safety.recoveryProtected);
+    expect(cand.metrics.deadlineSatisfied).toBe(safety.deadlineSatisfied);
+    expect(cand.metrics.wholePartCoherent).toBe(safety.wholePartCoherent);
+  });
+  it("subjective metric は全て 0（水増ししない）", () => {
+    const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
+    const cand = evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }], [TRACE]), ctx);
+    for (const k of ["goalAttainment", "rhythmFit", "slackHealth", "overpack", "contextSwitches", "correctionMisalignment"] as const) {
+      expect(cand.metrics[k]).toBe(0);
+    }
+  });
+  it("instability は move+remove の客観 count（add は数えない）", () => {
+    const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }, { id: "x", startMin: 700, endMin: 760, governance: PLAIN }]);
+    const cand = evaluateCandidate(draft([
+      { kind: "update", itemId: "a", before: snap("a", 540, 600), after: snap("a", 545, 605) },
+      { kind: "remove", itemId: "x", before: snap("x", 700, 760) },
+      { kind: "add", itemId: "b", after: snap("b", 800, 860) },
+    ], [TRACE]), ctx);
+    expect(cand.metrics.instability).toBe(2);
+  });
+  it("id/changeSet/sourceTraces/proposedDisposition は draft 由来", () => {
+    const d = draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }], [TRACE]);
+    const cand = evaluateCandidate(d, ctxFrom([]));
+    expect(cand.id).toBe(d.id);
+    expect(cand.changeSet).toBe(d.changeSet);
+    expect(cand.sourceTraces).toBe(d.sourceTraces);
+    expect(cand.proposedDisposition).toBe("confirm");
+  });
+});
+
+describe("evaluateCandidate — gate-first: gate-false 候補は best にならない（rankCandidates 検証）", () => {
+  const safeCtx = () => ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
+  const safe = () => ({ ...evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }], [TRACE]), safeCtx()), id: "safe" });
+
+  it("feasible-false（overlap）→ best にならない", () => {
+    const unsafe = { ...evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 550, 650) }], [TRACE]), safeCtx()), id: "unsafe" };
+    const r = rankCandidates([unsafe, safe()]);
+    expect(r.best?.candidate.id).toBe("safe");
+    expect(r.rejected.map((x) => x.candidate.id)).toContain("unsafe");
+  });
+  it("recovery-false → best にならない", () => {
+    const ctx = ctxFrom([{ id: "r", startMin: 540, endMin: 600, governance: RECOVERY }]);
+    const unsafe = { ...evaluateCandidate(draft([{ kind: "remove", itemId: "r", before: snap("r", 540, 600) }], [TRACE]), ctx), id: "unsafe" };
+    expect(rankCandidates([unsafe, safe()]).best?.candidate.id).toBe("safe");
+  });
+  it("deadline-false（hard 破壊）→ best にならない（高 score でも救済されない）", () => {
+    const ctx = ctxFrom([{ id: "h", startMin: 540, endMin: 600, governance: PLAIN, hard: true }]);
+    const unsafe = { ...evaluateCandidate(draft([{ kind: "remove", itemId: "h", before: snap("h", 540, 600) }], [TRACE]), ctx), id: "unsafe" };
+    expect(rankCandidates([unsafe, safe()]).best?.candidate.id).toBe("safe");
+  });
+  it("wholePart-false（日境界外）→ best にならない", () => {
+    const unsafe = { ...evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 1400, 1500) }], [TRACE]), ctxFrom([])), id: "unsafe" };
+    expect(rankCandidates([unsafe, safe()]).best?.candidate.id).toBe("safe");
   });
 });

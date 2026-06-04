@@ -12,12 +12,15 @@
  *   - `applyChangeSet(nodes, cs)` の **最小純関数**（適用結果の計算のみ・safety 判定しない）。
  *     supported op のみ / unsupported は fail / unknown・missing node は fail /
  *     before・after 不整合は fail / **node mutation なし** / **raw title/location/text を持ち込まない**。
- * 【A1-2-2 の範囲（CEO 限定 GO）】:
+ * 【A1-2-2 の範囲】:
  *   - `evaluateSafetyMetrics(draft, context)`：**4 安全 metric のみ**を独立・保守的に算出
  *     （feasible / recoveryProtected / deadlineSatisfied / wholePartCoherent）。
  *   - 不明・apply 失敗・recovery_core/critical を触る等は **安全側(false)**。
- *   - **score / goalAttainment / rhythmFit / 主観 metric・BestActionCandidate 化・rank 接続・
- *     mode 生成は作らない**（A1-2-3 以降）。
+ * 【A1-2-3 の範囲（CEO 限定 GO）】:
+ *   - `evaluateCandidate(draft, context)`：draft → BestActionCandidate の橋。
+ *   - safety は evaluateSafetyMetrics 由来（self-report 不使用）。客観 `instability` のみ実算出。
+ *   - subjective metric は中立 default 0（水増ししない）。best-action は不変で Gate-first がそのまま効く。
+ *   - **subjective 本実装 / 客観 score 拡充(A1-2-4) / mode 生成 / rank の production 接続は作らない**。
  *
  * 【安全原則（表現は CEO 補正済）】:
  *   Gate-first は候補を採用前に弾くが Gate は metrics を信じる。ゆえに generator が metrics を
@@ -27,7 +30,7 @@
  * 制約: 純関数のみ。LLM / DB / UI / route / runtime / 実データ / push なし。barrel 未追加。
  */
 
-import type { BestActionCandidate } from "./best-action";
+import type { BestActionCandidate, CandidateMetrics } from "./best-action";
 import type { ChangeSet, PlanItemSnapshot } from "./change-set";
 import { isImmovable, hasProtection, type PlanItemGovernance } from "./authority";
 import type { GenerationContext, GovernedNode } from "./candidate-generator";
@@ -234,5 +237,50 @@ export function evaluateSafetyMetrics(draft: CandidateDraft, context: Generation
     recoveryProtected,
     deadlineSatisfied,
     wholePartCoherent: isWholeCoherent(applied.nodes),
+  };
+}
+
+// ── A1-2-3: evaluateCandidate（draft → BestActionCandidate の橋） ──
+
+/** 客観 metric: 不安定量 = 移動(update) + 削除(remove) の数。changeSet から事実として算出。 */
+function computeInstability(cs: ChangeSet): number {
+  return cs.ops.filter((op) => op.kind === "remove" || op.kind === "update").length;
+}
+
+/**
+ * CandidateDraft を BestActionCandidate に組み立てる純関数（A1-2-3）。
+ *
+ * 原則:
+ *   - **safety metrics は必ず `evaluateSafetyMetrics` の結果を使う**（generator の自己申告は型に無い）。
+ *   - 客観 metric は `instability`（move+remove 数）**のみ**実算出。
+ *   - subjective metric（goalAttainment / rhythmFit / slackHealth / overpack / contextSwitches /
+ *     correctionMisalignment）は **中立 default 0**（**水増ししない**・本実装は A1-2-4 以降）。
+ *   - best-action は不変。標準 BestActionCandidate を産むのみ → rankCandidates の Gate-first がそのまま効く
+ *     （safety/recovery_core/whole_part/deadline gate false は score に関わらず reject）。
+ */
+export function evaluateCandidate(draft: CandidateDraft, context: GenerationContext): BestActionCandidate {
+  const safety = evaluateSafetyMetrics(draft, context);
+  const metrics: CandidateMetrics = {
+    // safety（evaluator 由来・self-report 不使用）
+    feasible: safety.feasible,
+    wholePartCoherent: safety.wholePartCoherent,
+    recoveryProtected: safety.recoveryProtected,
+    deadlineSatisfied: safety.deadlineSatisfied,
+    // 客観
+    instability: computeInstability(draft.changeSet),
+    // subjective: 中立 default 0（A1-2-4 以降で実算出。ここでは候補を水増ししない）
+    goalAttainment: 0,
+    rhythmFit: 0,
+    slackHealth: 0,
+    overpack: 0,
+    contextSwitches: 0,
+    correctionMisalignment: 0,
+  };
+  return {
+    id: draft.id,
+    changeSet: draft.changeSet,
+    sourceTraces: draft.sourceTraces,
+    metrics,
+    proposedDisposition: draft.proposedDisposition,
   };
 }

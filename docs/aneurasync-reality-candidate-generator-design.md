@@ -33,7 +33,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-2-1** | `CandidateDraft` 型（metrics 持てない）/ `applyChangeSet(nodes,cs)` 最小純関数（atomic・fail-closed・no mutation・raw 不持込） | ✅ landed |
 | **A1-2-2** | `evaluateSafetyMetrics`（feasible/recoveryProtected/deadlineSatisfied/wholePartCoherent を独立・保守的に算出。one-sided conservative・unknown→false） | ✅ landed |
 | **A1-2-2.5** | Deadline Gate Alignment: best-action に独立 `deadline` gate（deadlineSatisfied=false→hard reject）。GateKind を 3 箇所同期 | ✅ landed |
-| A1-2-3 | `evaluateCandidate`（draft→BestActionCandidate・客観 score・主観 default）+ rank 連携 | ⏳ 別 GO |
+| **A1-2-3** | `evaluateCandidate`（draft→BestActionCandidate・safety=evaluator 由来・客観 instability のみ・主観中立 0・rank は test 検証のみ） | ✅ landed |
 | A1-3〜6 | Build / Complete / Repair / Optimize 生成（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -75,9 +75,20 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test: deadlineSatisfied=false→deadline gate fail / rankCandidates で deadline 破壊候補は **best にならない**
   （高 score でも score 救済されない）/ soft/movable update→deadlineSatisfied=true（過剰 reject なし）。
 
+## 4d. A1-2-3 実装（landed）— evaluateCandidate（draft→BestActionCandidate の橋）
+`candidate-evaluator.ts` に `evaluateCandidate(draft, context) → BestActionCandidate`：
+- **safety metrics は必ず `evaluateSafetyMetrics` 由来**（CandidateDraft に metrics 場が無い＝generator 自己申告不能）。
+- 客観 metric は **`instability`（move+remove 数）のみ**実算出。
+- subjective（goalAttainment/rhythmFit/slackHealth/overpack/contextSwitches/correctionMisalignment）は
+  **中立 default 0**（水増ししない・本実装は A1-2-4 以降）。
+- best-action は不変 → 標準 BestActionCandidate を産むのみで **Gate-first がそのまま効く**。
+- test: safety=evaluator 一致 / subjective=全 0 / instability=客観 count /
+  **rankCandidates で feasible·recovery·deadline·wholePart の gate-false 候補は best にならない**（score 救済なし）。
+- 未実装（範囲外）: subjective 本実装 / 客観 score 拡充(A1-2-4) / Build·Complete·Repair·Optimize / rank の production 接続。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-2-3（evaluateCandidate＝draft→BestActionCandidate・客観 score・主観 default・rank 連携）。merge / 統合は CEO 判断待ち。
+A1-2-4（客観 score 拡充: slackHealth/overpack/contextSwitches）。その後 A1-3+（Build/Complete/Repair/Optimize）。merge / 統合は CEO 判断待ち。
