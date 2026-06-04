@@ -15645,4 +15645,8 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 
 [2026-06-03] [Product] UX gap 検出（本流接続前の必須課題）— /plan は今日±7日 window 中心で、過去/未来月への navigation と月 grid view が不足している。シフト取り込み pipeline は staging E2E PASS したが、取り込んだ月全体をユーザーが確認・把握する view が不足。SR Step 5/6 や本流入口接続前に、月切替 + 月 grid view 設計が必要。[記録: Build/Product]
 
+[2026-06-05] [Build] A1-5-2-2-2b — plan_seeds structured-only migration (20260605100000) を culcept-staging に CLI `db push` で apply 完了。pending が 2 件（companions 20260602 + plan_seeds 20260605）だったため、先行して companions（Alter Plan「誰と?」= 別ライン）を plan_seeds 非保持の staging-linked worktree から単独 apply し plan_seeds を単独 pending 化してから apply。検証 PASS: migration history (20260602+20260605) 記録 / plan_seeds table exists / raw 列 0 (signal·desired_action·raw_text·title·location 不在) / RLS owner-only (auth.uid()=user_id ×4) / rows=0 / user-RLS smoke (service_role 不使用・allowed columns のみ・rowsRead=0・candidateCount=0)。db reset 0 / SQL Editor apply 0 / production 0 / DB write 0 / remote 0。staging のみ・production 不変。[承認: CEO]
+
+[2026-06-05] [Build] A1-5-2-2-2c — seed DB read seam (`lib/plan/reality/integration/seed-source.ts`) を実装。`createColumnRestrictedSeedSource` が plan_seeds から許可列のみ (`SEED_COLUMNS_SQL`) を bounded read し `projectSeedRowsToPlacements` へ渡す read path を完成。column-restricted・raw/source_ref 非 select・`createClient`/service_role 非 import・`MAX_SEED_LIMIT=50` clamp・gated fail-closed (production/flag off/capability/user mismatch→load 0)・server-only・barrel 非 export。durationMin=null → candidateCount=0 (A1-5-3 PRM まで)。22 tests + reality 461 PASS・自ファイル tsc 0 error・user-RLS empty smoke (staging hjcr…wc) rowsRead=0/candidateCount=0。seed capture/PRM/runtime/UI 未着手。[承認: CEO]
+
 ---

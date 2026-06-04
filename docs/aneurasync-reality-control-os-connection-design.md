@@ -263,4 +263,21 @@ A1-5-2-2-1（`supabase/migrations/20260605100000_plan_seeds_structured_only.sql`
 
 - **しない（A1-5-2-2-2a 範囲外）**: migration apply / db push·reset / SQL Editor 実 apply / 実 DB read·write / seed DB source / seed capture / PRM·correction / runtime·route·UI·PlanClient / raw parse / default duration / remote·PR·GitHub / barrel。
 
-> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / A1-5-2-2-0+2-1（§8.9・migration draft・未 apply）/ **A1-5-2-2-2a apply readiness / staging runbook（landed・§8.10・doc-only・未 apply・apply 先=linked remote staging のみ・`config.toml` の `project_id` では判定しない・SQL Editor 採用時は migration history 整合を別確認）**。次は A1-5-2-2-2b（実 apply・別 GO・`db push --dry-run`→staging 確認後のみ）/ A1-5-2-2-2c+（seed DB source + user-RLS read smoke）/ A1-5-3（PRM evidence）を各別 GO。raw を同じ読み取り表面に置かない・column-restricted・redaction guard・fail-closed・flag off default・no DB write・no push を全段で維持する。
+### 8.11 A1-5-2-2-2b apply（staging 完了）+ A1-5-2-2-2c 実装（landed）— seed DB read seam（column-restricted）
+
+> **A1-5-2-2-2b**: `20260605100000_plan_seeds_structured_only.sql` を **culcept-staging に CLI `db push` で apply 完了**（companions `20260602`＝Alter Plan 別ラインを先行 apply し plan_seeds を単独 pending 化してから）。検証: migration history（20260602+20260605）記録 / table exists / raw 列 0 / RLS owner-only / rows=0 / user-RLS smoke PASS。service_role·DB write·SQL Editor·db reset·production·remote すべて 0。
+
+A1-5-2-2-2c（`lib/plan/reality/integration/seed-source.ts`・新規・**barrel 非 export**・`server-only`）:
+- **`createColumnRestrictedSeedSource(client, bounds)`**: structured-only `plan_seeds` から **許可列のみ**読み `projectSeedRowsToPlacements`（A1-5-2-1）へ渡す read seam。
+  - query: `from(SEED_TABLE).select(SEED_COLUMNS_SQL).eq("user_id",uid).eq("status","active")[.or(expires_at 境界)].limit(clampSeedLimit)`。
+  - **column-restricted**（`SEED_COLUMNS_SQL` 固定・`"*"` なし・raw / `source_ref` を select も型も持たない）。table 固定（`SEED_TABLE`=plan_seeds・**本ファイルのみ**）。
+  - **bounded**（user_id + status='active' + `MAX_SEED_LIMIT=50` clamp・population read 禁止）。expired は status + 任意 `activeAsOfIso` 境界注入（expires_at は WHERE のみ・SELECT しない）で除外。
+  - 戻り値 `SeedPlacement[]`（durationMin=null → isPlaceable=false → **candidateCount=0**・A1-5-3 PRM まで）。
+- **`loadGatedActivePlacements(gate, source)`**: `evaluateSmokeGate` 経由の fail-closed。production / flag off / capability なし / user mismatch で **load 0**。
+- **DI**: `SeedUserContextClient`（from/select/eq/or/limit）。実 Supabase client が structural に満たす。**`createClient` / service_role を import しない**（user-RLS 前提）。
+- test(`realitySeedSource.test.ts`・**22**): SELECT 許可列のみ / `"*"` なし / raw·source_ref 非 select / table plan_seeds / bounded(user_id·active·limit) / limit clamp / expired 境界 OR / active のみ projection / durationMin null·unknown·placeable=false / generateComplete→0 / 空→0 / gate fail×4→load 0 / 静的(service_role·createClient·DB write 不在) / `.from(SEED_TABLE)` は seed-source.ts のみ(reality tree 走査)。
+- user-RLS empty smoke（untracked・1回・project-pin hjcr…wc・anon+user・SHIFT_SMOKE creds）: source の query 形で **rowsRead=0 / candidateCount=0 / service_role 0 / raw·secret·UUID 非出力**。
+- tsc: 自ファイル **0 error**（project baseline 1114 は無関係既存ファイル）。reality **461 tests** PASS。
+- **しない（A1-5-2-2-2c 範囲外）**: seed capture / INSERT·UPDATE·DELETE / DB write smoke / PRM·correction / runtime·route·UI·PlanClient / RealityInput 搭載 / generateCandidates 接続 / default duration / raw parse / source_ref を allowed columns に / A1-5-3 / barrel export。
+
+> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / A1-5-2-2-0+2-1（§8.9・migration draft）/ A1-5-2-2-2a runbook（§8.10）/ **A1-5-2-2-2b staging apply 完了 + A1-5-2-2-2c seed DB read seam（landed・§8.11・column-restricted・gated fail-closed・rowsRead=0/candidateCount=0・barrel 非 export）**。次は A1-5-3（PRM→DurationEvidence で candidateCount>0 解禁）/ seed capture（write 境界・raw 分離）を各別 GO。raw を同じ読み取り表面に置かない・column-restricted・redaction guard・fail-closed・flag off default・no DB write・no push を全段で維持する。
