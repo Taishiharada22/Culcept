@@ -184,4 +184,17 @@ export const PLAN_FLAGS = {
    */
   calendarMonthGridEnabled:
     process.env.NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED === "true",
+
+  /**
+   * A1-5-1b: Reality Complete shadow dev smoke を有効化するか（**dev-only manual smoke 専用**）。
+   *   true  : CEO 手動 smoke entry の gate.flagEnabled が立つ（実 read は CEO の認証文脈で user-RLS client 注入時のみ）
+   *   false : 全 smoke が FLAG_OFF no-op（**本番デフォルト**・自動実行なし・UI 不変）
+   *
+   * env: REALITY_COMPLETE_SHADOW=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   *
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §8（A1-5-0/1a/1b）
+   * 制約: dev-only / production no-op（gate が PRODUCTION で必ず no-op）/ rollback は flag off のみ /
+   *   route/UI/PlanClient/cron から呼ばない（manual entry 専用）。
+   */
+  realityCompleteShadow: process.env.REALITY_COMPLETE_SHADOW === "true",
 } as const;
