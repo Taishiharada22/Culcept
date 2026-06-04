@@ -4,6 +4,8 @@
  * UI は richer set を保持(taxi/bus/bicycle/shinkansen/train を畳まない)。canonical 写像は A2 で別途。
  * 思想継承: 距離→mode 推定しない・偽の経路を見せない(note で対応状況を正直に明示)。
  */
+import type { RouteLegState } from "./legState";
+
 export type RouteTransportMode =
   | "walk" | "car" | "taxi" | "train" | "shinkansen" | "bus" | "bicycle" | "flight" | "unknown";
 
@@ -83,5 +85,51 @@ export function legChipDataUri(): string {
     '<g transform="translate(5,5) scale(0.5)" fill="none" stroke="#475569" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
     '<path d="m10.586 5.414-5.172 5.172"/><path d="m18.586 13.414-5.172 5.172"/><path d="M6 12h12"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="4" cy="12" r="2"/></g>' +
     '</svg>';
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+
+// ── Mobility チップ (v2: 塗り mode 色 + 艶 + 影 + リング + 状態階層)。FH から忠実 port。 ──
+export type MobilityChipState = "current" | "future" | "past" | "selected" | "plain";
+
+/** チップの px サイズ (= 状態階層: current を大きく、past を小さく)。 */
+export function mobilityChipPx(state: MobilityChipState): number {
+  if (state === "current") return 40;
+  if (state === "past") return 26;
+  if (state === "selected") return 34;
+  return 30;
+}
+
+/** leg state → チップ状態 (done=過去薄灰 / current=今→次は大+glow / 他=future)。 */
+export function mapChipStateForLeg(legState: RouteLegState): MobilityChipState {
+  if (legState === "done") return "past";
+  if (legState === "current") return "current";
+  return "future";
+}
+
+/** leg 中点チップの data URI (= mode 色の塗り円 + 艶 + 影 + current/selected の glow リング、state でサイズ)。 */
+export function mobilityLegIconDataUri(
+  mode: RouteTransportMode,
+  state: MobilityChipState,
+): string {
+  const past = state === "past";
+  const color = past ? "#94a3b8" : ROUTE_MODE_COLORS[mode];
+  const opacity = past ? 0.55 : 1;
+  const ring = state === "current" || state === "selected";
+  const px = mobilityChipPx(state);
+  const glow = ring
+    ? `<circle cx="15" cy="15" r="13.4" fill="none" stroke="${color}" stroke-opacity="0.3" stroke-width="2.4"/>`
+    : "";
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 30 30">` +
+    `<defs><filter id="csh" x="-40%" y="-40%" width="180%" height="180%">` +
+    `<feDropShadow dx="0" dy="0.6" stdDeviation="0.9" flood-color="#0f172a" flood-opacity="0.28"/></filter></defs>` +
+    `<g opacity="${opacity}">${glow}` +
+    `<g filter="url(#csh)">` +
+    `<circle cx="15" cy="15" r="11.3" fill="${color}"/>` +
+    `<ellipse cx="15" cy="10.6" rx="9" ry="5.6" fill="#ffffff" opacity="0.14"/>` +
+    `</g>` +
+    mobilityGlyphLayer(mode) +
+    `</g></svg>`;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }

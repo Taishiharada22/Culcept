@@ -83,7 +83,7 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
-import { legChipDataUri, ROUTE_MODE_COLORS, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -579,12 +579,6 @@ function PlanMapView({
       map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // ── sortedPins (時刻順、leg-chip + route effect 共用) ──
-    //   route polyline は per-leg 色づけのため独立 effect に分離(A5-3 Step3)。
-    const sortedPins = [...pins].sort((a, b) =>
-      a.anchor.startTime.localeCompare(b.anchor.startTime),
-    );
-
     // 9 closeout cleanup: orderById Map / markerSpec 削除済み
     //   - orderById: 旧 marker.label "1·09:00" 形式 用、 9 closeout で marker.label 不使用化により dead
     //   - markerSpec: 旧 CIRCLE marker (MAP_CATEGORY_MARKER / MAP_SENSITIVE_MARKER) 用、 涙型 SVG 単一 path 化により dead
@@ -640,24 +634,6 @@ function PlanMapView({
       markers.push(marker);
     }
 
-    // ── leg chips (A5-2): 隣接 pin ペアの中点に tappable marker、 tap → onLegTap ──
-    for (let i = 0; i < sortedPins.length - 1; i += 1) {
-      const a = sortedPins[i]!;
-      const b = sortedPins[i + 1]!;
-      const legMid = { lat: (a.coord.lat + b.coord.lat) / 2, lng: (a.coord.lng + b.coord.lng) / 2 };
-      const legKey = `${a.anchor.id}__${b.anchor.id}`;
-      const fromTitle = a.anchor.title;
-      const toTitle = b.anchor.title;
-      const legMarker = new maps.Marker({
-        map,
-        position: legMid,
-        icon: { url: legChipDataUri(), anchor: new maps.Point(11, 11) },
-        title: "移動手段",
-      });
-      legMarker.addListener("click", () => onLegTapRef.current?.(legKey, fromTitle, toTitle));
-      markers.push(legMarker);
-    }
-
     return () => {
       // pin / baseline / selected 変化で markers 破棄、Map instance は keep alive
       for (const m of markers) m.setMap(null);
@@ -676,7 +652,14 @@ function PlanMapView({
       a.anchor.startTime.localeCompare(b.anchor.startTime),
     );
     if (sortedPins.length < 2 || isSamePointCluster(sortedPins.map((p) => p.coord))) return;
+    // Slice 2a: 焦点 leg(現在時刻基準)でチップ状態を決める(FH 忠実・new Date は effect 内)。
+    const now = new Date();
+    const focusLegIndex = resolveFocusLegIndex(
+      sortedPins,
+      now.getHours() * 60 + now.getMinutes(),
+    );
     const lines: GmapsPolyline[] = [];
+    const chipMarkers: GmapsMarker[] = [];
     for (let i = 0; i < sortedPins.length - 1; i += 1) {
       const a = sortedPins[i]!;
       const b = sortedPins[i + 1]!;
@@ -704,9 +687,28 @@ function PlanMapView({
             ],
           });
       lines.push(line);
+
+      // Slice 2a: mode 色つき leg チップ(状態別サイズ)。markers effect から移設(flicker なし・FH 忠実)。
+      const chipState = mapChipStateForLeg(resolveLegState(i, focusLegIndex));
+      const displayMode = mode ?? "unknown";
+      const px = mobilityChipPx(chipState);
+      const chip = new maps.Marker({
+        map,
+        position: { lat: (a.coord.lat + b.coord.lat) / 2, lng: (a.coord.lng + b.coord.lng) / 2 },
+        icon: {
+          url: mobilityLegIconDataUri(displayMode, chipState),
+          anchor: new maps.Point(px / 2, px / 2),
+        },
+        title: "移動手段",
+      });
+      chip.addListener("click", () =>
+        onLegTapRef.current?.(legKey, a.anchor.title, b.anchor.title),
+      );
+      chipMarkers.push(chip);
     }
     return () => {
       for (const l of lines) l.setMap(null);
+      for (const c of chipMarkers) c.setMap(null);
     };
   }, [pins, selectedModeByLeg]);
 
