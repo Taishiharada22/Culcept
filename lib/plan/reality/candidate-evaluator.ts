@@ -16,11 +16,14 @@
  *   - `evaluateSafetyMetrics(draft, context)`：**4 安全 metric のみ**を独立・保守的に算出
  *     （feasible / recoveryProtected / deadlineSatisfied / wholePartCoherent）。
  *   - 不明・apply 失敗・recovery_core/critical を触る等は **安全側(false)**。
- * 【A1-2-3 の範囲（CEO 限定 GO）】:
+ * 【A1-2-3 の範囲】:
  *   - `evaluateCandidate(draft, context)`：draft → BestActionCandidate の橋。
- *   - safety は evaluateSafetyMetrics 由来（self-report 不使用）。客観 `instability` のみ実算出。
- *   - subjective metric は中立 default 0（水増ししない）。best-action は不変で Gate-first がそのまま効く。
- *   - **subjective 本実装 / 客観 score 拡充(A1-2-4) / mode 生成 / rank の production 接続は作らない**。
+ *   - safety は evaluateSafetyMetrics 由来（self-report 不使用）。best-action は不変で Gate-first がそのまま効く。
+ * 【A1-2-4a の範囲（CEO 限定 GO）】:
+ *   - 客観 metric を算出: `instability`（move+remove 数）＋ `overpack`（過密 penalty・一方向・保守）。
+ *   - **slackHealth / contextSwitches は 0 維持（defer）**（active window/domain 等の情報が無いため・別 slice）。
+ *   - subjective（goalAttainment/rhythmFit/correctionMisalignment）も 0 維持。weights/gate は不変。
+ *   - **mode 生成 / rank の production 接続は作らない**。
  *
  * 【安全原則（表現は CEO 補正済）】:
  *   Gate-first は候補を採用前に弾くが Gate は metrics を信じる。ゆえに generator が metrics を
@@ -247,6 +250,30 @@ function computeInstability(cs: ChangeSet): number {
   return cs.ops.filter((op) => op.kind === "remove" || op.kind === "update").length;
 }
 
+function clamp01(x: number): number {
+  if (!Number.isFinite(x)) return 0;
+  return Math.min(1, Math.max(0, x));
+}
+
+/** これ以下の充填率は過密でない（penalty 0）。これを超えた分だけ penalty。 */
+const COMFORT_UTILIZATION = 0.7;
+
+/**
+ * A1-2-4a: 過密 penalty（overpack, 0..1）を **applied timeline から保守的に**算出。
+ *   - 利用可能窓 = MAX_DAY_MIN（A1-2-2 と一貫）。busy = Σ duration。util = busy/window。
+ *   - **明らかに過密（util > COMFORT）のときだけ** penalty。util ≤ COMFORT → 0。
+ *   - apply 失敗 / node 不足 → **0**（unknown は安全側に倒し、低質候補を不当に救わない）。
+ *   - 一方向の penalty のみ（positive を盛らない）。slackHealth/contextSwitches はここでは扱わない（別 slice）。
+ */
+function computeOverpack(draft: CandidateDraft, context: GenerationContext): number {
+  const applied = applyChangeSet(context.nodes, draft.changeSet);
+  if (!applied.ok || applied.nodes.length === 0) return 0; // apply 失敗 / node 不足
+  const busy = applied.nodes.reduce((sum, n) => sum + Math.max(0, n.endMin - n.startMin), 0);
+  const util = busy / MAX_DAY_MIN;
+  if (util <= COMFORT_UTILIZATION) return 0; // 過密でない
+  return clamp01((util - COMFORT_UTILIZATION) / (1 - COMFORT_UTILIZATION));
+}
+
 /**
  * CandidateDraft を BestActionCandidate に組み立てる純関数（A1-2-3）。
  *
@@ -268,11 +295,12 @@ export function evaluateCandidate(draft: CandidateDraft, context: GenerationCont
     deadlineSatisfied: safety.deadlineSatisfied,
     // 客観
     instability: computeInstability(draft.changeSet),
-    // subjective: 中立 default 0（A1-2-4 以降で実算出。ここでは候補を水増ししない）
+    overpack: computeOverpack(draft, context), // A1-2-4a: 過密 penalty（保守・一方向）
+    // 未算出（0 維持）: slackHealth/contextSwitches は別 slice（active window/domain 待ち）、
+    //   goalAttainment/rhythmFit/correctionMisalignment は subjective（水増ししない）
     goalAttainment: 0,
     rhythmFit: 0,
     slackHealth: 0,
-    overpack: 0,
     contextSwitches: 0,
     correctionMisalignment: 0,
   };

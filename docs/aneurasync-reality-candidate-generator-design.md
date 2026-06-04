@@ -34,6 +34,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-2-2** | `evaluateSafetyMetrics`（feasible/recoveryProtected/deadlineSatisfied/wholePartCoherent を独立・保守的に算出。one-sided conservative・unknown→false） | ✅ landed |
 | **A1-2-2.5** | Deadline Gate Alignment: best-action に独立 `deadline` gate（deadlineSatisfied=false→hard reject）。GateKind を 3 箇所同期 | ✅ landed |
 | **A1-2-3** | `evaluateCandidate`（draft→BestActionCandidate・safety=evaluator 由来・客観 instability のみ・主観中立 0・rank は test 検証のみ） | ✅ landed |
+| **A1-2-4a** | `overpack` のみ算出（過密 penalty・一方向・保守・util>0.7 のみ・unknown→0）。slackHealth/contextSwitches は defer | ✅ landed |
 | A1-3〜6 | Build / Complete / Repair / Optimize 生成（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -86,9 +87,20 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
   **rankCandidates で feasible·recovery·deadline·wholePart の gate-false 候補は best にならない**（score 救済なし）。
 - 未実装（範囲外）: subjective 本実装 / 客観 score 拡充(A1-2-4) / Build·Complete·Repair·Optimize / rank の production 接続。
 
+## 4e. A1-2-4a 実装（landed）— overpack-only conservative penalty
+`evaluateCandidate` の `overpack` を 0→算出（`computeOverpack`）。
+- **applied timeline のみ**（GenerationContext.nodes＋applyChangeSet 結果）。raw DayGraph 不使用。
+- `util = busy / MAX_DAY_MIN`。**util > 0.7（COMFORT）のときだけ** penalty、超過分を 0..1 に clamp。
+- **apply 失敗 / node 不足 → 0**（unknown を不当に救わず・不当に罰さず）。一方向 penalty のみ（positive を盛らない）。
+- **slackHealth は defer**（active window / gap meaning / recovery core / user rhythm が無い状態で positive を入れると
+  「空白が多いだけの候補」を持ち上げ＝何も決めない秘書に歪むため）。**contextSwitches も defer**（domain/activityType 待ち）。
+- subjective（goalAttainment/rhythmFit/correctionMisalignment）も 0 維持。weights/gate 不変。
+- test: sparse→0 / 過密(util>0.7)→>0 / apply 失敗→0 / **rank で高 overpack 安全候補は低 overpack 候補より下位** /
+  gate-false は依然 score 救済されない。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-2-4（客観 score 拡充: slackHealth/overpack/contextSwitches）。その後 A1-3+（Build/Complete/Repair/Optimize）。merge / 統合は CEO 判断待ち。
+A1-2-4b（slackHealth: active window/gap meaning/recovery core/user rhythm が入ってから）/ contextSwitches（domain/activityType/purpose が入ってから）は別 slice で設計。その後 A1-3+（Build/Complete/Repair/Optimize）。merge / 統合は CEO 判断待ち。

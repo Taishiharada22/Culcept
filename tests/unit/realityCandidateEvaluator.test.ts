@@ -224,12 +224,13 @@ describe("evaluateCandidate — 組立（safety=evaluator 由来 / subjective=�
     expect(cand.metrics.deadlineSatisfied).toBe(safety.deadlineSatisfied);
     expect(cand.metrics.wholePartCoherent).toBe(safety.wholePartCoherent);
   });
-  it("subjective metric は全て 0（水増ししない）", () => {
+  it("未算出 metric は 0（slackHealth/contextSwitches/subjective・水増ししない）", () => {
     const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
     const cand = evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }], [TRACE]), ctx);
-    for (const k of ["goalAttainment", "rhythmFit", "slackHealth", "overpack", "contextSwitches", "correctionMisalignment"] as const) {
+    for (const k of ["goalAttainment", "rhythmFit", "slackHealth", "contextSwitches", "correctionMisalignment"] as const) {
       expect(cand.metrics[k]).toBe(0);
     }
+    expect(cand.metrics.overpack).toBe(0); // A1-2-4a で算出。この候補は sparse ゆえ 0
   });
   it("instability は move+remove の客観 count（add は数えない）", () => {
     const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }, { id: "x", startMin: 700, endMin: 760, governance: PLAIN }]);
@@ -273,5 +274,30 @@ describe("evaluateCandidate — gate-first: gate-false 候補は best になら�
   it("wholePart-false（日境界外）→ best にならない", () => {
     const unsafe = { ...evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 1400, 1500) }], [TRACE]), ctxFrom([])), id: "unsafe" };
     expect(rankCandidates([unsafe, safe()]).best?.candidate.id).toBe("safe");
+  });
+});
+
+describe("evaluateCandidate — A1-2-4a overpack（過密 penalty・保守・一方向）", () => {
+  const packedCtx = () => ctxFrom([{ id: "big", startMin: 0, endMin: 1200, governance: PLAIN }]); // busy 1200/1440=0.83
+  const sparseCtx = () => ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
+
+  it("sparse な日 → overpack 0（過密でない）", () => {
+    const cand = evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }], [TRACE]), sparseCtx());
+    expect(cand.metrics.overpack).toBe(0);
+  });
+  it("明らかに過密（util>0.7）→ overpack>0（0..1 clamp）", () => {
+    const cand = evaluateCandidate(draft([{ kind: "add", itemId: "s", after: snap("s", 1210, 1240) }], [TRACE]), packedCtx());
+    expect(cand.metrics.overpack).toBeGreaterThan(0);
+    expect(cand.metrics.overpack).toBeLessThanOrEqual(1);
+  });
+  it("apply 失敗 → overpack 0（不当に救わず・不当に罰さず）", () => {
+    const cand = evaluateCandidate(draft([{ kind: "remove", itemId: "z", before: snap("z", 0, 1) }], [TRACE]), sparseCtx());
+    expect(cand.metrics.overpack).toBe(0);
+  });
+  it("rank: 高 overpack の安全候補は 低 overpack 候補より下位", () => {
+    const high = { ...evaluateCandidate(draft([{ kind: "add", itemId: "s", after: snap("s", 1210, 1240) }], [TRACE]), packedCtx()), id: "high" };
+    const low = { ...evaluateCandidate(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }], [TRACE]), sparseCtx()), id: "low" };
+    expect(high.metrics.overpack).toBeGreaterThan(low.metrics.overpack);
+    expect(rankCandidates([high, low]).best?.candidate.id).toBe("low"); // 低 overpack が上位
   });
 });
