@@ -1,0 +1,58 @@
+# Reality Control OS — Candidate Generator / Evaluator 設計（A1 系）
+
+> 起草: Build Unit / 2026-06-04 / 起点 main `499b6801` / branch `feat/reality-candidate-generator`
+> 範囲: 判断 OS の中核臓器「候補生成器（何を提案するか）＋ 候補評価器（どれだけ安全/良いか）」。
+> 本書は **pure 層のみ**。UI / DB / route / runtime / staging / production には接続しない。
+
+---
+
+## 0. なぜ慎重に分割するか
+候補生成器は「何を動かしてよいか・何を不可侵にするか・何を drop/shorten/move してよいか」を扱う中核。
+雑に作ると「AI が予定を勝手に動かす」方向へズレる。よって **1 slice / 1 GO** で外科的に積む。
+
+## 1. 安全アーキテクチャ（中核原則）
+- `best-action` の **Gate-first** は候補を採用前に弾く。だが Gate は候補の **metrics を信じる**
+  （metrics は呼び出し側が事前計算）。→ 唯一の穴は「生成器が metrics を甘く自己申告する」こと。
+- 対策（構造で）: **generator は metrics を *申告できない*** 型 `CandidateDraft`（= `Omit<BestActionCandidate, "metrics">`）を出す。
+  **evaluator だけが metrics を産み** `BestActionCandidate` を組む。
+- 表現（正確に）: unsupported / unknown / missing は必ず安全側(fail)に倒し、
+  **不安全候補が安全扱いされる経路を構造的に *減らす***（絶対化はしない＝実装バグ/未対応 op は残りうる）。
+- evaluator は raw `DayGraph` でなく **抽象 `GenerationContext`（redacted・governance 付）** を使い、raw を引き込まない。
+
+```
+generator(A1-3+) → CandidateDraft[]            // metrics を持てない
+                 → evaluateCandidate(A1-2-2+)  // evaluator が独立に metrics を付与
+                 → BestActionCandidate[]
+                 → rankCandidates(Gate-first)  // evaluator metrics を信頼
+```
+
+## 2. 分割と状態
+| slice | 内容 | 状態 |
+|---|---|---|
+| **A1-1** | 候補生成器の器: `generateCandidates→[]` no-op / `GenerationContext`（dayNode↔anchors.governance join）/ `isTouchableForGeneration`・`isPreservedForGeneration`（authority を *消費*）/ touchable=isRepairTouchable∧非recovery_core, preserved=immovable∪recovery_core | ✅ landed |
+| **A1-2-1** | `CandidateDraft` 型（metrics 持てない）/ `applyChangeSet(nodes,cs)` 最小純関数（atomic・fail-closed・no mutation・raw 不持込） | ✅ landed |
+| A1-2-2 | `evaluateSafetyMetrics`（feasible/recoveryProtected/deadlineSatisfied/wholePartCoherent を独立・保守的に算出。one-sided conservative・unknown→fail） | ⏳ 別 GO |
+| A1-2-3 | `evaluateCandidate`（draft→BestActionCandidate・客観 score・主観 default）+ rank 連携 | ⏳ 別 GO |
+| A1-3〜6 | Build / Complete / Repair / Optimize 生成（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
+
+## 3. A1-1 実装（landed）
+- `lib/plan/reality/candidate-generator.ts`: `generateCandidates` は safe no-op（`[]`）。`buildGenerationContext` が
+  dayNode↔anchors.governance を join し、authority（`isImmovable`/`isRepairTouchable`/`repairTouchOrder`/`hasProtection`）を
+  *消費* して touchable / preserved に分類。anchor governance 欠落は保守的 immovable（fail-closed）。
+- contract test: import_locked / hard_external / recovery_core を勝手に touchable 化しない（movable でも preserved）。
+
+## 4. A1-2-1 実装（landed）
+- `lib/plan/reality/candidate-evaluator.ts`:
+  - `CandidateDraft = Omit<BestActionCandidate, "metrics">`（metrics/score/gate を**構造的に持てない**）。
+  - `PlanNode`（id/startMin/endMin/governance?。**raw title/location 無し**）。
+  - `applyChangeSet(nodes, cs) → ApplyResult`（**atomic**・**入力 mutate なし**・**raw 不持込**・**safety 判定しない**）:
+    supported(add/remove/update) のみ / unsupported は fail / unknown・missing node は fail /
+    before・after 不整合(stale) は fail / 失敗時は入力不変。
+- test: CandidateDraft の key 限定 / supported ops / fail-closed 各種 / atomic / no mutation / no raw（issues も含め raw なし）。
+
+## 5. 境界
+- 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
+- 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
+
+## 6. 次 GO 待ち
+A1-2-2（safety-metric evaluator 本体）。merge / 統合は CEO 判断待ち。
