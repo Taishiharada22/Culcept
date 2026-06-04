@@ -177,3 +177,35 @@ export function createRouteAuraAnimation(
   }, ROUTE_AURA_FRAME_MS);
   return { markers: rings, timerId };
 }
+
+
+export type GmapsMarkerWithSetPosition = GmapsMarker & { setPosition(latLng: GmapsLatLng): void };
+
+/** leg の描画 path から「線上の中点」(= チップを実ルート線上に置く位置)。 */
+export function legChipPosition(path: GmapsLatLng[]): GmapsLatLng {
+  if (path.length <= 1) return path[0]!;
+  if (path.length === 2) {
+    return {
+      lat: (path[0]!.lat + path[1]!.lat) / 2,
+      lng: (path[0]!.lng + path[1]!.lng) / 2,
+    };
+  }
+  return path[Math.floor(path.length / 2)]!;
+}
+
+/** flight の空路弧線 (= 丸点線・偽の道路を描かない概念表示)。 */
+export function buildFlightArcLine(
+  maps: GmapsApi,
+  map: GmapsMap,
+  path: GmapsLatLng[],
+  color: string,
+): GmapsPolyline {
+  return new maps.Polyline({
+    map,
+    path,
+    strokeOpacity: 0,
+    icons: dottedRouteIcons(maps, color, 0.9),
+    zIndex: ROUTE_Z_AHEAD,
+    clickable: false,
+  } as RoutePolylineOptions);
+}

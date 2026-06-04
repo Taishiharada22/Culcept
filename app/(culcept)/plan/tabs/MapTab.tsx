@@ -83,8 +83,9 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
-import { mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
-import { buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, shouldAnimateLeg } from "@/lib/plan/map/routeStyle";
+import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
+import { createDirectionsService, fetchRoadSegmentPath, flightArcPath, toApiTravelMode } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -641,9 +642,9 @@ function PlanMapView({
     };
   }, [pins, baselineCoords, selectedAnchorId]);
 
-  // ── Effect: route polylines (per-leg・selectedMode で色づけ・A5-3 Step3) ──
-  //   未選択 leg = dashed slate(暫定) / 選択済 = solid mode 色(確定)。
-  //   markers effect から分離 → mode 選択で pin/chip を再生成せず route だけ再描画(flicker 無し)。
+  // ── Effect: route 描画 (per-leg ガラス質線 + mode チップ + aura)。Slice 2/3。 ──
+  //   markers effect から分離 → mode 選択で pin を再生成せず route だけ再描画(flicker なし)。
+  //   進捗: instant 直線 glassy → DirectionsService で道路 path へ差し替え(flight=弧/未対応=点線、chip を path 中点へ snap、current=aura)。
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -653,54 +654,121 @@ function PlanMapView({
       a.anchor.startTime.localeCompare(b.anchor.startTime),
     );
     if (sortedPins.length < 2 || isSamePointCluster(sortedPins.map((p) => p.coord))) return;
-    // Slice 2a: 焦点 leg(現在時刻基準)でチップ状態を決める(FH 忠実・new Date は effect 内)。
     const now = new Date();
     const focusLegIndex = resolveFocusLegIndex(
       sortedPins,
       now.getHours() * 60 + now.getMinutes(),
     );
-    const lines: GmapsPolyline[] = [];
-    const chipMarkers: GmapsMarker[] = [];
-    const auraTimers: number[] = [];
-    for (let i = 0; i < sortedPins.length - 1; i += 1) {
-      const a = sortedPins[i]!;
+    // per-leg ViewModel (= legKey/from/to/state/displayMode。★距離→mode 推定なし)
+    const legs = sortedPins.slice(0, -1).map((a, i) => {
       const b = sortedPins[i + 1]!;
       const legKey = `${a.anchor.id}__${b.anchor.id}`;
-      const mode = selectedModeByLeg[legKey];
-      const state = resolveLegState(i, focusLegIndex);
-      const displayMode: RouteTransportMode = mode ?? "unknown";
-      // Slice 2b: per-state ガラス質線(body+glow+白芯 / done=丸点線)。線は直線(道路沿いは Tier 3)。
-      const style = getRouteStyleForLeg(state, displayMode);
-      const built = buildGlassyLegLines(maps, map, [a.coord, b.coord], style);
-      for (const ln of built.lines) lines.push(ln);
-      // Slice 2c: current leg の glow 呼吸 + 到着ノード鼓動(aura)。timer/ring は cleanup で破棄。
-      if (shouldAnimateLeg(state) && built.glow) {
-        const aura = createRouteAuraAnimation(maps, map, built.glow, b.coord, style.color);
-        for (const ring of aura.markers) chipMarkers.push(ring);
-        auraTimers.push(aura.timerId);
-      }
+      return {
+        from: a.coord,
+        to: b.coord,
+        legKey,
+        fromTitle: a.anchor.title,
+        toTitle: b.anchor.title,
+        state: resolveLegState(i, focusLegIndex),
+        displayMode: (selectedModeByLeg[legKey] ?? "unknown") as RouteTransportMode,
+      };
+    });
+    let lines: GmapsPolyline[] = [];
+    const chips: GmapsMarker[] = [];
+    const auraMarkers: GmapsMarker[] = [];
+    const auraTimers: number[] = [];
+    let routeCancelled = false;
 
-      // Slice 2a: mode 色つき leg チップ(状態別サイズ)。markers effect から移設(flicker なし・FH 忠実)。
-      const chipState = mapChipStateForLeg(state);
+    // mode チップ (instant・直線中点。後で道路 path 中点へ snap)
+    for (const leg of legs) {
+      const chipState = mapChipStateForLeg(leg.state);
       const px = mobilityChipPx(chipState);
       const chip = new maps.Marker({
         map,
-        position: { lat: (a.coord.lat + b.coord.lat) / 2, lng: (a.coord.lng + b.coord.lng) / 2 },
+        position: legChipPosition([leg.from, leg.to]),
         icon: {
-          url: mobilityLegIconDataUri(displayMode, chipState),
+          url: mobilityLegIconDataUri(leg.displayMode, chipState),
           anchor: new maps.Point(px / 2, px / 2),
         },
         title: "移動手段",
       });
       chip.addListener("click", () =>
-        onLegTapRef.current?.(legKey, a.anchor.title, b.anchor.title),
+        onLegTapRef.current?.(leg.legKey, leg.fromTitle, leg.toTitle),
       );
-      chipMarkers.push(chip);
+      chips.push(chip);
     }
+
+    // (1) instant 直線 glassy fallback (道路解決前/不可でも確実に表示)
+    for (const leg of legs) {
+      const built = buildGlassyLegLines(
+        maps,
+        map,
+        [leg.from, leg.to],
+        getRouteStyleForLeg(leg.state, leg.displayMode),
+      );
+      for (const ln of built.lines) lines.push(ln);
+    }
+
+    // (2) DirectionsService が使えれば 道路 path へ差し替え (flight=弧/未対応=点線、chip snap、current=aura)
+    const service = createDirectionsService(maps);
+    if (service) {
+      void Promise.all(
+        legs.map((leg) => {
+          const apiMode = toApiTravelMode(maps, leg.displayMode);
+          return apiMode === null
+            ? Promise.resolve<GmapsLatLng[] | null>(null)
+            : fetchRoadSegmentPath(service, leg.from, leg.to, apiMode);
+        }),
+      )
+        .then((segmentPaths) => {
+          if (routeCancelled) return;
+          const anyDrawable = legs.some(
+            (leg, i) =>
+              leg.displayMode === "flight" ||
+              (segmentPaths[i] != null && segmentPaths[i]!.length >= 2),
+          );
+          if (!anyDrawable) return;
+          for (const l of lines) l.setMap(null);
+          lines = [];
+          for (const t of auraTimers) clearInterval(t);
+          auraTimers.length = 0;
+          for (const mk of auraMarkers) mk.setMap(null);
+          auraMarkers.length = 0;
+          for (let i = 0; i < legs.length; i += 1) {
+            const leg = legs[i]!;
+            const chip = chips[i];
+            if (leg.displayMode === "flight") {
+              const arc = flightArcPath(leg.from, leg.to);
+              lines.push(buildFlightArcLine(maps, map, arc, ROUTE_MODE_COLORS.flight));
+              if (chip) (chip as GmapsMarkerWithSetPosition).setPosition(arc[Math.floor(arc.length / 2)]!);
+              continue;
+            }
+            const seg = segmentPaths[i];
+            const resolved = seg != null && seg.length >= 2;
+            const legPath = resolved ? seg! : [leg.from, leg.to];
+            const baseStyle = getRouteStyleForLeg(leg.state, leg.displayMode);
+            const style = resolved ? baseStyle : { ...baseStyle, dashed: true };
+            const built = buildGlassyLegLines(maps, map, legPath, style);
+            for (const ln of built.lines) lines.push(ln);
+            if (resolved && shouldAnimateLeg(leg.state) && built.glow) {
+              const aura = createRouteAuraAnimation(maps, map, built.glow, leg.to, style.color);
+              for (const ring of aura.markers) auraMarkers.push(ring);
+              auraTimers.push(aura.timerId);
+            }
+            if (chip) (chip as GmapsMarkerWithSetPosition).setPosition(legChipPosition(legPath));
+          }
+        })
+        .catch(() => {
+          /* fail-open: instant 直線のまま */
+        });
+    }
+
     return () => {
+      routeCancelled = true;
       for (const t of auraTimers) clearInterval(t);
       for (const l of lines) l.setMap(null);
-      for (const c of chipMarkers) c.setMap(null);
+      for (const c of chips) c.setMap(null);
+      for (const mk of auraMarkers) mk.setMap(null);
     };
   }, [pins, selectedModeByLeg]);
 
