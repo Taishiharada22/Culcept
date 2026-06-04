@@ -37,6 +37,11 @@ import type {
   AssistedRowSelection,
   GridCalibration,
 } from "@/lib/plan/shift/assistedRowSelection";
+import { buildImageFingerprint } from "@/lib/plan/shift/assistedRowSelection";
+import {
+  saveAssistedSelection,
+  loadAssistedSelection,
+} from "@/lib/plan/shift/assistedSelectionStorage";
 import { generateAssistedCrops } from "@/lib/plan/shift/assistedCropGenerator";
 import { generateCombinedDraftImage } from "@/lib/plan/shift/combinedDraftImage";
 import { runDraftExtractionSubmit } from "@/lib/plan/shift/runDraftExtractionSubmit";
@@ -170,6 +175,48 @@ export function useShiftDraftFlow(
       prevUrlsRef.current = [];
     };
   }, []);
+
+  // ── S-geo Persist-3: グリッド校正の localStorage 永続化（座標のみ・per-image fingerprint key） ──
+  //   正本は reducer の selection.gridCalibration。**新しい serialize 経路は作らず**、既存 pure 契約
+  //   （toStoredPayload/parseStoredPayload/makeStorageKey）に SSR 安全 IO だけを足した
+  //   assistedSelectionStorage 経由で localStorage に乗せる。raw 画像/base64 は型 + parse で構造排除済。
+  //   - WRITE は onSetGridCalibration の **write-through**（下の callback）で行う
+  //     （cells_loaded 到達時の素の selection を初回 restore より先に上書きする race を避ける）。
+  //   - RESTORE は本 effect（read-only・write しない）。
+  const latestStateRef = useRef(state);
+  useEffect(() => {
+    latestStateRef.current = state;
+  }, [state]);
+  const hydratedFingerprintRef = useRef<string | null>(null);
+
+  // 現 state（cells_loaded）の image fingerprint（imageMeta 由来・画像 byte 不要）。
+  const cellsLoadedFingerprint =
+    state.kind === "cells_loaded"
+      ? buildImageFingerprint({
+          size: state.imageMeta.sizeBytes,
+          imageW: state.imageMeta.width,
+          imageH: state.imageMeta.height,
+          nameTail: state.imageMeta.fileName,
+        })
+      : null;
+
+  // RESTORE: cells_loaded 到達時に **fingerprint ごと 1 回だけ** localStorage から復元を試みる。
+  //   - session 中に既に gridCalibration があれば上書きしない（session 値を尊重）。
+  //   - 再 mount では ref が初期化され、保存済 gridCalibration が復元される（= remount restore）。
+  //   - reset 後の再 hydrate は ref（同 fingerprint）で抑止（古い校正値の復活を防ぐ）。
+  useEffect(() => {
+    if (state.kind !== "cells_loaded" || !cellsLoadedFingerprint) return;
+    if (hydratedFingerprintRef.current === cellsLoadedFingerprint) return;
+    hydratedFingerprintRef.current = cellsLoadedFingerprint;
+    if (state.selection.gridCalibration) return;
+    const stored = loadAssistedSelection(cellsLoadedFingerprint);
+    if (stored?.gridCalibration) {
+      dispatch({
+        type: "set_grid_calibration",
+        gridCalibration: stored.gridCalibration,
+      });
+    }
+  }, [state, cellsLoadedFingerprint]);
 
   // ── handlers ──
   const handleSelectFile = useCallback(async (file: File) => {
@@ -345,8 +392,25 @@ export function useShiftDraftFlow(
     []
   );
   const onSetGridCalibration = useCallback(
-    (gridCalibration: GridCalibration | null) =>
-      dispatch({ type: "set_grid_calibration", gridCalibration }),
+    (gridCalibration: GridCalibration | null) => {
+      dispatch({ type: "set_grid_calibration", gridCalibration });
+      // S-geo Persist-3 write-through: dispatch と同じ入力で localStorage を更新（最新 state を ref から）。
+      //   set(cal): gridCalibration を載せて保存 / reset(null): 外して保存（stored から消える・
+      //   dayColumns/bands は残る）。fingerprint は imageMeta 由来（画像 byte 不要）。
+      const s = latestStateRef.current;
+      if (s.kind !== "cells_loaded") return;
+      const fp = buildImageFingerprint({
+        size: s.imageMeta.sizeBytes,
+        imageW: s.imageMeta.width,
+        imageH: s.imageMeta.height,
+        nameTail: s.imageMeta.fileName,
+      });
+      const { gridCalibration: _drop, ...baseSelection } = s.selection;
+      const nextSelection: AssistedRowSelection = gridCalibration
+        ? { ...baseSelection, gridCalibration, imageFingerprint: fp }
+        : { ...baseSelection, imageFingerprint: fp };
+      saveAssistedSelection(nextSelection, new Date().toISOString());
+    },
     []
   );
 

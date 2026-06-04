@@ -5,7 +5,10 @@ import {
   type ShiftReviewCell,
 } from "@/app/(culcept)/plan/components/ShiftReviewGrid";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
-import { HARADA_SPRIX_JULY_GEOMETRY } from "@/lib/plan/shift/shiftGridGeometry";
+import {
+  HARADA_SPRIX_JULY_GEOMETRY,
+  type ShiftGridGeometry,
+} from "@/lib/plan/shift/shiftGridGeometry";
 import type { GridCalibration } from "@/lib/plan/shift/assistedRowSelection";
 
 // 全 cell kind + blank-risk を網羅する fixture（2025年7月）
@@ -169,7 +172,9 @@ describe("ShiftReviewGrid — S-geo-3-2 SourceCellZoom 配線", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// S-geo Persist-2: controlled グリッド校正パネル（正本 = reducer selection.gridCalibration）
+// S-geo Persist-2/3: controlled 校正パネル + mismatch-aware「校正済」表示
+//   gridCalibration が「存在するだけ」では校正済にしない（CEO 補正 2026-06-05）。
+//   校正済 = effectiveGeometry が calibration 由来を採用（geometry.gridLeft/colWidth が cal 値と一致）。
 const CAL_J: GridCalibration = {
   gridLeft: 260,
   colWidth: 49,
@@ -178,9 +183,19 @@ const CAL_J: GridCalibration = {
   imageH: 846,
   dayCount: 31,
 };
+// resolveEffectiveGeometry が CAL_J を採用したときの geometry（gridLeft/colWidth が CAL_J と一致）。
+const APPLIED_GEOMETRY: ShiftGridGeometry = {
+  imageWidth: 1860,
+  imageHeight: 846,
+  gridLeft: 260,
+  colWidth: 49,
+  cropTop: 298,
+  cropHeight: 52,
+};
 function renderCalib(opts: {
   gridCalibration?: GridCalibration | null;
   withHandler?: boolean;
+  geometry?: ShiftGridGeometry;
 }) {
   return renderToStaticMarkup(
     <ShiftReviewGrid
@@ -190,14 +205,14 @@ function renderCalib(opts: {
       year={2025}
       month={7}
       imageSrc="blob:calib-src"
-      geometry={HARADA_SPRIX_JULY_GEOMETRY}
+      geometry={opts.geometry ?? HARADA_SPRIX_JULY_GEOMETRY}
       gridCalibration={opts.gridCalibration}
       onGridCalibrationChange={opts.withHandler ? () => {} : undefined}
     />
   );
 }
 
-describe("ShiftReviewGrid — Persist-2 controlled 校正パネル", () => {
+describe("ShiftReviewGrid — controlled 校正パネル（描画 + slider）", () => {
   it("geometry → 校正パネル + gridleft/colwidth slider + reset を描画", () => {
     const html = renderCalib({});
     expect(html).toContain('data-testid="shift-review-calibration"');
@@ -217,27 +232,6 @@ describe("ShiftReviewGrid — Persist-2 controlled 校正パネル", () => {
     expect(html).toContain('value="51.5"');
   });
 
-  it("gridCalibration なし → 「自動・未校正」表示 + reset は disabled（handler なし）", () => {
-    const html = renderCalib({});
-    expect(html).toContain("（自動・未校正）");
-    expect(html).not.toContain("（校正済）");
-    expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
-  });
-
-  it("gridCalibration あり + handler → 「校正済」表示 + reset は enabled", () => {
-    const html = renderCalib({ gridCalibration: CAL_J, withHandler: true });
-    expect(html).toContain("（校正済）");
-    expect(html).not.toContain("（自動・未校正）");
-    // reset は活性（disabled 属性が付かない）
-    expect(html).not.toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
-  });
-
-  it("gridCalibration あり + handler なし → reset は disabled（read-only degrade）", () => {
-    const html = renderCalib({ gridCalibration: CAL_J, withHandler: false });
-    expect(html).toContain("（校正済）");
-    expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
-  });
-
   it("geometry なし → 校正パネルは出ない（fail-soft）", () => {
     const html = renderToStaticMarkup(
       <ShiftReviewGrid
@@ -250,5 +244,52 @@ describe("ShiftReviewGrid — Persist-2 controlled 校正パネル", () => {
       />
     );
     expect(html).not.toContain('data-testid="shift-review-calibration"');
+  });
+});
+
+describe("ShiftReviewGrid — Persist-3 mismatch-aware「校正済」表示", () => {
+  it("校正値なし → state=none /「自動・未校正」/ reset disabled（handler なし）", () => {
+    const html = renderCalib({});
+    expect(html).toContain('data-calibration-state="none"');
+    expect(html).toContain("（自動・未校正）");
+    expect(html).not.toContain("（校正済）");
+    expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
+  });
+
+  it("calibration 採用（geometry が cal 値と一致）→ state=applied /「校正済」/ reset enabled", () => {
+    const html = renderCalib({
+      gridCalibration: CAL_J,
+      withHandler: true,
+      geometry: APPLIED_GEOMETRY, // resolveEffectiveGeometry が CAL_J を採用した状態
+    });
+    expect(html).toContain('data-calibration-state="applied"');
+    expect(html).toContain("（校正済）");
+    expect(html).not.toContain("（自動・未校正）");
+    // reset は活性（disabled 属性が付かない）
+    expect(html).not.toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
+  });
+
+  it("mismatch（cal あり・geometry は dayColumns 由来で不一致）→ state=mismatch / 校正済にしない / reset は活性（raw 消せる）", () => {
+    const html = renderCalib({
+      gridCalibration: CAL_J, // 260/49
+      withHandler: true,
+      geometry: HARADA_SPRIX_JULY_GEOMETRY, // 275/51.5（採用されていない）
+    });
+    expect(html).toContain('data-calibration-state="mismatch"');
+    expect(html).not.toContain("（校正済）"); // 誤点灯しない
+    expect(html).toContain("（別の画像/月の校正値・未適用）");
+    // raw calibration は存在するので reset は活性（古い/不一致の校正値を消せる）
+    expect(html).not.toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
+  });
+
+  it("mismatch + handler なし → reset は disabled（read-only degrade・誤点灯もしない）", () => {
+    const html = renderCalib({
+      gridCalibration: CAL_J,
+      withHandler: false,
+      geometry: HARADA_SPRIX_JULY_GEOMETRY,
+    });
+    expect(html).toContain('data-calibration-state="mismatch"');
+    expect(html).not.toContain("（校正済）");
+    expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
   });
 });

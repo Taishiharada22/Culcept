@@ -168,7 +168,18 @@ export function ShiftReviewGrid({
   // S-geo グリッド校正（controlled）: 正本は reducer の selection.gridCalibration（gridCalibration prop で受ける）。
   //   geometry は effectiveGeometry（gridCalibration 整合時はそれ由来 / なければ dayColumns 由来）。
   //   slider は **絶対値**（geometry.gridLeft/colWidth）を編集し、完全な GridCalibration を親へ通知する。
-  const isCalibrated = gridCalibration != null;
+  // 校正値の「存在(raw)」と「実適用(applied)」を分ける（CEO 補正 2026-06-05）。
+  //   hasCalibrationValue: selection に gridCalibration がある（= reset で消せる対象。mismatch でも true）。
+  //   gridCalibrationApplied: effectiveGeometry が calibration 由来を採用した
+  //     （= geometry.gridLeft/colWidth が cal 値と一致 = resolveEffectiveGeometry が現コンテキスト整合で採用）。
+  //     imageW/imageH/dayCount mismatch の校正値は geometry が dayColumns 由来になり applied=false。
+  //   「校正済」表示は applied のみに寄せる（mismatch 値で誤点灯させない）。reset は hasCalibrationValue で開ける。
+  const hasCalibrationValue = gridCalibration != null;
+  const gridCalibrationApplied =
+    gridCalibration != null &&
+    geometry != null &&
+    geometry.gridLeft === gridCalibration.gridLeft &&
+    geometry.colWidth === gridCalibration.colWidth;
   // 部分更新（gridLeft だけ / colWidth だけ）を現 geometry で補完し、誤適用防止 context（imageW/H/dayCount）
   // を埋めた完全形を emit する。calibratedAt は UI 任意・ここでは省略（Date 依存を持ち込まない）。
   const emitCalibration = (next: { gridLeft?: number; colWidth?: number }) => {
@@ -373,7 +384,7 @@ export function ShiftReviewGrid({
               type="button"
               data-testid="shift-review-calibration-reset"
               onClick={() => onGridCalibrationChange?.(null)}
-              disabled={!isCalibrated || !onGridCalibrationChange}
+              disabled={!hasCalibrationValue || !onGridCalibrationChange}
               className="ml-2 shrink-0 rounded-md border border-sky-300 px-1.5 py-0.5 text-[10px] text-sky-700 disabled:opacity-40"
             >
               リセット
@@ -414,10 +425,23 @@ export function ShiftReviewGrid({
               {geometry.colWidth.toFixed(1)}
             </span>
           </label>
-          <p className="mt-0.5 font-mono text-[10px] text-sky-600">
+          <p
+            className="mt-0.5 font-mono text-[10px] text-sky-600"
+            data-calibration-state={
+              gridCalibrationApplied
+                ? "applied"
+                : hasCalibrationValue
+                  ? "mismatch"
+                  : "none"
+            }
+          >
             gridL {geometry.gridLeft.toFixed(0)} · colW {geometry.colWidth.toFixed(1)}
             <span className="ml-1 not-italic text-sky-500">
-              {isCalibrated ? "（校正済）" : "（自動・未校正）"}
+              {gridCalibrationApplied
+                ? "（校正済）"
+                : hasCalibrationValue
+                  ? "（別の画像/月の校正値・未適用）"
+                  : "（自動・未校正）"}
             </span>
           </p>
         </div>
