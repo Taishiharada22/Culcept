@@ -41,6 +41,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-4-1** | **SeedPlacement 変換・判定の土台**: `SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`(active のみ・構造化のみ・raw 不持込・推測なし) + `isPlaceable`(duration 不明→false) + `isTentative`。durationMin 常に null＝実 seed は全て not-placeable。**候補/add op/default duration なし** | ✅ landed |
 | **A1-4-2a** | **fill-only add 最小 generator**(`generateComplete`): SeedPlacement を当日 gap に 1 件 add 候補化。結合条件(isPlaceable ∧ source≠unknown ∧ strong ∧ place ∧ date ∧ gap 一意)。実 seed は候補 0・synthetic duration でだけ候補。clock 非ハードコード(activeWindow/bandBounds は caller 提供)。**未配線・dispatcher 不変** | ✅ landed |
 | **A1-4-2b** | **multi-add 複数配置**(`generateComplete` 拡張): A1-4-2a を厳格に複数 placement へ。全 placement が結合条件 ∧ 各々一意 gap ∧ 配置区間 非競合 のときだけ **単一 CandidateDraft の multi-add**。all-or-nothing(1 つでも不適格/曖昧/不足/競合→全体 null)。実 seed 候補 0・window 分割 synthetic でだけ multi-add。**未配線** | ✅ landed |
+| **A1-4-3a** | **duration enrichment pure seam**(`enrichSeedPlacement`/`enrichSeedPlacements`): PRM/correction/user-confirmed が将来出す `DurationEvidence` で `SeedPlacement.durationMin` を埋める純関数。structured ∧ source 明確 ∧ confidence=high ∧ 範囲内(1分超・1日以下・有限) ∧ seedRef 一致 ∧ 未充足 のときだけ enrich。**PRM 実接続なし・default duration なし・上書きなし**。evidence なし実 seed は null/placeable=false 維持 | ✅ landed |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -207,10 +208,21 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test（`realityCompleteGenerator.test.ts`・既存 19→**27**、+8）: window 分割 synthetic→multi-add(2 op) / 同一 gap 競合→null / 1 つでも unknown-source・skip・tentative・weak→null / 1 つでも曖昧→null / 1 つでも gap 不足→null / multi-add を evaluate+rank で全 safety true・best / 実 seed 複数→候補 0。
 - **しない（A1-4-2b 範囲外）**: pipeline/dispatcher 配線 / RealityInput への seed/placement 搭載 / default duration / 自由文 parse / LLM / PRM 実接続 / Build/Optimize/R1b / move/cascade / sub-gap packing（1 gap に複数）/ UI・DB・runtime・route・PlanClient / barrel / A1-4-2c 以降。
 
+## 4l. A1-4-3a 実装（landed）— duration enrichment pure seam（PRM 実接続なし）
+`lib/plan/reality/seed-placement-enrich.ts`（新規 pure・**barrel 未追加・PRM/runtime 未接続**）。**「PRM をつなぐ」slice ではない** — PRM/correction/user-confirmed が将来出す **structured duration evidence の形**を受け取り `SeedPlacement.durationMin`(A1-4-1 で常に null)を**証拠由来で安全に埋める seam**。
+- **型**: `DurationEvidenceSource`(=`Exclude<DurationSource,"unknown">`=seed_explicit/prm_typical/correction) / `DurationConfidence`(high/low) / `DurationEvidence {seedRef, durationMin, source, confidence}`(raw text なし)。
+- **`enrichSeedPlacement(p, evidence)`**: **全条件を満たす時だけ** `{...p, durationMin, durationSource}`:
+  - evidence あり ∧ **p.durationMin が null**(未充足・**上書きしない**) ∧ **seedRef 一致** ∧ **confidence=high**(弱い→null) ∧ **source 明確**(runtime malformed 防御) ∧ **duration 範囲内**(`1<d≤1440`・NaN/Infinity reject)。いずれか欠けば不変(null 維持)。
+  - **default duration を置かない**・**raw(signal/desiredAction)を読まない**。confidence/grounding/dispositionHint/seedRef は保持。
+- **`enrichSeedPlacements(placements, evidenceMap)`**: seedRef→evidence の Record で各 placement を enrich(無い/弱いものは不変・入力順保持)。
+- **帰結**: 実 seed + evidence なし → durationMin null/placeable=false 維持(候補 0)。**structured evidence あり → durationMin 充足 → placeable=true → generateComplete で実候補**(pure test で実証)。PRM 升級は「PRM→DurationEvidence を生成して enrich を呼ぶ」drop-in。
+- test(`realitySeedPlacementEnrich.test.ts`・**14**): evidence なし→不変 / valid→充足+placeable / low→null / seedRef 不一致→null / source 不正→null / 範囲外·NaN·Infinity·1分以下→null / 境界(2,1440)→採用 / 既存上書きなし / 保持 / 各 source 対応 / plural map / 実 seed evidence なし→候補 0 / **buildSeedPlacements→enrich→generateComplete で実 seed+evidence→実候補**。
+- **しない（A1-4-3a 範囲外）**: PRM 実接続 / DB / runtime・route・UI・PlanClient / RealityInput 搭載 / dispatcher・pipeline 配線 / default duration / raw parse / LLM / A1-4-2c / sub-gap / partial / Build・Optimize・R1b / barrel / A1-4-3b 以降。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-4-2b（multi-add 複数配置・本書 §4k に **landed**）まで完了。次は **A1-4-2c**（sub-gap packing: 1 gap に複数 placement を順序づけ配置・部分配置の許容）か、**pipeline 配線**（RealityInput に raw seed/placement を載せ `generateComplete` を dispatcher へ接続）を CEO 判断で別 GO。A1-4-3+（`enrichSeedPlacement`: PRM 配線で durationMin を埋める）はさらに後。いずれも **現状 NO**。
+A1-4-3a（duration enrichment pure seam・本書 §4l に **landed**）まで完了。実 seed は structured evidence があって初めて durationMin が入り placeable=true→実候補。次は **A1-4-3b**（複数 evidence の優先順位/provenance・estimate(prm_typical)→grounding 弱化 等）か、**A1-4-2c**（sub-gap packing/partial placement）か、**pipeline 配線**（RealityInput→buildSeedPlacements→enrich→generateComplete を dispatcher へ）を CEO 判断で別 GO。**PRM 実接続**（PRM→DurationEvidence 生成）はさらに後。いずれも **現状 NO**。
 A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。
