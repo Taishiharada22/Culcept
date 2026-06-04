@@ -354,7 +354,8 @@ export function AssistedRowSelector({
         className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
         style={{ aspectRatio: imageW > 0 && imageH > 0 ? `${imageW} / ${imageH}` : undefined }}
         onPointerDown={(e) => {
-          // band/handle の click は stopPropagation で除外（ここに来るのは画像空白のみ）
+          // band/handle の click は stopPropagation で除外。ただし dayColumn モード時は
+          // 両帯を pointer-events-none にしているため、ヘッダ上の tap もここに届く（day列中心 capture）。
           if (e.button !== undefined && e.button !== 0) return;
           if (editTarget === "dayColumn") handleDayColumnTap(e.clientX);
           else handleImageTap(e.clientY);
@@ -375,8 +376,8 @@ export function AssistedRowSelector({
             data-testid="assisted-row-header-band"
             data-edit={editTarget === "header" ? "true" : "false"}
             className={`absolute left-0 right-0 border ${BAND_TINT.header} ${
-              editTarget === "header" ? "ring-1 ring-sky-500" : ""
-            }`}
+              editTarget === "dayColumn" ? "pointer-events-none" : ""
+            } ${editTarget === "header" ? "ring-1 ring-sky-500" : ""}`}
             style={overlayStyle(selection.headerBand)}
             onPointerDown={(e) => {
               e.stopPropagation();
@@ -409,8 +410,8 @@ export function AssistedRowSelector({
             data-testid="assisted-row-person-band"
             data-edit={editTarget === "personRow" ? "true" : "false"}
             className={`absolute left-0 right-0 border ${BAND_TINT.personRow} ${
-              editTarget === "personRow" ? "ring-1 ring-violet-500" : ""
-            }`}
+              editTarget === "dayColumn" ? "pointer-events-none" : ""
+            } ${editTarget === "personRow" ? "ring-1 ring-violet-500" : ""}`}
             style={overlayStyle(selection.personRowBand)}
             onPointerDown={(e) => {
               e.stopPropagation();
