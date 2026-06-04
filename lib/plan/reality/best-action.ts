@@ -23,7 +23,8 @@ export type GateKind =
   | "traceability"
   | "reversibility"
   | "whole_part"
-  | "recovery_core";
+  | "recovery_core"
+  | "deadline"; // A1-2-2.5: 保護対象 deadline 破壊を hard reject（score 救済を断つ）
 
 export interface GateResult {
   readonly gate: GateKind;
@@ -56,7 +57,9 @@ export interface BestActionCandidate {
 }
 
 /**
- * 6 つの gate を評価する（pass/fail + 理由）。Gate first の本体。
+ * 7 つの gate を評価する（pass/fail + 理由）。Gate first の本体。
+ * deadline gate（A1-2-2.5）: deadlineSatisfied=false（= 保護対象 deadline 破壊）は hard reject。
+ *   deadlineSatisfied は A1-2-2 の保守的 proxy ゆえ「すべての deadline 問題を完全捕捉」はしない。
  */
 export function evaluateGates(c: BestActionCandidate): GateResult[] {
   const m = c.metrics;
@@ -89,6 +92,11 @@ export function evaluateGates(c: BestActionCandidate): GateResult[] {
       gate: "recovery_core",
       pass: m.recoveryProtected,
       reason: m.recoveryProtected ? undefined : "cuts a protected recovery core",
+    },
+    {
+      gate: "deadline",
+      pass: m.deadlineSatisfied,
+      reason: m.deadlineSatisfied ? undefined : "breaks a protected deadline",
     },
   ];
 }

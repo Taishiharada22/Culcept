@@ -18,7 +18,7 @@ import type { DeliveryMode } from "../receptivity-gate";
 import type { ShadowSummary, RiskLevel } from "./shadow-runner";
 
 const MODES: readonly EngineMode[] = ["build", "complete", "repair", "optimize", "none"];
-const GATES: readonly GateKind[] = ["safety", "permission", "traceability", "reversibility", "whole_part", "recovery_core"];
+const GATES: readonly GateKind[] = ["safety", "permission", "traceability", "reversibility", "whole_part", "recovery_core", "deadline"];
 const RISKS: readonly RiskLevel[] = ["none", "low", "medium", "high"];
 const DELIVERY: readonly (DeliveryMode | "none")[] = ["silent", "on_open", "push", "urgent_push", "permission_prompt", "none"];
 

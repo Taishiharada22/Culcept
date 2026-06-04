@@ -112,8 +112,9 @@ describe("reality/best-action — gates (Gate first)", () => {
     expect(gateFailures(candidate({ metrics: metrics({ recoveryProtected: false }) })).map((g) => g.gate)).toContain("recovery_core");
   });
 
-  it("evaluateGates always returns all 6 gates", () => {
+  it("evaluateGates always returns all 7 gates", () => {
     expect(evaluateGates(candidate()).map((g) => g.gate).sort()).toEqual([
+      "deadline",
       "permission",
       "recovery_core",
       "reversibility",
@@ -121,6 +122,21 @@ describe("reality/best-action — gates (Gate first)", () => {
       "traceability",
       "whole_part",
     ]);
+  });
+
+  it("deadline gate fails when a protected deadline is broken (deadlineSatisfied=false)", () => {
+    expect(gateFailures(candidate({ metrics: metrics({ deadlineSatisfied: false }) })).map((g) => g.gate)).toContain("deadline");
+    // soft/movable（deadlineSatisfied=true）は deadline gate を通過（過剰 reject しない）
+    expect(gateFailures(candidate({ metrics: metrics({ deadlineSatisfied: true }) })).map((g) => g.gate)).not.toContain("deadline");
+  });
+
+  it("rankCandidates: 保護対象 deadline を壊す候補は best にならない（score で救済されない）", () => {
+    // deadline-false だが他は良好で高 score 寄りの候補 vs deadline-true だが低 goal の候補
+    const breaksDeadline = candidate({ id: "breaks", metrics: metrics({ deadlineSatisfied: false, goalAttainment: 1, rhythmFit: 1, slackHealth: 1 }) });
+    const safe = candidate({ id: "safe", metrics: metrics({ deadlineSatisfied: true, goalAttainment: 0.2 }) });
+    const r = rankCandidates([breaksDeadline, safe]);
+    expect(r.best?.candidate.id).toBe("safe"); // 高 score でも deadline 破壊は gate で落ちる
+    expect(r.rejected.map((x) => x.candidate.id)).toContain("breaks");
   });
 });
 

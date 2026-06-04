@@ -32,6 +32,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-1** | 候補生成器の器: `generateCandidates→[]` no-op / `GenerationContext`（dayNode↔anchors.governance join）/ `isTouchableForGeneration`・`isPreservedForGeneration`（authority を *消費*）/ touchable=isRepairTouchable∧非recovery_core, preserved=immovable∪recovery_core | ✅ landed |
 | **A1-2-1** | `CandidateDraft` 型（metrics 持てない）/ `applyChangeSet(nodes,cs)` 最小純関数（atomic・fail-closed・no mutation・raw 不持込） | ✅ landed |
 | **A1-2-2** | `evaluateSafetyMetrics`（feasible/recoveryProtected/deadlineSatisfied/wholePartCoherent を独立・保守的に算出。one-sided conservative・unknown→false） | ✅ landed |
+| **A1-2-2.5** | Deadline Gate Alignment: best-action に独立 `deadline` gate（deadlineSatisfied=false→hard reject）。GateKind を 3 箇所同期 | ✅ landed |
 | A1-2-3 | `evaluateCandidate`（draft→BestActionCandidate・客観 score・主観 default）+ rank 連携 | ⏳ 別 GO |
 | A1-3〜6 | Build / Complete / Repair / Optimize 生成（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
@@ -60,6 +61,19 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
   - `wholePartCoherent` = budget(総時間≤1日) ∧ 日境界 overflow なし
 - **未実装（範囲外）**: score / goalAttainment / rhythmFit / 主観 metric / BestActionCandidate 化 / rank 接続 / mode 生成。
 - test: 非空性（safe→全 true）/ apply 失敗→全 false / recovery_core 触る→false / critical 壊す→false / overlap・zero duration・日境界外→false。
+
+## 4c. A1-2-2.5 実装（landed）— Deadline Gate Alignment
+**発見**: best-action では `deadlineSatisfied` が gate でなく score 項だった ＝ 保護対象 deadline を壊す候補が
+「低 score で候補に残る」状態。秘書 OS として弱い（飛行機/試験/面接/通院予約/支払い系）。
+**対応（案 A・独立 gate）**:
+- `best-action.ts`: `GateKind += "deadline"` ＋ evaluateGates に `deadline` gate（`pass: m.deadlineSatisfied`、
+  reason="breaks a protected deadline"）。**保護対象 deadline 破壊を説明可能な理由つき hard reject**。
+- GateKind 列挙 3 箇所同期: `redaction-guard.GATE_TOKENS` / `dev-report.GATES` / 既存 "all 6 gates" test→7。
+- `deadlineSatisfied` は A1-2-2 の **保守的 proxy** ゆえ「すべての deadline 問題を完全捕捉」はしない
+  （保護対象クラス hard/locked/immovable/critical のみ false。soft/movable は false にしない＝過剰 reject しない）。
+- deadline **score 項は残す**（gate 通過後は定数化・harmless。削除/score 再設計は別フェーズ）。
+- test: deadlineSatisfied=false→deadline gate fail / rankCandidates で deadline 破壊候補は **best にならない**
+  （高 score でも score 救済されない）/ soft/movable update→deadlineSatisfied=true（過剰 reject なし）。
 
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）

@@ -31,7 +31,7 @@ import type { DevReportRedacted } from "./dev-report";
 /** EngineMode */
 const MODE_TOKENS = ["build", "complete", "repair", "optimize", "none"] as const;
 /** GateKind */
-const GATE_TOKENS = ["safety", "permission", "traceability", "reversibility", "whole_part", "recovery_core"] as const;
+const GATE_TOKENS = ["safety", "permission", "traceability", "reversibility", "whole_part", "recovery_core", "deadline"] as const;
 /** RiskLevel */
 const RISK_TOKENS = ["none", "low", "medium", "high"] as const;
 /** DeliveryMode（+ "none" placeholder） */

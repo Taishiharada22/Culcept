@@ -184,6 +184,11 @@ describe("evaluateSafetyMetrics — deadlineSatisfied（critical node を壊す�
     const ctx = ctxFrom([{ id: "c", startMin: 540, endMin: 600, governance: PLAIN, importance: "critical" }]);
     expect(evaluateSafetyMetrics(draft([{ kind: "remove", itemId: "c", before: snap("c", 540, 600) }]), ctx).deadlineSatisfied).toBe(false);
   });
+  it("soft/movable node を update（移動）しても deadlineSatisfied は true（過剰 flag しない）", () => {
+    const ctx = ctxFrom([{ id: "s", startMin: 540, endMin: 600, governance: PLAIN }]); // movable・非 critical
+    const m = evaluateSafetyMetrics(draft([{ kind: "update", itemId: "s", before: snap("s", 540, 600), after: snap("s", 560, 620) }]), ctx);
+    expect(m.deadlineSatisfied).toBe(true); // soft は保護対象でない → deadline 破壊扱いしない
+  });
 });
 
 describe("evaluateSafetyMetrics — feasible / wholePart（幾何・budget 違反 → false）", () => {
