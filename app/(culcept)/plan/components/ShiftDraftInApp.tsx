@@ -318,6 +318,7 @@ export function ShiftDraftInApp({
           cells={modalProps.cells}
           saveEnabled={saveEnabled}
           imageSrc={modalProps.imageSrc}
+          geometry={modalProps.geometry}
           riskReviewEnabled
           chunkBoundaries={modalProps.chunkBoundaries}
           onSuccess={onSaveSucceeded}
