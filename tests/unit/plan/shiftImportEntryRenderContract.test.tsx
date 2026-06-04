@@ -61,3 +61,41 @@ describe("§3 S2: 確認画面（fixture cells・saveEnabled=false）", () => {
     expect(anyCode).toBe(true);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §4 S3A-2-2-1: draftLiveEnabled plumbing（flag + prop chain・live UI はまだ出さない）
+describe("§4 draftLiveEnabled plumbing（live UI 非接続）", () => {
+  it("PLAN_FLAGS.shiftDraftLiveEnabled は default false（commit ガード）", () => {
+    expect(PLAN_FLAGS.shiftDraftLiveEnabled).toBe(false);
+  });
+
+  it("draftLiveEnabled 未指定 → data-draft-live=\"false\"（既定）", () => {
+    const html = renderToStaticMarkup(<ShiftImportEntryInner now={NOW} />);
+    expect(html).toContain('data-draft-live="false"');
+  });
+
+  it("draftLiveEnabled=true → data-draft-live=\"true\"（prop が leaf component まで届く）", () => {
+    const html = renderToStaticMarkup(
+      <ShiftImportEntryInner now={NOW} draftLiveEnabled={true} />
+    );
+    expect(html).toContain('data-draft-live="true"');
+  });
+
+  it("draftLiveEnabled=true でも live UI はまだ出ない（fixture 入口のまま・file input / dev-shift-draft なし）", () => {
+    const htmlLive = renderToStaticMarkup(
+      <ShiftImportEntryInner now={NOW} draftLiveEnabled={true} />
+    );
+    const htmlFixture = renderToStaticMarkup(
+      <ShiftImportEntryInner now={NOW} draftLiveEnabled={false} />
+    );
+    // 入口ボタンは両方で出る（fixture fallback 不変）
+    expect(htmlLive).toContain('data-testid="plan-shift-import-entry"');
+    // live flow（画像選択 file input / dev-shift-draft host）はまだ出さない
+    expect(htmlLive).not.toMatch(/type="file"/i);
+    expect(htmlLive).not.toContain("dev-shift-draft");
+    // data-draft-live 以外は fixture 版と完全同一構造（live UI 差分ゼロ＝plumbing のみ）
+    expect(
+      htmlLive.replace('data-draft-live="true"', 'data-draft-live="false"')
+    ).toBe(htmlFixture);
+  });
+});

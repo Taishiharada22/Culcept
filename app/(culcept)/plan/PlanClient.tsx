@@ -190,11 +190,18 @@ export interface PlanClientProps {
    * 読み取り prop で渡す（PLAN_FLAGS は server-only のため client 直読み不可）。default false。
    */
   composeTimelineEnabled?: boolean;
+  /**
+   * S3A-2-2-1: 在app入口の live VLM 下書き抽出を許可するか。server（plan/page.tsx）が
+   * PLAN_FLAGS.shiftDraftLiveEnabled を読み prop で渡す（server-only flag・client 直読み不可）。
+   * default false。S3A-2-2-1 は plumbing のみ＝この prop で live UI はまだ出さない。
+   */
+  draftLiveEnabled?: boolean;
 }
 
 export default function PlanClient({
   displayMode = "route",
   composeTimelineEnabled = false,
+  draftLiveEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -837,7 +844,7 @@ export default function PlanClient({
             </button>
           )}
           {/* S1: シフト表（画像/PDF）取込 入口。flag OFF（本番既定）なら null = UI 不変。 */}
-          {!isPane && <PlanShiftImportEntry />}
+          {!isPane && <PlanShiftImportEntry draftLiveEnabled={draftLiveEnabled} />}
         </div>
         {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
             固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}

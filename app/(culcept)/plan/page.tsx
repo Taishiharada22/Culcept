@@ -51,7 +51,11 @@ export default async function PlanPage() {
   // 3. Hand-off to client
   //    A-4b: compose flag は server-only（PLAN_FLAGS）。ここで読み取り prop で client に渡す
   //    （homeSwipeEnabled と同方式。client 直読みは不可）。
+  //    S3A-2-2-1: shiftDraftLiveEnabled も同方式（server-only flag → boolean prop）。
   return (
-    <PlanClient composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled} />
+    <PlanClient
+      composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
+      draftLiveEnabled={PLAN_FLAGS.shiftDraftLiveEnabled}
+    />
   );
 }

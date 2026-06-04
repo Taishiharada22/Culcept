@@ -10,6 +10,11 @@
  *   - **cells は fixture 注入**（`buildShiftFixture`）→ **live VLM を発火させない**（S2 段階）。
  *   - **`saveEnabled={false}`** → ShiftImportModal の保存 controller は disabled → **DB write しない**。
  *   - 実 VLM 抽出 / 保存は後段（別 gate: `PLAN_SHIFT_IMPORT_SAVE` / VLM live）で接続する。
+ *
+ * S3A-2-2-1: `draftLiveEnabled` prop を受け取る（server→prop 経由の live VLM gate）。
+ *   **本段は plumbing のみ**＝prop を受けて data 属性に反映するだけで、live UI（ShiftDraftInApp /
+ *   useShiftDraftFlow）はまだ出さない。draftLiveEnabled の値に関わらず fixture fallback で不変。
+ *   live flow 接続は S3A-2-2-2。
  */
 
 import { useMemo, useState } from "react";
@@ -17,7 +22,13 @@ import { useMemo, useState } from "react";
 import { buildShiftFixture } from "@/lib/plan/shift/devFixtureHost";
 import { ShiftImportModal } from "./ShiftImportModal";
 
-export function ShiftImportEntryInner({ now }: { now?: Date }) {
+export function ShiftImportEntryInner({
+  now,
+  draftLiveEnabled = false,
+}: {
+  now?: Date;
+  draftLiveEnabled?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   // 確認画面に流す cells（fixture・live VLM 非依存・deterministic）。now は test 注入可。
   const fixture = useMemo(() => buildShiftFixture(now ?? new Date()), [now]);
@@ -28,6 +39,7 @@ export function ShiftImportEntryInner({ now }: { now?: Date }) {
         type="button"
         onClick={() => setOpen(true)}
         data-testid="plan-shift-import-entry"
+        data-draft-live={draftLiveEnabled ? "true" : "false"}
         aria-label="シフト表（画像・PDF）を取り込む"
         className="text-[10px] px-2 py-1 rounded-md text-indigo-600 hover:text-purple-700 hover:bg-indigo-50 transition-colors inline-flex items-center gap-1.5 font-medium"
       >
