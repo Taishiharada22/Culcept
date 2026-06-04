@@ -11,28 +11,48 @@ import {
   mobilitySquircleDataUri, type RouteTransportMode,
 } from "@/lib/plan/map/routeMode";
 
+export interface LegDurations {
+  walk: number | null;
+  drive: number | null;
+  transit: number | null;
+  bicycle: number | null;
+}
+
 export interface MobilityLegCardProps {
   legKey: string;
   fromTitle: string;
   toTitle: string;
   selectedMode: RouteTransportMode | null;
   recallMode?: RouteTransportMode | null;
+  /** A2: 手段別 所要時間(分・Google Routes)。null=未取得/対象外 */
+  durations?: LegDurations | null;
   readOnly: boolean;
   onSelect: (legKey: string, mode: RouteTransportMode) => void;
   onClose: () => void;
 }
 
 export function MobilityLegCard({
-  legKey, fromTitle, toTitle, selectedMode, recallMode, readOnly, onSelect, onClose,
+  legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose,
 }: MobilityLegCardProps) {
   const chipBg = (mode: RouteTransportMode) => ({
     backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
     backgroundSize: "contain",
   });
 
+  const durationText = (mode: RouteTransportMode): string | null => {
+    if (!durations) return null;
+    let min: number | null = null;
+    if (mode === "walk") min = durations.walk;
+    else if (mode === "car" || mode === "taxi") min = durations.drive;
+    else if (mode === "train" || mode === "bus") min = durations.transit;
+    else if (mode === "bicycle") min = durations.bicycle;
+    return min != null ? `${min}分` : null;
+  };
+
   const modeButton = (mode: RouteTransportMode, limited: boolean) => {
     const active = selectedMode === mode;
     const color = ROUTE_MODE_COLORS[mode];
+    const dt = durationText(mode);
     return (
       <button
         key={mode}
@@ -45,6 +65,7 @@ export function MobilityLegCard({
       >
         <span aria-hidden className="block h-11 w-11 bg-center bg-no-repeat" style={chipBg(mode)} />
         <span className="text-[11px] font-semibold text-slate-700">{MOBILITY_MODE_META[mode].label}</span>
+        {dt && (<span className="text-[10px] font-bold text-slate-500">{dt}</span>)}
         {limited && (<span className="absolute right-1 top-1 rounded-md bg-slate-300 px-1 text-[8px] font-bold tracking-wide text-white">β</span>)}
       </button>
     );

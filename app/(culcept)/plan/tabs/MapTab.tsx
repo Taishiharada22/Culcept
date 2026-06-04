@@ -81,7 +81,7 @@ import type { MapSheetViewModel } from "@/lib/plan/map/types";
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
-import { MobilityLegCard } from "@/components/plan/map/MobilityLegCard";
+import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
 import { legChipDataUri, ROUTE_MODE_COLORS, type RouteTransportMode } from "@/lib/plan/map/routeMode";
 import { loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -288,6 +288,51 @@ export function MapTab({
     return pins;
   }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
 
+  // A2: leg ごとの from/to 座標(時刻順・store/route と同一 legKey)。durations fetch 用。
+  const legCoordsByKey = useMemo(() => {
+    const sorted = [...allPins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    const m: Record<string, { from: GmapsLatLng; to: GmapsLatLng }> = {};
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      const a = sorted[i]!;
+      const b = sorted[i + 1]!;
+      m[`${a.anchor.id}__${b.anchor.id}`] = { from: a.coord, to: b.coord };
+    }
+    return m;
+  }, [allPins]);
+
+  // A2: leg オープン時に手段別 所要時間を取得(flag gated・leg ごと cache・偽数字なし・fail-open)。
+  const [durationsByLeg, setDurationsByLeg] = useState<Record<string, LegDurations>>({});
+  useEffect(() => {
+    if (!openLeg) return;
+    if (process.env.NEXT_PUBLIC_PLAN_LEG_DURATIONS !== "true") return;
+    const key = openLeg.legKey;
+    if (durationsByLeg[key] !== undefined) return;
+    const coords = legCoordsByKey[key];
+    if (!coords) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/plan/leg-durations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ origin: coords.from, destination: coords.to }),
+        });
+        const data = (await res.json()) as { enabled?: boolean; durations?: LegDurations };
+        if (!cancelled && data.enabled && data.durations) {
+          const next = data.durations;
+          setDurationsByLeg((prev) => ({ ...prev, [key]: next }));
+        }
+      } catch {
+        /* fail-open: durations なしで chip のみ */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openLeg, legCoordsByKey, durationsByLeg]);
+
   // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
   const dayItemsForPanel = useMemo<DayItem[]>(() => {
     return [...dayAnchors]
@@ -336,6 +381,7 @@ export function MapTab({
           fromTitle={openLeg.fromTitle}
           toTitle={openLeg.toTitle}
           selectedMode={selectedModeByLeg[openLeg.legKey] ?? null}
+          durations={durationsByLeg[openLeg.legKey] ?? null}
           recallMode={null}
           readOnly={false}
           onSelect={handleLegSelect}
