@@ -44,6 +44,7 @@ import {
   SENSITIVE_LABEL,
   anchorsForDay,
   formatTime,
+  maskedAnchorTitle,
   utcMidnight,
 } from "./_helpers";
 import {
@@ -81,6 +82,12 @@ import type { MapSheetViewModel } from "@/lib/plan/map/types";
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
+import { MobilityLegCard } from "@/components/plan/map/MobilityLegCard";
+import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
+import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
+import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
+import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
   MapSelectedPinLabel,
@@ -152,6 +159,8 @@ export function MapTab({
   // 9 closeout: selectedDate は 「今日」 固定 (= DaySwitcher 削除済み)
   //   将来 day 切替再導入時は新設計で作り直す (= CEO Q3 判定)
   const selectedDate = todayDate;
+  // A5-3: store の永続化キー(YYYY-MM-DD・utcMidnight 由来で安定)
+  const dayKey = selectedDate.toISOString().slice(0, 10);
 
   // ── selectedPinId state (= 旧 newSelectedPinId、 9 closeout で rename) ──
   //   default null = 8 場面表 #1 「初期 selected なし」
@@ -184,6 +193,27 @@ export function MapTab({
   const handleSheetClose = useCallback(() => {
     setSelectedPinId(null);
   }, []);
+
+  // A5-2: leg tap で MobilityLegCard を開く。store/recall/durations は未接続(後 slice)。
+  const [openLeg, setOpenLeg] = useState<{ legKey: string; fromTitle: string; toTitle: string } | null>(null);
+  const handleLegTap = useCallback((legKey: string, fromTitle: string, toTitle: string) => {
+    setSelectedPinId(null);
+    setOpenLeg({ legKey, fromTitle, toTitle });
+  }, []);
+  const handleLegClose = useCallback(() => setOpenLeg(null), []);
+
+  // A5-3: selectedMode を localStorage 永続化(RouteTransportMode・9語)。store を mirror する state。
+  const [selectedModeByLeg, setSelectedModeByLeg] = useState<Record<string, RouteTransportMode>>({});
+  useEffect(() => {
+    setSelectedModeByLeg(loadSelectedModesForDay(dayKey));
+  }, [dayKey]);
+  const handleLegSelect = useCallback(
+    (legKey: string, mode: RouteTransportMode) => {
+      saveSelectedMode(dayKey, legKey, mode);
+      setSelectedModeByLeg((prev) => ({ ...prev, [legKey]: mode }));
+    },
+    [dayKey],
+  );
 
   // ── selected anchor (= sheet/label/CTA 共通参照) ──
   const selectedAnchor = useMemo<ExternalAnchor | null>(() => {
@@ -262,6 +292,94 @@ export function MapTab({
     return pins;
   }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
 
+  // Slice 1 (API不要): 開いた leg の card data — focus 階層 state / readOnly(過去=実績) / recall / sensitive mask。
+  //   FH mobilityCard を NT 構造へ忠実 port。視覚復元(ガラス線/chip/オーラ)は Tier 2。
+  const mobilityCardData = useMemo(() => {
+    if (!openLeg) return null;
+    const sorted = [...allPins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    let idx = -1;
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      if (`${sorted[i]!.anchor.id}__${sorted[i + 1]!.anchor.id}` === openLeg.legKey) {
+        idx = i;
+        break;
+      }
+    }
+    if (idx < 0) return null;
+    const ref = now ?? new Date();
+    const nowMin = ref.getHours() * 60 + ref.getMinutes();
+    const state = resolveLegState(idx, resolveFocusLegIndex(sorted, nowMin));
+    const isDone = state === "done"; // 過去(2個前以前)=編集不可(実績の器)
+    const todaySelected = selectedModeByLeg[openLeg.legKey] ?? null;
+    return {
+      legKey: openLeg.legKey,
+      fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
+      toTitle: maskedAnchorTitle(sorted[idx + 1]!.anchor),
+      readOnly: isDone,
+      // S2-A: 今日未選択 かつ 過去 leg でない時だけ「前回」想起(localStorage 読取のみ・推薦ではない)
+      recallMode:
+        todaySelected || isDone
+          ? null
+          : (loadPriorLegMode(dayKey, openLeg.legKey)?.mode ?? null),
+    };
+  }, [openLeg, allPins, selectedModeByLeg, now, dayKey]);
+
+  // A2: leg ごとの from/to 座標(時刻順・store/route と同一 legKey)。durations fetch 用。
+  const legCoordsByKey = useMemo(() => {
+    const sorted = [...allPins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    const m: Record<string, { from: GmapsLatLng; to: GmapsLatLng }> = {};
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      const a = sorted[i]!;
+      const b = sorted[i + 1]!;
+      m[`${a.anchor.id}__${b.anchor.id}`] = { from: a.coord, to: b.coord };
+    }
+    return m;
+  }, [allPins]);
+
+  // 所要時間/乗換数: leg オープン時に client DirectionsService で 徒歩/車/電車 を取得(leg ごと cache・偽数字なし・fail-open)。
+  const [legDur, setLegDur] = useState<LegDurState | null>(null);
+  const legDurCacheRef = useRef<Map<string, LegDurState>>(new Map());
+  useEffect(() => {
+    if (!openLeg) {
+      setLegDur(null);
+      return;
+    }
+    const key = openLeg.legKey;
+    const cached = legDurCacheRef.current.get(key);
+    if (cached) {
+      setLegDur(cached);
+      return;
+    }
+    const maps = window.google?.maps;
+    const coords = legCoordsByKey[key];
+    const service = maps && coords ? createDirectionsService(maps) : null;
+    if (!maps || !coords || !service) {
+      setLegDur(null);
+      return;
+    }
+    const tmWalk = toApiTravelMode(maps, "walk");
+    const tmCar = toApiTravelMode(maps, "car");
+    const tmTransit = toApiTravelMode(maps, "train");
+    setLegDur({ loading: true, walk: null, drive: null, transit: null });
+    let cancelled = false;
+    void Promise.all([
+      tmWalk ? fetchLegInfo(service, coords.from, coords.to, tmWalk) : Promise.resolve<LegInfo | null>(null),
+      tmCar ? fetchLegInfo(service, coords.from, coords.to, tmCar) : Promise.resolve<LegInfo | null>(null),
+      tmTransit ? fetchLegInfo(service, coords.from, coords.to, tmTransit) : Promise.resolve<LegInfo | null>(null),
+    ]).then(([walk, drive, transit]) => {
+      if (cancelled) return;
+      const result: LegDurState = { loading: false, walk, drive, transit };
+      legDurCacheRef.current.set(key, result);
+      setLegDur(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openLeg, legCoordsByKey]);
+
   // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
   const dayItemsForPanel = useMemo<DayItem[]>(() => {
     return [...dayAnchors]
@@ -291,6 +409,8 @@ export function MapTab({
         apiAvailable={apiAvailable}
         selectedAnchorId={selectedPinId}
         onPinClick={handlePinTap}
+        onLegTap={handleLegTap}
+        selectedModeByLeg={selectedModeByLeg}
         onBackgroundClick={handleSheetClose}
         dayItemsForPanel={dayItemsForPanel}
         onDayItemTap={handleDayItemTap}
@@ -302,6 +422,19 @@ export function MapTab({
         onOpenDetail={onAnchorClick ? handleOpenDetail : undefined}
         routeUrl={routeUrl}
       />
+      {openLeg && mobilityCardData && (
+        <MobilityLegCard
+          legKey={mobilityCardData.legKey}
+          fromTitle={mobilityCardData.fromTitle}
+          toTitle={mobilityCardData.toTitle}
+          selectedMode={selectedModeByLeg[mobilityCardData.legKey] ?? null}
+          durations={legDur}
+          recallMode={mobilityCardData.recallMode}
+          readOnly={mobilityCardData.readOnly}
+          onSelect={handleLegSelect}
+          onClose={handleLegClose}
+        />
+      )}
     </div>
   );
 }
@@ -322,7 +455,9 @@ function PlanMapView({
   loading,
   apiAvailable,
   selectedAnchorId,
+  selectedModeByLeg = {},
   onPinClick,
+  onLegTap,
   onBackgroundClick,
   dayItemsForPanel,
   onDayItemTap,
@@ -334,7 +469,11 @@ function PlanMapView({
   apiAvailable: boolean;
   /** 現在 selected な anchor id (= sheet/label sync key、 9 closeout で rename 済み) */
   selectedAnchorId: string | null;
+  /** A5-3: leg ごとの選択 mode (= route 色づけ用、store mirror) */
+  selectedModeByLeg?: Readonly<Record<string, RouteTransportMode>>;
   onPinClick?: (anchor: ExternalAnchor) => void;
+  /** A5-2: leg(区間)中点の chip tap → 移動手段カードを開く */
+  onLegTap?: (legKey: string, fromTitle: string, toTitle: string) => void;
   /**
    * 9 closeout (= 旧 9a-impl-fix1 carry): background tap → selected 解除 (= 8 場面表 #7)
    *   常に attach (= 単一 path 化済み)、 marker click 別 listener で消費後のみ発火。
@@ -352,6 +491,8 @@ function PlanMapView({
   const mapInstanceRef = useRef<GmapsMap | null>(null);
   const onPinClickRef = useRef(onPinClick);
   onPinClickRef.current = onPinClick;
+  const onLegTapRef = useRef(onLegTap);
+  onLegTapRef.current = onLegTap;
   // 9a-impl-fix1: background click handler ref (= Effect 1 内 listener が prop 変化に追従)
   const onBackgroundClickRef = useRef(onBackgroundClick);
   onBackgroundClickRef.current = onBackgroundClick;
@@ -450,41 +591,6 @@ function PlanMapView({
       map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // ── route polyline (時刻順 pin を dashed 線で connect、CEO mockup 整合) ──
-    //
-    // 設計:
-    //   - sortedPath は anchor.startTime ascending、pin.kind 不問
-    //   - 1 pin 以下は polyline 描画しない
-    //   - dashed style: strokeOpacity=0 で solid 線を隠し、icons で dashed pattern を repeat
-    //   - polyline は pin marker の下層 (z-index 自動、marker が上に重なる)
-    //
-    // 注: baseline pin が混在すると line が baseline 経由になる (= "今日この順で動く" 視覚化)。
-    // CEO 補正「予定→pin guarantee」 整合: baseline pin も日程の一部として line に含める。
-    const sortedPins = [...pins].sort((a, b) =>
-      a.anchor.startTime.localeCompare(b.anchor.startTime),
-    );
-    let polyline: GmapsPolyline | null = null;
-    if (sortedPins.length >= 2 && !isSamePointCluster(sortedPins.map((p) => p.coord))) {
-      polyline = new maps.Polyline({
-        map,
-        path: sortedPins.map((p) => p.coord),
-        strokeOpacity: 0, // solid 線を隠す
-        strokeColor: "#94a3b8", // slate-400 (subtle)
-        icons: [
-          {
-            icon: {
-              path: "M 0,-1 0,1", // 1px の縦線
-              strokeOpacity: 0.8,
-              strokeColor: "#94a3b8",
-              scale: 3,
-            },
-            offset: "0",
-            repeat: "12px", // 12px 毎に縦線を打つ → dashed 風
-          },
-        ],
-      });
-    }
-
     // 9 closeout cleanup: orderById Map / markerSpec 削除済み
     //   - orderById: 旧 marker.label "1·09:00" 形式 用、 9 closeout で marker.label 不使用化により dead
     //   - markerSpec: 旧 CIRCLE marker (MAP_CATEGORY_MARKER / MAP_SENSITIVE_MARKER) 用、 涙型 SVG 単一 path 化により dead
@@ -541,11 +647,140 @@ function PlanMapView({
     }
 
     return () => {
-      // pin / baseline / selected 変化で markers + polyline 破棄、Map instance は keep alive
+      // pin / baseline / selected 変化で markers 破棄、Map instance は keep alive
       for (const m of markers) m.setMap(null);
-      polyline?.setMap(null);
     };
   }, [pins, baselineCoords, selectedAnchorId]);
+
+  // ── Effect: route 描画 (per-leg ガラス質線 + mode チップ + aura)。Slice 2/3。 ──
+  //   markers effect から分離 → mode 選択で pin を再生成せず route だけ再描画(flicker なし)。
+  //   進捗: instant 直線 glassy → DirectionsService で道路 path へ差し替え(flight=弧/未対応=点線、chip を path 中点へ snap、current=aura)。
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const maps = window.google?.maps;
+    if (!maps) return;
+    const sortedPins = [...pins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    if (sortedPins.length < 2 || isSamePointCluster(sortedPins.map((p) => p.coord))) return;
+    const now = new Date();
+    const focusLegIndex = resolveFocusLegIndex(
+      sortedPins,
+      now.getHours() * 60 + now.getMinutes(),
+    );
+    // per-leg ViewModel (= legKey/from/to/state/displayMode。★距離→mode 推定なし)
+    const legs = sortedPins.slice(0, -1).map((a, i) => {
+      const b = sortedPins[i + 1]!;
+      const legKey = `${a.anchor.id}__${b.anchor.id}`;
+      return {
+        from: a.coord,
+        to: b.coord,
+        legKey,
+        fromTitle: a.anchor.title,
+        toTitle: b.anchor.title,
+        state: resolveLegState(i, focusLegIndex),
+        displayMode: (selectedModeByLeg[legKey] ?? "unknown") as RouteTransportMode,
+      };
+    });
+    let lines: GmapsPolyline[] = [];
+    const chips: GmapsMarker[] = [];
+    const auraMarkers: GmapsMarker[] = [];
+    const auraTimers: number[] = [];
+    let routeCancelled = false;
+
+    // mode チップ (instant・直線中点。後で道路 path 中点へ snap)
+    for (const leg of legs) {
+      const chipState = mapChipStateForLeg(leg.state);
+      const px = mobilityChipPx(chipState);
+      const chip = new maps.Marker({
+        map,
+        position: legChipPosition([leg.from, leg.to]),
+        icon: {
+          url: mobilityLegIconDataUri(leg.displayMode, chipState),
+          anchor: new maps.Point(px / 2, px / 2),
+        },
+        title: "移動手段",
+      });
+      chip.addListener("click", () =>
+        onLegTapRef.current?.(leg.legKey, leg.fromTitle, leg.toTitle),
+      );
+      chips.push(chip);
+    }
+
+    // (1) instant 直線 glassy fallback (道路解決前/不可でも確実に表示)
+    for (const leg of legs) {
+      const built = buildGlassyLegLines(
+        maps,
+        map,
+        [leg.from, leg.to],
+        getRouteStyleForLeg(leg.state, leg.displayMode),
+      );
+      for (const ln of built.lines) lines.push(ln);
+    }
+
+    // (2) DirectionsService が使えれば 道路 path へ差し替え (flight=弧/未対応=点線、chip snap、current=aura)
+    const service = createDirectionsService(maps);
+    if (service) {
+      void Promise.all(
+        legs.map((leg) => {
+          const apiMode = toApiTravelMode(maps, leg.displayMode);
+          return apiMode === null
+            ? Promise.resolve<GmapsLatLng[] | null>(null)
+            : fetchRoadSegmentPath(service, leg.from, leg.to, apiMode);
+        }),
+      )
+        .then((segmentPaths) => {
+          if (routeCancelled) return;
+          const anyDrawable = legs.some(
+            (leg, i) =>
+              leg.displayMode === "flight" ||
+              (segmentPaths[i] != null && segmentPaths[i]!.length >= 2),
+          );
+          if (!anyDrawable) return;
+          for (const l of lines) l.setMap(null);
+          lines = [];
+          for (const t of auraTimers) clearInterval(t);
+          auraTimers.length = 0;
+          for (const mk of auraMarkers) mk.setMap(null);
+          auraMarkers.length = 0;
+          for (let i = 0; i < legs.length; i += 1) {
+            const leg = legs[i]!;
+            const chip = chips[i];
+            if (leg.displayMode === "flight") {
+              const arc = flightArcPath(leg.from, leg.to);
+              lines.push(buildFlightArcLine(maps, map, arc, ROUTE_MODE_COLORS.flight));
+              if (chip) (chip as GmapsMarkerWithSetPosition).setPosition(arc[Math.floor(arc.length / 2)]!);
+              continue;
+            }
+            const seg = segmentPaths[i];
+            const resolved = seg != null && seg.length >= 2;
+            const legPath = resolved ? seg! : [leg.from, leg.to];
+            const baseStyle = getRouteStyleForLeg(leg.state, leg.displayMode);
+            const style = resolved ? baseStyle : { ...baseStyle, dashed: true };
+            const built = buildGlassyLegLines(maps, map, legPath, style);
+            for (const ln of built.lines) lines.push(ln);
+            if (resolved && shouldAnimateLeg(leg.state) && built.glow) {
+              const aura = createRouteAuraAnimation(maps, map, built.glow, leg.to, style.color);
+              for (const ring of aura.markers) auraMarkers.push(ring);
+              auraTimers.push(aura.timerId);
+            }
+            if (chip) (chip as GmapsMarkerWithSetPosition).setPosition(legChipPosition(legPath));
+          }
+        })
+        .catch(() => {
+          /* fail-open: instant 直線のまま */
+        });
+    }
+
+    return () => {
+      routeCancelled = true;
+      for (const t of auraTimers) clearInterval(t);
+      for (const l of lines) l.setMap(null);
+      for (const c of chips) c.setMap(null);
+      for (const mk of auraMarkers) mk.setMap(null);
+    };
+  }, [pins, selectedModeByLeg]);
 
   // ─── Effect 3 (9b-2): pin screen position 計算 (= MapSelectedPinLabel spatial binding 用) ───
   //   selectedAnchorId 変化 + bounds_changed event で再計算、 setState で label に流す。

@@ -462,6 +462,16 @@ export const SENSITIVE_LABEL: Record<AnchorSensitiveCategory, string> = {
   other: "敏感",
 };
 
+/** anchor title の sensitive マスク (= sensitiveCategory があれば `[ラベル]`、無ければ生 title)。生 sensitive 情報を漏らさない。 */
+export function maskedAnchorTitle(anchor: {
+  sensitiveCategory?: AnchorSensitiveCategory | null;
+  title: string;
+}): string {
+  return anchor.sensitiveCategory
+    ? `[${SENSITIVE_LABEL[anchor.sensitiveCategory]}]`
+    : anchor.title;
+}
+
 export function formatJpDate(d: Date): string {
   const m = d.getUTCMonth() + 1;
   const day = d.getUTCDate();
