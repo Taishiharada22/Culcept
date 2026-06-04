@@ -148,6 +148,8 @@ export function ShiftReviewGrid({
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const highlightDay = hoveredDay ?? selectedDay;
+  // S3A-2-4: 原稿（元画像）インライン照合の開閉。既定=閉（確認画面を重くしない）。
+  const [showSource, setShowSource] = useState(false);
 
   // 空の日（コード無し）= 原画像で詰められた日。highlight/crop の列写像で空をスキップ
   const blankDays = useMemo(
@@ -332,6 +334,54 @@ export function ShiftReviewGrid({
           highlightDay={highlightDay}
           blankDays={blankDays}
         />
+      )}
+
+      {/* S3A-2-4: 原稿（元画像）インライン照合。imageSrc がある時だけ（fixture 経路は無→非表示）。
+          geometry 不要の簡易照合（別ウィンドウ不要で並べて目視）。折りたたみ初期=閉。
+          ObjectURL lifecycle は呼出側 hook の責務（ここで生成/revoke せず src を表示するだけ）。
+          collapse は CSS（hidden）で img は DOM 常在（ObjectURL は in-memory・render contract 固定用）。 */}
+      {imageSrc && (
+        <div data-testid="shift-review-source-section" className="mt-3">
+          <button
+            type="button"
+            data-testid="shift-review-source-toggle"
+            onClick={() => setShowSource((v) => !v)}
+            aria-expanded={showSource}
+            className="flex w-full items-center justify-between rounded-xl border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-[12px] font-medium text-sky-800 transition hover:bg-sky-50"
+          >
+            <span className="flex items-center gap-1.5">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="2" />
+                <path d="m3 16 5-5 4 4 3-3 6 6" stroke="currentColor" strokeWidth="2" />
+              </svg>
+              原稿を表示して照合
+            </span>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden="true"
+              className={`transition-transform ${showSource ? "rotate-180" : ""}`}
+            >
+              <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+          <div
+            data-testid="shift-review-source-body"
+            className={showSource ? "mt-2" : "hidden"}
+          >
+            <img
+              data-testid="shift-review-source-image"
+              src={imageSrc}
+              alt="取り込んだ原稿（シフト表）"
+              className="max-h-[50vh] w-full rounded-xl border border-slate-200 bg-white object-contain"
+            />
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
+              原稿と上のセルを見比べて、コード・曜日・空欄をご確認ください。
+            </p>
+          </div>
+        </div>
       )}
 
       {/* SR B1b-2B: draft risk hints（原稿照合の補助）。hard=保存前解消必須 / soft=確認おすすめ。

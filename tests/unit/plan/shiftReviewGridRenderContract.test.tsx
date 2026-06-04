@@ -83,3 +83,56 @@ describe("ShiftReviewGrid（カレンダー型 source-of-truth cell review）", 
     expect(html).not.toContain('data-testid="shift-review-sheet"');
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// S3A-2-4: 原稿（元画像）インライン照合トグル
+const SOURCE_SENTINEL = "blob:s3a24-source-sentinel";
+function renderWithImage(imageSrc?: string) {
+  return renderToStaticMarkup(
+    <ShiftReviewGrid
+      cells={FIXTURE}
+      dictionary={HARADA_SPRIX_DICTIONARY}
+      monthLabel="2025年7月"
+      year={2025}
+      month={7}
+      imageSrc={imageSrc}
+    />
+  );
+}
+
+describe("ShiftReviewGrid — S3A-2-4 原稿インライン照合", () => {
+  it("imageSrc が無い時は原稿照合セクションが出ない（fixture 経路に影響しない）", () => {
+    const html = render(); // imageSrc 未指定
+    expect(html).not.toContain('data-testid="shift-review-source-section"');
+    expect(html).not.toContain('data-testid="shift-review-source-toggle"');
+    expect(html).not.toContain('data-testid="shift-review-source-image"');
+  });
+
+  it("imageSrc がある時は「原稿を表示」トグルが出る", () => {
+    const html = renderWithImage(SOURCE_SENTINEL);
+    expect(html).toContain('data-testid="shift-review-source-section"');
+    expect(html).toContain('data-testid="shift-review-source-toggle"');
+    expect(html).toContain("原稿を表示して照合");
+  });
+
+  it("img の src に imageSrc が渡る（折りたたみ初期=閉・body は hidden・img は DOM 常在）", () => {
+    const html = renderWithImage(SOURCE_SENTINEL);
+    expect(html).toContain('data-testid="shift-review-source-image"');
+    expect(html).toContain(`src="${SOURCE_SENTINEL}"`);
+    // 初期は閉（body に hidden class）
+    expect(html).toMatch(
+      /data-testid="shift-review-source-body"[^>]*class="hidden"/
+    );
+  });
+
+  it("geometry 無しでも照合トグルは出る（geometry 不要の簡易照合）", () => {
+    // geometry を渡さない → SourceImageHighlight（geometry 依存）は出ないが、原稿トグルは出る
+    const html = renderWithImage(SOURCE_SENTINEL);
+    expect(html).toContain('data-testid="shift-review-source-toggle"');
+  });
+
+  it("imageSrc があっても保存 CTA は変わらず disabled（saveEnabled 未指定）", () => {
+    const html = renderWithImage(SOURCE_SENTINEL);
+    expect(html).toMatch(/shift-review-save"[^>]*disabled/);
+  });
+});
