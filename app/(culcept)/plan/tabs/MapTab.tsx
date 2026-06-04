@@ -82,10 +82,10 @@ import type { MapSheetViewModel } from "@/lib/plan/map/types";
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
-import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
+import { MobilityLegCard } from "@/components/plan/map/MobilityLegCard";
 import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
 import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
-import { createDirectionsService, fetchRoadSegmentPath, flightArcPath, toApiTravelMode } from "@/lib/plan/map/directionsService";
+import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -339,36 +339,46 @@ export function MapTab({
     return m;
   }, [allPins]);
 
-  // A2: leg オープン時に手段別 所要時間を取得(flag gated・leg ごと cache・偽数字なし・fail-open)。
-  const [durationsByLeg, setDurationsByLeg] = useState<Record<string, LegDurations>>({});
+  // 所要時間/乗換数: leg オープン時に client DirectionsService で 徒歩/車/電車 を取得(leg ごと cache・偽数字なし・fail-open)。
+  const [legDur, setLegDur] = useState<LegDurState | null>(null);
+  const legDurCacheRef = useRef<Map<string, LegDurState>>(new Map());
   useEffect(() => {
-    if (!openLeg) return;
-    if (process.env.NEXT_PUBLIC_PLAN_LEG_DURATIONS !== "true") return;
+    if (!openLeg) {
+      setLegDur(null);
+      return;
+    }
     const key = openLeg.legKey;
-    if (durationsByLeg[key] !== undefined) return;
+    const cached = legDurCacheRef.current.get(key);
+    if (cached) {
+      setLegDur(cached);
+      return;
+    }
+    const maps = window.google?.maps;
     const coords = legCoordsByKey[key];
-    if (!coords) return;
+    const service = maps && coords ? createDirectionsService(maps) : null;
+    if (!maps || !coords || !service) {
+      setLegDur(null);
+      return;
+    }
+    const tmWalk = toApiTravelMode(maps, "walk");
+    const tmCar = toApiTravelMode(maps, "car");
+    const tmTransit = toApiTravelMode(maps, "train");
+    setLegDur({ loading: true, walk: null, drive: null, transit: null });
     let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/plan/leg-durations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ origin: coords.from, destination: coords.to }),
-        });
-        const data = (await res.json()) as { enabled?: boolean; durations?: LegDurations };
-        if (!cancelled && data.enabled && data.durations) {
-          const next = data.durations;
-          setDurationsByLeg((prev) => ({ ...prev, [key]: next }));
-        }
-      } catch {
-        /* fail-open: durations なしで chip のみ */
-      }
-    })();
+    void Promise.all([
+      tmWalk ? fetchLegInfo(service, coords.from, coords.to, tmWalk) : Promise.resolve<LegInfo | null>(null),
+      tmCar ? fetchLegInfo(service, coords.from, coords.to, tmCar) : Promise.resolve<LegInfo | null>(null),
+      tmTransit ? fetchLegInfo(service, coords.from, coords.to, tmTransit) : Promise.resolve<LegInfo | null>(null),
+    ]).then(([walk, drive, transit]) => {
+      if (cancelled) return;
+      const result: LegDurState = { loading: false, walk, drive, transit };
+      legDurCacheRef.current.set(key, result);
+      setLegDur(result);
+    });
     return () => {
       cancelled = true;
     };
-  }, [openLeg, legCoordsByKey, durationsByLeg]);
+  }, [openLeg, legCoordsByKey]);
 
   // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
   const dayItemsForPanel = useMemo<DayItem[]>(() => {
@@ -418,7 +428,7 @@ export function MapTab({
           fromTitle={mobilityCardData.fromTitle}
           toTitle={mobilityCardData.toTitle}
           selectedMode={selectedModeByLeg[mobilityCardData.legKey] ?? null}
-          durations={durationsByLeg[mobilityCardData.legKey] ?? null}
+          durations={legDur}
           recallMode={mobilityCardData.recallMode}
           readOnly={mobilityCardData.readOnly}
           onSelect={handleLegSelect}

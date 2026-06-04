@@ -1,22 +1,15 @@
 "use client";
 
 /**
- * components/plan/map/MobilityLegCard.tsx — leg tap で開く移動手段カード (FH から復元移植・A5-1)
- * A5-1: mode chips / squircle / label / active色 / recall「前回」表示の器を復元。
- *   durations(per-mode 所要時間比較) は本 slice では持たない(後 slice / A2 Google)。偽数字・距離→mode 推定なし。
- *   本 component は単体。MapTab 配線=A5-2 / store(A3)・recall(A4)接続=A5-3/A5-4。
+ * components/plan/map/MobilityLegCard.tsx — leg tap で開く移動手段カード (FH から忠実復元)。
+ * mode chips(squircle/active色) / recall「前回」/ readOnly(過去=実績) / 所要時間「目安」パネル(乗換数)。
+ *   ★推薦しない・偽数字なし(取れなければ「—」)・距離→mode 推定なし。
  */
 import {
   ROUTE_MODE_COLORS, MOBILITY_MAIN_MODES, MOBILITY_LIMITED_MODES, MOBILITY_MODE_META,
   mobilitySquircleDataUri, type RouteTransportMode,
 } from "@/lib/plan/map/routeMode";
-
-export interface LegDurations {
-  walk: number | null;
-  drive: number | null;
-  transit: number | null;
-  bicycle: number | null;
-}
+import type { LegDurState, LegInfo } from "@/lib/plan/map/directionsService";
 
 export interface MobilityLegCardProps {
   legKey: string;
@@ -24,8 +17,8 @@ export interface MobilityLegCardProps {
   toTitle: string;
   selectedMode: RouteTransportMode | null;
   recallMode?: RouteTransportMode | null;
-  /** A2: 手段別 所要時間(分・Google Routes)。null=未取得/対象外 */
-  durations?: LegDurations | null;
+  /** 所要時間/乗換数 (= client DirectionsService の実測。推薦せず判断材料・偽数字なし) */
+  durations?: LegDurState | null;
   readOnly: boolean;
   onSelect: (legKey: string, mode: RouteTransportMode) => void;
   onClose: () => void;
@@ -39,20 +32,25 @@ export function MobilityLegCard({
     backgroundSize: "contain",
   });
 
-  const durationText = (mode: RouteTransportMode): string | null => {
-    if (!durations) return null;
-    let min: number | null = null;
-    if (mode === "walk") min = durations.walk;
-    else if (mode === "car" || mode === "taxi") min = durations.drive;
-    else if (mode === "train" || mode === "bus") min = durations.transit;
-    else if (mode === "bicycle") min = durations.bicycle;
-    return min != null ? `${min}分` : null;
-  };
+  const durLine = (label: string, info: LegInfo | null, isTransit = false) => (
+    <div className="flex items-baseline justify-between text-sm">
+      <span className="text-slate-600">{label}</span>
+      {info ? (
+        <span className="font-bold text-slate-900">
+          {info.minutes}分
+          {isTransit && info.transfers != null ? (
+            <span className="ml-1 text-[11px] font-medium text-slate-400">乗換{info.transfers}回</span>
+          ) : null}
+        </span>
+      ) : (
+        <span className="text-xs text-slate-400">—</span>
+      )}
+    </div>
+  );
 
   const modeButton = (mode: RouteTransportMode, limited: boolean) => {
     const active = selectedMode === mode;
     const color = ROUTE_MODE_COLORS[mode];
-    const dt = durationText(mode);
     return (
       <button
         key={mode}
@@ -65,7 +63,6 @@ export function MobilityLegCard({
       >
         <span aria-hidden className="block h-11 w-11 bg-center bg-no-repeat" style={chipBg(mode)} />
         <span className="text-[11px] font-semibold text-slate-700">{MOBILITY_MODE_META[mode].label}</span>
-        {dt && (<span className="text-[10px] font-bold text-slate-500">{dt}</span>)}
         {limited && (<span className="absolute right-1 top-1 rounded-md bg-slate-300 px-1 text-[8px] font-bold tracking-wide text-white">β</span>)}
       </button>
     );
@@ -80,6 +77,22 @@ export function MobilityLegCard({
           </p>
           <button type="button" onClick={onClose} aria-label="閉じる" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200">✕</button>
         </div>
+        {durations && (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">
+            <div className="text-[11px] font-bold tracking-wide text-slate-500">この区間の移動・所要時間の目安</div>
+            {durations.loading ? (
+              <p className="mt-2 text-xs text-slate-400">所要時間を計算中…</p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {durLine("徒歩", durations.walk)}
+                {durLine("車・タクシー", durations.drive)}
+                {durLine("電車・バス", durations.transit, true)}
+                <p className="pt-1 text-[10px] text-slate-400">自転車・飛行機・新幹線は経路目安なし（未対応）</p>
+              </div>
+            )}
+            <p className="mt-1.5 text-[10px] text-slate-400">Google の実測目安。おすすめではなく判断材料です。</p>
+          </div>
+        )}
         {!readOnly && recallMode && (
           <button type="button" onClick={() => onSelect(legKey, recallMode)} className="mt-3 flex w-full items-center gap-2.5 rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-left transition hover:bg-slate-100">
             <span aria-hidden className="block h-9 w-9 shrink-0 bg-center bg-no-repeat" style={chipBg(recallMode)} />
