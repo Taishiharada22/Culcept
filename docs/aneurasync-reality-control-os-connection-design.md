@@ -303,19 +303,21 @@ A1-5-3a（`lib/plan/reality/duration-evidence-adapter.ts`・新規・pure・**ba
 **1. 推奨 schema（design proposal・未 migration・未 apply）**:
 ```sql
 -- ⚠ DESIGN DRAFT ONLY — migration ファイルではない・apply しない。
+-- plan_seeds に composite FK 参照先要件: UNIQUE(id, user_id) を additive ALTER（id は PK ゆえ常に充足・冪等）
 CREATE TABLE IF NOT EXISTS plan_seed_duration_evidences (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  seed_id UUID NOT NULL REFERENCES plan_seeds(id) ON DELETE CASCADE,        -- seed lifecycle に従属（seed 削除→cascade）
-  duration_min INTEGER NOT NULL CHECK (duration_min >= 1 AND duration_min <= 1440),  -- sane 範囲（採用は enrich が >1 で stricter）
+  user_id UUID NOT NULL,                                                    -- owner（composite FK 経由で plan_seeds→auth.users）
+  seed_id UUID NOT NULL,                                                    -- owner integrity は composite FK で担保（補正2）
+  duration_min INTEGER NOT NULL CHECK (duration_min > 1 AND duration_min <= 1440),  -- 補正1: enrich isValidEvidenceDuration と一致（1<分<=1440）
   source TEXT NOT NULL CHECK (source IN ('seed_explicit', 'correction', 'prm_typical')),  -- DurationEvidenceSource
   confidence TEXT NOT NULL CHECK (confidence IN ('high', 'low')),           -- DurationConfidence
-  source_ref TEXT,                                                          -- opaque 参照（chat msg id / correction event id 等・raw 本文でない）
+  source_ref TEXT,                                                          -- opaque 参照（raw 本文でない・read allowed columns 非搭載）
   observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),                           -- evidence 観測/算出時刻
   expires_at TIMESTAMPTZ,                                                   -- retention
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (seed_id, source)                                                  -- source ごとに「現在の有効 evidence」1 行（新観測は upsert で置換）
+  UNIQUE (seed_id, source),                                                 -- source ごと「現在の有効 evidence」1 行（upsert 置換）
+  FOREIGN KEY (seed_id, user_id) REFERENCES plan_seeds(id, user_id) ON DELETE CASCADE  -- 補正2: owner integrity を DB 制約で担保
 );
 -- index (user_id, seed_id) 主検索 / partial (user_id, expires_at) WHERE expires_at IS NOT NULL 失効 sweep
 -- updated_at trigger（plan_seeds と同型）/ RLS ENABLE + owner-only 4 policy（auth.uid()=user_id・service_role 非前提）
@@ -340,4 +342,16 @@ CREATE TABLE IF NOT EXISTS plan_seed_duration_evidences (
 
 **10. write path（design・未実装・A1-5-4+）**: seed_explicit=capture 時に user 明示 duration を INSERT（raw signal は capture で構造化後 **破棄**）/ prm_typical=capture 時 typicalDuration(signal)→evidence（弱）/ correction=runtime の placed seed 編集観測→evidence。各 write は **user-RLS（service_role でない）**・`UNIQUE(seed_id, source)` で upsert。
 
-> A1-5-0…§8.12 / **A1-5-3b DurationEvidence 永続 store 設計（landed・§8.13・doc-only・migration 0・apply 0・plan_seeds に duration 列を足さない独立 store・raw 列なし・owner-only RLS・UNIQUE(seed_id,source)）**。次は A1-5-3b-1（migration draft + static test・別 GO）→ A1-5-3b-2（staging apply・別 GO）/ A1-5-4（seed capture・write・要強い GO）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
+### 8.14 A1-5-3b-1 実装（landed）— plan_seed_duration_evidences migration draft（**未 apply**・CEO 2 補正反映）
+
+A1-5-3b-1（`supabase/migrations/20260605110000_plan_seed_duration_evidences.sql`・新規・**draft / 未 apply**）:
+- **§8.13 設計を migration draft 化** + **CEO 2 補正**を反映:
+  - **補正1**: `duration_min` CHECK を **`> 1 AND <= 1440`**（`>=1` でなく enrich `isValidEvidenceDuration` と一致・un-adoptable 値を store しない）。
+  - **補正2（owner integrity）**: **composite FK `(seed_id, user_id) REFERENCES plan_seeds(id, user_id) ON DELETE CASCADE`** で evidence.user_id≡seed.owner を **DB 制約**で強制（「自分 user_id で他人 seed 参照」を不能化）。そのため plan_seeds に **`UNIQUE(id, user_id)` を additive ALTER**（id は PK ゆえ常に充足・冪等 DO block）。
+- structured-only（raw 列なし）/ source_ref opaque（read allowed columns 非搭載）/ `UNIQUE(seed_id, source)` / index `(user_id,seed_id)` + 失効 partial / updated_at trigger / RLS owner-only 4 policy（auth.uid()=user_id・**service_role 非前提**）。
+- **plan_seeds（apply 済）に additive な UNIQUE 制約を ALTER で追加**する点に留意（id は PK ゆえ常に充足・非破壊）。apply は別 GO（A1-5-3b-2）。
+- test(`realityPlanSeedDurationEvidencesMigration.test.ts`・**15**・static/schema): raw 列不在 / structured / duration_min `>1`(≠`>=1`) / source·confidence CHECK / UNIQUE(seed_id,source) / composite FK + plan_seeds UNIQUE(id,user_id) / RLS enabled・owner-only ×4・service_role なし / 追加のみ / trigger / source_ref opaque 固定（docs）。
+- **apply / db push / reset / SQL Editor / DB read·write 0**。実 read / Supabase client / DB source factory なし。
+- **しない（A1-5-3b-1 範囲外）**: migration apply / DB read·write / seed capture / PRM·correction 実接続 / runtime·UI / RealityInput 搭載 / raw parse / default duration / evidence read source / barrel export / A1-5-4。
+
+> A1-5-0…§8.13（store 設計）/ **A1-5-3b-1 plan_seed_duration_evidences migration draft（landed・§8.14・未 apply・duration_min>1・composite FK owner integrity・raw 列なし・owner-only RLS・15 static tests）**。次は A1-5-3b-2（staging apply・別 GO・A1-5-2-2-2b 同手順・**plan_seeds への additive ALTER 含む**）/ A1-5-4（seed capture・write・要強い GO）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
