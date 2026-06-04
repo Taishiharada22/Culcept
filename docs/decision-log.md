@@ -15646,3 +15646,13 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 [2026-06-03] [Product] UX gap 検出（本流接続前の必須課題）— /plan は今日±7日 window 中心で、過去/未来月への navigation と月 grid view が不足している。シフト取り込み pipeline は staging E2E PASS したが、取り込んだ月全体をユーザーが確認・把握する view が不足。SR Step 5/6 や本流入口接続前に、月切替 + 月 grid view 設計が必要。[記録: Build/Product]
 
 ---
+
+## SR S-save 帯（在app入口→保存 productization・2026-06-04）
+
+[2026-06-04] [Build] S-save-2 saveEnabled server→prop dormant 配線 — `PLAN_SHIFT_IMPORT_SAVE`（server-only）を page.tsx で読み saveEnabled prop として PlanClient→PlanShiftImportEntry→ShiftImportEntryInner→ShiftDraftInApp→ShiftImportModal へ配線。default false で dormant（保存ボタン無効・action 未呼出）。fixture fallback は false 固定（偽セル非保存）。client は flag 直読みしない。62 PASS / tsc 1112 / commit `21069426`。flag ON は未実施。[承認: CEO]
+
+[2026-06-04] [Build] S-save-1A payload CHECK-mirror contract test — 保存 payload が DB CHECK に「app 側で先に弾かれる」ことを fakeRpc（DB 非接触）で固定。rigidity は projection に無く adapter `buildShiftImportPlan` が既定 `"hard"` 注入・`CreateOneOffAnchorInput` で必須・RPC payload に載る。不正 rigidity/kind/空 label/off_request+公休 → validator が RPC 前に reject（RPC 未到達）。54 PASS / tsc 1112 / commit `da2d6aca`。[承認: CEO/GPT]
+
+[2026-06-04] [Build] S-save-1B-exec staging schema probe（read-only）— Dashboard SQL Editor で staging（`hjcr…wc`・production `alja…hl` 不一致を目視）の schema 実体を SELECT のみで確認。`plan_day_indicators`=true / `external_anchor_sources_source_type_check` に `shift_image` あり / `import_shift_roster`=true（signature `p_user_id uuid, p_range_start date, p_range_end date, p_source jsonb, p_anchors jsonb, p_indicators jsonb → jsonb` が migration `20260531100000` と完全一致）/ `external_anchors` rigidity CHECK あり / RLS 有効 / policy 4 種。**Case 2 = staging 適用済**（migration `20260530100000` + `20260531100000`）と判定。整合: 2026-06-03 の staging DB-write E2E PASS 時に適用済みと推定（probe が正本）。よって **S-save-1C dry-run / S-save-1D migration apply は skip**、本 probe が **1E 確認相当を兼ねる**。次は S-save-3（staging save smoke）readiness。DB write なし・migration apply なし・production 非接触。[承認: CEO/GPT（Case 2 受理・apply skip）]
+
+---

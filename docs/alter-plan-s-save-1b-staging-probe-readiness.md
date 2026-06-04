@@ -126,8 +126,34 @@ ROLLBACK;  -- 何も変えずに閉じる
 
 ```
 S-save-1A: payload CHECK-mirror contract / test   ← 完了（da2d6aca）
-S-save-1B: staging link / schema probe readiness  ← 本書（probe 未実行）
-S-save-1C: dry-run（supabase db push --dry-run）   ← §7 条件成立後・CEO GO
-S-save-1D: migration apply（CEO 個別 GO 後）
-S-save-1E: apply 後 確認 SQL（§3 を適用後にも流す）
+S-save-1B: staging link / schema probe readiness  ← 本書
+S-save-1C: dry-run（supabase db push --dry-run）   ← skip（§10 Case 2）
+S-save-1D: migration apply（CEO 個別 GO 後）         ← skip（§10 Case 2）
+S-save-1E: apply 後 確認 SQL                          ← 本 probe が兼ねる（§10）
 ```
+
+---
+
+## 10. 実行結果（2026-06-04・Dashboard SQL Editor / CEO 実行）
+
+Probe A（1 行 summary）+ Probe B2（signature）を CEO が staging Dashboard で実行。結果:
+
+| 確認項目 | 結果 |
+|---------|------|
+| transport | Supabase Dashboard SQL Editor（CEO・psql 非接続） |
+| staging 目視 | `hjcr…wc`（production `alja…hl` 不一致） |
+| `has_plan_day_indicators` | **true** |
+| `source_type_has_shift_image` | **true** |
+| `has_import_shift_roster` | **true** |
+| RPC signature | `p_user_id uuid, p_range_start date, p_range_end date, p_source jsonb, p_anchors jsonb, p_indicators jsonb → jsonb`（migration `20260531100000` と完全一致） |
+| `has_external_anchors_rigidity_check` | **true** |
+| `plan_day_indicators_rls_enabled` | **true** |
+| `plan_day_indicators_policy_count` | **4** |
+
+**判定 = Case 2（staging 適用済）**。migration `20260530100000` + `20260531100000` は既に staging に正しく実在。
+
+- 整合: 2026-06-03 の staging DB-write E2E PASS（combined 2025/6・30 行 atomic 保存・CEO 照合・cleanup 済）時に適用されたものと推定。probe が正本。
+- 含意: `plan_day_indicators` の composite FK 実在 → `external_anchor_sources(id,user_id)` UNIQUE も実在（FK 前提）。
+- 帰結: **S-save-1C dry-run / S-save-1D migration apply は skip**。本 probe が **1E 確認相当**を兼ねる。
+- 次: **S-save-3 readiness**（staging save smoke）。実保存はまだしない。
+- 任意の補助確認（保存 smoke の前で可・必須でない）: `external_anchors` rigidity CHECK の値が `('hard','soft')` か read-only SELECT で確認（S-save-3 readiness に記載）。
