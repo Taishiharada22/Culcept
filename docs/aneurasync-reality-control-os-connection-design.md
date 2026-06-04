@@ -295,4 +295,49 @@ A1-5-3a（`lib/plan/reality/duration-evidence-adapter.ts`・新規・pure・**ba
 - tsc: 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114 は無関係な既存ファイル）。reality **480 tests** PASS（enrich +export 回帰なし）。
 - **しない（A1-5-3a 範囲外）**: PRM/correction 実接続 / seed capture / DB read·write / INSERT·UPDATE·DELETE / runtime·route·UI·PlanClient / RealityInput 搭載 / generateCandidates 実配線 / default duration / raw parse / plan_seed_sources / evidence store migration / A1-5-4 / barrel export。
 
-> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / A1-5-2-2-0+2-1（§8.9）/ A1-5-2-2-2a runbook（§8.10）/ A1-5-2-2-2b apply + A1-5-2-2-2c read seam（§8.11）/ **A1-5-3a DurationEvidence adapter/assembler（landed・§8.12・pure・seed_explicit/correction→candidateCount>0 を fixture 実証・prm_typical→weak→0 安全床・barrel 非 export）**。次は A1-5-4（seed capture: write 境界・raw 分離・DB write・要強い GO）/ A1-5-3b（DurationEvidence 永続 store 設計）を各別 GO。candidateCount>0 の実 staging 発火には capture（seed 実在）+ strong-grounding evidence が要る。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
+### 8.13 A1-5-3b 設計（doc-only）— DurationEvidence 永続 store（plan_seed_duration_evidences）
+
+> **設計のみ。migration / table 作成 / DB apply / DB read·write はしない**（A1-5-3b-1 で migration draft）。duration の置き場を確定し、capture/PRM/correction/runtime 接続前に**永続境界と RLS**を固定する。
+> **結論**: duration は **plan_seeds に列を足さず**、seedRef 別・source 別・confidence 別・priority 解決可能な**独立 store** `plan_seed_duration_evidences` に置く。
+
+**1. 推奨 schema（design proposal・未 migration・未 apply）**:
+```sql
+-- ⚠ DESIGN DRAFT ONLY — migration ファイルではない・apply しない。
+CREATE TABLE IF NOT EXISTS plan_seed_duration_evidences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  seed_id UUID NOT NULL REFERENCES plan_seeds(id) ON DELETE CASCADE,        -- seed lifecycle に従属（seed 削除→cascade）
+  duration_min INTEGER NOT NULL CHECK (duration_min >= 1 AND duration_min <= 1440),  -- sane 範囲（採用は enrich が >1 で stricter）
+  source TEXT NOT NULL CHECK (source IN ('seed_explicit', 'correction', 'prm_typical')),  -- DurationEvidenceSource
+  confidence TEXT NOT NULL CHECK (confidence IN ('high', 'low')),           -- DurationConfidence
+  source_ref TEXT,                                                          -- opaque 参照（chat msg id / correction event id 等・raw 本文でない）
+  observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),                           -- evidence 観測/算出時刻
+  expires_at TIMESTAMPTZ,                                                   -- retention
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (seed_id, source)                                                  -- source ごとに「現在の有効 evidence」1 行（新観測は upsert で置換）
+);
+-- index (user_id, seed_id) 主検索 / partial (user_id, expires_at) WHERE expires_at IS NOT NULL 失効 sweep
+-- updated_at trigger（plan_seeds と同型）/ RLS ENABLE + owner-only 4 policy（auth.uid()=user_id・service_role 非前提）
+```
+**raw 列なし**（signal/desired_action/raw_text/title/location 不在）。plan_seeds migration（A1-5-2-2-1）の規約を踏襲。
+
+**2. plan_seeds と同 table に duration を置かない理由**: ① 1 seed→N evidence（複数 source）を単一列で表せない ② priority 解決（seed_explicit>correction>prm_typical）に複数行が要る ③ same-priority conflict 検出 ④ provenance（source/confidence 別）⑤ correction の時系列 ⑥ **prm_typical の弱推定を seed 同一性から分離**（grounding weak を混ぜない）。→ plan_seeds は **structured-only・duration-free のまま不変**（migration 設計意図を保持・plan_seeds 改変なし）。
+
+**3. raw 禁止**: structured 列のみ（duration_min/source/confidence/seed_id/user_id/timestamps）。`source_ref` は **opaque**（不透明 ID・raw 本文でない）。**read path の allowed columns に source_ref を載せない**（DurationEvidence は `{seedRef,durationMin,source,confidence}` のみ・source_ref は audit 専用）→ Complete projection 到達不能。
+
+**4. source 別 priority / conflict**: priority `seed_explicit(3) > correction(2) > prm_typical(1)`（enrich `DURATION_SOURCE_PRIORITY` と一致）。grounding: seed_explicit/correction=strong 維持→候補化可 / **prm_typical=weak→候補化しない（安全床）**。**`UNIQUE(seed_id, source)`** で同 source は 1 行（新観測 upsert で置換）→ seed_explicit「やっぱり 90 分」の stale 同 priority 衝突を構造的に防ぐ。enrich の `same_priority_conflict`（→ no enrich・保守）は defense-in-depth として残す。correction 履歴学習が要れば別 append-only log（本 store 範囲外・将来）。
+
+**5. RLS**: owner-only（`auth.uid() = user_id`・select/insert/update/delete 各 policy）・**service_role 非前提**。seed_id FK（plan_seeds も owner-only）と二重防御。
+
+**6. retention / expiry**: prm_typical=短命（弱推定・typicalDuration から再算出可・seed 失効 or 短 TTL で expire）/ correction=長命（明示 feedback）/ seed_explicit=seed 寿命に従属。seed DELETE→FK CASCADE で evidence 削除。consumed/rejected/expired seed の evidence は失効 sweep（cron・将来）で prune（`expires_at` + partial index）。
+
+**7. indexes / constraints**: index `(user_id, seed_id)` / partial `(user_id, expires_at) WHERE expires_at IS NOT NULL`。CHECK: source / confidence / duration range。**UNIQUE(seed_id, source)**。updated_at trigger。
+
+**8. migration 案（A1-5-3b-1・最小範囲・未実装）**: 単一追加 migration `<ts>_plan_seed_duration_evidences.sql`（`CREATE TABLE IF NOT EXISTS` + indexes + CHECK + UNIQUE + updated_at trigger + RLS ENABLE + owner-only 4 policy・raw 列なし・DROP なし）+ static/schema test（A1-5-2-2-1 と同型）。**apply は別 GO**（A1-5-3b-2・staging・A1-5-2-2-2b 同手順）。
+
+**9. read path（design）**: A1-5-2-1/2-2-2c を踏襲。`ALLOWED_EVIDENCE_COLUMNS = [id, user_id, seed_id, duration_min, source, confidence]`（**source_ref/raw を select しない**）・`createColumnRestrictedEvidenceSource(client, bounds)`（user_id + seed_id 群 + limit clamp）→ row→DurationEvidence → A1-5-3a `assembleDurationEvidenceMap`/enrich へ。column restriction で source_ref を pipeline に持ち込まない。
+
+**10. write path（design・未実装・A1-5-4+）**: seed_explicit=capture 時に user 明示 duration を INSERT（raw signal は capture で構造化後 **破棄**）/ prm_typical=capture 時 typicalDuration(signal)→evidence（弱）/ correction=runtime の placed seed 編集観測→evidence。各 write は **user-RLS（service_role でない）**・`UNIQUE(seed_id, source)` で upsert。
+
+> A1-5-0…§8.12 / **A1-5-3b DurationEvidence 永続 store 設計（landed・§8.13・doc-only・migration 0・apply 0・plan_seeds に duration 列を足さない独立 store・raw 列なし・owner-only RLS・UNIQUE(seed_id,source)）**。次は A1-5-3b-1（migration draft + static test・別 GO）→ A1-5-3b-2（staging apply・別 GO）/ A1-5-4（seed capture・write・要強い GO）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
