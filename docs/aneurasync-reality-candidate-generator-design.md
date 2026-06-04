@@ -37,6 +37,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-2-4a** | `overpack` のみ算出（過密 penalty・一方向・保守・util>0.7 のみ・unknown→0）。slackHealth/contextSwitches は defer | ✅ landed |
 | **A1-3-R1a** | Repair overlap **trim-only**（earlier=lower-priority=touchable の end を B.start へ短縮・最大1件・update op 1・no move/add/remove/cascade） | ✅ landed |
 | **A1-3-R1a-2a** | Repair trim-only **coverage expansion**（多重 overlap を all-or-nothing で全解消する 1 件の multi-op・trim 対象は明確に lower-priority/more-flexible な earlier のみ） | ✅ landed |
+| **A1-4-0** | **Seed Placement Context / Complete prerequisite（design only）**: Complete を阻むのは placement 入力の不在。Gap-1(`PlanSeed` に duration 無)・Gap-2(`seedTraces` は lossy reduction)。`SeedPlacement`(構造化・redacted・自由文なし)＋`durationMin:number\|null` 第一級値→no candidate＋duration source(PRM seam)。型/実装は A1-4-1 以降 | 📐 設計のみ（実装別 GO） |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -125,9 +126,53 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - move/cascade/reschedule/add/remove なし。preserved/protected/later は不変。R1a（単一 overlap）は N=1 の特殊例として subsume。
 - test: 連鎖（A<B<C flexibility 降順）→2-op / 重要度逆転→no candidate(CEO 例) / all-or-nothing→no candidate / pipeline 全解消→feasible で best。
 
+## 4h. A1-4-0 設計（design only・実装は別 GO）— Seed Placement Context / Complete prerequisite
+> 記録: 2026-06-05 / **本節は設計記録のみ。型/実装は未着手**（A1-4-1 以降で別 GO）。read-only 接地に基づく。
+
+**中核診断**: Complete を阻むのは「生成器不足」ではなく **placement 入力の不在**。2 gap に分離（+ gap でない 1 つ）:
+- **Gap-1（データモデル）**: `PlanSeed`（`lib/plan/plan-seed.ts` L37–66）に **duration / hard earliest-latest / place / 明示 priority・flexibility が無い**。placement に使える構造化フィールドは `desiredDate`(YYYY-MM-DD) / `desiredTimeHint`(morning/afternoon/evening/anytime・**ソフト帯**) / `actionShape`(8 判断形・**非 duration**) / `confidence` / `status`(active のみ配置可) のみ。
+- **Gap-2（reduction 損失）**: 生成器が見る `RealityInput.seedTraces` は `seedToSourceTrace`（`input-adapter.ts` L138–143,207）の **lossy reduction**。`{kind,ref,reason(自由文),confidence}` のみ残し **date/timeHint/actionShape/status を捨てる**。SourceTrace は監査 primitive であって placement primitive でない。Repair が placement 不要だったのは既存ノードの start/end を*修正*するだけだから。Complete は seed から*新規生成*するため when+duration が要る。
+- **gap でない**: `add` op は既存（`change-set.ts` L34/53/124・`applyChangeSet` `case "add"`・safety は add を正しく扱う L224/232・instability は add 除外 L250）。Complete の追加基盤は揃っている＝change-set 拡張不要。
+
+**方針**: Gap-2 を埋める **`SeedPlacement`**（構造化・redacted・自由文なし）を `PlanSeed` から直接（reduction 前に）導出し、Gap-1（duration）は **不明=第一級値→no candidate** で安全保留、PRM 供給で後から埋める seam を今切る。
+
+**型スケッチ（design only・未実装）**:
+- `SeedPlacement { seedRef; date?; window?:TimeWindow; durationMin:number|null; durationSource:"seed_explicit"|"prm_typical"|"correction"|"unknown"; dispositionHint?:"place"|"tentative"|"skip"; confidence; placementGrounding:"strong"|"weak" }`。
+- `TimeWindow` = `desiredTimeHint` 由来の **ソフト帯**（hard earliest/latest にしない・clock 数値は day active window/PRM 由来でハードコードしない）。
+- `DurationSource` = duration の provenance。**`durationMin:null`=不明を第一級値**（magic 定数を置かない）。
+- priority/flexibility は seed 新フィールドにせず **生成ノードの governance** で表現（origin=alter_generated / authority=advisory / flexibility=movable・弱なら tentative）。place は省略（時間のみ配置）。`actionShape` は disposition ヒントのみ（skip/defer→置かない/tentative）で duration には使わない。
+
+**raw text 不持込**: placement の全判断（date/window/duration/disposition/grounding）は enum/数値/日付のみ読む。`signal`/`desiredAction` は `SeedPlacement` から排除。ユーザー向け「なぜ」は `SourceTrace.reason`（display 専用・出力段 redaction-guard 済）に分離。＝placement 判断（構造化）と display 理由（自由文・集約時 redacted）を二系統に切る。
+
+**duration 方針**: **sourced であって assumed でない**。実ソース（seed_explicit / prm_typical / correction）が無い限り `durationMin=null` → no candidate。**今日は PRM 未接続ゆえ default duration は不可**＝Complete 最小は概ね no-op（捏造より誠実・PRM 接続の forcing function。既知状態でありバグでない）。
+
+**no candidate（推測しない・fail-closed）**: `status≠active` / `durationMin=null` / 配置先未定（date 無 ∧ timeHint 無/anytime ∧ PRM 既定日無）/ 選んだ日・帯の空き枠に入らない（既存/preserved を動かさず）/ 構造矛盾（過去日等）。1 つでも該当で候補を出さない。
+
+**弱根拠→tentative/on-open/no-push**: `confidence<0.5`（isWeaklyGrounded 類比）∨ durationSource=unknown ∨ date+window 両欠落 → tentative（`proposedDisposition="confirm"`・push しない）。ただし **duration 不明は tentative でなく no candidate**（tentative は「置けるが根拠が柔らかい」時のみ）。
+
+**Complete 最小の invariant（安全契約・実装時にテスト化）**:
+- INV-A 無捏造: `durationMin=null ⇒ no candidate`
+- INV-B 無 raw: `SeedPlacement` に自由文無し / 生成ノードに raw title 無し（snapshotToNode 規律再利用）
+- INV-C fill-only: 空き時間占有のみ・既存を move/trim/remove しない・**重複 add は feasible gate が自動棄却**（生成側も品質のため隙間 pre-check）
+- INV-D 聖域保全: preserved/recovery_core/anchored 窓へ置かない（`isPreservedForGeneration` 再利用）
+- INV-E 最弱: 生成ノード=advisory/movable・弱なら tentative・locked/critical/protected 禁止
+- INV-F status gate: `active` のみ適格
+- INV-G evaluator 主権: `CandidateDraft`（metrics 無し）を出し既存 evaluator+gate が判定（**add は instability=0**→feasible/whole_part/overpack で評価）
+
+**fixture（Complete 実装時に用意）**: active+date+window+explicit-duration（配置可）/ duration 無（→no candidate）/ date 無+window 無（→no candidate）/ 弱 confidence（→tentative）/ 非 active（→除外）/ raw text 有（→`SeedPlacement` から排除を assert）/ day 文脈（空日 / 充分な隙間あり / 隙間無→no candidate / recovery_core·anchored 窓→埋めない）。
+
+**PRM/correction 後接続（seam のみ・配線は別 slice）**: 将来 `enrichSeedPlacement(placement, prm, corrections)` が `durationMin` を埋め（durationSource=prm_typical/correction）window を締め PRM 保護窓を off-limits 化。`durationMin:number|null`＋`durationSource` が型変更なしの差込口（`prm-event.ts` 既存）。A1-4-0 は seam のみ設計し PRM 配線はしない。
+
+**A1-4-1 以降の分割案**:
+- **A1-4-1**: `SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`（純粋・構造化のみ・raw 排除）+ 単体テスト。**runtime 未接続・barrel 未追加**。
+- **A1-4-2**: `generateComplete`（fill-only `add`・`durationMin=null⇒no candidate`・INV-C/D/E/F）+ テスト。
+- **A1-4-3+**: `enrichSeedPlacement`（PRM 配線）。
+- **分離**: Build（多 seed から日構築）/ Optimize（feasible 日の品質改善・slackHealth 等が要る）/ R1b（move/cascade Repair）とは別トラック。A1-4-0 はこれらに触れない。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
+A1-4-0（Seed Placement Context・本書 §4h に記録済・**design only**）の次は **A1-4-1**（`SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`・純粋・未接続・テスト付）を別 GO で判断。
 A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。
