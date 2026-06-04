@@ -40,6 +40,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-4-0** | **Seed Placement Context / Complete prerequisite（design only）**: Complete を阻むのは placement 入力の不在。Gap-1(`PlanSeed` に duration 無)・Gap-2(`seedTraces` は lossy reduction)。`SeedPlacement`(構造化・redacted・自由文なし)＋`durationMin:number\|null` 第一級値→no candidate＋duration source(PRM seam)。型/実装は A1-4-1 以降 | 📐 設計のみ（実装別 GO） |
 | **A1-4-1** | **SeedPlacement 変換・判定の土台**: `SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`(active のみ・構造化のみ・raw 不持込・推測なし) + `isPlaceable`(duration 不明→false) + `isTentative`。durationMin 常に null＝実 seed は全て not-placeable。**候補/add op/default duration なし** | ✅ landed |
 | **A1-4-2a** | **fill-only add 最小 generator**(`generateComplete`): SeedPlacement を当日 gap に 1 件 add 候補化。結合条件(isPlaceable ∧ source≠unknown ∧ strong ∧ place ∧ date ∧ gap 一意)。実 seed は候補 0・synthetic duration でだけ候補。clock 非ハードコード(activeWindow/bandBounds は caller 提供)。**未配線・dispatcher 不変** | ✅ landed |
+| **A1-4-2b** | **multi-add 複数配置**(`generateComplete` 拡張): A1-4-2a を厳格に複数 placement へ。全 placement が結合条件 ∧ 各々一意 gap ∧ 配置区間 非競合 のときだけ **単一 CandidateDraft の multi-add**。all-or-nothing(1 つでも不適格/曖昧/不足/競合→全体 null)。実 seed 候補 0・window 分割 synthetic でだけ multi-add。**未配線** | ✅ landed |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -196,10 +197,20 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test（`tests/unit/realityCompleteGenerator.test.ts`・**19**）: 実 seed→候補 0 / synthetic→add 1(gap 先頭) / 結合条件 5(unknown/weak/tentative/skip/duration≤0) / date 照合 3 / gap 一意性 3 / window 2(bounds 無→null・有→配置) / 多重→null / raw なし / **evaluate+rank で全 safety true・best**。
 - **しない（A1-4-2a 範囲外）**: pipeline/dispatcher 配線 / default duration / 自由文 parse / LLM / PRM 実接続 / Build/Optimize/R1b / move/cascade / 多重配置 / UI・DB・runtime・route・PlanClient / barrel。
 
+## 4k. A1-4-2b 実装（landed）— multi-add 複数配置（generateComplete 拡張・厳格 all-or-nothing）
+`complete-generator.ts` の `generateComplete` を A1-4-2a（1 placement・1 gap）→ **厳格な複数 placement** に拡張。**未配線・barrel 未追加**は維持。
+- **all-or-nothing**: **全** placement が結合条件（isPlaceable ∧ durationSource≠unknown ∧ grounding=strong ∧ dispositionHint=place ∧ date 照合）を満たし、**各々が一意 compatible gap** に入り、**配置区間が競合しない**ときだけ候補。**1 つでも不適格/曖昧/不足/競合があれば全体 null**。
+- **出力**: **単一 CandidateDraft**・changeSet は **multi-add**（placement ごとに add op 1・各 op は add のみ・metrics なし）。生成 item は raw text なし・governance=alter_generated/proposed/movable/tentative。
+- **競合判定**: 「同一 gap」だけでなく **配置区間の重なり**で検出（region 重複時も feasible を保証）。
+- **数理的制約（独立分析）**: 「各 placement が*ちょうど 1 つ*の compatible gap」を保つと、**window 制約なしに 2 placement が別々の一意 gap を持つことは不可能**（大きい gap は小さい placement も収容＝曖昧）。よって非自明な multi-add は **window で region 分割**された placement のときだけ成立 ＝ 曖昧・推測配置をしない方針と一致。
+- **A1-4-2a を subsume**: N=1 は従来通り。既存 A1-4-2a test は不変で通る（「複数→null」は同一 gap 競合で依然 null）。
+- test（`realityCompleteGenerator.test.ts`・既存 19→**27**、+8）: window 分割 synthetic→multi-add(2 op) / 同一 gap 競合→null / 1 つでも unknown-source・skip・tentative・weak→null / 1 つでも曖昧→null / 1 つでも gap 不足→null / multi-add を evaluate+rank で全 safety true・best / 実 seed 複数→候補 0。
+- **しない（A1-4-2b 範囲外）**: pipeline/dispatcher 配線 / RealityInput への seed/placement 搭載 / default duration / 自由文 parse / LLM / PRM 実接続 / Build/Optimize/R1b / move/cascade / sub-gap packing（1 gap に複数）/ UI・DB・runtime・route・PlanClient / barrel / A1-4-2c 以降。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-4-2a（fill-only add 最小 generator・本書 §4j に **landed**）まで完了。次は **A1-4-2b**（多重配置: 複数 eligible placement を順序づけて複数 add・gap 競合解決）か、**pipeline 配線**（RealityInput に raw seed/placement を載せ `generateComplete` を dispatcher へ接続）を CEO 判断で別 GO。A1-4-3+（`enrichSeedPlacement`: PRM 配線で durationMin を埋める）はさらに後。いずれも **現状 NO**。
+A1-4-2b（multi-add 複数配置・本書 §4k に **landed**）まで完了。次は **A1-4-2c**（sub-gap packing: 1 gap に複数 placement を順序づけ配置・部分配置の許容）か、**pipeline 配線**（RealityInput に raw seed/placement を載せ `generateComplete` を dispatcher へ接続）を CEO 判断で別 GO。A1-4-3+（`enrichSeedPlacement`: PRM 配線で durationMin を埋める）はさらに後。いずれも **現状 NO**。
 A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。

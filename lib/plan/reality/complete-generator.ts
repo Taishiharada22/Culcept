@@ -3,8 +3,9 @@
  *
  * 親設計: docs/aneurasync-reality-candidate-generator-design.md §4h/§4i（A1-4-0/A1-4-1）
  *
- * 役割: A1-4-1 の `SeedPlacement`（配置可能材料）を **当日の空き時間(gap)に 1 件だけ add する
- *   Complete 候補（CandidateDraft）** に変換できるかの **最小土台**。Complete 本体ではない。
+ * 役割: A1-4-1 の `SeedPlacement`（配置可能材料）を **当日の空き時間(gap)に add する
+ *   Complete 候補（CandidateDraft）** に変換する generator（A1-4-2a=1 件 / A1-4-2b=厳格に複数 add）。
+ *   Complete 本体ではない。
  *
  * 【重要な拘束（CEO 明示）】:
  *   `isPlaceable` は「duration が既知か」だけの判定で「置いてよい」ではない。**isPlaceable 単独で
@@ -16,7 +17,8 @@
  *   - 実 seed は duration が無い（durationMin=null）→ isPlaceable=false → 候補 0（捏造の床を維持）。
  *   - **default duration を付与しない**・**raw text(signal/desiredAction)を読まない**（SeedPlacement のみ使用）。
  *   - **clock 数値をハードコードしない**: active window / band→clock は caller 提供（無ければ no candidate）。
- *   - gap が一意のときだけ配置（複数 gap=曖昧・不足=置けない→ no candidate）。多重配置は A1-4-2b へ defer。
+ *   - 各 placement は一意 gap のときだけ配置（複数 gap=曖昧・不足=置けない・競合=配置区間の重なり→ no candidate）。
+ *     **all-or-nothing**（1 つでも不適格/曖昧/不足/競合があれば全体 null）。多重配置は window 分割で曖昧なく成立。
  *   - 生成物は metrics を持たない `CandidateDraft`。安全性は evaluator + Gate-first が独立判定する。
  *
  * 制約: 純関数のみ。LLM / PRM 実接続 / DB / UI / route / runtime / dispatcher 配線なし。barrel 未追加。
@@ -131,61 +133,83 @@ function freeGaps(region: Interval, busy: readonly Interval[]): Interval[] {
 }
 
 /**
- * A1-4-2a: SeedPlacement[] → **fill-only add candidate**（最小 generator・Complete mode）。
+ * A1-4-2b: SeedPlacement[] → **fill-only multi-add candidate**（Complete mode・複数配置対応）。
+ *
+ * A1-4-2a（1 placement・1 gap）を **厳格条件つきで複数 placement** に拡張。曖昧な割当・競合・
+ *   推測配置はしない（**all-or-nothing**: 1 つでも不適格/曖昧/不足/競合があれば全体 no candidate）。
  *
  * 手順:
- *   1. **結合条件**で候補対象を絞る（isCandidateEligible）。**ちょうど 1 件**のときだけ進む
- *      （0=候補なし / >1=多重配置は曖昧・A1-4-2b へ defer）。
- *   2. window を region に解決（banded で bounds 無→no candidate・clock を推測しない）。
- *   3. region 内 free gap のうち duration が入るものが **ちょうど 1 つ**のときだけ配置
- *      （0=gap 不足 / >1=複数 gap で曖昧→ no candidate）。gap 先頭に earliest-fit（決定的）。
- *   4. **add op 1 件**の CandidateDraft（metrics なし）。生成 item は raw text を持たない。
+ *   1. **全 placement** が結合条件（isCandidateEligible: isPlaceable ∧ source≠unknown ∧ strong ∧
+ *      place ∧ date）を満たすこと。1 つでも不適格（skip/tentative/weak/unknown/date 不一致）→ null。
+ *   2. **各 placement** を window→region 解決（banded で bounds 無→null・clock を推測しない）し、region 内
+ *      free gap のうち duration が入るものが **ちょうど 1 つ** のときだけ一意 gap に割当（0=不足 / >1=曖昧→ null）。
+ *   3. **競合**: 配置区間が placement 間で重なる（同一 gap・region 重複）→ null。
+ *   4. id 衝突（既存 or placement 間）→ null。**add op を placement ごとに 1 つ**持つ
+ *      **単一 CandidateDraft**（multi-add・metrics なし）。各 op は add のみ。生成 item は raw text を持たない。
  *
- * 戻り: 候補が 1 件成立すれば CandidateDraft、それ以外は null。
+ * 戻り: 全 placement が一意 gap に競合なく入れば multi-add CandidateDraft、それ以外は null。
  * **安全性の最終判定は evaluator + Gate-first**（本関数は self-certify しない）。
  */
 export function generateComplete(input: CompleteInput): CandidateDraft | null {
   const active = input.activeWindow ?? { startMin: 0, endMin: MAX_DAY_MIN };
-
-  const eligible = input.placements.filter((p) => isCandidateEligible(p, input.date));
-  if (eligible.length !== 1) return null; // 0=候補なし / >1=多重配置は曖昧（defer A1-4-2b）
-  const p = eligible[0];
-  if (!p) return null;
-
-  const duration = p.durationMin;
-  if (duration === null || duration <= 0) return null; // 二重防御（isPlaceable 済だが型安全）
-
-  const region = resolveRegion(p, active, input.bandBounds);
-  if (!region) return null; // window 解決不能（banded で bounds 無）→ 推測しない
+  const placements = input.placements;
+  if (placements.length === 0) return null; // 配置するものがない
 
   const busy: Interval[] = input.existing.map((n) => ({ startMin: n.startMin, endMin: n.endMin }));
-  const compatible = freeGaps(region, busy).filter((g) => g.endMin - g.startMin >= duration);
-  if (compatible.length !== 1) return null; // 0=gap 不足 / >1=複数 gap で曖昧
-  const gap = compatible[0];
-  if (!gap) return null;
 
-  const itemId = `complete-${p.seedRef}`;
-  if (input.existing.some((n) => n.id === itemId)) return null; // id 衝突（保守的に no candidate）
+  // 各 placement を一意 gap に割当（**all-or-nothing**: 1 つでも不適格/曖昧/不足なら null）
+  const assignments: { readonly p: SeedPlacement; readonly gap: Interval; readonly duration: number }[] = [];
+  for (const p of placements) {
+    if (!isCandidateEligible(p, input.date)) return null; // 不適格（skip/tentative/weak/unknown/date）
+    const duration = p.durationMin;
+    if (duration === null || duration <= 0) return null; // 二重防御（isPlaceable 済だが型安全）
+    const region = resolveRegion(p, active, input.bandBounds);
+    if (!region) return null; // banded で bounds 無 → 推測しない
+    const compatible = freeGaps(region, busy).filter((g) => g.endMin - g.startMin >= duration);
+    if (compatible.length !== 1) return null; // 0=gap 不足 / >1=複数 gap で曖昧
+    const gap = compatible[0];
+    if (!gap) return null;
+    assignments.push({ p, gap, duration });
+  }
 
-  const after: PlanItemSnapshot = {
-    itemId,
-    startMin: gap.startMin, // earliest-fit（gap 先頭・決定的）
-    endMin: gap.startMin + duration,
-    governance: COMPLETE_ITEM_GOVERNANCE,
-    // title / location / raw text は持ち込まない
-  };
-  const trace: SourceTrace = {
-    kind: "seed",
-    ref: p.seedRef, // 監査用 id（raw text でない）
-    reason: COMPLETE_TRACE_REASON, // 構造化短定型（seed 自由文を持ち込まない）
-    confidence: p.confidence,
-  };
-  const op: ChangeOp = { kind: "add", itemId, after };
+  // 競合: 配置区間が placement 間で重なる → no candidate（同一 gap 競合 + region 重複の防御）
+  const placed = assignments
+    .map((a) => ({ startMin: a.gap.startMin, endMin: a.gap.startMin + a.duration }))
+    .sort((x, y) => x.startMin - y.startMin);
+  for (let i = 1; i < placed.length; i++) {
+    if (placed[i].startMin < placed[i - 1].endMin) return null; // 重なり → 競合
+  }
+
+  // id 衝突回避 + multi-add op 構築（add op を placement ごとに 1 つ・単一 CandidateDraft）
+  const usedIds = new Set<string>(input.existing.map((n) => n.id));
+  const ops: ChangeOp[] = [];
+  const traces: SourceTrace[] = [];
+  for (const a of assignments) {
+    const itemId = `complete-${a.p.seedRef}`;
+    if (usedIds.has(itemId)) return null; // id 衝突（既存 or placement 間重複）→ no candidate
+    usedIds.add(itemId);
+    const after: PlanItemSnapshot = {
+      itemId,
+      startMin: a.gap.startMin, // earliest-fit（gap 先頭・決定的）
+      endMin: a.gap.startMin + a.duration,
+      governance: COMPLETE_ITEM_GOVERNANCE,
+      // title / location / raw text は持ち込まない
+    };
+    ops.push({ kind: "add", itemId, after });
+    traces.push({
+      kind: "seed",
+      ref: a.p.seedRef, // 監査用 id（raw text でない）
+      reason: COMPLETE_TRACE_REASON, // 構造化短定型（seed 自由文を持ち込まない）
+      confidence: a.p.confidence,
+    });
+  }
+
+  const id = `complete-${assignments.map((a) => a.p.seedRef).join("-")}`;
   const changeSet: ChangeSet = {
-    id: itemId,
-    ops: [op],
-    reason: "complete: place seed in free gap",
-    sourceTraces: [trace],
+    id,
+    ops,
+    reason: "complete: place seeds in free gaps",
+    sourceTraces: traces,
   };
-  return { id: itemId, changeSet, sourceTraces: [trace], proposedDisposition: "confirm" };
+  return { id, changeSet, sourceTraces: traces, proposedDisposition: "confirm" };
 }
