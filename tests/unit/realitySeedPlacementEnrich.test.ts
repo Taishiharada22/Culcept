@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   enrichSeedPlacement,
   enrichSeedPlacements,
+  resolveDurationEvidence,
+  enrichSeedPlacementFromEvidences,
+  enrichSeedPlacementsFromEvidences,
   type DurationEvidence,
   type DurationEvidenceSource,
 } from "@/lib/plan/reality/seed-placement-enrich";
@@ -162,5 +165,137 @@ describe("A1-4-3a 実 seed の境界（evidence なし→0 / evidence あり→�
       expect(op.after.startMin).toBe(540);
       expect(op.after.endMin).toBe(600); // 540 + 60
     }
+  });
+});
+
+describe("A1-4-3b resolveDurationEvidence — 複数 evidence の deterministic 解決", () => {
+  it("eligible なし → no_eligible_evidence（seedRef 不一致/low/範囲外/source 不正は除外）", () => {
+    expect(resolveDurationEvidence("s", []).outcome).toBe("no_eligible_evidence");
+    expect(resolveDurationEvidence("s", [evidence({ seedRef: "other" })]).outcome).toBe("no_eligible_evidence");
+    expect(resolveDurationEvidence("s", [evidence({ seedRef: "s", confidence: "low" })]).outcome).toBe("no_eligible_evidence");
+    expect(resolveDurationEvidence("s", [evidence({ seedRef: "s", durationMin: 5000 })]).outcome).toBe("no_eligible_evidence");
+    expect(resolveDurationEvidence("s", [evidence({ seedRef: "s", source: "bogus" as DurationEvidenceSource })]).outcome).toBe("no_eligible_evidence");
+  });
+
+  it("seed_explicit > correction > prm_typical の優先順位が deterministic", () => {
+    const r1 = resolveDurationEvidence("s", [
+      evidence({ seedRef: "s", source: "correction", durationMin: 90 }),
+      evidence({ seedRef: "s", source: "seed_explicit", durationMin: 60 }),
+      evidence({ seedRef: "s", source: "prm_typical", durationMin: 30 }),
+    ]);
+    expect(r1.outcome).toBe("adopted");
+    expect(r1.source).toBe("seed_explicit");
+    expect(r1.durationMin).toBe(60);
+
+    const r2 = resolveDurationEvidence("s", [
+      evidence({ seedRef: "s", source: "prm_typical", durationMin: 30 }),
+      evidence({ seedRef: "s", source: "correction", durationMin: 90 }),
+    ]);
+    expect(r2.source).toBe("correction");
+    expect(r2.durationMin).toBe(90);
+  });
+
+  it("same-priority conflict（同 source で duration 不一致）→ no enrich", () => {
+    const r = resolveDurationEvidence("s", [
+      evidence({ seedRef: "s", source: "correction", durationMin: 60 }),
+      evidence({ seedRef: "s", source: "correction", durationMin: 90 }),
+    ]);
+    expect(r.outcome).toBe("same_priority_conflict");
+    expect(r.durationMin).toBeNull();
+    expect(r.source).toBeNull();
+  });
+
+  it("same-priority agreement（同 source 同 duration）→ adopted", () => {
+    const r = resolveDurationEvidence("s", [
+      evidence({ seedRef: "s", source: "correction", durationMin: 60 }),
+      evidence({ seedRef: "s", source: "correction", durationMin: 60 }),
+    ]);
+    expect(r.outcome).toBe("adopted");
+    expect(r.durationMin).toBe(60);
+  });
+
+  it("低 confidence は conflict に数えない（high のみ参加）", () => {
+    const r = resolveDurationEvidence("s", [
+      evidence({ seedRef: "s", source: "seed_explicit", durationMin: 60, confidence: "high" }),
+      evidence({ seedRef: "s", source: "seed_explicit", durationMin: 90, confidence: "low" }),
+    ]);
+    expect(r.outcome).toBe("adopted");
+    expect(r.durationMin).toBe(60);
+  });
+});
+
+describe("A1-4-3b enrichSeedPlacementFromEvidences — provenance grounding", () => {
+  it("correction high → durationMin 充足・grounding 維持(strong)・placeable", () => {
+    const out = enrichSeedPlacementFromEvidences(placement({ seedRef: "s", grounding: "strong" }), [
+      evidence({ seedRef: "s", source: "correction", durationMin: 60 }),
+    ]);
+    expect(out.durationMin).toBe(60);
+    expect(out.durationSource).toBe("correction");
+    expect(out.grounding).toBe("strong");
+    expect(isPlaceable(out)).toBe(true);
+  });
+
+  it("prm_typical → durationMin 充足だが grounding=weak（tentative 化）", () => {
+    const out = enrichSeedPlacementFromEvidences(placement({ seedRef: "s", grounding: "strong" }), [
+      evidence({ seedRef: "s", source: "prm_typical", durationMin: 60 }),
+    ]);
+    expect(out.durationMin).toBe(60);
+    expect(out.durationSource).toBe("prm_typical");
+    expect(out.grounding).toBe("weak");
+  });
+
+  it("conflict / eligible なし → 不変（null のまま）", () => {
+    expect(enrichSeedPlacementFromEvidences(placement({ seedRef: "s" }), []).durationMin).toBeNull();
+    expect(
+      enrichSeedPlacementFromEvidences(placement({ seedRef: "s" }), [
+        evidence({ seedRef: "s", source: "correction", durationMin: 60 }),
+        evidence({ seedRef: "s", source: "correction", durationMin: 90 }),
+      ]).durationMin
+    ).toBeNull();
+  });
+
+  it("既存 durationMin は上書きしない", () => {
+    const out = enrichSeedPlacementFromEvidences(placement({ seedRef: "s", durationMin: 120, durationSource: "seed_explicit" }), [
+      evidence({ seedRef: "s", source: "correction", durationMin: 60 }),
+    ]);
+    expect(out.durationMin).toBe(120);
+    expect(out.durationSource).toBe("seed_explicit");
+  });
+});
+
+describe("A1-4-3b 実 seed の境界（correction→候補 / prm_typical→候補化されない）", () => {
+  const morningInput = (placements: readonly SeedPlacement[]) => ({
+    placements,
+    existing: [govNode("a", 480, 540), govNode("b", 600, 720)], // morning [480,720] → gap [540,600]
+    activeWindow: { startMin: 480, endMin: 1080 },
+    date: "2026-06-06",
+    bandBounds: { morning: { startMin: 480, endMin: 720 } },
+  });
+  const morningSeed = () => buildSeedPlacements([seed({ id: "s1", actionShape: "full_go", confidence: 0.9, desiredDate: "2026-06-06", desiredTimeHint: "morning" })]);
+
+  it("実 seed + evidence なし → 候補 0 / placeable=false のまま", () => {
+    const enriched = enrichSeedPlacementsFromEvidences(morningSeed(), undefined);
+    expect(enriched.every(isPlaceable)).toBe(false);
+    expect(generateComplete(morningInput(enriched))).toBeNull();
+  });
+
+  it("correction high evidence → durationMin 入り generateComplete が候補を出す", () => {
+    const enriched = enrichSeedPlacementsFromEvidences(morningSeed(), {
+      s1: [evidence({ seedRef: "s1", source: "correction", durationMin: 60 })],
+    });
+    expect(enriched[0].durationMin).toBe(60);
+    expect(enriched[0].grounding).toBe("strong");
+    const draft = generateComplete(morningInput(enriched));
+    expect(draft).not.toBeNull();
+    expect(draft?.changeSet.ops.length).toBe(1);
+  });
+
+  it("prm_typical evidence → duration は入るが weak で generateComplete は候補化しない", () => {
+    const enriched = enrichSeedPlacementsFromEvidences(morningSeed(), {
+      s1: [evidence({ seedRef: "s1", source: "prm_typical", durationMin: 60 })],
+    });
+    expect(enriched[0].durationMin).toBe(60); // duration は入る
+    expect(enriched[0].grounding).toBe("weak"); // でも weak
+    expect(generateComplete(morningInput(enriched))).toBeNull(); // 候補化されない
   });
 });
