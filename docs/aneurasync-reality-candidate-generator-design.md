@@ -31,7 +31,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 |---|---|---|
 | **A1-1** | 候補生成器の器: `generateCandidates→[]` no-op / `GenerationContext`（dayNode↔anchors.governance join）/ `isTouchableForGeneration`・`isPreservedForGeneration`（authority を *消費*）/ touchable=isRepairTouchable∧非recovery_core, preserved=immovable∪recovery_core | ✅ landed |
 | **A1-2-1** | `CandidateDraft` 型（metrics 持てない）/ `applyChangeSet(nodes,cs)` 最小純関数（atomic・fail-closed・no mutation・raw 不持込） | ✅ landed |
-| A1-2-2 | `evaluateSafetyMetrics`（feasible/recoveryProtected/deadlineSatisfied/wholePartCoherent を独立・保守的に算出。one-sided conservative・unknown→fail） | ⏳ 別 GO |
+| **A1-2-2** | `evaluateSafetyMetrics`（feasible/recoveryProtected/deadlineSatisfied/wholePartCoherent を独立・保守的に算出。one-sided conservative・unknown→false） | ✅ landed |
 | A1-2-3 | `evaluateCandidate`（draft→BestActionCandidate・客観 score・主観 default）+ rank 連携 | ⏳ 別 GO |
 | A1-3〜6 | Build / Complete / Repair / Optimize 生成（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
@@ -50,9 +50,20 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
     before・after 不整合(stale) は fail / 失敗時は入力不変。
 - test: CandidateDraft の key 限定 / supported ops / fail-closed 各種 / atomic / no mutation / no raw（issues も含め raw なし）。
 
+## 4b. A1-2-2 実装（landed）
+`lib/plan/reality/candidate-evaluator.ts` に `evaluateSafetyMetrics(draft, context) → SafetyMetrics`（4 安全 metric のみ）。
+- **独立**: 既存 node の governance は **context（権威的）** から引く（draft の自己申告 snapshot を信じない）。
+- **保守（one-sided）**: apply 失敗 / unknown は **全 false**。
+  - `feasible` = applyChangeSet 結果が幾何妥当（duration>0・日境界内・overlap なし）
+  - `recoveryProtected` = remove/update が recovery_core を触れば false（add は無害）
+  - `deadlineSatisfied` = remove/update が hard/locked/immovable/critical を壊せば false
+  - `wholePartCoherent` = budget(総時間≤1日) ∧ 日境界 overflow なし
+- **未実装（範囲外）**: score / goalAttainment / rhythmFit / 主観 metric / BestActionCandidate 化 / rank 接続 / mode 生成。
+- test: 非空性（safe→全 true）/ apply 失敗→全 false / recovery_core 触る→false / critical 壊す→false / overlap・zero duration・日境界外→false。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-2-2（safety-metric evaluator 本体）。merge / 統合は CEO 判断待ち。
+A1-2-3（evaluateCandidate＝draft→BestActionCandidate・客観 score・主観 default・rank 連携）。merge / 統合は CEO 判断待ち。

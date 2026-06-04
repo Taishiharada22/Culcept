@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { applyChangeSet, type CandidateDraft, type PlanNode } from "@/lib/plan/reality/candidate-evaluator";
+import { applyChangeSet, evaluateSafetyMetrics, type CandidateDraft, type PlanNode } from "@/lib/plan/reality/candidate-evaluator";
+import { buildGenerationContext, type GenerationContext } from "@/lib/plan/reality/candidate-generator";
 import type { ChangeSet, ChangeOp, PlanItemSnapshot } from "@/lib/plan/reality/change-set";
+import type { PlanItemGovernance } from "@/lib/plan/reality/authority";
+import type { RealityInput } from "@/lib/plan/reality/integration/input-adapter";
 
 function node(id: string, startMin: number, endMin: number, governance?: PlanNode["governance"]): PlanNode {
   return { id, startMin, endMin, governance };
@@ -106,5 +109,96 @@ describe("candidate-evaluator — atomic / no mutation / no raw", () => {
     const r = applyChangeSet([node("a", 540, 600)], cs([{ kind: "add", itemId: "a", after: snap("a", 540, 600, { title: "渋谷の病院" }) }]));
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r.issues)).not.toContain("渋谷");
+  });
+});
+
+// ── A1-2-2: evaluateSafetyMetrics（one-sided conservative） ──
+
+function gov(p: Partial<PlanItemGovernance> = {}): PlanItemGovernance {
+  return { origin: "user", authority: "user_owned", flexibility: "movable", protectionReasons: ["tentative"], ...p };
+}
+const RECOVERY = gov({ protectionReasons: ["recovery_core"] });
+const IMPORT_LOCKED = gov({ origin: "imported", authority: "import_locked", flexibility: "locked", protectionReasons: ["hard_external"] });
+const PLAIN = gov({ protectionReasons: ["tentative"] });
+
+interface NodeSpec {
+  id: string;
+  startMin: number;
+  endMin: number;
+  governance: PlanItemGovernance;
+  hard?: boolean;
+  importance?: "low" | "normal" | "high" | "critical";
+}
+function ctxFrom(specs: NodeSpec[]): GenerationContext {
+  const dayNodes = specs.map((s) => ({ id: s.id, startMin: s.startMin, endMin: s.endMin, importance: s.importance ?? ("normal" as const), hard: s.hard ?? false }));
+  const anchors: RealityInput["anchors"] = {};
+  for (const s of specs) anchors[s.id] = { governance: s.governance, importance: "normal", sensitive: false };
+  return buildGenerationContext({ mode: "repair", dayNodes, anchors, seedTraces: [] });
+}
+function draft(ops: ChangeOp[]): CandidateDraft {
+  return { id: "d", changeSet: { id: "cs", ops, reason: "r", sourceTraces: [] }, sourceTraces: [], proposedDisposition: "confirm" };
+}
+
+describe("evaluateSafetyMetrics — 非空性（genuinely safe → 全 true）", () => {
+  it("空き時間に非重複追加・既存に触れない → 4 metric 全 true", () => {
+    const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
+    const m = evaluateSafetyMetrics(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }]), ctx);
+    expect(m).toEqual({ feasible: true, recoveryProtected: true, deadlineSatisfied: true, wholePartCoherent: true });
+  });
+  it("recovery_core node に触れず別所に add → recoveryProtected も true", () => {
+    const ctx = ctxFrom([{ id: "r", startMin: 540, endMin: 600, governance: RECOVERY }]);
+    const m = evaluateSafetyMetrics(draft([{ kind: "add", itemId: "b", after: snap("b", 660, 720) }]), ctx);
+    expect(m.recoveryProtected).toBe(true);
+  });
+});
+
+describe("evaluateSafetyMetrics — apply 失敗/不明 → 全 false（保守）", () => {
+  it("unknown remove（apply 失敗）→ 全 false", () => {
+    const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
+    const m = evaluateSafetyMetrics(draft([{ kind: "remove", itemId: "z", before: snap("z", 0, 1) }]), ctx);
+    expect(m).toEqual({ feasible: false, recoveryProtected: false, deadlineSatisfied: false, wholePartCoherent: false });
+  });
+});
+
+describe("evaluateSafetyMetrics — recoveryProtected（recovery_core を触ると false）", () => {
+  it("recovery_core を remove → recoveryProtected false", () => {
+    const ctx = ctxFrom([{ id: "r", startMin: 540, endMin: 600, governance: RECOVERY }]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "remove", itemId: "r", before: snap("r", 540, 600) }]), ctx).recoveryProtected).toBe(false);
+  });
+  it("recovery_core を update（移動/短縮）→ recoveryProtected false", () => {
+    const ctx = ctxFrom([{ id: "r", startMin: 540, endMin: 600, governance: RECOVERY }]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "update", itemId: "r", before: snap("r", 540, 600), after: snap("r", 560, 600) }]), ctx).recoveryProtected).toBe(false);
+  });
+});
+
+describe("evaluateSafetyMetrics — deadlineSatisfied（critical node を壊すと false）", () => {
+  it("hard node を remove → deadlineSatisfied false", () => {
+    const ctx = ctxFrom([{ id: "h", startMin: 540, endMin: 600, governance: PLAIN, hard: true }]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "remove", itemId: "h", before: snap("h", 540, 600) }]), ctx).deadlineSatisfied).toBe(false);
+  });
+  it("immovable(import_locked) node を update → deadlineSatisfied false", () => {
+    const ctx = ctxFrom([{ id: "m", startMin: 540, endMin: 600, governance: IMPORT_LOCKED }]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "update", itemId: "m", before: snap("m", 540, 600), after: snap("m", 550, 610) }]), ctx).deadlineSatisfied).toBe(false);
+  });
+  it("critical 重要度 node を remove → deadlineSatisfied false", () => {
+    const ctx = ctxFrom([{ id: "c", startMin: 540, endMin: 600, governance: PLAIN, importance: "critical" }]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "remove", itemId: "c", before: snap("c", 540, 600) }]), ctx).deadlineSatisfied).toBe(false);
+  });
+});
+
+describe("evaluateSafetyMetrics — feasible / wholePart（幾何・budget 違反 → false）", () => {
+  it("overlap 発生 → feasible false", () => {
+    const ctx = ctxFrom([{ id: "a", startMin: 540, endMin: 600, governance: PLAIN }]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "add", itemId: "b", after: snap("b", 550, 650) }]), ctx).feasible).toBe(false);
+  });
+  it("zero duration → feasible false", () => {
+    const ctx = ctxFrom([]);
+    expect(evaluateSafetyMetrics(draft([{ kind: "add", itemId: "b", after: snap("b", 600, 600) }]), ctx).feasible).toBe(false);
+  });
+  it("日境界外（end>1440）→ feasible も wholePart も false", () => {
+    const ctx = ctxFrom([]);
+    const m = evaluateSafetyMetrics(draft([{ kind: "add", itemId: "b", after: snap("b", 1400, 1500) }]), ctx);
+    expect(m.feasible).toBe(false);
+    expect(m.wholePartCoherent).toBe(false);
   });
 });

@@ -7,13 +7,17 @@
  *   - generator(A1-3+) は `CandidateDraft`（metrics を持たない型）を出す＝**自己申告できない**。
  *   - evaluator(A1-2-2) だけが metrics を産み `BestActionCandidate` を組む（A1-2-1 ではまだ作らない）。
  *
- * 【A1-2-1 の範囲（CEO GO・厳密）】:
+ * 【A1-2-1 の範囲】:
  *   - `CandidateDraft` 型（metrics / score / gate result を構造的に持てない）。
- *   - `applyChangeSet(nodes, cs)` の **最小純関数**（適用結果の計算のみ）。
+ *   - `applyChangeSet(nodes, cs)` の **最小純関数**（適用結果の計算のみ・safety 判定しない）。
  *     supported op のみ / unsupported は fail / unknown・missing node は fail /
  *     before・after 不整合は fail / **node mutation なし** / **raw title/location/text を持ち込まない**。
- *   - **safety 判定はしない**（feasible / recoveryProtected / deadlineSatisfied / wholePartCoherent の
- *     本判定は A1-2-2）。BestActionCandidate 化・score 計算・mode 生成も A1-2-1 では作らない。
+ * 【A1-2-2 の範囲（CEO 限定 GO）】:
+ *   - `evaluateSafetyMetrics(draft, context)`：**4 安全 metric のみ**を独立・保守的に算出
+ *     （feasible / recoveryProtected / deadlineSatisfied / wholePartCoherent）。
+ *   - 不明・apply 失敗・recovery_core/critical を触る等は **安全側(false)**。
+ *   - **score / goalAttainment / rhythmFit / 主観 metric・BestActionCandidate 化・rank 接続・
+ *     mode 生成は作らない**（A1-2-3 以降）。
  *
  * 【安全原則（表現は CEO 補正済）】:
  *   Gate-first は候補を採用前に弾くが Gate は metrics を信じる。ゆえに generator が metrics を
@@ -25,7 +29,8 @@
 
 import type { BestActionCandidate } from "./best-action";
 import type { ChangeSet, PlanItemSnapshot } from "./change-set";
-import type { PlanItemGovernance } from "./authority";
+import { isImmovable, hasProtection, type PlanItemGovernance } from "./authority";
+import type { GenerationContext, GovernedNode } from "./candidate-generator";
 
 /**
  * generator が出す候補草案。`BestActionCandidate` から **metrics を除いた型**。
@@ -126,4 +131,108 @@ export function applyChangeSet(nodes: readonly PlanNode[], cs: ChangeSet): Apply
   }
   const result = [...work.values()].sort((a, b) => a.startMin - b.startMin || a.id.localeCompare(b.id));
   return { ok: true, nodes: result, issues: [] };
+}
+
+// ── A1-2-2: safety-metric evaluator（4 安全 metric の保守的・独立算出） ──
+
+/** 1 日の上限（分）。日境界・budget の保守的基準。 */
+const MAX_DAY_MIN = 24 * 60;
+
+/**
+ * Gate 直結の安全 metric のみ（score / 主観 metric は **含まない**）。
+ * best-action の safety / recovery_core / whole_part gate ＋ deadline に対応。
+ */
+export interface SafetyMetrics {
+  readonly feasible: boolean;
+  readonly recoveryProtected: boolean;
+  readonly deadlineSatisfied: boolean;
+  readonly wholePartCoherent: boolean;
+}
+
+/** 全 unsafe（apply 失敗・判定不能時の保守的 floor）。 */
+const ALL_UNSAFE: SafetyMetrics = {
+  feasible: false,
+  recoveryProtected: false,
+  deadlineSatisfied: false,
+  wholePartCoherent: false,
+};
+
+/** 締切系の「壊してはいけない」node か（hard / locked / immovable / 重要度 critical）。 */
+function isCriticalNode(n: GovernedNode): boolean {
+  return n.hard || n.importance === "critical" || n.governance.flexibility === "locked" || isImmovable(n.governance);
+}
+
+function hasOverlap(nodes: readonly PlanNode[]): boolean {
+  const sorted = [...nodes].sort((a, b) => a.startMin - b.startMin);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].startMin < sorted[i - 1].endMin) return true;
+  }
+  return false;
+}
+
+/** 幾何的に成立するか（各 node: 有限・duration>0・日境界内）∧ overlap なし。 */
+function isFeasibleTimeline(nodes: readonly PlanNode[]): boolean {
+  for (const n of nodes) {
+    if (!(Number.isFinite(n.startMin) && Number.isFinite(n.endMin))) return false;
+    if (n.endMin <= n.startMin) return false; // zero/negative duration
+    if (n.startMin < 0 || n.endMin > MAX_DAY_MIN) return false; // 日境界外
+  }
+  return !hasOverlap(nodes);
+}
+
+/** 全体として 1 日に収まるか（budget: 総時間 ≤ 1日）∧ 日境界 overflow なし（cascade）。 */
+function isWholeCoherent(nodes: readonly PlanNode[]): boolean {
+  let total = 0;
+  for (const n of nodes) {
+    if (n.startMin < 0 || n.endMin > MAX_DAY_MIN) return false; // 日末押し出し（cascade overflow）
+    total += Math.max(0, n.endMin - n.startMin);
+  }
+  return total <= MAX_DAY_MIN; // budget 破壊なし
+}
+
+/**
+ * 候補 draft の **安全 metric を独立・保守的に算出**する純関数（A1-2-2）。
+ *
+ * 原則（CEO 補正準拠）: unsupported / unknown / missing / apply 失敗は必ず安全側(false)。
+ *   不安全候補が安全扱いされる経路を構造的に *減らす*（絶対化はしない）。
+ * 独立性: 既存 node の governance は **context（権威的）** から引く。draft の自己申告 snapshot を信じない。
+ *
+ * - feasible:            applyChangeSet 結果が幾何的に妥当（duration>0・日境界内・overlap なし）
+ * - recoveryProtected:   remove/update が recovery_core node を触ったら false（add は無害）
+ * - deadlineSatisfied:   remove/update が hard/locked/immovable/critical node を壊したら false
+ * - wholePartCoherent:   budget(総時間 ≤ 1日) ∧ 日境界 overflow なし
+ *
+ * 注: score / goalAttainment / rhythmFit / 主観 metric は **算出しない**（A1-2-3 以降）。
+ */
+export function evaluateSafetyMetrics(draft: CandidateDraft, context: GenerationContext): SafetyMetrics {
+  // context.nodes（GovernedNode）は PlanNode の上位互換。
+  const applied = applyChangeSet(context.nodes, draft.changeSet);
+  if (!applied.ok) return ALL_UNSAFE; // apply 失敗 → 全 false（保守）
+
+  // 既存 node の governance は context から（独立: generator の before.governance を信じない）
+  const byId = new Map<string, GovernedNode>();
+  for (const n of context.nodes) byId.set(n.id, n);
+
+  // recoveryProtected: remove/update が recovery_core を触れば false。unknown は安全側(false)。
+  const recoveryProtected = !draft.changeSet.ops.some((op) => {
+    if (op.kind === "add") return false; // add は recovery を cut しない
+    const target = byId.get(op.itemId);
+    if (!target) return true; // 不明 node を触る → 安全側
+    return hasProtection(target.governance, "recovery_core");
+  });
+
+  // deadlineSatisfied: remove/update が critical node（hard/locked/immovable/critical）を壊せば false。
+  const deadlineSatisfied = !draft.changeSet.ops.some((op) => {
+    if (op.kind === "add") return false;
+    const target = byId.get(op.itemId);
+    if (!target) return true; // 不明 → 安全側
+    return isCriticalNode(target);
+  });
+
+  return {
+    feasible: isFeasibleTimeline(applied.nodes),
+    recoveryProtected,
+    deadlineSatisfied,
+    wholePartCoherent: isWholeCoherent(applied.nodes),
+  };
 }
