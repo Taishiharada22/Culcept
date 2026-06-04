@@ -6,6 +6,7 @@ import {
 } from "@/app/(culcept)/plan/components/ShiftReviewGrid";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 import { HARADA_SPRIX_JULY_GEOMETRY } from "@/lib/plan/shift/shiftGridGeometry";
+import type { GridCalibration } from "@/lib/plan/shift/assistedRowSelection";
 
 // 全 cell kind + blank-risk を網羅する fixture（2025年7月）
 const FIXTURE: ShiftReviewCell[] = [
@@ -164,5 +165,90 @@ describe("ShiftReviewGrid — S-geo-3-2 SourceCellZoom 配線", () => {
 
   it("geometry あっても保存 CTA は disabled 維持（saveEnabled 未指定）", () => {
     expect(renderWithGeometry(SRC)).toMatch(/shift-review-save"[^>]*disabled/);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// S-geo Persist-2: controlled グリッド校正パネル（正本 = reducer selection.gridCalibration）
+const CAL_J: GridCalibration = {
+  gridLeft: 260,
+  colWidth: 49,
+  source: "manual_overlay",
+  imageW: 1860,
+  imageH: 846,
+  dayCount: 31,
+};
+function renderCalib(opts: {
+  gridCalibration?: GridCalibration | null;
+  withHandler?: boolean;
+}) {
+  return renderToStaticMarkup(
+    <ShiftReviewGrid
+      cells={FIXTURE}
+      dictionary={HARADA_SPRIX_DICTIONARY}
+      monthLabel="2025年7月"
+      year={2025}
+      month={7}
+      imageSrc="blob:calib-src"
+      geometry={HARADA_SPRIX_JULY_GEOMETRY}
+      gridCalibration={opts.gridCalibration}
+      onGridCalibrationChange={opts.withHandler ? () => {} : undefined}
+    />
+  );
+}
+
+describe("ShiftReviewGrid — Persist-2 controlled 校正パネル", () => {
+  it("geometry → 校正パネル + gridleft/colwidth slider + reset を描画", () => {
+    const html = renderCalib({});
+    expect(html).toContain('data-testid="shift-review-calibration"');
+    expect(html).toContain('data-testid="shift-review-calibration-gridleft"');
+    expect(html).toContain('data-testid="shift-review-calibration-colwidth"');
+    expect(html).toContain('data-testid="shift-review-calibration-reset"');
+  });
+
+  it("slider は絶対値（effective geometry 由来）。gridleft value=275 / max=930（imageWidth/2）", () => {
+    const html = renderCalib({});
+    // 絶対値 slider: gridLeft value=geometry.gridLeft(275) / max=round(1860/2)=930。
+    // colWidth value=51.5 / max=max(20, round((1860/31)*2))=120。
+    // いずれの数値も markup 内で一意（readout は text・slider は value 属性）。順序非依存で照合。
+    expect(html).toContain('max="930"');
+    expect(html).toContain('value="275"');
+    expect(html).toContain('max="120"');
+    expect(html).toContain('value="51.5"');
+  });
+
+  it("gridCalibration なし → 「自動・未校正」表示 + reset は disabled（handler なし）", () => {
+    const html = renderCalib({});
+    expect(html).toContain("（自動・未校正）");
+    expect(html).not.toContain("（校正済）");
+    expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
+  });
+
+  it("gridCalibration あり + handler → 「校正済」表示 + reset は enabled", () => {
+    const html = renderCalib({ gridCalibration: CAL_J, withHandler: true });
+    expect(html).toContain("（校正済）");
+    expect(html).not.toContain("（自動・未校正）");
+    // reset は活性（disabled 属性が付かない）
+    expect(html).not.toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
+  });
+
+  it("gridCalibration あり + handler なし → reset は disabled（read-only degrade）", () => {
+    const html = renderCalib({ gridCalibration: CAL_J, withHandler: false });
+    expect(html).toContain("（校正済）");
+    expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
+  });
+
+  it("geometry なし → 校正パネルは出ない（fail-soft）", () => {
+    const html = renderToStaticMarkup(
+      <ShiftReviewGrid
+        cells={FIXTURE}
+        dictionary={HARADA_SPRIX_DICTIONARY}
+        monthLabel="2025年7月"
+        year={2025}
+        month={7}
+        imageSrc="blob:no-geo"
+      />
+    );
+    expect(html).not.toContain('data-testid="shift-review-calibration"');
   });
 });

@@ -70,6 +70,7 @@ export function ShiftDraftInApp({
     onOpenReview,
     onCloseReview,
     onSaveSucceeded,
+    onSetGridCalibration,
   } = useShiftDraftFlow({ vlmInputMode });
 
   // narrowing 用ローカル導出（hook 由来 boolean では JSX 内 state を narrow できないため）。
@@ -319,6 +320,8 @@ export function ShiftDraftInApp({
           saveEnabled={saveEnabled}
           imageSrc={modalProps.imageSrc}
           geometry={modalProps.geometry}
+          gridCalibration={modalProps.gridCalibration}
+          onGridCalibrationChange={onSetGridCalibration}
           riskReviewEnabled
           chunkBoundaries={modalProps.chunkBoundaries}
           onSuccess={onSaveSucceeded}

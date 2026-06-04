@@ -32,6 +32,7 @@ import {
   sourceColumnForDay,
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
+import type { GridCalibration } from "@/lib/plan/shift/assistedRowSelection";
 import { SourceCellCrop } from "./SourceCellCrop";
 import { SourceImageHighlight } from "./SourceImageHighlight";
 import { SourceCellZoom } from "./SourceCellZoom";
@@ -65,8 +66,21 @@ interface ShiftReviewGridProps {
   lowConfidenceThreshold?: number;
   /** 原稿画像（あれば sheet で該当セル crop を表示。無ければ placeholder） */
   imageSrc?: string;
-  /** calibrated grid geometry（imageSrc とセットで crop 算出に使用） */
+  /**
+   * effective grid geometry（imageSrc とセットで crop 算出に使用）。
+   * S-geo Persist-2: gridCalibration（現コンテキスト整合時）→ dayColumns 由来、を解決済の値が来る。
+   */
   geometry?: ShiftGridGeometry;
+  /**
+   * S-geo Persist-2: 現在の校正値（reducer selection.gridCalibration の素通し・controlled 表示用）。
+   * null/undefined なら未校正（geometry は dayColumns 由来）。**正本は本 component の local state ではない**。
+   */
+  gridCalibration?: GridCalibration | null;
+  /**
+   * S-geo Persist-2: 校正値変更（cal=set / null=reset）。host → reducer set_grid_calibration へ素通し。
+   * 未指定なら校正 UI は read-only（emit しない）。
+   */
+  onGridCalibrationChange?: (gridCalibration: GridCalibration | null) => void;
   // ── SR Step 6D: 保存 CTA contract（host が wire。未指定なら dormant placeholder のまま）──
   /** 保存導線を出すか（flag OFF / host 未設定なら false → 旧 disabled placeholder）。 */
   saveEnabled?: boolean;
@@ -137,6 +151,8 @@ export function ShiftReviewGrid({
   lowConfidenceThreshold = 0.7,
   imageSrc,
   geometry,
+  gridCalibration,
+  onGridCalibrationChange,
   saveEnabled,
   saveState,
   onConfirm,
@@ -149,20 +165,23 @@ export function ShiftReviewGrid({
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const highlightDay = hoveredDay ?? selectedDay;
-  // S-geo グリッド校正: 2 点 capture の端点誤差を、全列オーバーレイを見ながら gridLeft/colWidth で微調整。
-  const [gridLeftAdj, setGridLeftAdj] = useState(0);
-  const [colWidthAdj, setColWidthAdj] = useState(0);
-  const calibratedGeometry = useMemo<ShiftGridGeometry | undefined>(
-    () =>
-      geometry
-        ? {
-            ...geometry,
-            gridLeft: geometry.gridLeft + gridLeftAdj,
-            colWidth: Math.max(1, geometry.colWidth + colWidthAdj),
-          }
-        : undefined,
-    [geometry, gridLeftAdj, colWidthAdj]
-  );
+  // S-geo グリッド校正（controlled）: 正本は reducer の selection.gridCalibration（gridCalibration prop で受ける）。
+  //   geometry は effectiveGeometry（gridCalibration 整合時はそれ由来 / なければ dayColumns 由来）。
+  //   slider は **絶対値**（geometry.gridLeft/colWidth）を編集し、完全な GridCalibration を親へ通知する。
+  const isCalibrated = gridCalibration != null;
+  // 部分更新（gridLeft だけ / colWidth だけ）を現 geometry で補完し、誤適用防止 context（imageW/H/dayCount）
+  // を埋めた完全形を emit する。calibratedAt は UI 任意・ここでは省略（Date 依存を持ち込まない）。
+  const emitCalibration = (next: { gridLeft?: number; colWidth?: number }) => {
+    if (!geometry || !onGridCalibrationChange) return;
+    onGridCalibrationChange({
+      gridLeft: next.gridLeft ?? geometry.gridLeft,
+      colWidth: next.colWidth ?? geometry.colWidth,
+      source: "manual_overlay",
+      imageW: geometry.imageWidth,
+      imageH: geometry.imageHeight,
+      dayCount: daysInMonth(year, month),
+    });
+  };
 
   // 空の日（コード無し）= 原画像で詰められた日。highlight/crop の列写像で空をスキップ
   const blankDays = useMemo(
@@ -339,69 +358,86 @@ export function ShiftReviewGrid({
         })}
       </div>
 
-      {/* S-geo グリッド校正パネル（全列の青線が原稿の各列に合うまで調整 → 端点誤差を全列で吸収）。 */}
+      {/* S-geo グリッド校正パネル（controlled）。全列の青線が原稿の各列に合うまで調整 → 端点誤差を全列で吸収。
+          slider は絶対値（effective geometry の gridLeft/colWidth）を編集し、reducer へ完全な校正値を通知する。 */}
       {imageSrc && geometry && (
         <div
           data-testid="shift-review-calibration"
           className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 p-2 text-[11px]"
         >
-          <p className="mb-1 font-medium text-sky-800">
-            原稿グリッド校正 — 下の青線（全列）が原稿の各列に合うよう調整
-          </p>
+          <div className="mb-1 flex items-center justify-between">
+            <p className="font-medium text-sky-800">
+              原稿グリッド校正 — 下の青線（全列）が原稿の各列に合うよう調整
+            </p>
+            <button
+              type="button"
+              data-testid="shift-review-calibration-reset"
+              onClick={() => onGridCalibrationChange?.(null)}
+              disabled={!isCalibrated || !onGridCalibrationChange}
+              className="ml-2 shrink-0 rounded-md border border-sky-300 px-1.5 py-0.5 text-[10px] text-sky-700 disabled:opacity-40"
+            >
+              リセット
+            </button>
+          </div>
           <label className="flex items-center gap-2">
             <span className="w-14 shrink-0 text-sky-700">左位置</span>
             <input
               type="range"
-              min={-150}
-              max={150}
+              min={0}
+              max={Math.round(geometry.imageWidth / 2)}
               step={1}
-              value={gridLeftAdj}
-              onChange={(e) => setGridLeftAdj(Number(e.target.value))}
+              value={geometry.gridLeft}
+              onChange={(e) => emitCalibration({ gridLeft: Number(e.target.value) })}
               className="flex-1"
               data-testid="shift-review-calibration-gridleft"
             />
-            <span className="w-10 text-right tabular-nums text-sky-700">{gridLeftAdj}</span>
+            <span className="w-10 text-right tabular-nums text-sky-700">
+              {Math.round(geometry.gridLeft)}
+            </span>
           </label>
           <label className="flex items-center gap-2">
             <span className="w-14 shrink-0 text-sky-700">列間隔</span>
             <input
               type="range"
-              min={-15}
-              max={15}
+              min={1}
+              max={Math.max(
+                20,
+                Math.round((geometry.imageWidth / daysInMonth(year, month)) * 2)
+              )}
               step={0.1}
-              value={colWidthAdj}
-              onChange={(e) => setColWidthAdj(Number(e.target.value))}
+              value={geometry.colWidth}
+              onChange={(e) => emitCalibration({ colWidth: Number(e.target.value) })}
               className="flex-1"
               data-testid="shift-review-calibration-colwidth"
             />
             <span className="w-10 text-right tabular-nums text-sky-700">
-              {colWidthAdj.toFixed(1)}
+              {geometry.colWidth.toFixed(1)}
             </span>
           </label>
-          {calibratedGeometry && (
-            <p className="mt-0.5 font-mono text-[10px] text-sky-600">
-              gridL {calibratedGeometry.gridLeft.toFixed(0)} · colW{" "}
-              {calibratedGeometry.colWidth.toFixed(1)}
-            </p>
-          )}
+          <p className="mt-0.5 font-mono text-[10px] text-sky-600">
+            gridL {geometry.gridLeft.toFixed(0)} · colW {geometry.colWidth.toFixed(1)}
+            <span className="ml-1 not-italic text-sky-500">
+              {isCalibrated ? "（校正済）" : "（自動・未校正）"}
+            </span>
+          </p>
         </div>
       )}
 
-      {/* 原稿の該当セル拡大（S-geo-3）。calibratedGeometry を使用。 */}
-      {imageSrc && calibratedGeometry && (
+      {/* 原稿の該当セル拡大（S-geo-3）。effective geometry を使用。 */}
+      {imageSrc && geometry && (
         <SourceCellZoom
           imageSrc={imageSrc}
-          geometry={calibratedGeometry}
+          geometry={geometry}
           day={highlightDay}
           blankDays={blankDays}
         />
       )}
 
-      {/* 原稿画像 全体 + 該当日ハイライト + 全列グリッド線（校正）。calibratedGeometry を使用。 */}
-      {imageSrc && calibratedGeometry && (
+      {/* 原稿画像 全体 + 該当日ハイライト + 全列グリッド線。effective geometry を使用。 */}
+      {imageSrc && geometry && (
         <SourceImageHighlight
           imageSrc={imageSrc}
-          geometry={calibratedGeometry}
+          geometry={geometry}
           highlightDay={highlightDay}
           blankDays={blankDays}
           gridDayCount={daysInMonth(year, month)}

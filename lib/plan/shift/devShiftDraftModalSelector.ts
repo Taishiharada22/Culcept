@@ -17,10 +17,12 @@
  */
 
 import type { ShiftReviewCell } from "./shiftReviewClassification";
-import type { AssistedRowSelection } from "./assistedRowSelection";
+import type {
+  AssistedRowSelection,
+  GridCalibration,
+} from "./assistedRowSelection";
 import type { ShiftGridGeometry } from "./shiftGridGeometry";
-import { buildShiftGridGeometry } from "./buildShiftGridGeometry";
-import { daysInMonth } from "./targetMonth";
+import { resolveEffectiveGeometry } from "./effectiveGeometry";
 
 /** state.kind === "cells_loaded" の最小契約（selector が依存する形）。 */
 export interface CellsLoadedShape {
@@ -54,11 +56,17 @@ export interface ImportModalSelected {
   /** B1b-1R で 92.8% 最良の chunk 境界（運用前提）。 */
   chunkBoundaries: number[];
   /**
-   * S-geo-2C-1: 照合枠用の calibrated geometry。day列中心 X（selection.dayColumns）から
-   * buildShiftGridGeometry で逆算する。dayColumns 未捕捉 or invalid なら undefined（fail-soft）。
+   * S-geo-2C/Persist-2: 照合枠用の effective geometry。`resolveEffectiveGeometry` が
+   * gridCalibration（現コンテキスト整合時のみ優先）→ dayColumns 由来、の順で解決する。
+   * 未捕捉 / 不整合 / 破綻なら undefined（fail-soft）。
    * **blankDays は含めない** — packing 補正は ShiftReviewGrid が cells から自己算出する正本を維持する。
    */
   geometry?: ShiftGridGeometry;
+  /**
+   * S-geo Persist-2: 現在の校正値（`selection.gridCalibration` の素通し）。
+   * 校正 UI の正本表示 / reset 判定に使う。正本は reducer 側 selection.gridCalibration。
+   */
+  gridCalibration?: GridCalibration;
 }
 
 /** selector に渡すオプション（context 注入）。 */
@@ -91,32 +99,15 @@ export function selectImportModalProps(
     imageSrc: state.imageObjectUrl,
     riskReviewEnabled: true,
     chunkBoundaries: DEV_SHIFT_DRAFT_CHUNK_BOUNDARIES,
-    geometry: computeReviewGeometry(state),
+    // S-geo Persist-2: dayColumns 専用 → effectiveGeometry（gridCalibration 優先・現コンテキスト整合時のみ）。
+    geometry: resolveEffectiveGeometry({
+      selection: state.selection,
+      year: state.year,
+      month: state.month,
+    }),
+    // 校正 UI の正本表示 / reset 判定用（reducer 側 selection.gridCalibration の素通し）。
+    gridCalibration: state.selection?.gridCalibration,
   };
-}
-
-/**
- * cells_loaded の selection（day列中心 X）から照合枠用 geometry を算出する（pure）。
- * - selection or dayColumns 未捕捉 → undefined（fail-soft）。
- * - buildShiftGridGeometry が invalid（範囲外/順序逆/span 不足等）→ undefined（fail-soft）。
- * - dayCount は daysInMonth(year, month)（pure・throw しない・範囲外は 30）。
- * - **blankDays には触れない**（ShiftReviewGrid 内部の cells 自己算出が正本）。
- */
-function computeReviewGeometry(
-  state: CellsLoadedShape
-): ShiftGridGeometry | undefined {
-  const selection = state.selection;
-  if (!selection?.dayColumns) return undefined;
-  const result = buildShiftGridGeometry({
-    imageW: selection.imageW,
-    imageH: selection.imageH,
-    personRowBand: selection.personRowBand,
-    dayCount: daysInMonth(state.year, state.month),
-    firstDayCenterX: selection.dayColumns.firstDayCenterX,
-    lastDayCenterX: selection.dayColumns.lastDayCenterX,
-    headerBand: selection.headerBand,
-  });
-  return result.ok && result.geometry ? result.geometry : undefined;
 }
 
 // ─────────────────────────────────────────────────────────────

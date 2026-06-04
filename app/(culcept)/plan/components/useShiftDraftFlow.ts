@@ -33,7 +33,10 @@ import {
   type RefObject,
 } from "react";
 
-import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
+import type {
+  AssistedRowSelection,
+  GridCalibration,
+} from "@/lib/plan/shift/assistedRowSelection";
 import { generateAssistedCrops } from "@/lib/plan/shift/assistedCropGenerator";
 import { generateCombinedDraftImage } from "@/lib/plan/shift/combinedDraftImage";
 import { runDraftExtractionSubmit } from "@/lib/plan/shift/runDraftExtractionSubmit";
@@ -126,6 +129,8 @@ export interface ShiftDraftFlowApi {
   onOpenReview: () => void;
   onCloseReview: () => void;
   onSaveSucceeded: () => void;
+  /** S-geo Persist-2: グリッド校正の正本を selection.gridCalibration に set / clear（null=reset）。 */
+  onSetGridCalibration: (gridCalibration: GridCalibration | null) => void;
 }
 
 export function useShiftDraftFlow(
@@ -339,6 +344,11 @@ export function useShiftDraftFlow(
     () => dispatch({ type: "save_succeeded" }),
     []
   );
+  const onSetGridCalibration = useCallback(
+    (gridCalibration: GridCalibration | null) =>
+      dispatch({ type: "set_grid_calibration", gridCalibration }),
+    []
+  );
 
   return {
     state,
@@ -360,5 +370,6 @@ export function useShiftDraftFlow(
     onOpenReview,
     onCloseReview,
     onSaveSucceeded,
+    onSetGridCalibration,
   };
 }

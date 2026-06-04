@@ -22,6 +22,7 @@ import { useShiftSaveController } from "@/lib/plan/shift/useShiftSaveController"
 import { importShiftRosterAction } from "../_actions/importShiftRoster";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 import type { ShiftGridGeometry } from "@/lib/plan/shift/shiftGridGeometry";
+import type { GridCalibration } from "@/lib/plan/shift/assistedRowSelection";
 import { ShiftReviewGrid, type ShiftReviewCell } from "./ShiftReviewGrid";
 
 export interface ShiftImportModalProps {
@@ -40,6 +41,16 @@ export interface ShiftImportModalProps {
   /** 原稿画像（任意。確認画面で該当セル crop を表示） */
   imageSrc?: string;
   geometry?: ShiftGridGeometry;
+  /**
+   * S-geo Persist-2: 現在の校正値（reducer selection.gridCalibration の素通し）。
+   * ShiftReviewGrid の校正 UI が controlled で表示 / reset 判定に使う。
+   */
+  gridCalibration?: GridCalibration;
+  /**
+   * S-geo Persist-2: 校正値変更ハンドラ（cal=set / null=reset）。
+   * host（ShiftDraftInApp）の onSetGridCalibration → reducer set_grid_calibration へ素通し。
+   */
+  onGridCalibrationChange?: (gridCalibration: GridCalibration | null) => void;
   /** SR B1b-2C-8-c-1: draft review hint（既定 false=dormant）。ShiftReviewGrid に pass-through。 */
   riskReviewEnabled?: boolean;
   /** SR B1b-2C-8-c-1: draft chunk 境目（既定なし）。ShiftReviewGrid に pass-through。 */
@@ -59,6 +70,8 @@ export function ShiftImportModal({
   saveEnabled = false,
   imageSrc,
   geometry,
+  gridCalibration,
+  onGridCalibrationChange,
   riskReviewEnabled,
   chunkBoundaries,
   onSuccess,
@@ -113,6 +126,8 @@ export function ShiftImportModal({
           month={month}
           imageSrc={imageSrc}
           geometry={geometry}
+          gridCalibration={gridCalibration}
+          onGridCalibrationChange={onGridCalibrationChange}
           // ── 6D 保存 contract ──
           saveEnabled={saveEnabled}
           saveState={state}
