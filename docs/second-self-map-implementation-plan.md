@@ -60,7 +60,7 @@
 | ハードロック（N回で確定） | rejected | research 0-3 反証 |
 | 距離 → mode 推定 | rejected | CEO 既定 |
 | fake duration（偽の数字） | rejected | CEO 既定・取れねば「—」 |
-| 人格診断 / 固定ラベル（「あなたはこういう人」） | rejected | 仮説トーンのみ |
+| 人格診断 / 固定ラベル（「あなたはこういう人」） | rejected | 仮説トーンのみ。★copy-tone 補正(GPT): 単語「あなた」の全面禁止でなく "あなたはこういう人" を禁止し "今日のあなたなら / この区間では / 今日の文脈では" は許可。v0-C test は保守的に「あなた」禁止のまま（将来 tone 調整時に緩和） |
 | 自然言語テキスト編集 steering（実装-now として） | rejected → moonshot | research#2 0-3 反証 |
 | 常時通知 / 押し付け先回り | rejected | research#2 notification fatigue |
 | heavy control UI | rejected | research#2 Goldilocks |
