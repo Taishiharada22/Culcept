@@ -231,4 +231,36 @@ A1-5-2-2-1（`supabase/migrations/20260605100000_plan_seeds_structured_only.sql`
 - test(`realityPlanSeedsMigration.test.ts`・**15**・static/schema): raw 列不在 / structured-only / ALLOWED_SEED_COLUMNS 整合 / FORBIDDEN に signal·desired_action / CHECK 各種 / RLS enabled・auth.uid()=user_id ×4・service_role なし / 追加のみ(DROP TABLE なし) / updated_at→trigger / anytime→projection no-window。
 - **しない（A1-5-2-2-1 範囲外）**: migration apply / db push·reset / 実 DB read·write / Supabase client / DB source factory / `.from("plan_seeds")` / seed capture / plan_seed_sources raw table / PRM / runtime·route·UI / barrel。
 
-> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / **A1-5-2-2-0 design + A1-5-2-2-1 plan_seeds structured-only migration draft（landed・§8.9・未 apply・raw 列なし・RLS owner-only）**。次は A1-5-2-2-2（migration apply・要 CEO 承認 + 実 seed read smoke）/ A1-5-3（PRM evidence）/ A1-5-N（UI surface）を各別 GO。raw を同じ読み取り表面に置かない・column-restricted・redaction guard・fail-closed・flag off default・no DB write・no push を全段で維持する。
+### 8.10 A1-5-2-2-2a（landed・doc-only）— plan_seeds migration apply readiness / staging runbook（**未 apply**）
+
+> migration apply は **別 GO（A1-5-2-2-2b・CEO 承認）**。本節は runbook のみで、`supabase db push`/`db reset`/実 apply/実 DB read を**実行しない**。対象は **culcept-staging のみ・本番 apply は禁止**。方向性（structured-only / raw 列禁止 / staging 限定 / apply 別 GO / db reset 禁止 / apply 後 SQL 確認 / RLS owner-only / capture 未実装ゆえ rows=0 正常）は確定。以下は CEO 4 補正を反映した正準 runbook。
+
+**apply 先の決定（補正1・最重要）**: apply 先は **`supabase/config.toml` の root `project_id` ではない**（これは Supabase CLI の **local project 識別子**であり `db push` の適用先判定に使わない）。`db push` は **linked remote project** に対して実行される。apply 前確認を必須にする:
+- `supabase link --project-ref <STAGING_REF>` 済み（`STAGING_SUPABASE_PROJECT_REF`）。
+- `supabase migration list`（CLI 出力）で **linked project が staging**。
+- `supabase db push --dry-run` で **pending migration** を確認。
+- 出力に **production ref が一切出ない**。
+- `supabase/.temp/project-ref` 等の linked ref が **staging と一致**。
+
+**apply 方式（補正2・migration history 整合）**:
+- **Option A（推奨・CLI）**: staging に link → `supabase db push --dry-run` → pending が `20260605100000_plan_seeds_structured_only.sql` **だけ**であることを確認 → その場合のみ `supabase db push`。→ **migration history（`supabase_migrations.schema_migrations`）に自然記録**。
+- **Option B（例外・SQL Editor）**: staging Dashboard SQL Editor に migration SQL を手貼り。plan_seeds だけを外科的に apply できる利点はあるが、**`supabase_migrations.schema_migrations` に記録されない可能性**があり、後続 `supabase db push` が同 migration を再実行して**失敗**しうる。採用するなら **migration history の扱い（`supabase migration repair` 相当の要否）を別確認**にし、**後続 `db push` との整合確認を STOP 条件に入れる**。
+
+**apply 後確認 SQL（read-only・staging）**: ① `SELECT to_regclass('public.plan_seeds')` 非 NULL / ② `information_schema.columns` で structured-only / ③ raw 列（signal/desired_action/raw_text/title/location）count=**0** / ④ `relrowsecurity = t` / ⑤ `pg_policies` が owner-only（`auth.uid()=user_id` ×4・service_role なし）/ ⑥ `pg_constraint` CHECK 整合 / ⑦ updated_at trigger 存在 / ⑧ `SELECT count(*) FROM plan_seeds` = **0**（capture 未実装ゆえ正常）。
+
+**user-RLS 確認（補正3）**: SQL Editor は schema/RLS **定義**確認には有効だが、**管理者的文脈**ゆえ **user-RLS の実証には使わない**。user-RLS 検証は **CEO 本人の anon authenticated client / manual smoke harness** で別途行う（service_role 不可）。kernel 経由の seed read smoke は **column-restricted seed DB source（未構築）**が前提ゆえ **A1-5-2-2-2c+**（空 plan_seeds で **rowsRead=0・candidateCount=0** 期待）。
+
+**rollback / recovery（補正4・staging 限定）**:
+- **Option B（SQL Editor apply）**: `DROP TABLE IF EXISTS public.plan_seeds CASCADE; DROP FUNCTION IF EXISTS public.plan_seeds_set_updated_at();` で戻せる（空・FK 依存なし）。
+- **Option A（CLI・migration history 記録済み）**: DROP **だけでは不十分**。実 DB と migration history がズレるため **history 整合（`supabase migration repair` 相当）も別確認**にする。
+- **staging 以外では実施禁止**。**本番 rollback は本 runbook 対象外**。
+
+**STOP 条件**: link 先が production / dry-run に production ref / pending が plan_seeds 以外を含む（意図せぬ apply）/ apply エラー（policy 重複＝plan_seeds 既存）/ ③ raw 列 ≠0 / ④ RLS 無効 / ⑤ owner-only でない・service_role policy / ⑥ CHECK 不一致 / ⑧ 行数 ≠0 / Option B 後に migration history 不整合。
+
+**A1-5-2-2-2b 最小実行案（別 GO）**: `supabase migration list`（staging link 確認）→ `supabase db push --dry-run`（pending = plan_seeds のみ確認・production ref 不在確認）→ その場合のみ `supabase db push`（Option A）→ 上記確認 SQL（read-only）→ 異常なら rollback。`db reset` 禁止・本番禁止。kernel read smoke は A1-5-2-2-2c+。
+
+**必ず明記**: migration apply は別 GO / `db push`・`db reset` は今回実行しない / **user-RLS 優先（service_role でない）** / plan_seeds は **structured-only** / signal·desired_action·raw_text·title·location は**存在してはいけない** / source_ref は **opaque**（Complete projection の allowed columns に載せない）/ capture 未実装ゆえ apply 直後 rowsRead=**0** が正常 / A1-5-2-2-2b smoke は candidateCount=**0** 期待 / capture·PRM·correction·UI は別段階。
+
+- **しない（A1-5-2-2-2a 範囲外）**: migration apply / db push·reset / SQL Editor 実 apply / 実 DB read·write / seed DB source / seed capture / PRM·correction / runtime·route·UI·PlanClient / raw parse / default duration / remote·PR·GitHub / barrel。
+
+> A1-5-0…A1-5-1b / A1-5-2-0+2-1(§8.8) / A1-5-2-2-0+2-1（§8.9・migration draft・未 apply）/ **A1-5-2-2-2a apply readiness / staging runbook（landed・§8.10・doc-only・未 apply・apply 先=linked remote staging のみ・`config.toml` の `project_id` では判定しない・SQL Editor 採用時は migration history 整合を別確認）**。次は A1-5-2-2-2b（実 apply・別 GO・`db push --dry-run`→staging 確認後のみ）/ A1-5-2-2-2c+（seed DB source + user-RLS read smoke）/ A1-5-3（PRM evidence）を各別 GO。raw を同じ読み取り表面に置かない・column-restricted・redaction guard・fail-closed・flag off default・no DB write・no push を全段で維持する。
