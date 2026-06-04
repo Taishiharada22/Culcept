@@ -83,7 +83,8 @@
 | **v0-A** | pure hypothesis builder（belief + context → hypothesis オブジェクト） | （mock belief で独立開発可） | pure |
 | **v0-B** | necessity gate（belief signal 量 / context shift → 出す?） | v0-A の型 | pure |
 | **v0-C** | explanation copy generator（hypothesis → 仮説トーンの文言） | v0-A | pure |
-| **v0-D** | MobilityLegCard に**非侵襲**表示（既存 UI を壊さない） | v0-A, v0-C, v0-B | UI |
+| **v0-F-lite** | belief read adapter（selectedModeStore/S1-A 履歴 → 実 ModeBelief・★GPT 補正で v0-D 前に挿入） | S1-A 永続化 | read |
+| **v0-D** | MobilityLegCard に**非侵襲**表示（★実 belief を使う・mock 禁止） | v0-A, v0-C, v0-B, **v0-F-lite** | UI |
 | **v0-E** | correction writeback（mode 選択 = override = 高精度観測） | belief store（v0-F） | wiring |
 | **v0-F** | belief update（最小 belief store：S1-A 履歴の precision 重み付き集計） | S1-A 永続化 | store |
 
@@ -93,7 +94,7 @@
 
 ## 4. 実装順序（全体・各 slice は tight-slice：tsc 0 / unit test / 実機 smoke / CEO 承認 / 個別 commit）
 ```
-v0-A → v0-B → v0-C → v0-D → v0-E → v0-F        … Wave 0（Mobility Hypothesis Surface）
+v0-A ✅ → v0-B ✅ → v0-C → v0-F-lite(belief read adapter) → v0-D → v0-E → v0-F   … Wave 0（★GPT 補正: UI 前に実 belief を読む adapter を挟む＝mock を表示しない）
  → L1(full belief / S2-B) → L2(correction+理由 / S6)
  → L3(selective forgetting) → L4(cold-start) → L5(context modifier / S4)   … Wave 1
  → Day Rehearsal(S5) → energy curve → counterfactual → S3(あなたのペース)    … Wave 2
