@@ -5,8 +5,11 @@
  */
 import type {
   GmapsApi,
+  GmapsIcon,
   GmapsLatLng,
   GmapsMap,
+  GmapsMarker,
+  GmapsMarkerOptions,
   GmapsPolyline,
   GmapsPolylineOptions,
 } from "@/lib/shared/googleMapsLoader";
@@ -105,4 +108,72 @@ export function buildGlassyLegLines(
   const body = new maps.Polyline({ map, path, strokeColor: style.color, strokeOpacity: style.bodyOpacity, strokeWeight: style.weight, zIndex: style.zIndex - 1, clickable: false } as RoutePolylineOptions);
   const core = new maps.Polyline({ map, path, strokeColor: ROUTE_CORE_COLOR, strokeOpacity: style.coreOpacity, strokeWeight: style.coreWeight, zIndex: style.zIndex, clickable: false } as RoutePolylineOptions);
   return { lines: [glow, body, core], glow };
+}
+
+
+// ── オーラ animation (current の glow 呼吸 + 到着ノード鼓動) — 2c。FH 忠実 port。 ──
+const ROUTE_BREATH_PERIOD_MS = 6000;
+const ROUTE_BREATH_MAX_OPACITY = 0.32;
+const ROUTE_PULSE_PERIOD_MS = 2600;
+const ROUTE_PULSE_MIN_SCALE = 5;
+const ROUTE_PULSE_MAX_SCALE = 30;
+const ROUTE_PULSE_MAX_OPACITY = 0.5;
+const ROUTE_AURA_FRAME_MS = 60;
+
+type RouteRingIcon = GmapsIcon & { strokeOpacity?: number };
+type MobilityMarkerOptions = GmapsMarkerOptions & { clickable?: boolean };
+type GmapsMarkerWithSetIcon = GmapsMarker & { setIcon(icon: RouteRingIcon): void };
+type GmapsPolylineWithSetOptions = GmapsPolyline & { setOptions(opts: RoutePolylineOptions): void };
+
+/** glow animation するのは current(= 今→次、主役) 区間のみ。 */
+export function shouldAnimateLeg(state: RouteLegState): boolean {
+  return state === "current";
+}
+
+/**
+ * current(今→次) の近未来アニメーション。
+ *   ① ライン発光呼吸: current の glow の strokeOpacity を sin で静かに増減(位置不動)。
+ *   ② ノード発光鼓動: 次の目的地に光の輪を 2 つ半周ずらして置き、拡大しながらフェード(心拍)。
+ *   戻り値 markers は cleanup で setMap(null)、timerId は clearInterval する。
+ */
+export function createRouteAuraAnimation(
+  maps: GmapsApi,
+  map: GmapsMap,
+  glow: GmapsPolyline,
+  nextPos: GmapsLatLng,
+  color: string,
+): { markers: GmapsMarker[]; timerId: number } {
+  const pulseRing = (scale: number, opacity: number): RouteRingIcon => ({
+    path: maps.SymbolPath.CIRCLE,
+    fillOpacity: 0,
+    strokeColor: color,
+    strokeWeight: 2,
+    strokeOpacity: opacity,
+    scale,
+  });
+  const rings = [0, 0.5].map(
+    () =>
+      new maps.Marker({
+        map,
+        position: nextPos,
+        icon: pulseRing(ROUTE_PULSE_MIN_SCALE, 0),
+        clickable: false,
+      } as MobilityMarkerOptions),
+  );
+  const breathSpan = ROUTE_BREATH_MAX_OPACITY - ROUTE_BREATH_MIN_OPACITY;
+  let ms = 0;
+  const timerId = window.setInterval(() => {
+    ms += ROUTE_AURA_FRAME_MS;
+    const breath =
+      ROUTE_BREATH_MIN_OPACITY +
+      breathSpan * (0.5 + 0.5 * Math.sin((2 * Math.PI * ms) / ROUTE_BREATH_PERIOD_MS));
+    (glow as GmapsPolylineWithSetOptions).setOptions({ strokeOpacity: breath });
+    rings.forEach((ring, i) => {
+      const phase = (ms / ROUTE_PULSE_PERIOD_MS + i * 0.5) % 1;
+      const scale = ROUTE_PULSE_MIN_SCALE + (ROUTE_PULSE_MAX_SCALE - ROUTE_PULSE_MIN_SCALE) * phase;
+      const op = ROUTE_PULSE_MAX_OPACITY * (1 - phase);
+      (ring as GmapsMarkerWithSetIcon).setIcon(pulseRing(scale, op));
+    });
+  }, ROUTE_AURA_FRAME_MS);
+  return { markers: rings, timerId };
 }

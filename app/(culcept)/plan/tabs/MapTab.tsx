@@ -84,7 +84,7 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 import { MobilityLegCard, type LegDurations } from "@/components/plan/map/MobilityLegCard";
 import { mapChipStateForLeg, mobilityChipPx, mobilityLegIconDataUri, type RouteTransportMode } from "@/lib/plan/map/routeMode";
-import { buildGlassyLegLines, getRouteStyleForLeg } from "@/lib/plan/map/routeStyle";
+import { buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, shouldAnimateLeg } from "@/lib/plan/map/routeStyle";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -661,6 +661,7 @@ function PlanMapView({
     );
     const lines: GmapsPolyline[] = [];
     const chipMarkers: GmapsMarker[] = [];
+    const auraTimers: number[] = [];
     for (let i = 0; i < sortedPins.length - 1; i += 1) {
       const a = sortedPins[i]!;
       const b = sortedPins[i + 1]!;
@@ -669,13 +670,15 @@ function PlanMapView({
       const state = resolveLegState(i, focusLegIndex);
       const displayMode: RouteTransportMode = mode ?? "unknown";
       // Slice 2b: per-state ガラス質線(body+glow+白芯 / done=丸点線)。線は直線(道路沿いは Tier 3)。
-      const built = buildGlassyLegLines(
-        maps,
-        map,
-        [a.coord, b.coord],
-        getRouteStyleForLeg(state, displayMode),
-      );
+      const style = getRouteStyleForLeg(state, displayMode);
+      const built = buildGlassyLegLines(maps, map, [a.coord, b.coord], style);
       for (const ln of built.lines) lines.push(ln);
+      // Slice 2c: current leg の glow 呼吸 + 到着ノード鼓動(aura)。timer/ring は cleanup で破棄。
+      if (shouldAnimateLeg(state) && built.glow) {
+        const aura = createRouteAuraAnimation(maps, map, built.glow, b.coord, style.color);
+        for (const ring of aura.markers) chipMarkers.push(ring);
+        auraTimers.push(aura.timerId);
+      }
 
       // Slice 2a: mode 色つき leg チップ(状態別サイズ)。markers effect から移設(flicker なし・FH 忠実)。
       const chipState = mapChipStateForLeg(state);
@@ -695,6 +698,7 @@ function PlanMapView({
       chipMarkers.push(chip);
     }
     return () => {
+      for (const t of auraTimers) clearInterval(t);
       for (const l of lines) l.setMap(null);
       for (const c of chipMarkers) c.setMap(null);
     };
