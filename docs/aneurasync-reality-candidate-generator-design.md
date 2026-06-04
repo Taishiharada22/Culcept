@@ -39,6 +39,7 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 | **A1-3-R1a-2a** | Repair trim-only **coverage expansion**（多重 overlap を all-or-nothing で全解消する 1 件の multi-op・trim 対象は明確に lower-priority/more-flexible な earlier のみ） | ✅ landed |
 | **A1-4-0** | **Seed Placement Context / Complete prerequisite（design only）**: Complete を阻むのは placement 入力の不在。Gap-1(`PlanSeed` に duration 無)・Gap-2(`seedTraces` は lossy reduction)。`SeedPlacement`(構造化・redacted・自由文なし)＋`durationMin:number\|null` 第一級値→no candidate＋duration source(PRM seam)。型/実装は A1-4-1 以降 | 📐 設計のみ（実装別 GO） |
 | **A1-4-1** | **SeedPlacement 変換・判定の土台**: `SeedPlacement`/`TimeWindow`/`DurationSource` 型 + `buildSeedPlacements`(active のみ・構造化のみ・raw 不持込・推測なし) + `isPlaceable`(duration 不明→false) + `isTentative`。durationMin 常に null＝実 seed は全て not-placeable。**候補/add op/default duration なし** | ✅ landed |
+| **A1-4-2a** | **fill-only add 最小 generator**(`generateComplete`): SeedPlacement を当日 gap に 1 件 add 候補化。結合条件(isPlaceable ∧ source≠unknown ∧ strong ∧ place ∧ date ∧ gap 一意)。実 seed は候補 0・synthetic duration でだけ候補。clock 非ハードコード(activeWindow/bandBounds は caller 提供)。**未配線・dispatcher 不変** | ✅ landed |
 | A1-3-R1b〜 / 他 mode | move/cascade Repair / Complete / Build / Optimize（各別 GO・context+evaluator 経由） | ⏳ 別 GO |
 
 ## 3. A1-1 実装（landed）
@@ -182,10 +183,23 @@ generator(A1-3+) → CandidateDraft[]            // metrics を持てない
 - test（`tests/unit/realitySeedPlacement.test.ts`・**16**）: active filter / 構造化写像 / durationMin=null・unknown / window 写像 / disposition 写像 / grounding 閾値 / **raw 不持込（signal/desiredAction が出力に現れない）** / 入力順 / clamp / isPlaceable(null→false・>0→true・≤0→false・実 seed 全 false) / isTentative。
 - **しない（A1-4-1 範囲外）**: generateComplete / CandidateDraft / add op 生成 / default duration / 自由文 parse / LLM / PRM 実接続 / UI・DB・runtime・route・PlanClient / barrel。
 
+## 4j. A1-4-2a 実装（landed）— fill-only add 最小 generator（Complete mode・SeedPlacement→候補）
+`lib/plan/reality/complete-generator.ts`（新規 pure・**barrel 未追加・dispatcher 未配線**）。`generateComplete(input) → CandidateDraft | null`。`generateCandidates` は不変（RealityInput は raw seed/placement を持たないため pipeline 配線は将来 slice）。
+- **重要拘束**: `isPlaceable` は必要条件であって十分条件でない。**isPlaceable 単独で候補化しない**。
+- **結合条件**（候補対象）: `isPlaceable(duration 既知>0) ∧ durationSource≠unknown ∧ grounding=strong ∧ dispositionHint=place ∧ date 照合`。＝ weak/tentative/skip/unknown-source/date 不一致は除外。
+- **最大 1 placement**: eligible が**ちょうど 1 件**のときだけ進む（0=候補なし / **>1=多重配置は曖昧→ no candidate**・A1-4-2b へ defer）。
+- **window 解決**: window なし→active window 全体 / banded→`active ∩ bandBounds[band]`（**bandBounds は caller 提供・clock をハードコードしない**。bounds 無→ no candidate）。
+- **gap 一意性**: region 内 free gap のうち duration が入るものが**ちょうど 1 つ**のときだけ配置（0=不足 / >1=曖昧→ no candidate）。gap 先頭に earliest-fit（決定的）。
+- **生成物**: `add` op **1 件**の CandidateDraft（metrics なし）。生成 item は **raw text を持たない**（title なし）・governance=alter_generated/proposed/movable/tentative（最弱）・sourceTrace.reason は固定定型・ref=seedRef(id)・proposedDisposition=confirm。id 衝突は no candidate（保守）。
+- **default duration 0 / raw parse 0**: duration は `p.durationMin` のみ使用（null は isPlaceable で除外）・`signal/desiredAction` を読まない。
+- **安全性は evaluator 主権**: 本関数は self-certify せず、`add` 候補は既存 evaluator+Gate-first が feasible/recovery/deadline/whole_part/traceability/reversibility/permission で独立判定。
+- test（`tests/unit/realityCompleteGenerator.test.ts`・**19**）: 実 seed→候補 0 / synthetic→add 1(gap 先頭) / 結合条件 5(unknown/weak/tentative/skip/duration≤0) / date 照合 3 / gap 一意性 3 / window 2(bounds 無→null・有→配置) / 多重→null / raw なし / **evaluate+rank で全 safety true・best**。
+- **しない（A1-4-2a 範囲外）**: pipeline/dispatcher 配線 / default duration / 自由文 parse / LLM / PRM 実接続 / Build/Optimize/R1b / move/cascade / 多重配置 / UI・DB・runtime・route・PlanClient / barrel。
+
 ## 5. 境界
 - 🟢 pure（A1 全体・新規ファイル・barrel 未追加・非 test 参照ゼロ＝production 挙動変更ゼロ）
 - 🔴 A1 外: UI / route / PlanClient / DB / Supabase / runtime 接続 / staging smoke / production / push / PR。
 
 ## 6. 次 GO 待ち
-A1-4-1（SeedPlacement 変換・判定の土台・本書 §4i に **landed**）まで完了。次の **A1-4-2（`generateComplete`: fill-only add・durationMin=null⇒no candidate）は CEO 判断で別 GO**（現状 NO）。A1-4-3+（`enrichSeedPlacement`: PRM 配線で durationMin を埋める）はさらに後。
+A1-4-2a（fill-only add 最小 generator・本書 §4j に **landed**）まで完了。次は **A1-4-2b**（多重配置: 複数 eligible placement を順序づけて複数 add・gap 競合解決）か、**pipeline 配線**（RealityInput に raw seed/placement を載せ `generateComplete` を dispatcher へ接続）を CEO 判断で別 GO。A1-4-3+（`enrichSeedPlacement`: PRM 配線で durationMin を埋める）はさらに後。いずれも **現状 NO**。
 A1-3-R1b（move/cascade Repair）/ 他 mode（Complete/Build/Optimize）/ A1-2-4b（slackHealth: active window 等が入ってから）/ contextSwitches（domain 等が入ってから）は各別 slice で設計。merge / 統合は CEO 判断待ち。
