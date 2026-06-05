@@ -138,6 +138,49 @@ export function buildRepertoireBelief(
   return legKeyBelief; // 床: cold legKey belief（gate が沈黙）
 }
 
+// ───────────────────────── L4-a: cold-start partial-pooling（2-level・pure・additive） ─────────────────────────
+
+/** L4-a pooling の prior 等価観測数（pseudo-count）。★magic number でなく const。較正は L4-c（実データ後）。 */
+export const DEFAULT_POOLING_KAPPA = 3;
+
+/** legKey belief が strong か（強 legKey guard 用・v0 strength 判定を流用・raw n_leg でない）。 */
+function isStrong(belief: ModeBelief): boolean {
+  return buildMobilityHypothesis(belief, {}).habitualStrength === "strong";
+}
+
+/**
+ * L4-a: cold-start partial-pooling（2-level: legKey ← odKey marginal・固定 κ・pure）。
+ * L1-b の hard fallback を連続 blend へ。buildRepertoireBelief は温存（本関数は additive・未配線）。
+ *   pooled[m] = c_leg[m] + κ · p_OD[m]（p_OD = odKey marginal の share）/ total = n_leg + κ
+ * ★強 legKey guard: strength==="strong" は OD prior を混ぜず厳密 legKey(=v0)。cold〜moderate のみ pooling。
+ * ★退行ゼロ: empty obs / odKey なし / κ≤0 / OD prior 空 → legKey(=v0)。
+ * ★mode 正本は selectedStore・redacted/unknown 除外・OD も feedback JOIN で precision 加重（buildOdBelief 経由）。
+ */
+export function buildPooledBelief(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+  query: RepertoireQuery,
+  kappa: number = DEFAULT_POOLING_KAPPA,
+): ModeBelief {
+  const legKeyBelief = buildWeightedModeBelief(selected, feedback, query.legKey);
+  if (isStrong(legKeyBelief)) return legKeyBelief; // 強 guard: 確立習慣は OD で動かさない（厳密 v0）
+  if (query.odKey == null || kappa <= 0) return legKeyBelief; // OD なし / κ 無効 → leg-only(=v0)
+  // 2-level（L4-a）: odKey marginal（timeband/weekday 条件なし）を prior に
+  const odBelief = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: false });
+  if (odBelief.total <= 0) return legKeyBelief; // 空 OD prior → v0（退行ゼロ）
+  const counts: Partial<Record<RouteTransportMode, number>> = {};
+  const modes = new Set<RouteTransportMode>([
+    ...(Object.keys(legKeyBelief.counts) as RouteTransportMode[]),
+    ...(Object.keys(odBelief.counts) as RouteTransportMode[]),
+  ]);
+  for (const m of modes) {
+    const pOD = (odBelief.counts[m] ?? 0) / odBelief.total;
+    counts[m] = (legKeyBelief.counts[m] ?? 0) + kappa * pOD; // c_leg + κ·p_OD
+  }
+  return deriveBelief(query.legKey, counts, legKeyBelief.total + kappa);
+}
+
 // ───────────────────────── localStorage loaders (fail-open) ─────────────────────────
 
 function loadSelected(): SelectedModeStore {
@@ -168,4 +211,12 @@ function loadObservations(): MobilityObservationStore {
 /** ★L1-b-2 配線で MapTab が使う。実データ由来の repertoire belief（mock でない）。両 store fail-open。 */
 export function loadRepertoireBelief(query: RepertoireQuery): ModeBelief {
   return buildRepertoireBelief(loadObservations(), loadSelected(), loadFeedback(), query);
+}
+
+/** ★L4 配線用（GO 後・現状未配線）。実データ由来の pooled belief（mock でない）。両 store fail-open。 */
+export function loadPooledBelief(
+  query: RepertoireQuery,
+  kappa: number = DEFAULT_POOLING_KAPPA,
+): ModeBelief {
+  return buildPooledBelief(loadObservations(), loadSelected(), loadFeedback(), query, kappa);
 }
