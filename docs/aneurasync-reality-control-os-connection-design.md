@@ -618,4 +618,56 @@ A1-5-5c（capture の配線層・gate→extractor→validate→orchestrator を 
 - **5d は SeedExtractor を実 LLM adapter に、writeClient を実 RPC client に差すだけで runtime 化可能**（本ロジック不変）。
 - **しない（A1-5-5c 範囲外）**: 実 LLM / prompt / 実 client / route·UI / DB write / RPC / A1-5-5d 以降。
 
-> A1-5-0…§8.27 / **A1-5-5c Capture Service（landed・§8.28・server-only・DI・no-run・gate→extractor→validate→orchestrator・redacted 6 分岐・raw 非漏洩・20 tests）**。gate を最初に通し blocked なら extractor 未呼出（LLM コスト 0・write 0）。raw は extractor 入力のみ・result に raw/raw field 名/UUID を出さない。**capture pipeline 全段（gate→extractor→validate→intake→mapper→write seam→orchestrator）が fake/no-run で end-to-end 配線済**。次は **A1-5-5d 実 LLM extractor adapter**（shift VLM mirror・env-free・fake-network test・route 未接続・別 GO）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
+### 8.29 A1-5-5d-0 設計（doc-only）— LLM Extractor Adapter Design（実 LLM/SDK/prompt/API なし）
+
+`SeedExtractor`（§8.27）の **実 LLM 実装**の境界・prompt 方針・schema・validation・failure handling・observability を設計。**本節は設計のみ**（実 LLM/SDK import/prompt code/API call/runtime/DB なし）。mirror: shift VLM adapter（`lib/plan/shift/draftExtractionGeminiAdapterCore.ts` env-free core + `shiftExtractionPrompt.ts` pure prompt builder + schema const）。**重要差分**: shift は失敗時 **throw**（user-initiated）だが、**capture は chat と並走する background ゆえ throw 禁止 → no_intent fail-safe**（chat を壊さない）。
+
+**8.29.1 adapter 入力**:
+- `CaptureExtractionInput { utterance（**唯一の raw・adapter 入力のみ**）, nowIso（相対日付の基準）, sourceRef?（opaque chat msg id・raw 本文でない） }`（§8.27 既定）。
+- **userId/seedId/capturedAt は adapter に渡さない**（capture service §8.28 が server 注入）。adapter は「何が意図されたか」のみ抽出。
+- **env-free**: apiKey/model/timeoutMs/maxRetry/retryBackoffMs/fetchImpl/sleep は **config 引数**（process.env 非依存・shift mirror）。env 読取は server host（A1-5-5g）の責務。
+
+**8.29.2 adapter 出力**:
+- `ExtractorResult = { kind:"extracted"; raw } | { kind:"no_intent" }`（§8.27 既定）。
+- **extracted.raw も raw 本文を返さない**: contract フィールド（confidence/source/desiredDate/desiredTimeHint/actionShape/explicitDuration）のみ。utterance/prompt/response 本文を含めない。
+- **sourceRef は adapter が input から注入**（LLM 出力でなく opaque id を透過）。userId/seedId/capturedAt 非含有（server 注入）。
+
+**8.29.3 prompt 方針**:
+- prompt は **transient**（LLM 送信のみ・**永続化しない**）。LLM **response raw も永続化しない**（parse→構造化→ExtractorResult、response 本文破棄）。
+- **raw を DB に保存しない**（utterance/prompt/response いずれも）。API key は header（URL/log に出さない・shift mirror）。
+- prompt 構造（pure string builder・5d-1）: system 指示（発話→予定意図の構造化抽出・意図なし→no_intent）+ JSON schema（responseMimeType=application/json）+ utterance + nowIso。**prompt code は 5d-1+**。
+- **failure → no_intent or invalid_extraction**: LLM error/timeout/parse-fail/空 → **no_intent**（fail-safe・throw しない）。LLM が garbage structured → extracted → service の validateExtractorOutput が reject → invalid_extraction。
+- **extraction confidence 低 → no capture**: 全体 confidence < 閾値（config・例 0.5）→ adapter が **no_intent**。
+
+**8.29.4 validation 方針**:
+- LLM output は **必ず validateExtractorOutput**（§8.28 service が producer pre-check）+ **orchestrator intake が firewall**（§8.23・常時）= 二段。
+- adapter 自身は validate しない（raw を返すのみ）→ **service が単一検証点**（§8.27 単一ソース方針・二重実装しない）。validator は throw しない。
+
+**8.29.5 safety — hallucinated / explicit vs inferred duration（核心）**:
+- **リスク**: LLM が duration を hallucinate（「たぶん 1 時間」）し explicit high として混入 → 誤 evidence 化 → 誤候補。
+- **対策（LLM schema に durationKind）**: LLM は `duration: { durationMin, kind:"explicit"|"inferred" } | null` を返す。adapter が map:
+  - `explicit`（user 明示）→ `explicitDuration:{durationMin, confidence:"high"}` → seed_explicit → **evidence（候補化）**。
+  - `inferred`（LLM 推測）→ `explicitDuration:{durationMin, confidence:"low"}` → mapper が **evidence 化しない（weak）**。
+  - `null` → 省略。
+- adapter は **`durationKind` を strip**（contract 外・intake allowlist が落とす）= **inferred は最初から evidence 化しない**（既存 low→non-evidence 経路再利用・intake/mapper 変更不要）。
+- defense-in-depth: explicit でも range（1<min≤1440）違反は validateExtractorOutput が reject。raw field 混入は reject。default duration は置かない。
+- 将来（別 slice・今はしない）: inferred を別フィールドで観測保持する拡張（intake/mapper 拡張要）。
+
+**8.29.6 observability**:
+- **raw なし**: outcome（extracted/no_intent）+ reason code（ok/llm_error/timeout/parse_fail/low_confidence/no_intent）+ token usage（usageMetadata.totalTokenCount 等・任意）+ latencyMs。
+- **prompt/response 本文を出さない**（log/DB/return）。
+- observability は **DI callback `onObservation(obs)`**（adapter が emit・ExtractorResult contract を汚さない）。obs は raw-free（redaction-guard 適用可）。
+
+**8.29.7 adapter 構造（5d-1+ 実装方針）**:
+- env-free core `createLlmSeedExtractorAdapterCore(config): SeedExtractor`（shift mirror・fetchImpl DI）。
+- `extract(input)`: ①buildSeedExtractionPrompt（pure）→ ②fetchImpl(LLM)（DI・fake で network 0）→ ③parse（fail→no_intent）→ ④map（durationKind→confidence・sourceRef 注入・durationKind strip）→ ⑤confidence 閾値（低→no_intent）→ ⑥`{kind:"extracted",raw}` | `{kind:"no_intent"}`。**throw しない**（全 error catch→no_intent）。
+- server host（A1-5-5g）が env を読み core に渡し、capture service の SeedExtractor として DI 注入。
+
+**8.29.8 A1-5-5d-1 推奨**:
+- **推奨 A1-5-5d-1 = SDK-free / network-free adapter core**（`createLlmSeedExtractorAdapterCore` + DI `fetchImpl` + pure `buildSeedExtractionPrompt` + `SEED_EXTRACTION_JSON_SCHEMA` + parse/map/downgrade/no_intent ロジック + **fake fetch** tests）。
+  - **SDK import 0 / API call 0 / network 0**（fetchImpl を fake で注入・canned JSON）。
+  - tests: sample JSON→extracted / no-intent JSON→no_intent / malformed→no_intent / inferred→low(evidence なし) / explicit→high / 低 confidence→no_intent / raw field 混入 LLM 出力→service validateExtractorOutput reject / **throw しない**（error fetch→no_intent）/ token usage 観測 / prompt·response 本文 非永続。
+  - 理由: 実 SDK/network なしで adapter の**全分岐（parse/map/downgrade/no_intent/fail-safe）**を固定。**5d-2 で実 SDK fetchImpl を差すだけ**。
+- phasing（各別 GO）: **5d-1**（SDK-free core + fake）→ **5d-2**（実 SDK fetchImpl host・実 LLM・別 GO）→ 5e observe smoke → 5f real capture smoke → 5g·5h route 接続。
+
+> A1-5-0…§8.28 / **A1-5-5d-0 LLM Extractor Adapter Design（doc-only・§8.29・8 論点 + phasing 確定・実 LLM/SDK/prompt/API 0）**。shift VLM env-free core を mirror（config 引数・fetchImpl DI）。**重要差分: capture は background ゆえ失敗時 throw 禁止→no_intent fail-safe**。核心 safety: LLM `durationKind:"explicit"|"inferred"` を adapter が map（explicit→high evidence / inferred→low non-evidence）し durationKind を strip＝**hallucinated/inferred duration は最初から evidence 化しない**（既存 low 経路再利用）。raw は adapter 入力のみ・prompt/response 非永続・raw を DB に保存しない。検証は service 単一点（validateExtractorOutput + orchestrator intake firewall）。推奨 **A1-5-5d-1 = SDK-free/network-free adapter core（fetchImpl DI・fake fetch・parse/map/downgrade/no_intent・SDK/API/network 0）**。次は **A1-5-5d-1**（別 GO）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
