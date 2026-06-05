@@ -37,6 +37,7 @@ import { SourceCellCrop } from "./SourceCellCrop";
 import { SourceImageHighlight } from "./SourceImageHighlight";
 import { SourceCellZoom } from "./SourceCellZoom";
 import { useSourceConsistencyCheck } from "./useSourceConsistencyCheck";
+import { SourceMismatchWarning } from "./SourceMismatchWarning";
 import {
   type ShiftReviewCell,
   computeEmptyDays,
@@ -213,8 +214,12 @@ export function ShiftReviewGrid({
   );
 
   // SR A4-2b: 空欄セル(rawCode="")だけ原稿 content を canvas 読取し source/result 不一致(P1)を算出。
-  //   transient・warning 非表示（UI は A4-3）。save payload / DB には一切混ぜない。fail-open。
+  //   transient・fail-open・save payload / DB 非混入。A4-3: warning banner + cell amber に接続（保存は止めない）。
   const sourceMismatches = useSourceConsistencyCheck({ imageSrc, geometry, cells, blankDays });
+  const sourceMismatchDaySet = useMemo(
+    () => new Set(sourceMismatches.map((h) => h.day)),
+    [sourceMismatches]
+  );
 
   const projection = useMemo(() => {
     const readings: ShiftCellReading[] = cells.map((c) => ({
@@ -299,10 +304,6 @@ export function ShiftReviewGrid({
   return (
     <GlassCard className="relative">
       <div data-testid="shift-review-grid">
-      {/* SR A4-2b: source/result 不一致(P1)を算出した transient マーカー（不可視・warning は A4-3 で表示）。 */}
-      {sourceMismatches.length > 0 ? (
-        <span hidden data-source-mismatch-days={sourceMismatches.map((h) => h.day).join(",")} />
-      ) : null}
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-gray-800">
           {monthLabel} の取り込み確認
@@ -316,6 +317,9 @@ export function ShiftReviewGrid({
       >
         強調（隅の印）は注意の補助です。<b>強調が無くても全セルを原稿と照合</b>してください。空欄が勝手に埋まる場合があります。
       </p>
+
+      {/* SR A4-3: source/result 不一致(P1) warning（safe-copy・保存は止めない・soft）。dormant 時は null。 */}
+      <SourceMismatchWarning days={sourceMismatches.map((h) => h.day)} />
 
       {/* A2B-2: 本人行 warning（行全体・カレンダーの前）。conflict / mismatch のみ・**保存は止めない**。 */}
       {showRowWarning && (
@@ -389,8 +393,9 @@ export function ShiftReviewGrid({
           const { kind } = cellInfo(cell.rawCode, dictionary);
           const blankRisk = cellIsBlankRisk(cell);
           const confusable = confusableDays.has(cell.day);
-          // 「要確認」amber は blank-risk か confusable で点灯（過剰着色しない＝赤を足さず既存 amber を共有）。
-          const needsReview = blankRisk || confusable;
+          const sourceMismatch = sourceMismatchDaySet.has(cell.day);
+          // 「要確認」amber は blank-risk / confusable / source mismatch(A4-3) で点灯（赤を足さず既存 amber を共有）。
+          const needsReview = blankRisk || confusable || sourceMismatch;
           const selected = selectedDay === cell.day;
           const isEmpty = normalizeRawCode(cell.rawCode) === "";
           return (
@@ -401,6 +406,7 @@ export function ShiftReviewGrid({
               data-kind={kind}
               data-blank-risk={blankRisk ? "true" : "false"}
               data-confusable={confusable ? "true" : "false"}
+              data-source-mismatch={sourceMismatch ? "true" : "false"}
               onClick={() => setSelectedDay(cell.day)}
               onMouseEnter={() => setHoveredDay(cell.day)}
               onMouseLeave={() => setHoveredDay(null)}
