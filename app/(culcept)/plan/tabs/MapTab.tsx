@@ -87,7 +87,7 @@ import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconD
 import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
 import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
-import { loadRepertoireBelief, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
+import { loadPooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
@@ -336,7 +336,7 @@ export function MapTab({
       weekday: toWeekdayBucket(dayKey),
     };
     const guidance = resolveMobilityGuidance({
-      belief: loadRepertoireBelief(repertoireQuery), // ★L1-b: legKey 優先 + OD 一般化(mock でない)
+      belief: loadPooledBeliefMultiLevel(repertoireQuery), // ★L4-b: multi-level partial-pooling(legKey/OD/global・effSize 弱化・mock でない)
       selectedMode: todaySelected,
       readOnly: isDone,
       sensitive,
