@@ -18,6 +18,11 @@ import { isRouteTransportMode, type RouteTransportMode } from "@/lib/plan/map/ro
 import { buildMobilityHypothesis, type ModeBelief } from "./mobilityHypothesis";
 import { buildWeightedModeBelief, precisionWeight } from "./beliefReadAdapter";
 import {
+  computeRegimeFactorFn,
+  DEFAULT_L3_CONFIG,
+  type SelectiveForgettingConfig,
+} from "./mobilitySelectiveForgetting";
+import {
   parseStore,
   SELECTED_MODE_STORE_KEY,
   type SelectedModeStore,
@@ -91,6 +96,7 @@ function buildOdBelief(
   feedback: HypothesisFeedbackStore,
   query: RepertoireQuery,
   level: OdLevel,
+  regimeFactorFn?: (day: string, legKey: string) => number, // L3
 ): ModeBelief {
   const counts: Partial<Record<RouteTransportMode, number>> = {};
   let total = 0;
@@ -106,7 +112,8 @@ function buildOdBelief(
       // ★mode は selectedStore 正本（observation.mode は使わない＝stale 自動回避）
       const mode = selected.byDay[day]?.[legKey];
       if (mode === undefined || !isRouteTransportMode(mode) || mode === "unknown") continue;
-      const w = precisionWeight(feedback.byDay[day]?.[legKey], mode);
+      const w =
+        precisionWeight(feedback.byDay[day]?.[legKey], mode) * (regimeFactorFn ? regimeFactorFn(day, legKey) : 1);
       counts[mode] = (counts[mode] ?? 0) + w;
       total += w;
     }
@@ -244,6 +251,7 @@ function buildGlobalCounts(
   obs: MobilityObservationStore,
   selected: SelectedModeStore,
   feedback: HypothesisFeedbackStore,
+  regimeFactorFn?: (day: string, legKey: string) => number, // L3
 ): { counts: Partial<Record<RouteTransportMode, number>>; total: number } {
   const counts: Partial<Record<RouteTransportMode, number>> = {};
   let total = 0;
@@ -252,7 +260,8 @@ function buildGlobalCounts(
       if (o.privacyClass === "redacted") continue; // redacted は global 集計にも使わない
       const mode = selected.byDay[day]?.[legKey];
       if (mode === undefined || !isRouteTransportMode(mode) || mode === "unknown") continue;
-      const w = precisionWeight(feedback.byDay[day]?.[legKey], mode);
+      const w =
+        precisionWeight(feedback.byDay[day]?.[legKey], mode) * (regimeFactorFn ? regimeFactorFn(day, legKey) : 1);
       counts[mode] = (counts[mode] ?? 0) + w;
       total += w;
     }
@@ -293,22 +302,23 @@ export function buildPooledBeliefMultiLevel(
   feedback: HypothesisFeedbackStore,
   query: RepertoireQuery,
   kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+  regimeFactorFn?: (day: string, legKey: string) => number, // L3: regime-change で古い観測を ×λ（省略=identity）
 ): ModeBelief {
-  const legKeyBelief = buildWeightedModeBelief(selected, feedback, query.legKey);
-  if (isStrong(legKeyBelief)) return legKeyBelief; // 強 guard: 厳密 v0
+  const legKeyBelief = buildWeightedModeBelief(selected, feedback, query.legKey, regimeFactorFn);
+  if (isStrong(legKeyBelief)) return legKeyBelief; // 強 guard: 厳密 v0（L3 調整後の belief で判定）
   // global（root・OD 非依存・弱い seed: effSize≤κ_global）
-  const g = buildGlobalCounts(obs, selected, feedback);
+  const g = buildGlobalCounts(obs, selected, feedback, regimeFactorFn);
   const pGlobal: LevelResult = {
     shares: toShares(g.counts, g.total),
     effSize: Math.min(kappa.global, g.total), // ★global は弱く（過剰 surface 抑制）
   };
   if (query.odKey == null) return blendLeg(legKeyBelief, pGlobal, kappa.leg, query.legKey); // odKey なし → global only
   // chain（od←global は κ_global で弱く・以降は κ_context）
-  const od = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: false });
+  const od = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: false }, regimeFactorFn);
   const pOd = shrinkLevel(od.counts, od.total, pGlobal, kappa.global);
-  const wd = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: true });
+  const wd = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: true }, regimeFactorFn);
   const pWd = shrinkLevel(wd.counts, wd.total, pOd, kappa.context);
-  const ctx = buildOdBelief(obs, selected, feedback, query, { tb: true, wd: true });
+  const ctx = buildOdBelief(obs, selected, feedback, query, { tb: true, wd: true }, regimeFactorFn);
   const pCtx = shrinkLevel(ctx.counts, ctx.total, pWd, kappa.context);
   return blendLeg(legKeyBelief, pCtx, kappa.leg, query.legKey);
 }
@@ -359,4 +369,32 @@ export function loadPooledBeliefMultiLevel(
   kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
 ): ModeBelief {
   return buildPooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, kappa);
+}
+
+// ───────────────────────── L3: selective forgetting 適用版（pure・additive・未配線） ─────────────────────────
+
+/**
+ * L3-aware multi-level pooled belief（pure）。
+ * feedback から regimeFactorFn を作り、L4-b の buildPooledBeliefMultiLevel に注入。
+ * ★regime-change なし → regimeFactorFn 恒等 → L4-b と完全同一（退行ゼロ）。古い観測は削除されず ×λ のみ。
+ */
+export function buildL3PooledBeliefMultiLevel(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+  query: RepertoireQuery,
+  config: SelectiveForgettingConfig = DEFAULT_L3_CONFIG,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  const regimeFactorFn = computeRegimeFactorFn(feedback, config);
+  return buildPooledBeliefMultiLevel(obs, selected, feedback, query, kappa, regimeFactorFn);
+}
+
+/** ★L3 配線用（GO 後・現状未配線）。L3-aware multi-level pooled belief。両 store fail-open。 */
+export function loadL3PooledBeliefMultiLevel(
+  query: RepertoireQuery,
+  config: SelectiveForgettingConfig = DEFAULT_L3_CONFIG,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  return buildL3PooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, config, kappa);
 }
