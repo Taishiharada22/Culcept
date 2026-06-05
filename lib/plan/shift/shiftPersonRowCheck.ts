@@ -97,3 +97,62 @@ export function crossCheckRowLabel(input: {
     message: `読み取った行「${rowRaw}」が本人「${ownerRaw}」と一致しません。別の人の行を読み取っている可能性があります。保存前に確認してください。`,
   };
 }
+
+/** セル群の rowLabel 要約（A2B-1・cross-check の入力 + 混在検出）。 */
+export interface RowLabelSummary {
+  /** 最頻の非空 rowLabel（raw 表記・同点は先に出現した方を優先）。1 件も無ければ undefined。 */
+  representative?: string;
+  /** representative を normalize した値（1 件も無ければ ""）。 */
+  normalizedRepresentative: string;
+  /** 出現した非空 rowLabel の **normalize 後** distinct 集合（昇順）。 */
+  uniqueNormalizedLabels: string[];
+  /**
+   * 2 種以上の人名が混在 = **行取り違え / 隣接行混入の兆候**。
+   * A2B-2 の warning で使う（A2B-1 では算出のみ・UI 表示しない）。
+   */
+  hasConflict: boolean;
+}
+
+/**
+ * セル群から代表 rowLabel を求める（pure・throw しない）。
+ *   - normalize（NFKC + 空白除去）後の値でグルーピングし、最頻グループの **raw** を representative に。
+ *   - 同点は先に出現したグループを優先（insertion order）。空/空白の rowLabel は無視。
+ *   - 2 種以上の人名が混在すれば hasConflict=true（隣接行混入の兆候）。
+ */
+export function representativeRowLabel(
+  cells: ReadonlyArray<{ rowLabel?: string | null }> | null | undefined
+): RowLabelSummary {
+  const groups = new Map<string, { count: number; firstRaw: string }>();
+  for (const c of cells ?? []) {
+    const raw = typeof c?.rowLabel === "string" ? c.rowLabel : "";
+    const norm = normalizePersonLabel(raw);
+    if (norm === "") continue; // 空/空白は代表から除外
+    const g = groups.get(norm);
+    if (g) g.count += 1;
+    else groups.set(norm, { count: 1, firstRaw: raw });
+  }
+  const uniqueNormalizedLabels = [...groups.keys()].sort();
+  if (groups.size === 0) {
+    return {
+      normalizedRepresentative: "",
+      uniqueNormalizedLabels: [],
+      hasConflict: false,
+    };
+  }
+  let bestNorm = "";
+  let bestCount = -1;
+  let bestRaw = "";
+  for (const [norm, g] of groups) {
+    if (g.count > bestCount) {
+      bestCount = g.count;
+      bestNorm = norm;
+      bestRaw = g.firstRaw;
+    }
+  }
+  return {
+    representative: bestRaw,
+    normalizedRepresentative: bestNorm,
+    uniqueNormalizedLabels,
+    hasConflict: uniqueNormalizedLabels.length > 1,
+  };
+}

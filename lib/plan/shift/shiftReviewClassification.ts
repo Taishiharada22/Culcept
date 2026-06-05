@@ -20,6 +20,13 @@ export interface ShiftReviewCell {
   date: string;
   rawCode: string;
   confidence: number;
+  /**
+   * A2B-1: VLM が読んだ行ラベル（人名）。本人行 cross-check（F7）用の **review 専用 metadata**。
+   * - **保存しない**: projection / save payload / DB（external_anchors / plan_day_indicators /
+   *   source payload）には混ぜない（projection は {date,rawCode} のみ参照）。
+   * - 人名文字列のみ。raw VLM response / base64 / 画像は持たない。
+   */
+  rowLabel?: string;
 }
 
 /** blank-risk 判定の既定しきい値（これ未満の信頼度は要確認）。 */

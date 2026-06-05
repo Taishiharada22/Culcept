@@ -116,4 +116,27 @@ describe("assistedDraftToShiftReviewCells", () => {
     );
     expect(r[0].confidence).toBe(0.5);
   });
+
+  // ── A2B-1: rowLabel carry-through ──
+  it("rowLabel を carry（DayKeyed → ShiftReviewCell・review 専用 metadata）", () => {
+    const r = assistedDraftToShiftReviewCells([cell(1, "H")], META); // cell() は rowLabel "本人"
+    expect(r[0].rowLabel).toBe("本人");
+  });
+
+  it("rowLabel が空/空白 → carry しない（key 自体を持たない）", () => {
+    const cells: DayKeyedShiftCell[] = [
+      { day: 1, rawCode: "H", rowLabel: "" },
+      { day: 2, rawCode: "N", rowLabel: "   " },
+    ];
+    const r = assistedDraftToShiftReviewCells(cells, META);
+    expect(r[0]).not.toHaveProperty("rowLabel");
+    expect(r[1]).not.toHaveProperty("rowLabel");
+  });
+
+  it("rowLabel missing でも変換は壊れない（day/date/rawCode/confidence は正常）", () => {
+    const cells = [{ day: 1, rawCode: "H" } as unknown as DayKeyedShiftCell];
+    const r = assistedDraftToShiftReviewCells(cells, META);
+    expect(r[0]).toMatchObject({ day: 1, rawCode: "H", date: "2026-06-01", confidence: DEFAULT_CONFIDENCE });
+    expect(r[0]).not.toHaveProperty("rowLabel");
+  });
 });

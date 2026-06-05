@@ -13,6 +13,7 @@ import { describe, it, expect } from "vitest";
 import {
   normalizePersonLabel,
   crossCheckRowLabel,
+  representativeRowLabel,
 } from "@/lib/plan/shift/shiftPersonRowCheck";
 
 const OWNER = "原田 大志";
@@ -98,5 +99,59 @@ describe("crossCheckRowLabel", () => {
   it("deterministic（同入力 → 同出力）", () => {
     const input = { ownerLabel: OWNER, rowLabel: "原田大志" };
     expect(crossCheckRowLabel(input)).toEqual(crossCheckRowLabel(input));
+  });
+});
+
+describe("representativeRowLabel（A2B-1・代表 rowLabel + 混在検出）", () => {
+  it("最頻の非空 rowLabel を返す（representative = raw / normalizedRepresentative）", () => {
+    const s = representativeRowLabel([
+      { rowLabel: "原田 大志" },
+      { rowLabel: "原田 大志" },
+      { rowLabel: "佐藤" },
+    ]);
+    expect(s.representative).toBe("原田 大志");
+    expect(s.normalizedRepresentative).toBe("原田大志");
+  });
+
+  it("2 種以上混在 → hasConflict=true（隣接行混入の兆候）", () => {
+    const s = representativeRowLabel([{ rowLabel: "原田大志" }, { rowLabel: "佐藤花子" }]);
+    expect(s.hasConflict).toBe(true);
+    expect(s.uniqueNormalizedLabels).toEqual(["佐藤花子", "原田大志"].sort());
+  });
+
+  it("全角/半角/空白差は同一視 → hasConflict=false", () => {
+    const s = representativeRowLabel([
+      { rowLabel: "原田 大志" },
+      { rowLabel: "原田　大志" }, // 全角スペース
+      { rowLabel: "原田大志" },
+    ]);
+    expect(s.uniqueNormalizedLabels).toEqual(["原田大志"]);
+    expect(s.hasConflict).toBe(false);
+  });
+
+  it("空/空白/欠落/非 string は無視（全部空 → representative undefined）", () => {
+    const s = representativeRowLabel([
+      { rowLabel: "" },
+      { rowLabel: "   " },
+      {},
+      { rowLabel: null },
+      { rowLabel: 123 as unknown as string },
+    ]);
+    expect(s.representative).toBeUndefined();
+    expect(s.normalizedRepresentative).toBe("");
+    expect(s.uniqueNormalizedLabels).toEqual([]);
+    expect(s.hasConflict).toBe(false);
+  });
+
+  it("同点は先に出現したグループを representative に", () => {
+    const s = representativeRowLabel([{ rowLabel: "Aさん" }, { rowLabel: "Bさん" }]);
+    expect(s.representative).toBe("Aさん");
+  });
+
+  it("throw しない（null / undefined / 非配列要素）", () => {
+    expect(() => representativeRowLabel(null)).not.toThrow();
+    expect(() => representativeRowLabel(undefined)).not.toThrow();
+    expect(representativeRowLabel(null).hasConflict).toBe(false);
+    expect(representativeRowLabel([]).normalizedRepresentative).toBe("");
   });
 });

@@ -68,6 +68,10 @@ export function assistedDraftToShiftReviewCells(
       date: ymd(meta.year, meta.month, c.day),
       rawCode: c.rawCode,
       confidence: conf,
+      // A2B-1: rowLabel（人名）を review 専用 metadata として carry。非空のみ載せる（保存には混ぜない）。
+      ...(typeof c.rowLabel === "string" && c.rowLabel.trim() !== ""
+        ? { rowLabel: c.rowLabel }
+        : {}),
     });
   }
   accepted.sort((a, b) => a.day - b.day);
