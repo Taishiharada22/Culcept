@@ -87,7 +87,7 @@ import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconD
 import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
 import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
-import { loadModeBelief } from "@/lib/plan/mobility/beliefReadAdapter";
+import { loadWeightedModeBelief } from "@/lib/plan/mobility/beliefReadAdapter";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
@@ -325,7 +325,7 @@ export function MapTab({
       sorted[idx]!.anchor.sensitiveCategory || sorted[idx + 1]!.anchor.sensitiveCategory
     );
     const guidance = resolveMobilityGuidance({
-      belief: loadModeBelief(openLeg.legKey), // ★実 S1-A 履歴(mock でない)
+      belief: loadWeightedModeBelief(openLeg.legKey), // ★v0-F: 実 S1-A 履歴 + feedback の precision 加重(mock でない)
       selectedMode: todaySelected,
       readOnly: isDone,
       sensitive,
