@@ -15692,3 +15692,18 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **申し送り（運用観測・非ブロッカー）**: write-through が slider tick ごとに `setItem` を呼ぶ（小 JSON・実害軽微）。高頻度が問題化したら debounce を別トラックで検討。page-reload 実復元・remount 復元は runtime 挙動のため静的 test 対象外＝本 smoke で担保。[承認: CEO（smoke 6/6 PASS 受理・「次に進みましょう」・decision-log 記録 + 帯 freeze 選択）]
 
 ---
+
+## SR A3 read-miss / 空欄分離 帯（2026-06-05）
+
+> A1（confusable）/ A2（rowLabel）に続く **F6（silent read-miss）対策帯**。VLM が読めなかったセルを「高 confidence の空欄」として silent skip させない安全契約を、prompt（第3状態）+ adapter（D2）+ risk model（D3）で固める。決定論側は固定済。実 VLM 観測は auth/host guard で UI 到達不可のため抽出限定 smoke-lite に切替し、clean 画像で liveness のみ確認（read-miss 本体は画像にケース不在で未検証）。
+
+[2026-06-05] [Build] **A3-1 + A3-2 着地（read-miss を低 confidence review へ・`a7c870aa`）** — prompt に第3状態「visible-but-unreadable」を追加（判読不能 → `rawCode ""` + confidence ≤ 0.3 / `""` は確実な空に予約 / combined hardened の「空または低 confidence」OR を解消）。adapter **D2**: 空欄かつ confidence 欠落/非有限を `BLANK_MISSING_CONFIDENCE`=0.5（< 閾値 0.7）に倒し、VLM が confidence を省略しても read-miss を確実に要確認へ。risk model **D3**: `blank_risk` を「低 conf 空欄 ∨ 空欄隣接」に整理し `classification.isBlankRisk` と整合（高 conf 孤立空欄＝確実な休みは flag せず flood 回避・suspicious_shift は全空欄維持）。schema 不変 / unknown_code は hard 不変 / confusable は soft 不変 / save path・rowLabel warning 無傷。unit 70 + plan 全体 **4842 PASS** / tsc **1112** / 敵対的検証 4 reviewer 全 PASS。A3-smoke-pre（`09c2ef8a`）: dev host に per-cell `day/rawCode/confidence` readout（dev-only・raw 非表示）。[承認: CEO（diff preview GO → commit 受理）]
+
+[2026-06-05] [Build] **A3 smoke-lite / extraction-only observation PASS（VLM 1回・clean liveness）** — `/plan/dev-shift-draft` が三重ガード（`PLAN_SHIFT_DRAFT_HOST` + staging supabase）+ auth 必須で Claude 単独到達不可のため、CEO 承認で抽出限定 runner（既存 `buildHardenedCombinedDayKeyedPrompt` → gemini core `extractChunk`(maxRetry:0) → D2 → D3/A1 を再利用・独自 prompt なし・private-eval 作成 → 実行後削除）で **VLM 1 回**観測。画像 `public/shift-demo-july.png`（CEO 提供スクショと同一クリーン描画・full table を combined 1 枚で送信）。
+- **確認できたこと**: 31/31 coverage（missing 0 / duplicate 0）/ column drift 退行なし / confidence omission **0**（gemini は clean 画像で全セルに confidence を付与・省略しない）/ unknown code **0** / blank **0** / confidence **0.99 一律** → **A3 prompt 変更が clean 画像で live pipeline を壊していない**。false flood なし（low_confidence・blank_risk 誤発火 **0**）。
+- **未検証（画像にケース不在）**: read-miss → 低 confidence（#1）/ 低 conf 空欄 → blank_risk（#5）/ 確実な空欄 flood なし（#4）/ omission → 0.5 fallback（#3）。今回画像はクリーン描画で空セル・read-miss が無いため。
+- **安全性**: raw 画像 / base64 / VLM raw response **非保存・非 commit**（runner は core 経由で raw response 非保持・base64 は core 関数 local のみ）/ runner **削除済** / DB / save / production **非接触** / `PLAN_SHIFT_IMPORT_SAVE=false`。
+- **副次観測**: confusable **19/31（61%）** が soft 発火（H/HREQ/E/E-18/N）。soft 非ブロックだが実画面で amber 過多 → 「本当に見るべき日」が埋もれる懸念。次トラック **A1 confusable tuning readiness** で調整（severity tier 化・H/N を cell amber から弱める）。
+- **位置づけ**: **A3 deterministic side + clean-image liveness = PASS / read-miss 本体 = 未検証**。messy 画像（空セル・かすれ）入手後に別 GO で read-miss smoke を 1 回行う。[承認: CEO（smoke-lite 成功受理・「A3 完全 PASS ではない」明記・VLM 停止・次は A1 tuning readiness）]
+
+---
