@@ -373,16 +373,40 @@ export function DevShiftDraftClient({
             <p data-testid="dev-shift-draft-cells-count" className="font-medium">
               {`${state.year}年${state.month}月 — ${state.cells.length} 件の下書きを読み取りました。`}
             </p>
-            {/* 最小サマリ（day: rawCode）。詳細確認は「確認画面を開く」CTA から。 */}
-            <ul className="grid grid-cols-4 gap-1 text-[11px] text-slate-500">
-              {state.cells.map((c) => (
-                <li
-                  key={c.day}
-                  className="rounded border border-slate-200 px-1 py-0.5 text-center"
-                >
-                  {`${c.day} ${c.rawCode}`}
-                </li>
-              ))}
+            {/* A3-smoke-pre: per-cell readout（day / rawCode / confidence）。
+                read-miss を「空欄として逃がさない」契約を実画像で観測するための **dev-only** 表示。
+                confidence は adapter 適用後（= risk model / amber が見る値）。
+                低 conf（< 0.7）は amber 強調。空欄（rawCode 空）は「·」表記。
+                0.50 ちょうど = D2 fallback の指紋（VLM が blank の confidence を省略した日）。
+                raw VLM response / 画像 / base64 は出さない（structured な数値のみ）。 */}
+            <ul
+              data-testid="dev-shift-draft-cells-list"
+              className="grid grid-cols-3 gap-1 text-[10px]"
+            >
+              {state.cells.map((c) => {
+                const blank =
+                  typeof c.rawCode !== "string" || c.rawCode.trim() === "";
+                const low = c.confidence < 0.7;
+                return (
+                  <li
+                    key={c.day}
+                    data-testid={`dev-shift-draft-cell-${c.day}`}
+                    data-raw-code={c.rawCode}
+                    data-confidence={c.confidence}
+                    data-blank={blank ? "true" : "false"}
+                    data-low-confidence={low ? "true" : "false"}
+                    className={`flex items-center justify-between gap-1 rounded border px-1 py-0.5 font-mono ${
+                      low
+                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    <span>{c.day}</span>
+                    <span>{blank ? "·" : c.rawCode}</span>
+                    <span>{c.confidence.toFixed(2)}</span>
+                  </li>
+                );
+              })}
             </ul>
 
             <DebugSummaryView
