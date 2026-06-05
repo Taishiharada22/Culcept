@@ -48,7 +48,7 @@ L6: silent（cold）
 
 ## 7. 段階
 - **L1-b-1 ✅ 実装済**（branch claude/second-self-map-wave1-l1・commit `d4952fae`・117 mobility test）: pure `buildRepertoireBelief` + loaders + tests（★empty obs → v0 完全同一＝退行ゼロ test PASS）。`precisionWeight` を beliefReadAdapter から export 再利用。
-- **L1-b-2 ⏳ CEO 承認待ち**: MapTab belief swap（`loadWeightedModeBelief` → `loadRepertoireBelief`）＝**production 反映**（OD 一般化で legKey-cold leg が surface し得る・floor で退行なし）。Wave 1 GO の「UI本接続/production反映はCEO承認待ち」に従い gate。
+- **L1-b-2 ✅ 実装済**（commit `5cabac40`・CEO 承認 2026-06-05）: MapTab belief swap（`loadWeightedModeBelief` → `loadRepertoireBelief`）。query は observationContext 同源（anchor locationText/startTime + dayKey）・sensitive は odKey=null。empty obs では v0 完全同一（**退行ゼロ**）・観測蓄積で legKey-cold leg が OD 一般化 surface。mobility 117 test 維持・MobilityLegCard 描画不変・production UI 即時変化なし。
 
 ## 8. リスク / 独立論点
 | 論点 | 方針 |
