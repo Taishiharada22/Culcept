@@ -36,6 +36,7 @@ import type { GridCalibration } from "@/lib/plan/shift/assistedRowSelection";
 import { SourceCellCrop } from "./SourceCellCrop";
 import { SourceImageHighlight } from "./SourceImageHighlight";
 import { SourceCellZoom } from "./SourceCellZoom";
+import { useSourceConsistencyCheck } from "./useSourceConsistencyCheck";
 import {
   type ShiftReviewCell,
   computeEmptyDays,
@@ -211,6 +212,10 @@ export function ShiftReviewGrid({
     [cells]
   );
 
+  // SR A4-2b: 空欄セル(rawCode="")だけ原稿 content を canvas 読取し source/result 不一致(P1)を算出。
+  //   transient・warning 非表示（UI は A4-3）。save payload / DB には一切混ぜない。fail-open。
+  const sourceMismatches = useSourceConsistencyCheck({ imageSrc, geometry, cells, blankDays });
+
   const projection = useMemo(() => {
     const readings: ShiftCellReading[] = cells.map((c) => ({
       date: c.date,
@@ -294,6 +299,10 @@ export function ShiftReviewGrid({
   return (
     <GlassCard className="relative">
       <div data-testid="shift-review-grid">
+      {/* SR A4-2b: source/result 不一致(P1)を算出した transient マーカー（不可視・warning は A4-3 で表示）。 */}
+      {sourceMismatches.length > 0 ? (
+        <span hidden data-source-mismatch-days={sourceMismatches.map((h) => h.day).join(",")} />
+      ) : null}
       <div className="mb-2 flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-gray-800">
           {monthLabel} の取り込み確認
