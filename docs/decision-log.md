@@ -15075,3 +15075,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(pure GO + GPT 監査で配線先行 GO + 着地承認)×GPT。ステータス: L3-a live。次=L3-b(OD+持続シフト・mini design 済・GO 待ち) / L4-c(データ後)。
 
 ---
+
+## [2026-06-05] Second Self Map L3-b-1（OD 単位 regime-change）実装・branch（pure・未配線・main 未着地）
+
+- 決定: L3-a(legKey) の selective forgetting を **OD 単位**へ拡張。explicitCorrection を odKey で集約 → 場所のパターン変化を OD 全 leg に波及。GPT 判断: 強信号(correction)を先に OD へ・弱信号(L3-b-2 持続シフト)は仮説への明示反抗でなく誤検出リスク高で後回し。
+- 検出: computeOdRegimeChange = OD の correction を **dedup-by-day**（同日複数 leg→一致なら 1 signal・矛盾日除外）+ redacted/sensitive 除外 + stale 除外（selected 最終≠chosenMode）+ 同方向連続 N。change-point=連続開始日。
+- 合成: computeCombinedRegimeFactorFn = **leg 優先 + OD fallback**（regimeFactor 1 つ・二重緩和なし）。leg regime あれば λ_leg、無ければ OD regime なら λ_od、どちらも無ければ 1。
+- config: N=2 / λ_leg=0.5 / **λ_od=0.7**（OD は複数 leg 波及で保守的＝leg より緩い relaxation）。additive（L3-a 関数 非破壊）。buildL3b/loadL3bPooledBeliefMultiLevel。
+- 検証: 21 tests（1回不発火/2回発火/異方向/confirmation・selected・stale・redacted 除外/changePoint/leg 優先/OD fallback/別OD非漏洩/削除でない/time decay なし/Date 不使用/READ のみ/fetch なし）+ mobility 203・tsc footprint 0・退行ゼロ。
+- 状態: **branch `claude/second-self-map-l3b1`・`b1ba476d`・pure・未配線（MapTab=loadL3）・main 未着地（判断待ち）**。配線 mini design 提出済（`docs/second-self-map-l3b1-wiring-mini-design.md`）。
+
+承認: CEO(GPT 判断で L3-b-1 のみ GO・L3-b-2 後回し)×GPT。ステータス: L3-b-1 pure done。次=L3-b-1 配線（判断待ち）→ main 着地 → closeout → L3-b-2。
+
+---

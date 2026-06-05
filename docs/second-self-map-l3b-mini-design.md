@@ -1,7 +1,7 @@
 # Second Self Map — L3-b mini design（OD 単位 regime-change + 持続シフト検出）
 
-> 2026-06-05 / **設計のみ・実装 GO 待ち** / 前提: L3-a（legKey 単位・correction streak）実装済（branch `claude/second-self-map-l3a`・`5171d703`・174 mobility test）。
-> 上位: `docs/second-self-map-l3-mini-design.md`（L3 全体）。
+> 2026-06-05 / **L3-b-1（OD 単位 regime）実装済（pure・未配線・branch `b1ba476d`・mobility 203 test・tsc 0）/ L3-b-2（持続シフト）は後回し（GPT 判断: 誤検出リスク高）** / 配線 mini design: `docs/second-self-map-l3b1-wiring-mini-design.md`。
+> 前提: L3-a 配線 live（main `7c394a40`）。上位: `docs/second-self-map-l3-mini-design.md`（L3 全体）。
 
 ---
 
@@ -36,12 +36,12 @@ L3-a の **legKey 単位・explicitCorrection streak** を拡張：
 - **READ のみ**・新 store なし・Date.now 不使用・削除しない・copy 触らない・未配線。
 
 ## 6. 段階
-| phase | 内容 | 純度 |
-|---|---|---|
-| **L3-b-1** | OD 単位 regime-change（odKey 集約） | pure |
-| **L3-b-2** | 持続シフト検出（selected の K 連続矛盾） | pure |
-| **L3-c** | streakN / λ / K の較正（実データ後・L4-c 同方針） | pure |
-| 配線 | L3-aware belief を MapTab に（production 反映） | wiring（別 GO） |
+| phase | 内容 | 純度 | status |
+|---|---|---|---|
+| **L3-b-1** | OD 単位 regime-change（odKey 集約） | pure | ✅ 実装済（branch `b1ba476d`・未配線・main 未着地） |
+| **L3-b-2** | 持続シフト検出（selected の K 連続矛盾） | pure | ⏸ 後回し（GPT 判断: 仮説への明示反抗でない＝誤検出リスク高） |
+| **L3-c** | streakN / λ_leg / λ_od / K の較正（実データ後・L4-c 同方針） | pure | planned |
+| 配線 | L3-b-1 を MapTab に（production 反映） | wiring（別 GO） | mini design 済・判断待ち |
 
 ## 7. リスク / 独立論点
 | 論点 | 方針 |
@@ -52,11 +52,12 @@ L3-a の **legKey 単位・explicitCorrection streak** を拡張：
 | 素朴 decay に滑る | 全 detector が「矛盾/シフト」trigger・time 単独ゼロ |
 | 既存 L3-a/L4 を壊す | computeRegimeFactorFn 拡張のみ・builder 不変 |
 
-## 8. CEO 判断点（L3-b 実装 GO 前）
-1. OD 集約 regime-change（L3-b-1）から始めるか。持続シフト（L3-b-2）は後か。
-2. L3-a（leg）と L3-b（OD）の合成 = leg 優先 + OD fallback で良いか。
-3. 持続シフトの K（例 3-4）と λ（例 0.7・correction より弱く）。
-4. computeRegimeFactorFn は L3-a を内部統合か、別関数 additive か。
+## 8. CEO 判断点（GPT 2026-06-05 確定）
+1. ✅ **L3-b-1（OD）から。L3-b-2（持続シフト）は後回し**（誤検出リスク高）。
+2. ✅ **leg 優先 + OD fallback**（regimeFactor 1 つ・二重緩和なし）。
+3. （L3-b-2 用）K=3-4 / λ=0.7。L3-b-2 実装時に確定。
+4. ✅ **additive**（`computeOdRegimeChange` / `computeCombinedRegimeFactorFn` / `buildL3b*` を新規追加・L3-a 関数は非破壊）。
+- OD config 確定: streakN=2 / λ_leg=0.5 / **λ_od=0.7**（OD は複数 leg 波及で保守的）。OD 集約は **dedup-by-day**（同日複数 leg→1 signal・矛盾日除外）+ stale/redacted 除外。
 
 ## 9. 参照
 - L3-a: `lib/plan/mobility/mobilitySelectiveForgetting.ts`（detectRegimeChange / computeRegimeFactorFn）

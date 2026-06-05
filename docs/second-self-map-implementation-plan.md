@@ -119,5 +119,6 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 - **L4 closeout（pure + 配線 着地・smoke 7項目 PASS）: `docs/second-self-map-l4-closeout.md`** / L4-c 較正方針: `docs/second-self-map-l4b-closeout.md`
 - **L3 mini design（selective forgetting・regime-change 緩和）: `docs/second-self-map-l3-mini-design.md`** — L3-a 実装・配線・**main 着地 live（pure `77104e1a` + 配線 `7c394a40`）**
 - **L3-a closeout / L3-b mini design: `docs/second-self-map-l3a-closeout.md` / `docs/second-self-map-l3b-mini-design.md`**
+- **L3-b-1（OD 単位 regime-change）実装済（pure・未配線・main 未着地・branch `b1ba476d`・mobility 203 test）** — 配線 mini design: `docs/second-self-map-l3b1-wiring-mini-design.md`。L3-b-2（持続シフト）は GPT 判断で後回し（誤検出リスク高）
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`
