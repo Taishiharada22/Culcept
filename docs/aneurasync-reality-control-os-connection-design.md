@@ -434,4 +434,18 @@ A1-5-4b-2-fix（`20260605120000_create_plan_seed_capture_bundle.sql` の最小 h
 - tsc 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114）。reality **579 tests** PASS。**apply/db push/RPC 実行/実 DB write 0**。
 - **しない（A1-5-4b-2-fix 範囲外）**: staging apply / RPC 実行 / 実 DB write / confidence::real の NULLIF 追加（別判断）/ runtime / remote / A1-5-4b-3。
 
-> A1-5-0…§8.18 / **A1-5-4b-2-fix capture RPC hardening（landed・§8.19・未 apply・SET search_path + public schema 修飾・非挙動・lint clean・5-lens + 再検証 全 PASS・18 static tests）**。次は A1-5-4b-3（**hardened** RPC を staging apply・別 GO・dry-run 1 件確認後）→ A1-5-4b real write（real Supabase client が `writeStructuredCapture` から RPC を 1 回呼ぶ・要強い GO）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
+### 8.20 A1-5-4b-3 staging apply（完了）+ A1-5-4b-4 実装（landed）— RPC client adapter skeleton
+
+> **A1-5-4b-3**: hardened `create_plan_seed_capture_bundle` を **culcept-staging に CLI `db push` で apply 完了**（dry-run pending=RPC migration 1 件確認後・NOTICE なし）。function exists / SECURITY INVOKER / SET search_path / public 修飾 / auth·owner check / raw 引数 0 / REVOKE PUBLIC·GRANT authenticated は static 18 tests + adversarial 5+2 lens + apply 成功で保証。RPC 実行 0 / 実 DB INSERT 0 / db reset 0 / SQL Editor 0 / production 0 / remote 0。
+
+A1-5-4b-4（`lib/plan/reality/integration/capture-rpc-adapter.ts`・新規・**barrel 非 export**・`server-only`）:
+- **`createRpcCaptureWriteClient(rpcClient) → CaptureWriteClient`**: A1-5-4b-1 の `CaptureWriteClient` 契約を staging 適用済 atomic RPC への **単一 `.rpc(CAPTURE_RPC_NAME, {p_user_id,p_seed,p_evidence})`** で実装。`writeStructuredCapture(drafts, client)` の **下**に合成（owner/linkage reject は seam が adapter 前に完了）。
+  - `buildCaptureRpcArgs(payload)`: `{p_user_id=seed.user_id, p_seed=draft, p_evidence=draft|null}`（**structured-only・raw なし**・source_ref opaque）。
+  - **seed + evidence を 1 回の RPC call** に集約（atomic・関数側 1 transaction）。失敗分類: error なし→ok / `error.code='no_run'`→no_run / それ以外→write_failed。
+  - **DI `RpcCapableClient`**（`.rpc` のみ）・**createClient/@supabase 非 import**（注入）。real Supabase client は A1-5-4b real（別 GO）。
+- **fake/no-run RPC client**: `createFakeRpcClient`（`.rpc` call 記録・**DB write 0**・失敗注入可）/ `createNoRunRpcClient`（no_run・**実 DB 接続 0・実 RPC 実行 0**）。
+- test(`realityCaptureRpcAdapter.test.ts`・**15**): RPC 名 / args(p_user_id·p_seed·p_evidence) / p_seed·p_evidence structured-only / raw 0 / source_ref opaque / **seed+evidence を 1 call** / evidence なし→p_evidence null / owner·linkage mismatch は RPC 前 reject(call 0) / RPC error→write_failed / no-run→no_run / 静的(createClient·@supabase·.from·.insert·service_role 不在・barrel 非 export)。
+- tsc 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114）。reality **594 tests** PASS。**実 RPC 実行 / 実 DB write / createClient 0**。
+- **しない（A1-5-4b-4 範囲外）**: 実 RPC 実行 / 実 DB INSERT / DB write smoke / Supabase createClient / staging write / seed capture runtime / runtime·route·UI / PRM·correction 実接続 / RealityInput 搭載 / raw parse / A1-5-4b real write / A1-5-5+。
+
+> A1-5-0…§8.19 / **A1-5-4b-3 RPC staging apply 完了 + A1-5-4b-4 RPC client adapter skeleton（landed・§8.20・fake/no-run・実 RPC 0・seed+evidence を 1 RPC call・owner/linkage は seam で前置 reject・barrel 非 export）**。次は **A1-5-4b real write（初回 実 RPC write smoke）= 次の山場・必ず別 GO で停止**（real Supabase client が writeStructuredCapture→createRpcCaptureWriteClient→RPC を 1 回呼ぶ・user-RLS）。**capture 全経路（mapper→write seam→RPC adapter→[未来 real RPC]→atomic INSERT→read projection→enrich→candidate）の pure/fake/skeleton は全て実証済**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
