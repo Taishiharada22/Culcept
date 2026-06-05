@@ -87,10 +87,10 @@ import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconD
 import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
 import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
-import { loadWeightedModeBelief } from "@/lib/plan/mobility/beliefReadAdapter";
+import { loadRepertoireBelief, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
-import { buildObservation, saveMobilityObservation } from "@/lib/plan/mobility/mobilityObservationStore";
+import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
@@ -325,8 +325,18 @@ export function MapTab({
     const sensitive = !!(
       sorted[idx]!.anchor.sensitiveCategory || sorted[idx + 1]!.anchor.sensitiveCategory
     );
+    // L1-b: OD 条件付きレパートリー belief（legKey 優先・cold で odKey 一般化・empty obs は v0 同一＝退行ゼロ）。
+    //   query は observationContext と同源（anchor の locationText/startTime + dayKey）。sensitive は odKey=null で OD 不可。
+    const oNorm = normalizeLocationText(sorted[idx]!.anchor.locationText);
+    const dNorm = normalizeLocationText(sorted[idx + 1]!.anchor.locationText);
+    const repertoireQuery: RepertoireQuery = {
+      legKey: openLeg.legKey,
+      odKey: sensitive || oNorm == null || dNorm == null ? null : `${oNorm}__${dNorm}`,
+      timeband: toTimeband(sorted[idx + 1]!.anchor.startTime),
+      weekday: toWeekdayBucket(dayKey),
+    };
     const guidance = resolveMobilityGuidance({
-      belief: loadWeightedModeBelief(openLeg.legKey), // ★v0-F: 実 S1-A 履歴 + feedback の precision 加重(mock でない)
+      belief: loadRepertoireBelief(repertoireQuery), // ★L1-b: legKey 優先 + OD 一般化(mock でない)
       selectedMode: todaySelected,
       readOnly: isDone,
       sensitive,
