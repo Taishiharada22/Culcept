@@ -217,4 +217,16 @@ export const PLAN_FLAGS = {
    * env: REALITY_CAPTURE_KILL=true で停止（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
    */
   realityCaptureKill: process.env.REALITY_CAPTURE_KILL === "true",
+
+  /**
+   * A1-5-5g: Reality capture の **observe-mode**（**write OFF・実 DB 書かない・would-capture を観測のみ**）を有効化するか。
+   *   true  : capture route runner の observe mode の gate liveEnabled が立つ（**dry-run write・wouldCapture summary を log するだけ**）。
+   *   false : observe も block（**本番デフォルト**）。
+   * env: REALITY_CAPTURE_OBSERVE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §8.35（A1-5-5g-0/1）
+   * 制約: write（実 DB）とは **別 flag**（write は realityCaptureLive）。observe を write 有効化前に回せる。
+   *   kill（realityCaptureKill）は observe にも最優先。gate（evaluateCaptureGate）の production/staging/canary block は両者に適用。
+   *   route 接続は A1-5-5g-2 以降（別 GO）。
+   */
+  realityCaptureObserve: process.env.REALITY_CAPTURE_OBSERVE === "true",
 } as const;
