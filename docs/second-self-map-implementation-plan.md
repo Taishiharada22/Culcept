@@ -94,7 +94,7 @@
 
 ## 4. 実装順序（全体・各 slice は tight-slice：tsc 0 / unit test / 実機 smoke / CEO 承認 / 個別 commit）
 ```
-v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D ✅ → v0-E ✅（feedback writeback） → **v0-F ✅（precision 加重 belief・2026-06-05・mobility 75 test PASS）** → 🔁 loop 閉（仮説→選択→feedback→belief 反映）   … Wave 0 実装完（次: **v0 全体 smoke / closeout**・`docs/second-self-map-v0-smoke-plan.md`・branch claude/second-self-map-v0・main 未着地）
+v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D ✅ → v0-E ✅（feedback writeback） → **v0-F ✅（precision 加重 belief・2026-06-05・mobility 84 test PASS）** → 🔁 loop 閉（仮説→選択→feedback→belief 反映）   … Wave 0 完（**自立 smoke PASS: A〜I logic + 配線監査 + 描画無変更**・live 視覚再確認のみ CEO 待ち・`docs/second-self-map-v0-closeout.md`・main 未着地）
  → L1(full belief / S2-B) → L2(correction+理由 / S6)
  → L3(selective forgetting) → L4(cold-start) → L5(context modifier / S4)   … Wave 1
  → Day Rehearsal(S5) → energy curve → counterfactual → S3(あなたのペース)    … Wave 2
@@ -110,6 +110,7 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 ## 6. 参照
 - 上位設計（vision/architecture）: `docs/second-self-map-master-design.md`
 - v0-F mini design（precision 加重 belief・実装済）: `docs/second-self-map-v0f-mini-design.md`
-- **v0 全体 smoke / closeout plan: `docs/second-self-map-v0-smoke-plan.md`**
+- v0 smoke 手順: `docs/second-self-map-v0-smoke-plan.md`
+- **v0 closeout（smoke 結果・A〜I PASS 記録）: `docs/second-self-map-v0-closeout.md`**
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`
