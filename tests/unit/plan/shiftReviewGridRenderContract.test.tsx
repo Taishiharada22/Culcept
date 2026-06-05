@@ -297,11 +297,13 @@ describe("ShiftReviewGrid — Persist-3 mismatch-aware「校正済」表示", ()
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // A1B: confusable コードの cell マーカー（似た形で紛らわしい・常時 amber「要確認」）
 describe("ShiftReviewGrid — A1B confusable cell marker", () => {
-  it("FIXTURE の confusable コード（H/HREQ/N）の cell は data-confusable=true", () => {
+  it("A1-tune-1: H/HREQ/N の cell は data-confusable=false（cell amber は strong のみ）", () => {
+    // H=medium（panel 件数 summary）/ HREQ=directionality で除外 / N=weak（UI 非表示）
+    //   → いずれも cell amber 対象外（過剰 amber を抑制）。
     const html = render();
-    expect(html).toMatch(/shift-review-cell-2"[^>]*data-confusable="true"/); // H
-    expect(html).toMatch(/shift-review-cell-3"[^>]*data-confusable="true"/); // HREQ
-    expect(html).toMatch(/shift-review-cell-6"[^>]*data-confusable="true"/); // N
+    expect(html).toMatch(/shift-review-cell-2"[^>]*data-confusable="false"/); // H = medium
+    expect(html).toMatch(/shift-review-cell-3"[^>]*data-confusable="false"/); // HREQ = 除外
+    expect(html).toMatch(/shift-review-cell-6"[^>]*data-confusable="false"/); // N = weak
   });
 
   it("非 confusable（G/L）の cell は data-confusable=false", () => {

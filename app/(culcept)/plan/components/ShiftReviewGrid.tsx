@@ -54,7 +54,10 @@ import {
   detectDraftRisks,
   type DraftRiskReport,
 } from "@/lib/plan/shift/shiftDraftRiskModel";
-import { detectConfusableCells } from "@/lib/plan/shift/shiftConfusableCodes";
+import {
+  detectConfusableCells,
+  confusableCellAmberDays,
+} from "@/lib/plan/shift/shiftConfusableCodes";
 import {
   representativeRowLabel,
   crossCheckRowLabel,
@@ -221,14 +224,13 @@ export function ShiftReviewGrid({
   const cellIsBlankRisk = (c: ShiftReviewCell): boolean =>
     isBlankRisk(c, emptyDays, lowConfidenceThreshold);
 
-  // A1B: 似たコード（confusable・E↔E-18 等）の日 set。**confidence に関係なく** always-on で
-  //   amber「要確認」を点灯させる（blank-risk と同じく cell レベルの常時マーカー）。保存は止めない。
+  // A1B + A1-tune-1: 似たコード（confusable）の cell amber「要確認」set。**confidence 非依存**だが、
+  //   cell amber は **strong のみ**（confusableCellAmberDays）= 過剰 amber 抑制（CEO D3）。
+  //   medium（H/HREQ）は panel summary に件数で出る・weak（H/N）は UI 非表示（observation only）。保存は止めない。
   const confusableDays = useMemo(
     () =>
-      new Set(
-        detectConfusableCells(
-          cells.map((c) => ({ day: c.day, rawCode: c.rawCode }))
-        ).map((h) => h.day)
+      confusableCellAmberDays(
+        detectConfusableCells(cells.map((c) => ({ day: c.day, rawCode: c.rawCode })))
       ),
     [cells]
   );

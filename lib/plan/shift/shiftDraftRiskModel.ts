@@ -22,7 +22,10 @@ import {
   normalizeRawCode,
   type ShiftCodeDictionary,
 } from "./shiftCodeDictionary";
-import { detectConfusableCells } from "./shiftConfusableCodes";
+import {
+  detectConfusableCells,
+  summarizeConfusable,
+} from "./shiftConfusableCodes";
 
 /** review hint の重大度。 */
 export type RiskSeverity = "hard" | "soft";
@@ -39,7 +42,7 @@ export type RiskKind =
   | "suspicious_shift"
   | "low_confidence"
   | "chunk_boundary"
-  // soft（A1B: 似たコードの見間違い。confidence に関係なく要確認）
+  // soft（A1B: 似たコードの誤読。confidence に関係なく要確認）
   | "confusable_code";
 
 /** 下書き 1 セル（day-keyed・golden なし）。 */
@@ -222,19 +225,24 @@ export function detectDraftRisks(
       hint("chunk_boundary", boundaryDays, `読み取りの境目です（${formatDays(boundaryDays)}）。前後のずれがないか確認してください。`)
     );
 
-  // confusable code（A1B）= 似たコードの見間違い（E↔E-18 等）。**confidence に関係なく** soft 要確認。
+  // confusable code（A1B + A1-tune-1）= 似たコードの誤読（E↔E-18 等）。**confidence 非依存** soft 要確認。
   //   高 conf 誤読（F5）は既存の低 conf / 空欄隣接 / 未知コードでは捕まらないため、ここで要確認に回す。
-  const confusableDays = detectConfusableCells(
-    cells.map((c) => ({ day: c.day, rawCode: c.rawCode }))
-  ).map((h) => h.day);
-  if (confusableDays.length)
-    hints.push(
-      hint(
-        "confusable_code",
-        confusableDays,
-        `似た形で紛らわしいコードの日があります（${formatDays(confusableDays)}）。原稿と照合してください。`
-      )
-    );
+  //   tier 振り分け（CEO D3）: strong = 日付つき / medium = 件数 summary / weak = panel 非表示（観測のみ）。
+  const confusableSummary = summarizeConfusable(
+    detectConfusableCells(cells.map((c) => ({ day: c.day, rawCode: c.rawCode })))
+  );
+  if (confusableSummary.strongDays.length || confusableSummary.mediumCount > 0) {
+    const segs: string[] = [];
+    if (confusableSummary.strongDays.length)
+      segs.push(
+        `似た形で紛らわしい勤務コードがあります（${formatDays(confusableSummary.strongDays)}）。原稿と照合してください。`
+      );
+    if (confusableSummary.mediumCount > 0)
+      segs.push(
+        `休み種別が紛らわしい日が${confusableSummary.mediumCount}日あります。必要に応じて確認してください。`
+      );
+    hints.push(hint("confusable_code", confusableSummary.strongDays, segs.join("")));
+  }
 
   const hardCount = hints.filter((h) => h.severity === "hard").length;
   const softCount = hints.length - hardCount;
