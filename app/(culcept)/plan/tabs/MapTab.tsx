@@ -87,6 +87,8 @@ import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconD
 import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
 import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
+import { loadModeBelief } from "@/lib/plan/mobility/beliefReadAdapter";
+import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
@@ -312,16 +314,29 @@ export function MapTab({
     const state = resolveLegState(idx, resolveFocusLegIndex(sorted, nowMin));
     const isDone = state === "done"; // 過去(2個前以前)=編集不可(実績の器)
     const todaySelected = selectedModeByLeg[openLeg.legKey] ?? null;
+    // S2-A recall(既存): 今日未選択 かつ 過去 leg でない時だけ「前回」想起(localStorage 読取のみ・推薦ではない)
+    const existingRecall =
+      todaySelected || isDone
+        ? null
+        : (loadPriorLegMode(dayKey, openLeg.legKey)?.mode ?? null);
+    // v0-D: 実 belief から guidance を決める(hypothesis surface か recall か 1 つに統一・補正1-3)
+    const sensitive = !!(
+      sorted[idx]!.anchor.sensitiveCategory || sorted[idx + 1]!.anchor.sensitiveCategory
+    );
+    const guidance = resolveMobilityGuidance({
+      belief: loadModeBelief(openLeg.legKey), // ★実 S1-A 履歴(mock でない)
+      selectedMode: todaySelected,
+      readOnly: isDone,
+      sensitive,
+      recallMode: existingRecall,
+    });
     return {
       legKey: openLeg.legKey,
       fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
       toTitle: maskedAnchorTitle(sorted[idx + 1]!.anchor),
       readOnly: isDone,
-      // S2-A: 今日未選択 かつ 過去 leg でない時だけ「前回」想起(localStorage 読取のみ・推薦ではない)
-      recallMode:
-        todaySelected || isDone
-          ? null
-          : (loadPriorLegMode(dayKey, openLeg.legKey)?.mode ?? null),
+      recallMode: guidance.recallMode,
+      hypothesisCopy: guidance.hypothesisCopy,
     };
   }, [openLeg, allPins, selectedModeByLeg, now, dayKey]);
 
@@ -430,6 +445,7 @@ export function MapTab({
           selectedMode={selectedModeByLeg[mobilityCardData.legKey] ?? null}
           durations={legDur}
           recallMode={mobilityCardData.recallMode}
+          hypothesisCopy={mobilityCardData.hypothesisCopy}
           readOnly={mobilityCardData.readOnly}
           onSelect={handleLegSelect}
           onClose={handleLegClose}
