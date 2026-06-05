@@ -117,7 +117,7 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 - **L4 mini design（cold-start partial-pooling・階層 shrinkage）: `docs/second-self-map-l4-mini-design.md`** — L4-a(2-level)実装済（branch・`0b4f404e`・未配線）
 - **L4-b mini design（multi-level + global marginal）: `docs/second-self-map-l4b-mini-design.md`** — L4-a + L4-b 実装・配線済・**main 着地 live（pure `93aa5653` + 配線 `44633d16`）**
 - **L4 closeout（pure + 配線 着地・smoke 7項目 PASS）: `docs/second-self-map-l4-closeout.md`** / L4-c 較正方針: `docs/second-self-map-l4b-closeout.md`
-- **L3 mini design（selective forgetting・regime-change 緩和）: `docs/second-self-map-l3-mini-design.md`** — L3-a 実装・**main 着地 `77104e1a`（pure・未配線）**
+- **L3 mini design（selective forgetting・regime-change 緩和）: `docs/second-self-map-l3-mini-design.md`** — L3-a 実装・配線・**main 着地 live（pure `77104e1a` + 配線 `7c394a40`）**
 - **L3-a closeout / L3-b mini design: `docs/second-self-map-l3a-closeout.md` / `docs/second-self-map-l3b-mini-design.md`**
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`

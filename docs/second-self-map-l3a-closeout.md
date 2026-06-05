@@ -24,13 +24,15 @@
 - 主要 PASS: ①no regime → buildL3 == buildPooled（退行ゼロ）②regime-change（旧 train + 新 walk correction）→ 旧 train を ×λ → topMode が walk に逆転 ③**古い観測は削除されず**（count に残り weight だけ低下）④λ=1 → L4-b 同一 ⑤detector の N 連続/末尾一貫/changePoint。
 - **MapTab/store/MobilityLegCard/copy 不変**（未配線・production 挙動変更ゼロ）。
 
-## 4. 着地（pure と配線の分離）
-- L3-a pure を main `77104e1a` に squash（merge --squash クリーン・既存非破壊・temp 混入 0）。
-- **配線（MapTab を loadL3PooledBeliefMultiLevel に swap）= 別 GO**（CEO: MapTab 配線まだ禁止）。pure の正しさと配線を分離。
+## 4. 着地（pure と配線を分離 → 両方着地・L3-a 完全 live）
+- L3-a pure を main `77104e1a` に squash（pure 層を先に固定）。
+- **L3-a 配線 着地（2026-06-05・GPT 監査 GO）**: MapTab belief を `loadL3PooledBeliefMultiLevel` に swap（1 行）+ wire smoke を main `7c394a40` に squash。**selective forgetting が live**。
+  - 検証: wire smoke **12 項目 PASS**（regime なし→L4-b 同一 / 1 回不発火 / 同方向 2 回発火 / 古い weight↓・削除でない / selected のみ不発火 / confirmation 不発火 / stale 不使用 / READ のみ / fetch なし）・mobility **182 test**・tsc footprint 0・zero-loss・MobilityLegCard/copy/store 不変・push なし。
+  - production: belief source が L3-aware に。**correction 未蓄積 → 即時は L4-b 同一**（退行ゼロ）・同方向 explicitCorrection 2 回で selective forgetting が効き始める。
 
 ## 5. 残（CEO 判断待ち）
-- **L3-a 配線**（MapTab swap → smoke 6項目 → 着地 → L3 closeout）= 別 GO。smoke: regime なし→L4-b 同一 / correction 2 回で旧 precision 緩む / 古い観測 削除されず weight 低下 / 新 mode surface しやすく / store READ のみ / UI 不変。
-- **L3-b**（OD 単位 + 持続シフト・mini design 済）/ **L4-c**（κ較正）= まだ実装しない。
+- **L3-b**（OD 単位 regime-change + 持続シフト検出・mini design 済 `docs/second-self-map-l3b-mini-design.md`）= 次フェーズ（判断点 4）。
+- **L4-c**（κ較正）= 実データ後。
 - push / PR / Vercel / deploy = 禁止（未実施）。
 
 ## 6. 参照

@@ -15061,3 +15061,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(5 判断確定×2 + 配線承認 + 着地承認)×GPT。ステータス: L4 live。次=L4-c κ較正(データ後) / L3 selective forgetting(mini design 済・実装 GO 待ち)。
 
 ---
+
+## [2026-06-05] Second Self Map L3-a（selective forgetting）実装・配線・main 着地 live
+
+- 決定: パターンが変わった時だけ古い確信を precision で緩める。素朴 time-decay でなく regime-change(矛盾の連続)駆動・belief 消さず重みのみ ×λ。pure を先に固定 → GPT 監査で「pure 積み増しでなく先に配線して live 検証」を採用(L3-b でなく L3-a 配線先行)。
+- 検出: leg の explicitCorrection 末尾連続 N(=2)が同一 Y → regime-change to Y・change-point=開始日。computeRegimeFactorFn が change-point より古い観測を ×λ(=0.5)。no regime → 恒等(退行ゼロ)。
+- 注入: L4-b path の 4 builder に optional regimeFactorFn(default identity・既存温存)。buildL3/loadL3PooledBeliefMultiLevel。
+- 配線: MapTab loadPooledBeliefMultiLevel→loadL3PooledBeliefMultiLevel(1 行)。correction 未蓄積→即時 L4-b 同一・同方向 2 回で selective forgetting が効く。
+- 検証: pure 13 + wire smoke 12項目 + mobility 182 test・tsc footprint 0。L3→L4 composable・3 store READ のみ・削除でない・Date.now 不使用。
+- 着地: pure squash(main 77104e1a)→ 配線 squash(main 7c394a40)。zero-loss・既存(MobilityLegCard/copy/store)不変・temp 0・push/PR/Vercel なし。
+
+関連 commit(branch l3a + l3a-wire): 5171d703(pure)・60f2a5f6(配線)。main: 77104e1a(pure)→7c394a40(配線)。
+承認: CEO(pure GO + GPT 監査で配線先行 GO + 着地承認)×GPT。ステータス: L3-a live。次=L3-b(OD+持続シフト・mini design 済・GO 待ち) / L4-c(データ後)。
+
+---
