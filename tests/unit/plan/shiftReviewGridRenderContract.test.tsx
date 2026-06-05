@@ -293,3 +293,42 @@ describe("ShiftReviewGrid — Persist-3 mismatch-aware「校正済」表示", ()
     expect(html).toMatch(/shift-review-calibration-reset"[^>]*disabled=""/);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// A1B: confusable コードの cell マーカー（似た形で紛らわしい・常時 amber「要確認」）
+describe("ShiftReviewGrid — A1B confusable cell marker", () => {
+  it("FIXTURE の confusable コード（H/HREQ/N）の cell は data-confusable=true", () => {
+    const html = render();
+    expect(html).toMatch(/shift-review-cell-2"[^>]*data-confusable="true"/); // H
+    expect(html).toMatch(/shift-review-cell-3"[^>]*data-confusable="true"/); // HREQ
+    expect(html).toMatch(/shift-review-cell-6"[^>]*data-confusable="true"/); // N
+  });
+
+  it("非 confusable（G/L）の cell は data-confusable=false", () => {
+    const html = render();
+    expect(html).toMatch(/shift-review-cell-1"[^>]*data-confusable="false"/); // G
+    expect(html).toMatch(/shift-review-cell-7"[^>]*data-confusable="false"/); // L
+  });
+
+  it("confusable のみ（高 conf・空欄隣接なし）の cell に「要確認」amber が点く（blank-risk 不要）", () => {
+    // day2(E) だけ confusable・高 conf・両隣 非空 → blank-risk ではない。amber が点く唯一の理由は confusable。
+    const ONE: ShiftReviewCell[] = [
+      { day: 1, date: "2025-07-01", rawCode: "L", confidence: 1 }, // 非 confusable・非空
+      { day: 2, date: "2025-07-02", rawCode: "E", confidence: 1 }, // confusable・高 conf
+      { day: 3, date: "2025-07-03", rawCode: "G", confidence: 1 }, // 非 confusable・非空
+    ];
+    const html = renderToStaticMarkup(
+      <ShiftReviewGrid
+        cells={ONE}
+        dictionary={HARADA_SPRIX_DICTIONARY}
+        monthLabel="2025年7月"
+        year={2025}
+        month={7}
+      />
+    );
+    expect(html).toMatch(/shift-review-cell-2"[^>]*data-confusable="true"/);
+    expect(html).toMatch(/shift-review-cell-1"[^>]*data-confusable="false"/);
+    // amber「要確認」dot は aria-label で 1 個だけ（day2 のみ）。legend の「要確認」は aria-label を持たない。
+    expect((html.match(/aria-label="要確認"/g) ?? []).length).toBe(1);
+  });
+});

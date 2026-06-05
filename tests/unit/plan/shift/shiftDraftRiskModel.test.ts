@@ -12,8 +12,10 @@ import {
 } from "@/lib/plan/shift/shiftDraftRiskModel";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 
-// 連続同一を避けた有効コードの巡回（adjacent dup / blank / unknown / low-conf なし）
-const VALID = ["H", "E", "N", "L", "G", "BD", "E-18", "HREQ"];
+// 連続同一を避けた有効コードの巡回（adjacent dup / blank / unknown / low-conf なし）。
+// A1B で confusable_code soft hint を追加したため、「完全に clean な下書き」基準には
+// 混同コード（E/E-18/H/HREQ/N）を**含めず** 非混同の L/G/BD のみで作る。
+const VALID = ["L", "G", "BD"];
 function cleanCells(n: number): DraftRiskCell[] {
   return Array.from({ length: n }, (_, i) => ({
     day: i + 1,
@@ -101,8 +103,10 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
   });
 
   it("adjacent_duplicate 3 連続も全日フラグ", () => {
+    // VALID=[L,G,BD] の cycle 上、day3=BD・day7=L なので run を [4,5,6] に収めるには
+    // 両隣（BD/L）と異なる "G" を 3 連続させる（"L" だと day7 の自然 L と繋がり [4,5,6,7] になる）。
     const cells = cleanCells(31).map((c) =>
-      c.day === 4 || c.day === 5 || c.day === 6 ? { ...c, rawCode: "L" } : c
+      c.day === 4 || c.day === 5 || c.day === 6 ? { ...c, rawCode: "G" } : c
     );
     const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
     expect(find(r, "adjacent_duplicate")?.dayNumbers).toEqual([4, 5, 6]);
@@ -114,6 +118,52 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
     expect(h?.severity).toBe("soft");
     expect(h?.dayNumbers).toEqual([15, 16]);
     expect(r.hasBlockingRisk).toBe(false);
+  });
+});
+
+describe("detectDraftRisks — confusable_code（A1B・似た形で紛らわしいコード・soft）", () => {
+  it("E は confusable_code soft hint（confidence 高くても要確認）", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 4 ? { ...c, rawCode: "E", confidence: 1 } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    const h = find(r, "confusable_code");
+    expect(h?.severity).toBe("soft");
+    expect(h?.dayNumbers).toContain(4);
+    expect(r.hasBlockingRisk).toBe(false); // soft = 保存を止めない
+  });
+
+  it("H / E-18 / N も confusable（複数日まとめて soft・昇順）", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 2
+        ? { ...c, rawCode: "H" }
+        : c.day === 8
+          ? { ...c, rawCode: "E-18" }
+          : c.day === 20
+            ? { ...c, rawCode: "N" }
+            : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "confusable_code")?.dayNumbers).toEqual([2, 8, 20]);
+  });
+
+  it("非 confusable（L/G/BD）のみ → confusable_code なし", () => {
+    const r = detectDraftRisks(cleanCells(31), HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "confusable_code")).toBeUndefined();
+  });
+
+  it("confusable_code は保存を hard block しない（soft のみなら hasBlockingRisk=false）", () => {
+    const cells = cleanCells(31).map((c) => (c.day === 4 ? { ...c, rawCode: "E" } : c));
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("confusable_code message は安全文言（error/誤/失敗/間違 を含まない）", () => {
+    const cells = cleanCells(31).map((c) => (c.day === 4 ? { ...c, rawCode: "E" } : c));
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    const msg = r.hints.find((h) => h.kind === "confusable_code")?.message;
+    expect(msg).toBeDefined();
+    expect(msg).not.toMatch(/error|wrong|failed|誤|失敗|間違/i);
   });
 });
 

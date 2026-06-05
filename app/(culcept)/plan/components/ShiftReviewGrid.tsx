@@ -54,6 +54,7 @@ import {
   detectDraftRisks,
   type DraftRiskReport,
 } from "@/lib/plan/shift/shiftDraftRiskModel";
+import { detectConfusableCells } from "@/lib/plan/shift/shiftConfusableCodes";
 
 export type { ShiftReviewCell };
 
@@ -216,6 +217,18 @@ export function ShiftReviewGrid({
   const cellIsBlankRisk = (c: ShiftReviewCell): boolean =>
     isBlankRisk(c, emptyDays, lowConfidenceThreshold);
 
+  // A1B: 似たコード（confusable・E↔E-18 等）の日 set。**confidence に関係なく** always-on で
+  //   amber「要確認」を点灯させる（blank-risk と同じく cell レベルの常時マーカー）。保存は止めない。
+  const confusableDays = useMemo(
+    () =>
+      new Set(
+        detectConfusableCells(
+          cells.map((c) => ({ day: c.day, rawCode: c.rawCode }))
+        ).map((h) => h.day)
+      ),
+    [cells]
+  );
+
   // カレンダー週構築（各日を真の曜日スロットへ配置。欠け日も実カレンダー位置を保つ）
   const weeks = useMemo(
     () => buildShiftReviewWeeks(cells, year, month),
@@ -330,7 +343,10 @@ export function ShiftReviewGrid({
             );
           }
           const { kind } = cellInfo(cell.rawCode, dictionary);
-          const risk = cellIsBlankRisk(cell);
+          const blankRisk = cellIsBlankRisk(cell);
+          const confusable = confusableDays.has(cell.day);
+          // 「要確認」amber は blank-risk か confusable で点灯（過剰着色しない＝赤を足さず既存 amber を共有）。
+          const needsReview = blankRisk || confusable;
           const selected = selectedDay === cell.day;
           const isEmpty = normalizeRawCode(cell.rawCode) === "";
           return (
@@ -339,7 +355,8 @@ export function ShiftReviewGrid({
               type="button"
               data-testid={`shift-review-cell-${cell.day}`}
               data-kind={kind}
-              data-blank-risk={risk ? "true" : "false"}
+              data-blank-risk={blankRisk ? "true" : "false"}
+              data-confusable={confusable ? "true" : "false"}
               onClick={() => setSelectedDay(cell.day)}
               onMouseEnter={() => setHoveredDay(cell.day)}
               onMouseLeave={() => setHoveredDay(null)}
@@ -358,7 +375,7 @@ export function ShiftReviewGrid({
               >
                 {isEmpty ? "·" : cell.rawCode}
               </span>
-              {risk && (
+              {needsReview && (
                 <span
                   className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400"
                   aria-label="要確認"

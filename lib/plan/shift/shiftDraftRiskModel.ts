@@ -22,6 +22,7 @@ import {
   normalizeRawCode,
   type ShiftCodeDictionary,
 } from "./shiftCodeDictionary";
+import { detectConfusableCells } from "./shiftConfusableCodes";
 
 /** review hint の重大度。 */
 export type RiskSeverity = "hard" | "soft";
@@ -37,7 +38,9 @@ export type RiskKind =
   | "adjacent_duplicate"
   | "suspicious_shift"
   | "low_confidence"
-  | "chunk_boundary";
+  | "chunk_boundary"
+  // soft（A1B: 似たコードの見間違い。confidence に関係なく要確認）
+  | "confusable_code";
 
 /** 下書き 1 セル（day-keyed・golden なし）。 */
 export interface DraftRiskCell {
@@ -201,6 +204,20 @@ export function detectDraftRisks(
   if (boundaryDays.length)
     hints.push(
       hint("chunk_boundary", boundaryDays, `読み取りの境目です（${formatDays(boundaryDays)}）。前後のずれがないか確認してください。`)
+    );
+
+  // confusable code（A1B）= 似たコードの見間違い（E↔E-18 等）。**confidence に関係なく** soft 要確認。
+  //   高 conf 誤読（F5）は既存の低 conf / 空欄隣接 / 未知コードでは捕まらないため、ここで要確認に回す。
+  const confusableDays = detectConfusableCells(
+    cells.map((c) => ({ day: c.day, rawCode: c.rawCode }))
+  ).map((h) => h.day);
+  if (confusableDays.length)
+    hints.push(
+      hint(
+        "confusable_code",
+        confusableDays,
+        `似た形で紛らわしいコードの日があります（${formatDays(confusableDays)}）。原稿と照合してください。`
+      )
     );
 
   const hardCount = hints.filter((h) => h.severity === "hard").length;

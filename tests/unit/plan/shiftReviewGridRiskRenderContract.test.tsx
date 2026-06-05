@@ -16,7 +16,9 @@ import {
 } from "@/app/(culcept)/plan/components/ShiftReviewGrid";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 
-const VALID = ["H", "E", "N", "L", "G", "BD", "E-18", "HREQ"];
+// A1B: confusable_code soft hint 追加に伴い、「完全な月」基準は非混同 L/G/BD のみで作る
+// （E/E-18/H/HREQ/N は confusable のため clean fixture に含めない）。
+const VALID = ["L", "G", "BD"];
 // 連続同一なし・全て有効・confidence 1 の完全な 7月（31日）
 function cleanMonth(): ShiftReviewCell[] {
   return Array.from({ length: 31 }, (_, i) => ({
@@ -106,5 +108,39 @@ describe("ShiftReviewGrid risk 表示（B1b-2B）", () => {
     const panel = html.slice(html.indexOf('data-testid="shift-review-risk-panel"'));
     expect(panel).toMatch(/原稿と照合/);
     expect(html).not.toMatch(/error|wrong|failed|誤|失敗|間違/i);
+  });
+});
+
+describe("ShiftReviewGrid risk 表示 — confusable_code（A1B・似た形で紛らわしい）", () => {
+  it("似たコード（E）→ soft の confusable_code hint が panel に出る", () => {
+    const cells = cleanMonth().map((c) =>
+      c.day === 4 ? { ...c, rawCode: "E", confidence: 1 } : c
+    );
+    const html = render({ cells, riskReviewEnabled: true });
+    expect(html).toContain('data-testid="shift-review-risk-panel"');
+    expect(html).toContain('data-testid="shift-review-risk-soft"');
+    expect(html).toContain('data-testid="shift-review-risk-confusable_code"');
+  });
+
+  it("confusable は **高 confidence でも** 要確認として出る + 保存は active（hard block しない）", () => {
+    const cells = cleanMonth().map((c) =>
+      c.day === 4 ? { ...c, rawCode: "E", confidence: 1 } : c
+    );
+    const html = render({ cells, riskReviewEnabled: true });
+    expect(html).toContain('data-testid="shift-review-risk-confusable_code"');
+    expect(html).toContain("この内容で保存"); // soft のみ → 保存を止めない
+    expect(html).not.toContain('data-testid="shift-review-risk-hard"');
+  });
+
+  it("confusable 文言は安全（似た形で紛らわしい・error/誤/間違 を含まない）", () => {
+    const cells = cleanMonth().map((c) => (c.day === 4 ? { ...c, rawCode: "E" } : c));
+    const html = render({ cells, riskReviewEnabled: true });
+    expect(html).toContain("紛らわしい");
+    expect(html).not.toMatch(/error|wrong|failed|誤|失敗|間違/i);
+  });
+
+  it("非 confusable（L/G/BD）のみ → confusable_code panel なし", () => {
+    const html = render({ riskReviewEnabled: true });
+    expect(html).not.toContain('data-testid="shift-review-risk-confusable_code"');
   });
 });

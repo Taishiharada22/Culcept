@@ -71,8 +71,10 @@ describe("ShiftImportModal — E1 shell", () => {
 });
 
 describe("ShiftImportModal — B1b-2C-8-c-1 risk pass-through", () => {
-  /** ShiftReviewGrid 内 detectDraftRisks が完全な月で発火しないよう、空欄なし 31 セルを作る */
-  const VALID_CODES = ["H", "E", "N", "L", "G", "BD", "E-18", "HREQ"];
+  /** ShiftReviewGrid 内 detectDraftRisks が完全な月で発火しないよう、空欄なし 31 セルを作る。
+   *  A1B で confusable_code soft hint を追加したため、混同コード（E/E-18/H/HREQ/N）は含めず
+   *  非混同の L/G/BD のみで「完全月＝risk ゼロ」を作る。 */
+  const VALID_CODES = ["L", "G", "BD"];
   const FULL_MONTH: ShiftReviewCell[] = Array.from({ length: 31 }, (_, i) => ({
     day: i + 1,
     date: `2025-07-${String(i + 1).padStart(2, "0")}`,

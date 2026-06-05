@@ -103,7 +103,9 @@ export function detectConfusableCells(
       rawCode: code,
       confusableWith: partners,
       severity: "soft",
-      message: `「${code}」は「${partners.join("・")}」と見間違えやすいコードです。原稿と照合してください。`,
+      // 既存 risk model の安全文言契約（error/wrong/誤/失敗/間違 を使わない）に整合させ、
+      // 「見間違い/誤読」ではなく「似た形で紛らわしい」と表現する（needs_review トーン）。
+      message: `「${code}」は「${partners.join("・")}」と似た形で紛らわしいコードです。原稿と照合してください。`,
     });
   }
   return hints.sort((a, b) => a.day - b.day);
