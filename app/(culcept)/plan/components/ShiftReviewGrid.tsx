@@ -55,6 +55,10 @@ import {
   type DraftRiskReport,
 } from "@/lib/plan/shift/shiftDraftRiskModel";
 import { detectConfusableCells } from "@/lib/plan/shift/shiftConfusableCodes";
+import {
+  representativeRowLabel,
+  crossCheckRowLabel,
+} from "@/lib/plan/shift/shiftPersonRowCheck";
 
 export type { ShiftReviewCell };
 
@@ -229,6 +233,22 @@ export function ShiftReviewGrid({
     [cells]
   );
 
+  // A2B-2: 本人行 cross-check（行**全体**の警告・day-keyed risk panel とは別）。
+  //   representative rowLabel（最頻非空）を ownerLabel（辞書）と照合。**hard block しない**（warning のみ）。
+  //   conflict（複数人名混在）/ mismatch = 高優先 warning / missing = 非表示 / match = 非表示。
+  const rowLabelSummary = useMemo(() => representativeRowLabel(cells), [cells]);
+  const rowLabelCheck = useMemo(
+    () =>
+      crossCheckRowLabel({
+        ownerLabel: dictionary.ownerLabel,
+        rowLabel: rowLabelSummary.representative,
+      }),
+    [dictionary.ownerLabel, rowLabelSummary.representative]
+  );
+  const showRowConflict = rowLabelSummary.hasConflict;
+  const showRowMismatch = rowLabelCheck.status === "mismatch";
+  const showRowWarning = showRowConflict || showRowMismatch;
+
   // カレンダー週構築（各日を真の曜日スロットへ配置。欠け日も実カレンダー位置を保つ）
   const weeks = useMemo(
     () => buildShiftReviewWeeks(cells, year, month),
@@ -285,6 +305,19 @@ export function ShiftReviewGrid({
       >
         強調（隅の印）は注意の補助です。<b>強調が無くても全セルを原稿と照合</b>してください。空欄が勝手に埋まる場合があります。
       </p>
+
+      {/* A2B-2: 本人行 warning（行全体・カレンダーの前）。conflict / mismatch のみ・**保存は止めない**。 */}
+      {showRowWarning && (
+        <div
+          data-testid="shift-review-rowlabel-warning"
+          data-rowlabel-status={showRowConflict ? "conflict" : "mismatch"}
+          className="mb-3 rounded-xl border border-amber-300 bg-amber-50/80 px-3 py-2 text-[11px] leading-relaxed text-amber-800"
+        >
+          {showRowConflict
+            ? "複数の行名が混在しています。本人行の範囲を原稿と照合してください。"
+            : "抽出した行名が想定と異なる可能性があります。原稿の本人行を確認してください。"}
+        </div>
+      )}
 
       {/* 凡例（うるさくしない最小限） */}
       <div className="mb-2 flex items-center gap-3 text-[10px] text-gray-400">
