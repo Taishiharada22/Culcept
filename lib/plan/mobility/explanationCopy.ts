@@ -53,7 +53,7 @@ export interface ExplanationCopy {
   readonly rationale: string | null;
   /** 「今日は雨なので X は少し負担かもしれません」（contextNote 時のみ・手段変更でない） */
   readonly contextNoteText: string | null;
-  /** 「違うなら選び直せます」。沈黙時 null */
+  /** 「違うなら下から選べます」。沈黙時 null */
   readonly correctionPrompt: string | null;
   /** 訂正候補のラベル（chips 用・none/one/multiple） */
   readonly alternativeLabels: readonly string[];
@@ -98,7 +98,7 @@ function buildContextNoteText(note: ContextNote): string {
 
 /** correction 誘導（おすすめでなく選び直しの招待） */
 function buildCorrectionPrompt(): string {
-  return "違うなら選び直せます。";
+  return "違うなら下から選べます。"; // v0-D 補正4: 下の chips を指す弱い表現（高精度 writeback は v0-E）
 }
 
 /**

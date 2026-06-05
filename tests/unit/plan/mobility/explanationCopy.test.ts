@@ -53,7 +53,7 @@ describe("buildExplanationCopy (v0-C copy engine・最大ケース)", () => {
     expect(c.headline).toBe("いつもは電車を選びがちです。");
     expect(c.rationale).toBe("この区間では、電車が多めです。");
     expect(c.contextNoteText).toBeNull();
-    expect(c.correctionPrompt).toBe("違うなら選び直せます。");
+    expect(c.correctionPrompt).toBe("違うなら下から選べます。");
   });
   it("habitual_only strong: rationale が「何度も」", () => {
     const c = buildExplanationCopy(hyp({ habitualMode: "train", habitualStrength: "strong" }), surfaceGate());

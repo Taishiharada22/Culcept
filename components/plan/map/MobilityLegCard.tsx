@@ -10,6 +10,7 @@ import {
   mobilitySquircleDataUri, type RouteTransportMode,
 } from "@/lib/plan/map/routeMode";
 import type { LegDurState, LegInfo } from "@/lib/plan/map/directionsService";
+import type { ExplanationCopy } from "@/lib/plan/mobility/explanationCopy";
 
 export interface MobilityLegCardProps {
   legKey: string;
@@ -17,6 +18,8 @@ export interface MobilityLegCardProps {
   toTitle: string;
   selectedMode: RouteTransportMode | null;
   recallMode?: RouteTransportMode | null;
+  /** v0-D: 「今日のあなたなら」仮説 copy（v0-C 生成・surface 時のみ描画・未指定/null は従来同等） */
+  hypothesisCopy?: ExplanationCopy | null;
   /** 所要時間/乗換数 (= client DirectionsService の実測。推薦せず判断材料・偽数字なし) */
   durations?: LegDurState | null;
   readOnly: boolean;
@@ -25,7 +28,7 @@ export interface MobilityLegCardProps {
 }
 
 export function MobilityLegCard({
-  legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose,
+  legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose, hypothesisCopy,
 }: MobilityLegCardProps) {
   const chipBg = (mode: RouteTransportMode) => ({
     backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
@@ -77,6 +80,14 @@ export function MobilityLegCard({
           </p>
           <button type="button" onClick={onClose} aria-label="閉じる" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200">✕</button>
         </div>
+        {hypothesisCopy && hypothesisCopy.surface && (
+          <div data-testid="mobility-hypothesis" className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">
+            {hypothesisCopy.headline && <p className="text-sm font-bold text-slate-800">{hypothesisCopy.headline}</p>}
+            {hypothesisCopy.rationale && <p className="mt-1 text-xs text-slate-500">{hypothesisCopy.rationale}</p>}
+            {hypothesisCopy.contextNoteText && <p className="mt-1 text-xs text-slate-500">{hypothesisCopy.contextNoteText}</p>}
+            {hypothesisCopy.correctionPrompt && <p className="mt-1.5 text-[11px] text-slate-400">{hypothesisCopy.correctionPrompt}</p>}
+          </div>
+        )}
         {durations && (
           <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">
             <div className="text-[11px] font-bold tracking-wide text-slate-500">この区間の移動・所要時間の目安</div>
