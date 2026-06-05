@@ -89,6 +89,7 @@ import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcP
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { loadModeBelief } from "@/lib/plan/mobility/beliefReadAdapter";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
+import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
@@ -337,8 +338,31 @@ export function MapTab({
       readOnly: isDone,
       recallMode: guidance.recallMode,
       hypothesisCopy: guidance.hypothesisCopy,
+      surfacedMode: guidance.surfacedMode, // v0-E: feedback の kind 判定用(surface 時のみ非 null)
     };
   }, [openLeg, allPins, selectedModeByLeg, now, dayKey]);
+
+  // v0-E: mode 選択時に「仮説への応答」を別 store(hypothesisFeedback)へ記録する wrapper。
+  //   既存 handleLegSelect(現在選択の保存=selectedModeStore)は不変。本 wrapper はその後段で feedback だけ追記。
+  //   ★同期記録: クリック時の closure は更新前 mobilityCardData(=実際に表示された surfacedMode)を捕捉する。
+  //   ★仮説非表示(surfacedMode null)/readOnly は buildFeedbackEntry が null を返し saveHypothesisFeedback は no-op。
+  const handleLegSelectWithFeedback = useCallback(
+    (legKey: string, mode: RouteTransportMode) => {
+      handleLegSelect(legKey, mode); // 既存: selectedMode 永続化(不変)
+      if (mobilityCardData && mobilityCardData.legKey === legKey) {
+        saveHypothesisFeedback(
+          dayKey,
+          legKey,
+          buildFeedbackEntry({
+            surfacedMode: mobilityCardData.surfacedMode,
+            chosenMode: mode,
+            readOnly: mobilityCardData.readOnly,
+          }),
+        );
+      }
+    },
+    [handleLegSelect, mobilityCardData, dayKey],
+  );
 
   // A2: leg ごとの from/to 座標(時刻順・store/route と同一 legKey)。durations fetch 用。
   const legCoordsByKey = useMemo(() => {
@@ -447,7 +471,7 @@ export function MapTab({
           recallMode={mobilityCardData.recallMode}
           hypothesisCopy={mobilityCardData.hypothesisCopy}
           readOnly={mobilityCardData.readOnly}
-          onSelect={handleLegSelect}
+          onSelect={handleLegSelectWithFeedback}
           onClose={handleLegClose}
         />
       )}
