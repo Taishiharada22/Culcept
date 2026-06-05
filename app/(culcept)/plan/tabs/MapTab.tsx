@@ -87,7 +87,7 @@ import { ROUTE_MODE_COLORS, mapChipStateForLeg, mobilityChipPx, mobilityLegIconD
 import { buildFlightArcLine, buildGlassyLegLines, createRouteAuraAnimation, getRouteStyleForLeg, legChipPosition, shouldAnimateLeg, type GmapsMarkerWithSetPosition } from "@/lib/plan/map/routeStyle";
 import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcPath, toApiTravelMode, type LegDurState, type LegInfo } from "@/lib/plan/map/directionsService";
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
-import { loadL3PooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
+import { loadL3bPooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
@@ -336,7 +336,7 @@ export function MapTab({
       weekday: toWeekdayBucket(dayKey),
     };
     const guidance = resolveMobilityGuidance({
-      belief: loadL3PooledBeliefMultiLevel(repertoireQuery), // ★L3-a: selective forgetting + multi-level pooling(regime-change で古い確信を緩和・mock でない)
+      belief: loadL3bPooledBeliefMultiLevel(repertoireQuery), // ★L3-b-1: OD 単位 regime + selective forgetting(場所のパターン変化を OD 全 leg に波及・mock でない)
       selectedMode: todaySelected,
       readOnly: isDone,
       sensitive,
