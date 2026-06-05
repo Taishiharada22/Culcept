@@ -90,6 +90,7 @@ import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/l
 import { loadWeightedModeBelief } from "@/lib/plan/mobility/beliefReadAdapter";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
+import { buildObservation, saveMobilityObservation } from "@/lib/plan/mobility/mobilityObservationStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
@@ -339,6 +340,14 @@ export function MapTab({
       recallMode: guidance.recallMode,
       hypothesisCopy: guidance.hypothesisCopy,
       surfacedMode: guidance.surfacedMode, // v0-E: feedback の kind 判定用(surface 時のみ非 null)
+      // L1-a: 観測前方記録の context（place key/timeband の算出元・anchor 由来・capture は onSelect で）
+      observationContext: {
+        toStartTime: sorted[idx + 1]!.anchor.startTime,
+        originText: sorted[idx]!.anchor.locationText ?? null,
+        destText: sorted[idx + 1]!.anchor.locationText ?? null,
+        originSensitive: !!sorted[idx]!.anchor.sensitiveCategory,
+        destSensitive: !!sorted[idx + 1]!.anchor.sensitiveCategory,
+      },
     };
   }, [openLeg, allPins, selectedModeByLeg, now, dayKey]);
 
@@ -356,6 +365,21 @@ export function MapTab({
           buildFeedbackEntry({
             surfacedMode: mobilityCardData.surfacedMode,
             chosenMode: mode,
+            readOnly: mobilityCardData.readOnly,
+          }),
+        );
+        // L1-a: 全選択を観測ログへ前方記録（★仮説非依存・silent・別 store・readOnly/invalid は buildObservation が null→no-op）
+        saveMobilityObservation(
+          dayKey,
+          legKey,
+          buildObservation({
+            mode,
+            dayISO: dayKey,
+            toStartTime: mobilityCardData.observationContext.toStartTime,
+            originText: mobilityCardData.observationContext.originText,
+            destText: mobilityCardData.observationContext.destText,
+            originSensitive: mobilityCardData.observationContext.originSensitive,
+            destSensitive: mobilityCardData.observationContext.destSensitive,
             readOnly: mobilityCardData.readOnly,
           }),
         );
