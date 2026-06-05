@@ -32,7 +32,8 @@ console.log(JSON.parse(localStorage['aneurasync.plan.map.mobilityObservation.v1'
 > OD 一般化(B)の手動再現は real odKey の一致が必要で煩雑なため、integration test を decisive とする。
 
 ## 4. closeout 判断
-- **L1 smoke PASS**（自立: A〜D integration + 121 unit + tsc 0 + 退行ゼロ）→ **closeout 可・main 着地へ**。
+- **L1 smoke PASS**（自立: A〜D integration + 121 unit + tsc 0 + 退行ゼロ）→ closeout。
+- **★ローカル main 着地完了（2026-06-05・CEO 承認）**: main HEAD `3d3d24a8`・squash。zero-loss ✓・main tsc footprint 0(total 1114)・mobility 121 PASS・selectedModeStore/hypothesisFeedbackStore.ts 未変更・temp 混入 0・衝突なし。**push/PR/GitHub 未実施**（local `3d3d24a8` ≠ origin `5a0c0f7e`）。
 - L1-c（recency）→ L3（素朴 decay 禁止）。L4（cold-start partial-pooling）→ 次タスク（設計提出）。
 - push / PR / GitHub / deploy 未実施（禁止遵守）。
 

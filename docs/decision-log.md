@@ -15033,3 +15033,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO（各 slice GO + 完全 PASS 確認）×GPT（重み {1,1,2} + scope）。ステータス: v0 完成・closeout 済・**ローカル main 着地済**（HEAD 5f05391f・squash・zero-loss / main tsc footprint 0 / 衝突なし・push/PR なし）。
 
 ---
+
+## [2026-06-05] Second Self Map Wave 1/L1（移動レパートリー学習・S2-B）完成・main 着地
+
+- 決定: 「過去 OD は再構成不能 → 今から録る」を実装。L1-a 観測前方記録 + L1-b OD 条件付き belief。
+- L1-a mobilityObservationStore: 選択時に rich 観測(mode/timeband/weekday/odKey/privacyClass)を silent 前方記録(別 store・全選択・sensitive はどちらか端点で両 place key redact)。Date 不使用(timeband=to-anchor 時刻 / weekday=Zeller congruence)。
+- L1-b mobilityRepertoireBelief: legKey 優先・cold で odKey×timeband×weekday 階層 fallback(override しない・退行ゼロ)。層採用は v0 strength 判定(buildMobilityHypothesis)流用。OD も feedback JOIN で precision 加重。mode 正本は selectedStore。
+- 4 設計判断(CEO 確定): legKey 優先+cold odKey / v0 strength 流用 / feedback JOIN 加重 / 今 pure 実装。
+- 検証: mobility 121 test(L1-a 4 次元 adversarial PASS + L1-b 退行ゼロ + smoke A/B/C/D)+ tsc footprint 0。
+- ★ローカル main 着地(squash・main HEAD 3d3d24a8・zero-loss・衝突なし・既存 v0/selectedModeStore/hypothesisFeedbackStore 不変・temp 混入 0・push/PR/GitHub なし)。
+
+関連 commit(branch claude/second-self-map-wave1-l1): 93372462/b2ab44a5/fcfac873(L1-a) d4952fae/5cabac40(L1-b) a5aef2a2(smoke)。main: 3d3d24a8。docs(nifty): l1/l1b mini design + closeout。
+承認: CEO(4 判断確定 + L1-b-2 配線承認 + 着地承認)。ステータス: L1 完成・main 着地済。次=L4 partial pooling 設計提出。
+
+---
