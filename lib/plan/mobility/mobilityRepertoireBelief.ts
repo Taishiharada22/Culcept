@@ -19,8 +19,11 @@ import { buildMobilityHypothesis, type ModeBelief } from "./mobilityHypothesis";
 import { buildWeightedModeBelief, precisionWeight } from "./beliefReadAdapter";
 import {
   computeRegimeFactorFn,
+  computeCombinedRegimeFactorFn,
   DEFAULT_L3_CONFIG,
+  DEFAULT_L3B_CONFIG,
   type SelectiveForgettingConfig,
+  type CombinedForgettingConfig,
 } from "./mobilitySelectiveForgetting";
 import {
   parseStore,
@@ -397,4 +400,32 @@ export function loadL3PooledBeliefMultiLevel(
   kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
 ): ModeBelief {
   return buildL3PooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, config, kappa);
+}
+
+// ───────────────────────── L3-b-1: OD 単位 regime 統合版（pure・additive・未配線） ─────────────────────────
+
+/**
+ * L3-b-1 belief（pure）。L3-a(legKey) + L3-b-1(OD 単位 regime) を統合した combined regimeFactorFn を
+ * L4-b の buildPooledBeliefMultiLevel に注入。leg 優先 + OD fallback（二重緩和なし）。
+ * ★leg/OD どちらの regime も無ければ恒等 → L3-a/L4-b と完全同一（退行ゼロ）。古い観測は削除されず ×λ のみ。
+ */
+export function buildL3bPooledBeliefMultiLevel(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+  query: RepertoireQuery,
+  config: CombinedForgettingConfig = DEFAULT_L3B_CONFIG,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  const regimeFactorFn = computeCombinedRegimeFactorFn(feedback, obs, selected, config);
+  return buildPooledBeliefMultiLevel(obs, selected, feedback, query, kappa, regimeFactorFn);
+}
+
+/** ★L3-b-1 配線用（GO 後・現状未配線）。OD 単位 regime 込みの multi-level pooled belief。store fail-open。 */
+export function loadL3bPooledBeliefMultiLevel(
+  query: RepertoireQuery,
+  config: CombinedForgettingConfig = DEFAULT_L3B_CONFIG,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  return buildL3bPooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, config, kappa);
 }
