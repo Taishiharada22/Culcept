@@ -32,6 +32,7 @@ describe("resolveMobilityGuidance (v0-D guidance gate)", () => {
     const g = resolveMobilityGuidance(input({ readOnly: true }));
     expect(g.hypothesisCopy).toBeNull();
     expect(g.recallMode).toBe("bus");
+    expect(g.surfacedMode).toBeNull();
   });
 
   it("selectedMode あり → hypothesis 出さない", () => {
@@ -62,6 +63,7 @@ describe("resolveMobilityGuidance (v0-D guidance gate)", () => {
     const g = resolveMobilityGuidance(input({}));
     expect(g.hypothesisCopy?.surface).toBe(true);
     expect(g.recallMode).toBeNull(); // ★hypothesis と recall を重複させない
+    expect(g.surfacedMode).toBe("train"); // v0-E: feedback kind 判定用
   });
 
   it("hypothesis silent 時は recall を従来通り返す", () => {

@@ -33,6 +33,8 @@ export interface MobilityGuidance {
   readonly hypothesisCopy: ExplanationCopy | null;
   /** card に渡す recall（hypothesis 優先時は null＝重複させない） */
   readonly recallMode: RouteTransportMode | null;
+  /** v0-E: 仮説として表示されていた mode（feedback の kind 判定用・surface 時のみ非 null） */
+  readonly surfacedMode: RouteTransportMode | null;
 }
 
 /** 未選択判定（補正2: null/undefined 両対応） */
@@ -50,20 +52,20 @@ export function resolveMobilityGuidance(input: MobilityGuidanceInput): MobilityG
 
   // 補正1+2: readOnly / 選択済み は hypothesis 対象外（recall は呼び側の既存ロジックのまま）
   if (readOnly || !isUnselected(selectedMode)) {
-    return { hypothesisCopy: null, recallMode };
+    return { hypothesisCopy: null, recallMode, surfacedMode: null };
   }
 
   const hypothesis = buildMobilityHypothesis(belief, {}); // ★v0-D は weather を渡さない
   const decision = decideSurface(hypothesis, { sensitive });
   if (!decision.surface) {
-    return { hypothesisCopy: null, recallMode };
+    return { hypothesisCopy: null, recallMode, surfacedMode: null };
   }
 
   const copy = buildExplanationCopy(hypothesis, decision);
   if (!copy.surface) {
-    return { hypothesisCopy: null, recallMode }; // 防御
+    return { hypothesisCopy: null, recallMode, surfacedMode: null }; // 防御
   }
 
   // 補正3: hypothesis 優先・recall 抑止（1 guidance surface）
-  return { hypothesisCopy: copy, recallMode: null };
+  return { hypothesisCopy: copy, recallMode: null, surfacedMode: hypothesis.todayLikelyMode };
 }
