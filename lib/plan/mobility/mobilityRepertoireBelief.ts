@@ -138,6 +138,181 @@ export function buildRepertoireBelief(
   return legKeyBelief; // 床: cold legKey belief（gate が沈黙）
 }
 
+// ───────────────────────── L4-a: cold-start partial-pooling（2-level・pure・additive） ─────────────────────────
+
+/** L4-a pooling の prior 等価観測数（pseudo-count）。★magic number でなく const。較正は L4-c（実データ後）。 */
+export const DEFAULT_POOLING_KAPPA = 3;
+
+/** legKey belief が strong か（強 legKey guard 用・v0 strength 判定を流用・raw n_leg でない）。 */
+function isStrong(belief: ModeBelief): boolean {
+  return buildMobilityHypothesis(belief, {}).habitualStrength === "strong";
+}
+
+/**
+ * L4-a: cold-start partial-pooling（2-level: legKey ← odKey marginal・固定 κ・pure）。
+ * L1-b の hard fallback を連続 blend へ。buildRepertoireBelief は温存（本関数は additive・未配線）。
+ *   pooled[m] = c_leg[m] + κ · p_OD[m]（p_OD = odKey marginal の share）/ total = n_leg + κ
+ * ★強 legKey guard: strength==="strong" は OD prior を混ぜず厳密 legKey(=v0)。cold〜moderate のみ pooling。
+ * ★退行ゼロ: empty obs / odKey なし / κ≤0 / OD prior 空 → legKey(=v0)。
+ * ★mode 正本は selectedStore・redacted/unknown 除外・OD も feedback JOIN で precision 加重（buildOdBelief 経由）。
+ */
+export function buildPooledBelief(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+  query: RepertoireQuery,
+  kappa: number = DEFAULT_POOLING_KAPPA,
+): ModeBelief {
+  const legKeyBelief = buildWeightedModeBelief(selected, feedback, query.legKey);
+  if (isStrong(legKeyBelief)) return legKeyBelief; // 強 guard: 確立習慣は OD で動かさない（厳密 v0）
+  if (query.odKey == null || kappa <= 0) return legKeyBelief; // OD なし / κ 無効 → leg-only(=v0)
+  // 2-level（L4-a）: odKey marginal（timeband/weekday 条件なし）を prior に
+  const odBelief = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: false });
+  if (odBelief.total <= 0) return legKeyBelief; // 空 OD prior → v0（退行ゼロ）
+  const counts: Partial<Record<RouteTransportMode, number>> = {};
+  const modes = new Set<RouteTransportMode>([
+    ...(Object.keys(legKeyBelief.counts) as RouteTransportMode[]),
+    ...(Object.keys(odBelief.counts) as RouteTransportMode[]),
+  ]);
+  for (const m of modes) {
+    const pOD = (odBelief.counts[m] ?? 0) / odBelief.total;
+    counts[m] = (legKeyBelief.counts[m] ?? 0) + kappa * pOD; // c_leg + κ·p_OD
+  }
+  return deriveBelief(query.legKey, counts, legKeyBelief.total + kappa);
+}
+
+// ───────────────────────── L4-b: multi-level shrinkage + global marginal（pure・additive） ─────────────────────────
+
+/** per-level pseudo-count（GPT 確定 2026-06-05）。global は弱い seed（effective 1）。較正は L4-c。 */
+export interface PoolingKappaConfig {
+  /** leg ← context */
+  readonly leg: number;
+  /** ctx ← wd, wd ← od */
+  readonly context: number;
+  /** od ← global（弱く） */
+  readonly global: number;
+}
+export const DEFAULT_KAPPA_CONFIG: PoolingKappaConfig = { leg: 3, context: 3, global: 1 };
+
+/** 階層 1 レベルの結果: 分布(shares)と effective sample size（prior の backing 強度）。 */
+interface LevelResult {
+  readonly shares: Partial<Record<RouteTransportMode, number>>;
+  readonly effSize: number;
+}
+
+/** counts → shares（total>0 で normalize・空は空）。 */
+function toShares(
+  counts: Partial<Record<RouteTransportMode, number>>,
+  total: number,
+): Partial<Record<RouteTransportMode, number>> {
+  if (total <= 0) return {};
+  const shares: Partial<Record<RouteTransportMode, number>> = {};
+  for (const m of Object.keys(counts) as RouteTransportMode[]) shares[m] = (counts[m] ?? 0) / total;
+  return shares;
+}
+
+/**
+ * 1 レベルの shrinkage: counts を親 prior へ縮約。
+ *   ★親の寄与は min(κ, parent.effSize) で cap（弱く backing された prior は弱く寄与＝global 弱化の核）。
+ *   effSize = n_level + 親寄与 → 子の backing 強度として伝播。
+ */
+function shrinkLevel(
+  counts: Partial<Record<RouteTransportMode, number>>,
+  total: number,
+  parent: LevelResult,
+  kappa: number,
+): LevelResult {
+  const contrib = Math.min(kappa, parent.effSize);
+  const effSize = total + contrib;
+  if (effSize <= 0) return { shares: {}, effSize: 0 };
+  const shares: Partial<Record<RouteTransportMode, number>> = {};
+  const modes = new Set<RouteTransportMode>([
+    ...(Object.keys(counts) as RouteTransportMode[]),
+    ...(Object.keys(parent.shares) as RouteTransportMode[]),
+  ]);
+  for (const m of modes) {
+    shares[m] = ((counts[m] ?? 0) + contrib * (parent.shares[m] ?? 0)) / effSize;
+  }
+  return { shares, effSize };
+}
+
+/**
+ * global marginal: 全観測の mode 分布（OD 非依存・ユーザー全体傾向）。
+ * mode=selectedStore 正本・redacted/unknown 除外・feedback JOIN で precision 加重。
+ */
+function buildGlobalCounts(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+): { counts: Partial<Record<RouteTransportMode, number>>; total: number } {
+  const counts: Partial<Record<RouteTransportMode, number>> = {};
+  let total = 0;
+  for (const [day, legs] of Object.entries(obs.byDay)) {
+    for (const [legKey, o] of Object.entries(legs)) {
+      if (o.privacyClass === "redacted") continue; // redacted は global 集計にも使わない
+      const mode = selected.byDay[day]?.[legKey];
+      if (mode === undefined || !isRouteTransportMode(mode) || mode === "unknown") continue;
+      const w = precisionWeight(feedback.byDay[day]?.[legKey], mode);
+      counts[mode] = (counts[mode] ?? 0) + w;
+      total += w;
+    }
+  }
+  return { counts, total };
+}
+
+/** leg を prior(LevelResult)へ blend して ModeBelief 化。prior 寄与は min(κ_leg, prior.effSize) で cap。 */
+function blendLeg(
+  legKeyBelief: ModeBelief,
+  prior: LevelResult,
+  kappaLeg: number,
+  legKey: string,
+): ModeBelief {
+  const contrib = Math.min(kappaLeg, prior.effSize);
+  if (contrib <= 0) return legKeyBelief; // prior backing ゼロ → v0（厳密退行ゼロ）
+  const counts: Partial<Record<RouteTransportMode, number>> = {};
+  const modes = new Set<RouteTransportMode>([
+    ...(Object.keys(legKeyBelief.counts) as RouteTransportMode[]),
+    ...(Object.keys(prior.shares) as RouteTransportMode[]),
+  ]);
+  for (const m of modes) {
+    counts[m] = (legKeyBelief.counts[m] ?? 0) + contrib * (prior.shares[m] ?? 0);
+  }
+  return deriveBelief(legKey, counts, legKeyBelief.total + contrib);
+}
+
+/**
+ * L4-b: multi-level partial-pooling（pure・additive・未配線）。
+ * chain: leg ← odKey×tb×wd ← odKey×wd ← odKey ← global marginal（relax は timeband 先・単一 chain）。
+ * ★global は弱い seed（effSize≤κ_global）→ global-only は過剰 surface しない。
+ * ★強 legKey guard / 退行ゼロ（empty→v0・root 空・uniform seed なし）/ redacted・unknown 除外 / selectedStore 正本。
+ * L4-a buildPooledBelief・L1-b buildRepertoireBelief・v0 は温存（本関数は additive）。
+ */
+export function buildPooledBeliefMultiLevel(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+  query: RepertoireQuery,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  const legKeyBelief = buildWeightedModeBelief(selected, feedback, query.legKey);
+  if (isStrong(legKeyBelief)) return legKeyBelief; // 強 guard: 厳密 v0
+  // global（root・OD 非依存・弱い seed: effSize≤κ_global）
+  const g = buildGlobalCounts(obs, selected, feedback);
+  const pGlobal: LevelResult = {
+    shares: toShares(g.counts, g.total),
+    effSize: Math.min(kappa.global, g.total), // ★global は弱く（過剰 surface 抑制）
+  };
+  if (query.odKey == null) return blendLeg(legKeyBelief, pGlobal, kappa.leg, query.legKey); // odKey なし → global only
+  // chain（od←global は κ_global で弱く・以降は κ_context）
+  const od = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: false });
+  const pOd = shrinkLevel(od.counts, od.total, pGlobal, kappa.global);
+  const wd = buildOdBelief(obs, selected, feedback, query, { tb: false, wd: true });
+  const pWd = shrinkLevel(wd.counts, wd.total, pOd, kappa.context);
+  const ctx = buildOdBelief(obs, selected, feedback, query, { tb: true, wd: true });
+  const pCtx = shrinkLevel(ctx.counts, ctx.total, pWd, kappa.context);
+  return blendLeg(legKeyBelief, pCtx, kappa.leg, query.legKey);
+}
+
 // ───────────────────────── localStorage loaders (fail-open) ─────────────────────────
 
 function loadSelected(): SelectedModeStore {
@@ -168,4 +343,20 @@ function loadObservations(): MobilityObservationStore {
 /** ★L1-b-2 配線で MapTab が使う。実データ由来の repertoire belief（mock でない）。両 store fail-open。 */
 export function loadRepertoireBelief(query: RepertoireQuery): ModeBelief {
   return buildRepertoireBelief(loadObservations(), loadSelected(), loadFeedback(), query);
+}
+
+/** ★L4 配線用（GO 後・現状未配線）。実データ由来の pooled belief（mock でない）。両 store fail-open。 */
+export function loadPooledBelief(
+  query: RepertoireQuery,
+  kappa: number = DEFAULT_POOLING_KAPPA,
+): ModeBelief {
+  return buildPooledBelief(loadObservations(), loadSelected(), loadFeedback(), query, kappa);
+}
+
+/** ★L4 配線用（GO 後・現状未配線）。multi-level pooled belief（mock でない）。両 store fail-open。 */
+export function loadPooledBeliefMultiLevel(
+  query: RepertoireQuery,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  return buildPooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, kappa);
 }
