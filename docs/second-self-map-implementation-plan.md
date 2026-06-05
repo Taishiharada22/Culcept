@@ -85,16 +85,16 @@
 | **v0-C** | explanation copy generator（hypothesis → 仮説トーンの文言） | v0-A | pure |
 | **v0-F-lite** | belief read adapter（selectedModeStore/S1-A 履歴 → 実 ModeBelief・★GPT 補正で v0-D 前に挿入） | S1-A 永続化 | read |
 | **v0-D** | MobilityLegCard に**非侵襲**表示（★実 belief を使う・mock 禁止） | v0-A, v0-C, v0-B, **v0-F-lite** | UI |
-| **v0-E** | correction writeback（mode 選択 = override = 高精度観測） | belief store（v0-F） | wiring |
-| **v0-F** | belief update（最小 belief store：S1-A 履歴の precision 重み付き集計） | S1-A 永続化 | store |
+| **v0-E** ✅ | correction writeback（仮説への応答のみ記録: confirmation / explicitCorrection・別 store・★全選択を override にしない） | S1-A + 自前 hypothesisFeedbackStore | wiring |
+| **v0-F** | belief update（precision 重み付き集計: selectedModeStore × hypothesisFeedback を JOIN・**新 store なし**・mini design 済） | S1-A + v0-E | read |
 
-> belief の **READ** は S1-A の既存 selectedModeByLeg 履歴から on-the-fly 計算（新 store 不要で v0-A 可動）。**WRITE/更新の precision 区別**（selected 低 / override 高）が v0-F。
+> belief の **READ** は S1-A 履歴 + v0-E hypothesisFeedback から on-the-fly 加重集計（新 store 不要）。**precision 区別**（selected 1.0 / confirmation 1.0 / correction 2.0・filter-bubble 上限）が v0-F の本体。詳細: `docs/second-self-map-v0f-mini-design.md`。
 
 ---
 
 ## 4. 実装順序（全体・各 slice は tight-slice：tsc 0 / unit test / 実機 smoke / CEO 承認 / 個別 commit）
 ```
-v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → **v0-D ✅（実機 smoke PASS 2026-06-05・product complete）** → v0-E → v0-F   … Wave 0（核 surface が live・branch claude/second-self-map-v0・main 未着地・mobility 53 test PASS）
+v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D ✅（smoke PASS 2026-06-05） → **v0-E ✅（feedback writeback・2026-06-05・mobility 63 test PASS）** → v0-F（mini design 済・実装 CEO GO 待ち）   … Wave 0（核 surface + correction 記録が live・branch claude/second-self-map-v0・main 未着地）
  → L1(full belief / S2-B) → L2(correction+理由 / S6)
  → L3(selective forgetting) → L4(cold-start) → L5(context modifier / S4)   … Wave 1
  → Day Rehearsal(S5) → energy curve → counterfactual → S3(あなたのペース)    … Wave 2
@@ -109,5 +109,6 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → **v0
 
 ## 6. 参照
 - 上位設計（vision/architecture）: `docs/second-self-map-master-design.md`
+- **v0-F mini design（precision 重み付き belief・実装 GO 待ち）: `docs/second-self-map-v0f-mini-design.md`**
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`
