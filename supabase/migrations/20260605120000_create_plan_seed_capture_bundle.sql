@@ -1,15 +1,17 @@
 -- ════════════════════════════════════════════════════════════════════════
 -- create_plan_seed_capture_bundle — seed + 任意 evidence の atomic 取り込み RPC（A1-5-4b-2・**draft / 未 apply**）
 --
--- 設計: docs/aneurasync-reality-control-os-connection-design.md §8.17 + §8.18
+-- 設計: docs/aneurasync-reality-control-os-connection-design.md §8.17 + §8.18 + §8.19（A1-5-4b-2-fix hardened）
 -- 手本: create_external_anchor_bundle（atomic source + anchors・SECURITY INVOKER・companions 20260602）
+--   + sr_shift_import_rpc（2026-05-31・SET search_path = pg_catalog, public 規約）
 --
 -- 役割: A1-5-4b-1 write seam（writeStructuredCapture）が将来呼ぶ DB 関数。
 --   plan_seeds 1 行 + 任意 plan_seed_duration_evidences 1 行を **同一 transaction（atomic）** で INSERT。
 --   plpgsql 関数 = 1 transaction ゆえ、evidence INSERT / guard 失敗時は seed も含め **全 rollback**（partial write を防ぐ）。
 --
 -- 厳守:
---   - **SECURITY INVOKER**（RLS を呼出ユーザーで適用）・**service_role 非前提**。
+--   - **SECURITY INVOKER**（RLS を呼出ユーザーで適用）+ **SET search_path = pg_catalog, public**（解決を pin・lint clean）・**service_role 非前提**。
+--   - **schema 修飾**: public.create_plan_seed_capture_bundle / public.plan_seeds / public.plan_seed_duration_evidences（最新 RPC 規約とパリティ）。
 --   - 認可: auth.uid() 必須 ∧ p_user_id = auth.uid()。
 --   - **raw 引数を取らない**: p_seed / p_evidence の jsonb から **structured フィールドのみ抽出**。
 --     signal / desired_action / raw_text / title / location は **引数にもテーブルにも入れない**（読まない）。
@@ -18,10 +20,10 @@
 --   - owner 整合: evidence.user_id = p_user_id ∧ evidence.seed_id = 挿入 seed の id（composite FK と二重）。
 --   - REVOKE ALL FROM PUBLIC / GRANT EXECUTE TO authenticated。DROP / destructive なし（CREATE OR REPLACE・冪等）。
 --
--- ⚠ apply / db push は **別 GO（A1-5-4b real・staging）**。本 file は draft。plan_seeds / plan_seed_duration_evidences は適用済前提。
+-- ⚠ apply / db push は **別 GO（A1-5-4b-3・staging）**。本 file は draft。plan_seeds / plan_seed_duration_evidences は適用済前提。
 -- ════════════════════════════════════════════════════════════════════════
 
-CREATE OR REPLACE FUNCTION create_plan_seed_capture_bundle(
+CREATE OR REPLACE FUNCTION public.create_plan_seed_capture_bundle(
   p_user_id UUID,
   p_seed JSONB,
   p_evidence JSONB DEFAULT NULL
@@ -29,10 +31,11 @@ CREATE OR REPLACE FUNCTION create_plan_seed_capture_bundle(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY INVOKER
+SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_seed plan_seeds%ROWTYPE;
-  v_evidence plan_seed_duration_evidences%ROWTYPE;
+  v_seed public.plan_seeds%ROWTYPE;
+  v_evidence public.plan_seed_duration_evidences%ROWTYPE;
   v_duration_min INTEGER;
   v_result JSONB;
 BEGIN
@@ -42,7 +45,7 @@ BEGIN
   END IF;
 
   -- plan_seeds INSERT（structured-only・raw を受け取らない）
-  INSERT INTO plan_seeds (
+  INSERT INTO public.plan_seeds (
     id,
     user_id,
     desired_date,
@@ -95,7 +98,7 @@ BEGIN
       RAISE EXCEPTION 'evidence.seed_id must equal inserted seed id' USING ERRCODE = '22000';
     END IF;
 
-    INSERT INTO plan_seed_duration_evidences (
+    INSERT INTO public.plan_seed_duration_evidences (
       user_id,
       seed_id,
       duration_min,
@@ -124,8 +127,8 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION create_plan_seed_capture_bundle(UUID, JSONB, JSONB) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION create_plan_seed_capture_bundle(UUID, JSONB, JSONB) TO authenticated;
+REVOKE ALL ON FUNCTION public.create_plan_seed_capture_bundle(UUID, JSONB, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.create_plan_seed_capture_bundle(UUID, JSONB, JSONB) TO authenticated;
 
-COMMENT ON FUNCTION create_plan_seed_capture_bundle(UUID, JSONB, JSONB) IS
-  'A1-5-4b: atomic seed + optional seed_explicit duration evidence INSERT. SECURITY INVOKER. structured-only (no raw). owner-checked.';
+COMMENT ON FUNCTION public.create_plan_seed_capture_bundle(UUID, JSONB, JSONB) IS
+  'A1-5-4b: atomic seed + optional seed_explicit duration evidence INSERT. SECURITY INVOKER. SET search_path. structured-only (no raw). owner-checked.';

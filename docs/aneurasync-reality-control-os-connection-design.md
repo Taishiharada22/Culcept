@@ -423,4 +423,15 @@ A1-5-4b-2（`supabase/migrations/20260605120000_create_plan_seed_capture_bundle.
 - **apply / db push / reset / SQL Editor / 実 DB INSERT 0**。plan_seeds / plan_seed_duration_evidences は適用済前提。apply は別 GO（A1-5-4b real・staging）。
 - **しない（A1-5-4b-2 範囲外）**: migration apply / 実 DB write / Supabase client 実接続 / raw parse / seed capture runtime / route·UI / PRM·correction 実接続 / RealityInput 搭載 / default duration / A1-5-4b real write / A1-5-5+。
 
-> A1-5-0…§8.17 / **A1-5-4b-2 atomic capture RPC migration draft（landed・§8.18・未 apply・`create_plan_seed_capture_bundle`・SECURITY INVOKER・atomic seed+evidence・owner-checked・raw 引数なし・16 static tests）**。次は A1-5-4b real write（RPC を staging apply 別 GO + real Supabase client が `writeStructuredCapture` から RPC を 1 回呼ぶ・user-RLS・要強い GO）。**capture 全経路の pure/skeleton + RPC 契約は実証/draft 済**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
+### 8.19 A1-5-4b-2-fix 実装（landed）— capture RPC hardening（schema 修飾 + SET search_path・未 apply）
+
+A1-5-4b-2-fix（`20260605120000_create_plan_seed_capture_bundle.sql` の最小 hardening・**未 apply**・§8.18 の 5-lens adversarial 検証で検出した非 blocking 2 件を apply 前に解消）:
+- **`SET search_path = pg_catalog, public`** を SECURITY INVOKER に追加（解決を pin・Supabase `function_search_path_mutable` linter 解消・最新 RPC `sr_shift_import_rpc` 規約とパリティ）。
+- **schema 修飾 `public.`**: `public.create_plan_seed_capture_bundle`（CREATE/REVOKE/GRANT/COMMENT 全署名）/ `public.plan_seeds`（%ROWTYPE + INSERT）/ `public.plan_seed_duration_evidences`（%ROWTYPE + INSERT）。
+- **非挙動変更**（git diff で hardening 差分のみを検証）: auth/atomicity/raw-free/owner-linkage/guard ロジックは schema 修飾以外 byte 同一。built-in（gen_random_uuid/NOW/jsonb_*）は pg_catalog・auth.uid() は auth 修飾で pinned search_path 下も解決（config PG17 native）。object identity は pre-hardening と同一（plan_seeds/evidence は public 作成）。
+- **adversarial 検証**: hardening 前 5-lens（security/atomicity/raw/constraint/apply）全 PASS・blocking 0 / hardening 後 2-lens 再検証（完全性·lint + 非退行）全 PASS・全 note・blocking/warning 0。
+- test(`realityCaptureBundleRpcMigration.test.ts`・**18**・+2): SET search_path / function·table の public. 修飾を追加・INSERT assertion を public. 形に更新。
+- tsc 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114）。reality **579 tests** PASS。**apply/db push/RPC 実行/実 DB write 0**。
+- **しない（A1-5-4b-2-fix 範囲外）**: staging apply / RPC 実行 / 実 DB write / confidence::real の NULLIF 追加（別判断）/ runtime / remote / A1-5-4b-3。
+
+> A1-5-0…§8.18 / **A1-5-4b-2-fix capture RPC hardening（landed・§8.19・未 apply・SET search_path + public schema 修飾・非挙動・lint clean・5-lens + 再検証 全 PASS・18 static tests）**。次は A1-5-4b-3（**hardened** RPC を staging apply・別 GO・dry-run 1 件確認後）→ A1-5-4b real write（real Supabase client が `writeStructuredCapture` から RPC を 1 回呼ぶ・要強い GO）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。

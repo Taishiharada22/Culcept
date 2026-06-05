@@ -26,6 +26,19 @@ describe("A1-5-4b-2 — SECURITY INVOKER / 認可", () => {
     expect(codeLower).toContain("security invoker");
     expect(codeLower).not.toContain("security definer");
   });
+  it("A1-5-4b-2-fix: SET search_path = pg_catalog, public がある（lint clean・解決 pin）", () => {
+    expect(codeLower).toMatch(/set search_path\s*=\s*pg_catalog\s*,\s*public/);
+  });
+  it("A1-5-4b-2-fix: function / table が public. schema 修飾", () => {
+    expect(codeLower).toContain("create or replace function public.create_plan_seed_capture_bundle");
+    expect(codeLower).toContain("revoke all on function public.create_plan_seed_capture_bundle");
+    expect(codeLower).toContain("grant execute on function public.create_plan_seed_capture_bundle");
+    expect(codeLower).toContain("comment on function public.create_plan_seed_capture_bundle");
+    expect(codeLower).toContain("insert into public.plan_seeds");
+    expect(codeLower).toContain("insert into public.plan_seed_duration_evidences");
+    expect(codeLower).toContain("public.plan_seeds%rowtype");
+    expect(codeLower).toContain("public.plan_seed_duration_evidences%rowtype");
+  });
   it("auth.uid() check がある", () => {
     expect(codeLower).toContain("auth.uid()");
   });
@@ -41,16 +54,16 @@ describe("A1-5-4b-2 — SECURITY INVOKER / 認可", () => {
 
 describe("A1-5-4b-2 — atomic seed + optional evidence（同一 function）", () => {
   it("INSERT INTO plan_seeds がある", () => {
-    expect(codeLower).toMatch(/insert into plan_seeds\b/);
+    expect(codeLower).toMatch(/insert into public\.plan_seeds\b/);
   });
   it("optional INSERT INTO plan_seed_duration_evidences がある", () => {
-    expect(codeLower).toMatch(/insert into plan_seed_duration_evidences\b/);
+    expect(codeLower).toMatch(/insert into public\.plan_seed_duration_evidences\b/);
     expect(codeLower).toMatch(/if\s+p_evidence\s+is\s+not\s+null/); // optional 分岐
   });
   it("seed + evidence が同一 function 内（CREATE FUNCTION 1 つ・両 INSERT を含む）", () => {
     expect((codeLower.match(/create or replace function/g) ?? []).length).toBe(1);
-    expect(codeLower).toMatch(/insert into plan_seeds\b/);
-    expect(codeLower).toMatch(/insert into plan_seed_duration_evidences\b/);
+    expect(codeLower).toMatch(/insert into public\.plan_seeds\b/);
+    expect(codeLower).toMatch(/insert into public\.plan_seed_duration_evidences\b/);
   });
 });
 
