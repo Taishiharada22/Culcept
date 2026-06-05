@@ -112,5 +112,6 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 - v0-F mini design（precision 加重 belief・実装済）: `docs/second-self-map-v0f-mini-design.md`
 - v0 smoke 手順: `docs/second-self-map-v0-smoke-plan.md`
 - **v0 closeout（smoke 結果・A〜I PASS 記録）: `docs/second-self-map-v0-closeout.md`**
+- **Wave 1 / L1 mini design（移動レパートリー学習・S2-B・実装 GO 待ち）: `docs/second-self-map-wave1-l1-mini-design.md`**
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`
