@@ -460,4 +460,22 @@ A1-5-4b-4（`lib/plan/reality/integration/capture-rpc-adapter.ts`・新規・**b
 - **service_role 0 / raw·secret·UUID 出力 0 / committed code 0**（harness/vitest は untracked・実行後削除・痕跡なし）/ production 0 / db reset·SQL Editor 0 / remote 0 / 複数 row write なし。
 - → **capture 全経路（mapper→write seam→RPC adapter→実 atomic RPC→実 atomic INSERT→read seam→enrich→candidate）が実 staging で end-to-end 実証**。runtime/capture 配線前の最終 de-risk 完了。
 
-> A1-5-0…§8.20 / **A1-5-4b-5 staging real RPC write smoke 完了（§8.21・初回実 DB write・1 RPC atomic・実 row→candidateCount>0・cleanup 0/0・service_role/raw/UUID 0・committed code 0）**。**capture 全経路が実 staging で end-to-end 実証済**。次は seed capture runtime（実 capture: chat→抽出→`writeStructuredCapture` 接続）/ PRM·correction 実接続 / runtime·UI を各別 GO（実装は CEO 判断）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
+### 8.22 A1-5-4c-0/1 実装（landed）— Structured Capture Intake Guard（pure・fail-closed・raw 遮断）
+
+**A1-5-4c-0 intake boundary**: [raw 発話] →(extractor: LLM/parse・別段階・未接続)→ [ExtractorStructuredOutput(structured・untrusted)] →(**intake guard・pure・fail-closed**)→ [StructuredCaptureInput] →(captureToDrafts A1-5-4a)→ ...
+- raw 発話 / LLM 生出力が DB / Complete path に入らない **最後の防壁**。
+
+A1-5-4c-1（`lib/plan/reality/seed-capture-intake.ts`・新規・pure・**barrel 非 export**）:
+- **`buildStructuredCaptureInput(seedId, userId, capturedAt, extracted: unknown) → IntakeResult`**: extractor structured 出力（untrusted）を検証 → `StructuredCaptureInput`。**fail-closed**（reject・strip でない）。
+  - **raw 遮断**: `FORBIDDEN_INTAKE_FIELDS`（signal/desiredAction/desired_action/raw_text/title/location/**prompt**/**transcript**）が 1 つでも在れば reject（hasOwnProperty・undefined 値でも catch）。
+  - **explicit allowlist 再構築**（spread 不使用）→ 未知/raw/proto-pollution key は出力に**複写されない**。
+  - **seedId/userId/capturedAt は caller/server 注入**（extracted 由来無視）。
+  - validation: desiredDate(実在 YYYY-MM-DD) / desiredTimeHint(4) / actionShape(8・型付き set) / confidence(0..1 数値) / source(chat/manual) / **source_ref opaque(id 形 ≤64・空白/unicode/長文 reject)** / explicitDuration(`isValidEvidenceDuration` 1<分≤1440 + confidence high/low)。strict typeof（boxed/coercion 拒否）。
+  - low confidence explicitDuration は通すが下流 mapper で evidence 化されない。
+- **adversarial probe（2-lens・raw-bypass + validation-gap）**: 実 guard を tsx import + 46,662 date brute-force で検証 → **全 PASS・blocking 0**。raw に airtight（allowlist 再構築）。検出 note 2 件のうち source_ref 長さを **128→64 に tighten**（rawっぽい dashed 長文を reject）。source_ref は read seam/Complete projection から **firewall 済**（defense-in-depth）。
+- **candidateCount 実証**（intake→captureToDrafts→projection→enrich→generateComplete）: valid+explicitDuration high → **candidateCount>0** / duration なし or low → **0**。
+- test(`realitySeedCaptureIntake.test.ts`・**21**): valid build / 外部注入 / not_object / raw field×8 reject / date·time_hint·action_shape·confidence·source·source_ref·explicit reject / explicit 経路 / pipeline candidateCount>0·=0 / 静的(DB·RPC·Supabase·LLM·server-only 不在・barrel 非 export)。
+- tsc 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114）。reality **615 tests** PASS。**raw parse/LLM/DB read·write/runtime 0**。
+- **しない（A1-5-4c-0/1 範囲外）**: raw 発話 parse / LLM 実接続 / prompt 実装 / DB INSERT / DB write smoke / Supabase client / runtime·route·UI / RealityInput 搭載 / generateCandidates runtime / PRM·correction 実接続 / default duration / raw store / A1-5-5 runtime。
+
+> A1-5-0…§8.21 / **A1-5-4c-0/1 Structured Capture Intake Guard（landed・§8.22・pure・fail-closed・raw 8 field 遮断・allowlist 再構築・source_ref opaque ≤64・adversarial probe 全 PASS・21 tests）**。**capture 全経路（intake guard→mapper→write seam→RPC adapter→実 atomic RPC→atomic INSERT→read seam→enrich→candidate）が pure/fixture + 実 staging で実証済**。次は seed capture runtime（実 capture: chat→抽出 LLM→intake guard→`writeStructuredCapture` 接続）/ PRM·correction 実接続 / runtime·UI を各別 GO（**LLM/runtime/実 write 接続は必ず別 GO で停止**）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
