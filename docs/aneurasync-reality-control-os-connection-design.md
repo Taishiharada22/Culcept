@@ -603,4 +603,19 @@ A1-5-5b（実 LLM 接続前に extractor の structured 出力契約 + validator
 - tsc 自ファイル **0 error**（**full tsc 0 ではない**・baseline 1114）。**LLM SDK 0 / Supabase 0 / DB read·write 0 / runtime 0 / production 挙動変更 0**。
 - **しない（A1-5-5b 範囲外）**: 実 LLM / prompt / adapter / capture service（5c）/ route·UI / DB write / RPC / A1-5-5c 以降。
 
-> A1-5-0…§8.26 / **A1-5-5b Seed Extractor Contract（landed・§8.27・pure・`SeedExtractor`+`CaptureExtractionInput`+`ExtractorResult`(no_intent 明示)+`validateExtractorOutput`(intake 単一ソース再利用・non-throwing・reason code)+fake・17 tests）**。raw は extractor 入力のみ・出力に raw 本文を含めない（intake 再利用で raw reject + allowlist 再構築）。no-op 条件（no_intent / reject / null·invalid）確定。次は **A1-5-5c Capture Service**（no-run・DI: gate→extractor→validate→intake→orchestrator・route 未接続・redacted obs・別 GO）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
+### 8.28 A1-5-5c 実装（landed）— Capture Service Skeleton（server-only・DI・no-run・barrel 非 export）
+
+A1-5-5c（capture の配線層・gate→extractor→validate→orchestrator を 1 本に束ねる）:
+- **`lib/plan/reality/integration/capture-service.ts`**（新規・**server-only**・barrel 非 export）:
+  - `runCaptureService(input, deps) → CaptureServiceResult`。
+  - input: `{ gate: CaptureGateInput, extraction: CaptureExtractionInput（utterance=唯一の raw）, seedId（server UUID）, capturedAt（server 時刻） }`。userId = `gate.requestedUserId`（単一ソース）。
+  - deps（DI・fake/no-run のみ）: `extractor: SeedExtractor` + `writeClient: CaptureWriteClient`。
+- **呼び出し順（安全の要）**: ①`evaluateCaptureGate`（**最初**・blocked → extractor 未呼出・write 0）→ ②`extractor.extract`（gate allow 後のみ）→ ③`validateExtractorOutput`（producer pre-check・invalid → write 0）→ ④`runStructuredCapturePipeline`（intake firewall + mapper + write seam・DI client）。
+- **分岐（redacted discriminated union・raw なし）**: `gate_blocked`(reason) / `no_intent` / `invalid_extraction`(reason・**field 名出さない**) / `captured`(wroteEvidence) / `intake_rejected`(reason・pre-validated ゆえ通常起きない drift signal) / `write_failed`(code)。
+- **raw 非漏洩**: result は outcome + reason code + wroteEvidence のみ。raw utterance / raw field 名（signal/desiredAction/prompt/transcript）/ seedId/userId を含まない。
+- test **20**（gate block 6 種 → extractor call 0 + write 0 / no_intent → write 0 / invalid → write 0 / raw field → write 0 + field 名非出力 / valid high → write 1 + wroteEvidence true / none·low → write 1 + wroteEvidence false / no-run client → write_failed(no_run) / raw 非漏洩 sentinel / captured result は {outcome,wroteEvidence} のみ / 静的 LLM SDK·Supabase·DB·service_role 不在・server-only 宣言・barrel 非 export）+ reality **701 PASS**。
+- tsc 自ファイル **0 error**（**full tsc 0 ではない**・baseline 1114）。**LLM SDK 0 / Supabase 0 / DB read·write 0 / runtime 0 / production 挙動変更 0**。
+- **5d は SeedExtractor を実 LLM adapter に、writeClient を実 RPC client に差すだけで runtime 化可能**（本ロジック不変）。
+- **しない（A1-5-5c 範囲外）**: 実 LLM / prompt / 実 client / route·UI / DB write / RPC / A1-5-5d 以降。
+
+> A1-5-0…§8.27 / **A1-5-5c Capture Service（landed・§8.28・server-only・DI・no-run・gate→extractor→validate→orchestrator・redacted 6 分岐・raw 非漏洩・20 tests）**。gate を最初に通し blocked なら extractor 未呼出（LLM コスト 0・write 0）。raw は extractor 入力のみ・result に raw/raw field 名/UUID を出さない。**capture pipeline 全段（gate→extractor→validate→intake→mapper→write seam→orchestrator）が fake/no-run で end-to-end 配線済**。次は **A1-5-5d 実 LLM extractor adapter**（shift VLM mirror・env-free・fake-network test・route 未接続・別 GO）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
