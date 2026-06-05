@@ -94,7 +94,7 @@
 
 ## 4. 実装順序（全体・各 slice は tight-slice：tsc 0 / unit test / 実機 smoke / CEO 承認 / 個別 commit）
 ```
-v0-A ✅ → v0-B ✅ → v0-C → v0-F-lite(belief read adapter) → v0-D → v0-E → v0-F   … Wave 0（★GPT 補正: UI 前に実 belief を読む adapter を挟む＝mock を表示しない）
+v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → **v0-D ✅（実機 smoke PASS 2026-06-05・product complete）** → v0-E → v0-F   … Wave 0（核 surface が live・branch claude/second-self-map-v0・main 未着地・mobility 53 test PASS）
  → L1(full belief / S2-B) → L2(correction+理由 / S6)
  → L3(selective forgetting) → L4(cold-start) → L5(context modifier / S4)   … Wave 1
  → Day Rehearsal(S5) → energy curve → counterfactual → S3(あなたのペース)    … Wave 2
