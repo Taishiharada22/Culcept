@@ -15020,3 +15020,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO（自律進行を承認）×GPT（drag-freeze 補正）。ステータス: 6:00固定窓 → 適応窓。実機 smoke 待ち。
 
 ---
+
+## [2026-06-05] Second Self Map v0（Mobility Hypothesis Surface）完成
+
+- 決定: /plan Map の「第二の自己」モビリティ機能 v0-A〜F を完成。仮説（今日のあなたなら）→ mode 選択 → feedback 記録 → 次の belief 反映、のループを閉じた。
+- v0-E: hypothesisFeedbackStore（別 store・selectedModeStore 不変）に confirmation/explicitCorrection を記録（kind+surfacedMode+chosenMode+root version=schemaVersion）。仮説表示時のみ・全選択を override にしない。
+- v0-F: belief を precision 加重（selectedModeStore × hypothesisFeedback を (day,legKey) JOIN）。重み selected=1 / confirmation=1（filter-bubble 上限）/ explicitCorrection=2（反暗示=高精度）。re-selection は stale→1。新 store なし・両 store READ only。
+- 設計判断（GPT 提案を独立検証して採用）: correction は仮説 surface 後にのみ起き得る＝既に確立した belief に対してのみ → 薄い surface は構造的に不能・train→沈黙→walk の滑らかな遷移。confirmation を増幅させないのが filter-bubble 回避の核。uniform belief = feedback 空の weighted belief（特殊ケース統一）。
+- 検証: mobility 84 unit test PASS（A〜I integration smoke 含む・実モジュール round-trip）+ tsc footprint 0 + CEO 手動 live smoke（実機 localhost:3012・A〜D + 視覚 5 点 all pass）。
+
+関連 commit（branch claude/second-self-map-v0）: 72e42678/e6d5a6a5（v0-E）, 2498f81d/45ac65d7（v0-F）, 1f768ca6（integration）。docs（nifty-turing）: mini design / smoke plan / closeout。
+承認: CEO（各 slice GO + 完全 PASS 確認）×GPT（重み {1,1,2} + scope）。ステータス: v0 完成・closeout 済。main 着地は CEO 判断（未着地）。
+
+---

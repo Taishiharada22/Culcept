@@ -1,7 +1,8 @@
 # Second Self Map — v0 closeout（smoke 結果記録）
 
 > 2026-06-05 / code branch `claude/second-self-map-v0`（HEAD `1f768ca6`）/ main 未着地
-> v0-A〜F 実装完 + 自立 smoke 実施。本書は smoke 結果と closeout 判断の記録。
+> v0-A〜F 実装完 + smoke 実施。本書は smoke 結果と closeout 判断の記録。
+> **結論: 自立（logic/wiring/render・mobility 84 test）+ CEO 手動 live（A〜D + 視覚 5 点）ともに完全 PASS・closeout 可能。**
 
 ## 1. 自立 smoke の方針（なぜこの形か）
 実機 `/plan` は **auth-gated**（未認証 → `/login` へ HTTP 307）、かつ Claude in Chrome に**ブラウザ未接続**のため、Claude が実機 /plan を直接ロードできない（認証情報の入力は禁止行為）。
@@ -32,7 +33,7 @@
 | ガラス線/オーラ/ルート表示 | v0-D PASS 済・無変更 |
 | recall と hypothesis 非重複 | ロジック保証（guidance が surface 時 recallMode=null）+ v0-D PASS |
 
-→ 描画ロジックは v0-D 以降**無変更**。**live 再確認のみ CEO セッションが必要**（描画無変更ゆえ低リスク）。
+→ 描画ロジックは v0-D 以降**無変更**。**2026-06-05 CEO 手動 live smoke（実機 localhost:3012）で A〜D + 視覚 5 点すべて PASS**。
 
 ## 4. MapTab 配線監査（read-only・統合点 5/5 整合）
 | 統合点 | 行 | 状態 |
@@ -53,10 +54,9 @@
 - `selectedModeStore` は不変。downstream（gate/copy/card）はコード変更なし。
 
 ## 7. closeout 判断
-- **自立 smoke（logic + wiring + render-unchanged）= PASS**。
-- 残 = **live 視覚再確認**（実機 /plan で A→D を一度流す）。描画無変更ゆえ低リスクだが、main 着地前の最終ゲートとして推奨。
-  - 実施 2 択: ① CEO が Chrome を Claude in Chrome 拡張に接続 → Claude が自立で navigate/seed/click/screenshot/store 確認を実施 / ② CEO が `docs/second-self-map-v0-smoke-plan.md` の A〜I を手動実行。
-- **main 着地は別判断（CEO）**。push / PR / GitHub 操作は未実施（禁止遵守）。
+- **v0 smoke 完全 PASS**: 自立（A〜I logic + 配線監査 + 描画無変更・mobility 84 test）+ **CEO 手動 live（A〜D + 視覚 5 点・実機 localhost:3012・2026-06-05 all pass）**。
+- → **closeout 完了**。Wave 0（仮説→選択→feedback→belief 反映のループ）完成。
+- **main 着地は CEO 判断**（未着地・branch `claude/second-self-map-v0`）。push / PR / GitHub 操作は未実施（禁止遵守・実施は CEO 承認後）。
 
 ## 8. 参照
 - smoke 手順: `docs/second-self-map-v0-smoke-plan.md`
