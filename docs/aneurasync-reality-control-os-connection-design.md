@@ -700,4 +700,13 @@ A1-5-5d-2a（SDK-free core §8.30 に env 境界を付ける server-only host・
 - tsc 自ファイル **0 error**（**full tsc 0 ではない**・baseline 1114・**core 本体不変**）。**実 LLM API call 0 / real network 0（throwing spy 未発火）/ SDK import 0 / DB read·write 0 / runtime importer 0 / route·UI import 0 / production 挙動変更 0**。
 - **しない（A1-5-5d-2a 範囲外）**: 実 LLM API call / real network / route·UI·runtime 接続 / DB write / prompt 本番運用 / A1-5-5d-2b 以降。
 
-> A1-5-0…§8.30 / **A1-5-5d-2a LLM Host / Env Resolver（landed・§8.31・server-only・env→config→`fetchImpl=globalThis.fetch` 注入・env 不備→fail-closed no-op・secret 非漏洩・no-call・core 不変・20 tests）**。env 名 `REALITY_CAPTURE_LLM_API_KEY/_MODEL/_TIMEOUT_MS/_MAX_RETRY/_CONFIDENCE_THRESHOLD`。組むだけ（extract 未呼出＝実 LLM call/real network 0・throwing spy fetch 未発火）。次は **A1-5-5d-2b 実 LLM smoke**（host が返す extractor を 1 回 extract・実 API call・**必ず別 GO で停止**）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
+### 8.32 A1-5-5d-2b 試行（env 未設定 → fail-closed no-op 確認・実 LLM call 0・doc-only 記録）
+
+A1-5-5d-2b（初回 実 LLM API call 境界・別 GO・untracked harness・実行後削除・committed code 変更なし）:
+- **env presence（read-only・値非出）**: `REALITY_CAPTURE_LLM_API_KEY` / `REALITY_CAPTURE_LLM_MODEL` = **未設定**（`.env.local`/`.env.staging.local`）。`GEMINI_API_KEY` は `.env.local` に存在（別名・host は読まない）。
+- harness で `createServerLlmSeedExtractor()`（**実 process.env 経由**・`maxRetry=0` 強制・short timeout・counting fetch wrap）→ `extract(synthetic 「明日の朝9時から1時間…」)` 1 回 → **API call 0 / outcome=no_intent**（fail-closed no-op・network 接触なし・154ms）。
+- redacted report: API_KEY=missing / MODEL=missing / model=null / api_call_count=0 / outcome=no_intent / validation=n/a / extracted_fields={}。**utterance/prompt/response body/apiKey 非出**。
+- → **host の fail-closed を実 entry（createServerLlmSeedExtractor + 実 process.env）で確認**（5d-2a は buildServerLlmSeedExtractor を fake env でテスト・本試行が server-only thin + 実 process.env を実証）。**実 LLM call は env 設定後に deferred**（CEO が `REALITY_CAPTURE_LLM_API_KEY`（既存 GEMINI_API_KEY 値を再利用可）+ `REALITY_CAPTURE_LLM_MODEL`（Gemini model）設定 → 5d-2b 再実行）。
+- DB write 0 / runtime 0 / capture service·orchestrator·RPC 非接続 / committed code 変更 0 / remote 0。
+
+> A1-5-0…§8.31 / **A1-5-5d-2b 試行（§8.32・env 未設定 `REALITY_CAPTURE_LLM_API_KEY/MODEL` → fail-closed no-op 確認・API call 0・outcome no_intent・実 LLM call 0・redacted・committed code 0）**。host の fail-closed を実 entry（`createServerLlmSeedExtractor` + 実 process.env）で実証。**実 LLM call は env 設定後に deferred**（CEO が API_KEY=既存 GEMINI_API_KEY 値 + MODEL=Gemini model を設定 → 5d-2b 再実行で初回実 call）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
