@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import {
   assistedDraftToShiftReviewCells,
   DEFAULT_CONFIDENCE,
+  BLANK_MISSING_CONFIDENCE,
 } from "@/lib/plan/shift/assistedDraftToShiftReviewCells";
 import type { DayKeyedShiftCell } from "@/lib/plan/shift/shiftExtractionContract";
 
@@ -138,5 +139,61 @@ describe("assistedDraftToShiftReviewCells", () => {
     const r = assistedDraftToShiftReviewCells(cells, META);
     expect(r[0]).toMatchObject({ day: 1, rawCode: "H", date: "2026-06-01", confidence: DEFAULT_CONFIDENCE });
     expect(r[0]).not.toHaveProperty("rowLabel");
+  });
+});
+
+// ── A3-D2: 空欄 × confidence 欠落 → 安全側（低 confidence）に倒す ──
+describe("assistedDraftToShiftReviewCells — A3-D2 read-miss 安全側 confidence", () => {
+  const blank = (day: number, confidence?: number | null): DayKeyedShiftCell => ({
+    day,
+    rawCode: "",
+    rowLabel: "本人",
+    ...(confidence === undefined ? {} : { confidence }),
+  });
+
+  it("BLANK_MISSING_CONFIDENCE は blank-risk 閾値 0.7 より下（要確認へ確実に回す）", () => {
+    expect(BLANK_MISSING_CONFIDENCE).toBeLessThan(0.7);
+  });
+
+  it("空欄 × confidence 欠落 → BLANK_MISSING_CONFIDENCE（DEFAULT_CONFIDENCE 0.8 では埋めない）", () => {
+    const r = assistedDraftToShiftReviewCells([blank(1)], META);
+    expect(r[0].rawCode).toBe("");
+    expect(r[0].confidence).toBe(BLANK_MISSING_CONFIDENCE);
+    expect(r[0].confidence).toBeLessThan(0.7);
+  });
+
+  it("空欄 × confidence 非有限（NaN/Infinity）も安全側（BLANK_MISSING_CONFIDENCE）", () => {
+    const r = assistedDraftToShiftReviewCells(
+      [blank(1, Number.NaN), blank(2, Number.POSITIVE_INFINITY)],
+      META
+    );
+    expect(r[0].confidence).toBe(BLANK_MISSING_CONFIDENCE);
+    expect(r[1].confidence).toBe(BLANK_MISSING_CONFIDENCE);
+  });
+
+  it("空欄 × 明示 高 confidence → 尊重（確実な休みは高いまま・要確認にしない）", () => {
+    const r = assistedDraftToShiftReviewCells([blank(1, 0.95)], META);
+    expect(r[0].confidence).toBe(0.95);
+  });
+
+  it("空欄 × 明示 低 confidence → そのまま低い（read-miss 自己申告を尊重）", () => {
+    const r = assistedDraftToShiftReviewCells([blank(1, 0.2)], META);
+    expect(r[0].confidence).toBe(0.2);
+  });
+
+  it("空白のみ（trim で空）も空欄扱い → BLANK_MISSING_CONFIDENCE", () => {
+    const r = assistedDraftToShiftReviewCells(
+      [{ day: 1, rawCode: "   ", rowLabel: "本人" }],
+      META
+    );
+    expect(r[0].confidence).toBe(BLANK_MISSING_CONFIDENCE);
+  });
+
+  it("非空セル × confidence 欠落 → 既存どおり DEFAULT_CONFIDENCE 0.8（D2 は空欄限定）", () => {
+    const r = assistedDraftToShiftReviewCells(
+      [{ day: 1, rawCode: "H", rowLabel: "本人" }],
+      META
+    );
+    expect(r[0].confidence).toBe(DEFAULT_CONFIDENCE);
   });
 });

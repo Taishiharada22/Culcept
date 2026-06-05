@@ -92,12 +92,29 @@ describe("ShiftReviewGrid risk 表示（B1b-2B）", () => {
     expect(html).not.toContain('data-testid="shift-review-risk-hard"');
   });
 
-  it("soft: blank_risk + suspicious_shift → panel 控えめ + active", () => {
-    const cells = cleanMonth().map((c) => (c.day === 10 ? { ...c, rawCode: "" } : c));
+  it("soft: blank_risk（低 conf 空欄）+ suspicious_shift → panel 控えめ + active", () => {
+    // A3-D3: 空欄は「低 conf or 空欄隣接」のみ blank_risk。day10 を低 conf にして発火させる。
+    const cells = cleanMonth().map((c) =>
+      c.day === 10 ? { ...c, rawCode: "", confidence: 0.4 } : c
+    );
     const html = render({ cells, riskReviewEnabled: true });
     expect(html).toContain('data-testid="shift-review-risk-blank_risk"');
     expect(html).toContain('data-testid="shift-review-risk-suspicious_shift"');
     expect(html).toContain("この内容で保存");
+  });
+
+  it("soft: 高 conf 孤立空欄（確実な休み）は panel が出ても blank_risk を出さない（A3-D3）", () => {
+    // unknown(day3) で panel は出るが、高 conf 孤立空欄(day31)は blank_risk にしない（flood 回避）。
+    const cells = cleanMonth().map((c) =>
+      c.day === 3
+        ? { ...c, rawCode: "ZZ" }
+        : c.day === 31
+          ? { ...c, rawCode: "", confidence: 1 }
+          : c
+    );
+    const html = render({ cells, riskReviewEnabled: true });
+    expect(html).toContain('data-testid="shift-review-risk-panel"');
+    expect(html).not.toContain('data-testid="shift-review-risk-blank_risk"');
   });
 
   it("safe copy（error/wrong/failed/誤/失敗/間違 を含まない）", () => {

@@ -71,7 +71,7 @@ export function buildHardenedCombinedDayKeyedPrompt(
     "# chunk 範囲",
     `- この呼び出しでは ${from} 日〜${to} 日「だけ」 を、ちょうど ${count} 件、dayNumber 昇順で出力する。`,
     "- chunk 範囲外（上記以外の日）は出力しない。",
-    "- chunk 範囲内の日付は **すべて** 返す（読めない日も dayNumber は返し、rawCode を空または低 confidence にする）。",
+    "- chunk 範囲内の日付は **すべて** 返す（読めない日も dayNumber は返す）。判読できないセルは rawCode を \"\" にしつつ **confidence を 0.3 以下**に下げる（高い confidence の \"\" は「確実に空」のときだけ）。",
   ];
   return base + "\n" + harden.join("\n");
 }

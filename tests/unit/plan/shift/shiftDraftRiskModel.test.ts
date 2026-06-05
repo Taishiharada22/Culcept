@@ -80,8 +80,11 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
     expect(r.hasBlockingRisk).toBe(false);
   });
 
-  it("blank_risk + suspicious_shift（空欄 → 直後 E+1,E+2）", () => {
-    const cells = cleanCells(31).map((c) => (c.day === 10 ? { ...c, rawCode: "" } : c));
+  it("blank_risk（低 conf 空欄）+ suspicious_shift（空欄 → 直後 E+1,E+2）", () => {
+    // A3-D3: 空欄は「低 conf or 空欄隣接」のときだけ blank_risk。day10 を低 conf にして発火させる。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 10 ? { ...c, rawCode: "", confidence: 0.4 } : c
+    );
     const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
     expect(find(r, "blank_risk")?.severity).toBe("soft");
     expect(find(r, "blank_risk")?.dayNumbers).toContain(10);
@@ -118,6 +121,54 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
     expect(h?.severity).toBe("soft");
     expect(h?.dayNumbers).toEqual([15, 16]);
     expect(r.hasBlockingRisk).toBe(false);
+  });
+});
+
+describe("detectDraftRisks — blank_risk 定義（A3-D3・空欄を全部疑わない）", () => {
+  it("#3 低 confidence の空欄 → blank_risk（soft）", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 10 ? { ...c, rawCode: "", confidence: 0.4 } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "blank_risk")?.severity).toBe("soft");
+    expect(find(r, "blank_risk")?.dayNumbers).toContain(10);
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("#4 空欄に隣接する空欄 → 高 confidence でも blank_risk（同報告内の高 conf 孤立空欄は除外）", () => {
+    // day10,11 が連続空欄（conf 1・互いに隣接）→ 両方 blank_risk。
+    // day20 は高 conf 孤立空欄 → blank_risk に **含めない**（narrowing を revert-proof に固定。
+    //   旧「全空欄発火」なら [10,11,20] になり fail する）。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 10 || c.day === 11 || c.day === 20
+        ? { ...c, rawCode: "", confidence: 1 }
+        : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "blank_risk")?.dayNumbers).toEqual([10, 11]); // 20 を含まない
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("#5 高 confidence で孤立した空欄（＝確実な休み）→ blank_risk にしない", () => {
+    // day31 を空欄（conf 1・隣接空欄なし・月末で suspicious_shift も範囲外）。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 31 ? { ...c, rawCode: "", confidence: 1 } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "blank_risk")).toBeUndefined();
+    expect(find(r, "suspicious_shift")).toBeUndefined();
+    expect(r.hasBlockingRisk).toBe(false); // missing/unknown なし
+  });
+
+  it("confidence 欠落の空欄は risk model 単体では low 扱いしない（D2 は adapter 担当）", () => {
+    // 注: 本番経路では adapter（BLANK_MISSING_CONFIDENCE）が欠落空欄を低 conf に倒す。
+    //     risk model は確定済 confidence を見るだけ（欠落＝隣接のみで判定）。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 15 ? { day: 15, rawCode: "" } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    // day15 は孤立・confidence 欠落 → blank_risk にならない（adapter で低 conf 化される前提）。
+    expect(find(r, "blank_risk")).toBeUndefined();
   });
 });
 
