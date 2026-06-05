@@ -56,7 +56,7 @@
 ## 7. closeout 判断
 - **v0 smoke 完全 PASS**: 自立（A〜I logic + 配線監査 + 描画無変更・mobility 84 test）+ **CEO 手動 live（A〜D + 視覚 5 点・実機 localhost:3012・2026-06-05 all pass）**。
 - → **closeout 完了**。Wave 0（仮説→選択→feedback→belief 反映のループ）完成。
-- **main 着地は CEO 判断**（未着地・branch `claude/second-self-map-v0`）。push / PR / GitHub 操作は未実施（禁止遵守・実施は CEO 承認後）。
+- **main 着地完了（2026-06-05・CEO 承認）**: branch `claude/second-self-map-v0` → ローカル main に **squash 着地**（main HEAD `5f05391f`）。**zero-loss 検証 ✅**（v0 17 ファイル完全一致）・**main tsc footprint 0**（total 1114 維持）・衝突なし・temp 混入なし。**push / PR / GitHub は未実施（禁止遵守）**。
 
 ## 8. 参照
 - smoke 手順: `docs/second-self-map-v0-smoke-plan.md`

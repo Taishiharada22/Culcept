@@ -94,7 +94,7 @@
 
 ## 4. 実装順序（全体・各 slice は tight-slice：tsc 0 / unit test / 実機 smoke / CEO 承認 / 個別 commit）
 ```
-v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D ✅ → v0-E ✅（feedback writeback） → **v0-F ✅（precision 加重 belief・2026-06-05・mobility 84 test PASS）** → 🔁 loop 閉（仮説→選択→feedback→belief 反映）   … **Wave 0 完・v0 smoke 完全 PASS**（A〜I logic[84 test] + CEO 手動 live[A〜D+視覚] 2026-06-05・`docs/second-self-map-v0-closeout.md`・main 未着地=CEO 判断）
+v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D ✅ → v0-E ✅（feedback writeback） → **v0-F ✅（precision 加重 belief・2026-06-05・mobility 84 test PASS）** → 🔁 loop 閉（仮説→選択→feedback→belief 反映）   … **Wave 0 完・v0 smoke 完全 PASS + main 着地済**（A〜I logic[84 test] + CEO 手動 live[A〜D+視覚] + ローカル main squash[`5f05391f`・zero-loss/tsc footprint 0] 2026-06-05・`docs/second-self-map-v0-closeout.md`）
  → L1(full belief / S2-B) → L2(correction+理由 / S6)
  → L3(selective forgetting) → L4(cold-start) → L5(context modifier / S4)   … Wave 1
  → Day Rehearsal(S5) → energy curve → counterfactual → S3(あなたのペース)    … Wave 2

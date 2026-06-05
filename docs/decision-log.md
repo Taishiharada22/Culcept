@@ -15030,6 +15030,6 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 検証: mobility 84 unit test PASS（A〜I integration smoke 含む・実モジュール round-trip）+ tsc footprint 0 + CEO 手動 live smoke（実機 localhost:3012・A〜D + 視覚 5 点 all pass）。
 
 関連 commit（branch claude/second-self-map-v0）: 72e42678/e6d5a6a5（v0-E）, 2498f81d/45ac65d7（v0-F）, 1f768ca6（integration）。docs（nifty-turing）: mini design / smoke plan / closeout。
-承認: CEO（各 slice GO + 完全 PASS 確認）×GPT（重み {1,1,2} + scope）。ステータス: v0 完成・closeout 済。main 着地は CEO 判断（未着地）。
+承認: CEO（各 slice GO + 完全 PASS 確認）×GPT（重み {1,1,2} + scope）。ステータス: v0 完成・closeout 済・**ローカル main 着地済**（HEAD 5f05391f・squash・zero-loss / main tsc footprint 0 / 衝突なし・push/PR なし）。
 
 ---
