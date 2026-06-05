@@ -15047,3 +15047,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(4 判断確定 + L1-b-2 配線承認 + 着地承認)。ステータス: L1 完成・main 着地済。次=L4 partial pooling 設計提出。
 
 ---
+
+## [2026-06-05] Second Self Map L4（cold-start partial-pooling）実装・配線・main 着地 live
+
+- 決定: L1-b の hard fallback を partial-pooling へ進化。pure を先に固定 → 別スライスで配線（pure/配線 分離）。
+- L4-a buildPooledBelief: 2-level(legKey←odKey)・pooled=c_leg+κ·p_OD・強 legKey guard(strength===strong は厳密 v0)・cold〜moderate のみ pooling・退行ゼロ。
+- L4-b buildPooledBeliefMultiLevel: multi-level(leg←odKey×tb×wd←odKey×wd←odKey←global)。★effSize 伝播 + min(κ,parent.effSize) cap で **global を弱い seed 化**(effSize≤κ_global=1)→ global-only 過剰 surface しない。per-level κ {leg3,context3,global1}・root 空で厳密退行ゼロ。
+- 配線: MapTab loadRepertoireBelief→loadPooledBeliefMultiLevel(1 行)。empty obs は v0/L1 同一・観測蓄積で段階的に pooling。
+- 検証: mobility 161 test(L4-a 15 + L4-b 20 + 配線 smoke 7項目)・tsc footprint 0。誤ルート GPT 判断(G-V4b-H/x-draft)は read-only で別機能と確認し無視(CEO 訂正済)。
+- 着地: cherry-pick(0b4f404e+8ce05b27)で pure を squash(main 93aa5653)→ merge --squash で配線(main 44633d16)。zero-loss・既存(v0/L1/store/MobilityLegCard)不変・temp 混入0・push/PR/Vercel なし。
+
+関連 commit(branch claude/second-self-map-wave1-l1 + l4b-wire): 0b4f404e/8ce05b27(L4)・29ac2d96(配線)。main: 93aa5653(pure)→44633d16(配線)。
+承認: CEO(5 判断確定×2 + 配線承認 + 着地承認)×GPT。ステータス: L4 live。次=L4-c κ較正(データ後) / L3 selective forgetting(mini design 済・実装 GO 待ち)。
+
+---
