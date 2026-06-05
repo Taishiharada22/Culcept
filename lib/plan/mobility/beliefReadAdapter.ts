@@ -75,6 +75,7 @@ export function buildWeightedModeBelief(
   selectedStore: SelectedModeStore,
   feedbackStore: HypothesisFeedbackStore,
   legKey: string,
+  regimeFactorFn?: (day: string, legKey: string) => number, // L3: regime-change で古い観測を ×λ（省略=identity・退行ゼロ）
 ): ModeBelief {
   if (typeof legKey !== "string" || legKey.length === 0) return emptyBelief(legKey);
 
@@ -83,7 +84,9 @@ export function buildWeightedModeBelief(
   for (const day of Object.keys(selectedStore.byDay)) {
     const mode = selectedStore.byDay[day]?.[legKey];
     if (mode === undefined || !isRouteTransportMode(mode) || !isMeaningfulMode(mode)) continue;
-    const w = precisionWeight(feedbackStore.byDay[day]?.[legKey], mode);
+    const w =
+      precisionWeight(feedbackStore.byDay[day]?.[legKey], mode) *
+      (regimeFactorFn ? regimeFactorFn(day, legKey) : 1);
     counts[mode] = (counts[mode] ?? 0) + w;
     total += w;
   }
