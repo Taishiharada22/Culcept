@@ -15083,8 +15083,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 合成: computeCombinedRegimeFactorFn = **leg 優先 + OD fallback**（regimeFactor 1 つ・二重緩和なし）。leg regime あれば λ_leg、無ければ OD regime なら λ_od、どちらも無ければ 1。
 - config: N=2 / λ_leg=0.5 / **λ_od=0.7**（OD は複数 leg 波及で保守的＝leg より緩い relaxation）。additive（L3-a 関数 非破壊）。buildL3b/loadL3bPooledBeliefMultiLevel。
 - 検証: 21 tests（1回不発火/2回発火/異方向/confirmation・selected・stale・redacted 除外/changePoint/leg 優先/OD fallback/別OD非漏洩/削除でない/time decay なし/Date 不使用/READ のみ/fetch なし）+ mobility 203・tsc footprint 0・退行ゼロ。
-- 状態: **branch `claude/second-self-map-l3b1`・`b1ba476d`・pure・未配線（MapTab=loadL3）・main 未着地（判断待ち）**。配線 mini design 提出済（`docs/second-self-map-l3b1-wiring-mini-design.md`）。
+- 配線（end-to-end GO）: MapTab `loadL3PooledBeliefMultiLevel`→`loadL3bPooledBeliefMultiLevel`（1 行）。wire smoke 11項目（核=同一 OD の別 leg(観測のみ)に波及・L3-a は波及せず）。OD correction 未蓄積→即時 L3-a 同一（退行ゼロ）。
+- 状態: **main `0cc5217b` 着地 live（pure `b1ba476d` + 配線 `54304b68` を squash）。MapTab=loadL3bPooledBeliefMultiLevel（OD regime live）**。mobility 213・MobilityLegCard/copy/store 不変・push なし。
 
-承認: CEO(GPT 判断で L3-b-1 のみ GO・L3-b-2 後回し)×GPT。ステータス: L3-b-1 pure done。次=L3-b-1 配線（判断待ち）→ main 着地 → closeout → L3-b-2。
+関連 commit(branch l3b1): b1ba476d(pure)・54304b68(配線)。main: 0cc5217b(squash)。closeout: `docs/second-self-map-l3b1-closeout.md`。
+承認: CEO(GPT で L3-b-1 のみ GO + 配線 end-to-end GO + 着地承認・L3-b-2 後回し)×GPT。ステータス: L3-b-1 live。次=L3-b-2(持続シフト・closeout 後判断・誤検出リスク) / L4-c(データ後)。
 
 ---
