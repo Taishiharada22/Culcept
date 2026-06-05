@@ -15707,3 +15707,24 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **位置づけ**: **A3 deterministic side + clean-image liveness = PASS / read-miss 本体 = 未検証**。messy 画像（空セル・かすれ）入手後に別 GO で read-miss smoke を 1 回行う。[承認: CEO（smoke-lite 成功受理・「A3 完全 PASS ではない」明記・VLM 停止・次は A1 tuning readiness）]
 
 ---
+
+## SR A1 confusable warning 過剰調整 帯（2026-06-05）
+
+> A3 smoke-lite の副次観測「confusable **19/31（61%）** soft 発火 → cell amber 過多で『本当に見るべき日』が埋もれる」を受けた調整トラック。tier + directionality で cell amber を **strong のみ**に絞り、medium は panel 件数 summary、weak は UI 非表示にした。**保存 block は一切しない（soft 維持）**。
+
+[2026-06-05] [Build] **A1-tune-1 着地（confusable を tier + directionality で調整・`80715ea4`）** — readiness `96a0b323` を受け、過剰 confusable warning を「見やすい精度」へ調整。
+- **tier**（CEO D1・全て soft 維持）: E↔E-18=**strong** / H↔HREQ=**medium** / H↔N=**weak**。effective tier は最強（H は medium∨weak→medium）。
+- **directionality**（CEO D2）: 誤読リスクは方向性がある → at-risk な**短い出力のみ** flag（E↔E-18→"E" / H↔HREQ→"H"）。信頼できる長い出力（"E-18" / "HREQ"）は **flag しない**。
+- **表示振り分け**（CEO D3）: cell amber = **strong のみ**（`confusableCellAmberDays`）/ panel summary = strong（日付つき）+ medium（件数 summary）/ weak = **UI 非表示**（`detectConfusableCells` には tier="weak" で残り test・観測用のみ）。
+- **効果**: sampled roster（E×2 / E-18×3 / H×9 / HREQ×1 / N×4 = 19）で **cell amber 19/31 → 2/31**（"E" の strong のみ点灯）。medium(H×9)=panel 件数 summary、weak(N×4)・E-18×3・HREQ×1 は cell amber から消滅。CEO 失敗条件「cell amber が 19 のまま」を回避。
+- **不変**: confusable_code は `HARD_KINDS` 非参加（soft）→ **保存 block 0**。`blockSave` 不変。A3 blank_risk・rowLabel warning 無傷。後方互換 primitive（`confusablePartners`/`isConfusableCode`/`HARADA_CONFUSABLE_PAIRS`）は対称のまま維持。
+- **変更**: pure `shiftConfusableCodes.ts`（spec+tier+directionality+helper）/ `shiftDraftRiskModel.ts`（panel 振り分け）/ `ShiftReviewGrid.tsx`（cell amber を strong-only）+ test 4（CEO test 10点を固定）。内部コメント「見間違い」→「誤読」統一（grep/safe-copy 整合）。
+- **検証**: 影響5ファイル **104 PASS** / plan 全体 **4852 PASS** / tsc **1112**（不変）。**VLM 追加実行 0** / DB / save / production **非接触**。
+- **残課題（非ブロッカー・観測項目）**:
+  - **H/HREQ medium の件数集中**: H が多い月では panel summary の「休み種別が紛らわしい日が N日」の N が大きくなる（cell amber は出さないので flood ではない・実害軽微）。N が体感過多なら H/HREQ を weak 降格する option を A1-tune-2 候補として保持。
+  - **H/N weak の昇格判断**: 実データで H/N の実誤読が観測されれば medium 昇格を検討（現状は観測のみ・smoke では H/N 実誤読ゼロ）。
+  - **read-miss 本体 smoke（A3）**: messy 画像（空セル・かすれ）入手後に別 GO で 1 回（A3 帯の継続項目）。
+  - **production-enablement**（save action 本有効化 / DB write / migration apply / `PLAN_SHIFT_IMPORT_SAVE`=true / flag ON / branch merge / push）: review UX を固めてから・CEO 方針通り**未実施**。branch `feat/plan-shift-import-productization` にローカル積み上げ・**未 merge / 未 push**。
+- **位置づけ**: **A1 confusable tuning = 着地（cell amber 過剰解消・保存 block なし）**。次は CEO 判断で「残課題一覧の整理」or「messy 画像 A3 read-miss smoke」。[承認: CEO（A1-tune-1 commit GO・「strong のみ cell amber / medium summary」方向採用）]
+
+---
