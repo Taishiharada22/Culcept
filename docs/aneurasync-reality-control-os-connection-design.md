@@ -507,4 +507,70 @@ A1-5-4d-1（`lib/plan/reality/integration/structured-capture-orchestrator.ts`・
 - service_role 0 / raw·secret·UUID 出力 0 / production 接触 0 / db push·reset·SQL Editor·migration repair 0 / remote 0 / 複数 row write なし / committed code 変更 0。
 - **A1-5-ref-fix（完了・2026-06-05・code-only）**: `scripts/reality-real-read-smoke.ts` の `PROD_REF_DENYLIST` 反転バグ（staging を production 誤ラベル・実 production aljav 素通し）を修正 — canonical 定数（`lib/plan/shift/devFixtureHost` の `PRODUCTION_PROJECT_REF`/`STAGING_PROJECT_REF`）に**単一ソース化**＋ staging allowlist の positive guard 追加（再反転を構造的に防止・回帰 test 9）。**残（別 GO）**: CLI link（`supabase/.temp/project-ref`=aljav=prod）の hazard（将来 bare `db push`/`reset` は production に当たる・要 re-link or `--project-ref` 明示）。
 
-> A1-5-0…§8.23 / **A1-5-4d-2 staging real orchestrator smoke（完了・§8.24・orchestrator 経由 end-to-end 実 write 1 回・hjcr hard-pin・aljav denylist・STAGING_USER_A self-pin・RPC=1・seed1/evidence1・candidate>0・cleanup→0・untracked harness 削除済）**。**ref authority 確定（aljav=production / hjcr=culcept-staging）＋ migration integrity（staging 適用済・production 非汚染）**。**capture 全経路が pure/fixture + 実 staging（RPC 単体 A1-5-4b-5 + orchestrator 経由 A1-5-4d-2）で end-to-end 実証済**。**A1-5-ref-fix**（`reality-real-read-smoke.ts` denylist 反転バグ修正・canonical 単一ソース化・回帰 test 9）完了。次は seed capture runtime（chat→抽出 LLM→`runStructuredCapturePipeline`(実 client 注入)）/ PRM·correction 実接続 / runtime·UI を各別 GO（**LLM/runtime/実 write 接続は必ず別 GO で停止**）。CLI link（.temp=aljav=prod）の hazard は別途解消。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
+### 8.25 A1-5-5-0 設計（doc-only）— structured capture pipeline の runtime 接続設計（実 LLM/runtime/DB write なし）
+
+完成した capture pipeline（intake guard §8.22 → mapper §8.16 → write seam §8.17 → RPC adapter §8.20 → orchestrator §8.23・staging 実証 §8.21/§8.24）を**将来どこに/どう runtime 接続するか**の設計。**本節は設計のみ**（実 LLM 接続/runtime 接続/route 変更/DB write なし）。既存資産を最大限再利用する: `evaluateSmokeGate`（§dev-runtime・多層 fail-closed gate）/ `PLAN_FLAGS`（`lib/plan/featureFlags.ts`・default false・server-side のみ・`canaryUserIds`・`realityCompleteShadow`）/ A1-5-ref-fix の canonical ref 定数（`devFixtureHost`: STAGING=hjcr / PRODUCTION=aljav）/ shift VLM 抽出パターン（`lib/plan/shift/shiftExtractionContract.ts` `validateExtractedCells` + `draftExtractionGeminiAdapterCore.ts` env-free adapter・raw 非保存）。
+
+**8.25.0 全体境界（raw → 候補）**:
+```
+[raw 発話]（chat route・既存 stargazer_alter_dialogues に既保存）
+  → [capture gate]（production hard block / staging-only / flag / canary / kill）         ← A1-5-5a
+  → [extractor(LLM)] raw → ExtractorStructuredOutput | null（raw 破棄・raw 非保存）        ← A1-5-5d（実 LLM・別 GO）
+  → [extractor contract validation] validateExtractorOutput（defensive・non-throwing）     ← A1-5-5b
+  → [intake guard] buildStructuredCaptureInput（fail-closed・raw 8 field reject・allowlist 再構築） ← 既存 §8.22
+  → [orchestrator] runStructuredCapturePipeline（intake→mapper→write seam→RPC・atomic）   ← 既存 §8.23
+  → [RPC write] create_plan_seed_capture_bundle（SECURITY INVOKER・auth.uid===p_user_id・anon・atomic）← 既存 §8.18
+  → [read seam] column-restricted（source_ref/raw 非 select）→ candidateCount             ← 既存 §8.11/§8.15
+```
+raw は extractor の入力でのみ存在。以降は structured-only。
+
+**8.25.1 ① runtime 接続先 比較**:
+| 接続先 | 特性 | risk | 接続順 |
+|---|---|---|---|
+| `app/api/alter-morning/plan/route.ts` | flag 済（`ALTER_MORNING_V2_ROUTE_ENABLED` default OFF）・`{utterance}` 入力・`runMorningPipeline` 委譲・plan 整合・低トラフィック | 中（最低） | **最初**（A1-5-5g・observe→write） |
+| `app/api/stargazer/alter/route.ts` | 常時 live・高トラフィック・raw が自然に存在・user-facing | 高 | **最後**（A1-5-5h・広面・production guard） |
+| shadow/dev runtime（`dev-runtime-smoke`） | dev-only・gated・redacted・**read 専用（raw 発話なし）** | 低 | 接続先でなく **staging smoke の vehicle**（A1-5-5e/f） |
+| plan action route（/plan server actions） | 構造化操作（free-text 意図でない）＝ seed の producer でない（candidate consumer） | — | **非対象** |
+→ 推奨: **alter-morning/plan を最初**（flag 済・utterance ベース・pipeline 構造・低リスク・意味整合「朝の意図＝seed」）。**observe mode 先行**。stargazer/alter は広面ゆえ最後。shadow/dev は smoke 用。
+
+**8.25.2 ② feature flag / kill switch / production guard**:
+- canonical home: `PLAN_FLAGS.realityCaptureLive`（env `REALITY_CAPTURE_LIVE`・**default false・server-side のみ・NEXT_PUBLIC なし**・`realityCompleteShadow` の sibling）。
+- **production hard block**: `evaluateCaptureGate`（`evaluateSmokeGate` 同型）で **nodeEnv !== "production"** ∧ **SUPABASE_URL host ref === STAGING_PROJECT_REF(hjcr)** ∧ **∉ [PRODUCTION_PROJECT_REF(aljav)]**（A1-5-ref-fix canonical 定数再利用）。= flag + project-ref allowlist の二重。
+- **staging only**: project-ref allowlist = `[STAGING_PROJECT_REF]`。
+- **canary**: `PLAN_FLAGS.canaryUserIds`（既存 `PLAN_CANARY_USER_IDS`）。capture は allowlist user のみ。
+- **emergency off**: flag を false（即時 fail-closed）+ `REALITY_CAPTURE_KILL === "true"` で live flag より優先して force off。
+- 全条件未充足 → **no-op（write 0）**（fail-closed）。
+
+**8.25.3 ③ raw boundary**:
+- raw 発話は chat route + 既存 dialogues store のみ。capture は extractor 入力でのみ raw を受け、**抽出後 raw 破棄**。
+- extractor output は **必ず intake guard を通す**（raw field reject・allowlist 再構築）。= 二段検証（extractor contract validation → intake guard）。
+- source_ref は opaque（chat msg id・raw 本文でない）・read seam/Complete から firewall 済。
+- raw を plan_seeds/evidence 列にも Complete projection にも入れない。**新 raw store（plan_seed_sources 等）を作らない**。
+
+**8.25.4 ④ LLM extraction boundary**:
+- shift VLM パターンを mirror: extractor = **env-free adapter core**（config DI・process.env 非依存）。`SeedExtractor { extract(input): Promise<ExtractorStructuredOutput | null> }`。
+- `validateExtractorOutput(raw: unknown)`（defensive・**non-throwing**・raw response 非保存・safe error）→ validated → intake guard。
+- 失敗（null / validation error / 意図検出なし）→ **no-op**（chat には fail-open＝chat 応答を壊さない / write には fail-closed＝書かない）。
+- A1-5-5a/b/c は **fake extractor**。実 LLM は A1-5-5d（別 GO）。prompt/schema（`seedExtractionPrompt.ts`）も A1-5-5d。
+
+**8.25.5 ⑤ write boundary**:
+- RPC write は **orchestrator 経由のみ**（`runStructuredCapturePipeline` + `createRpcCaptureWriteClient`）。
+- **direct `.from("plan_seeds").insert` 禁止**（runtime に存在しないことを static guard test で固定）。
+- **service_role 禁止**（anon + user-RLS・RPC は SECURITY INVOKER・auth.uid===p_user_id）。atomic（seed+evidence or neither）。
+
+**8.25.6 ⑥ observability**（redacted・raw なし・UUID マスク・secret なし）:
+- outcome: `captured / intake_rejected / extraction_null / gate_blocked / write_failed`（+ gateCode / intakeReason / wroteEvidence / candidateWouldGenerate）。
+- candidateCount: observe mode で「書いたら候補化するか」を **write せず**計算。
+- write attempted/skipped: gate 判定 + write 試行有無。
+- cleanup/rollback: RPC atomic（partial なし）。runtime capture は永続（auto-cleanup なし）。rollback = status/expires_at で stale seed を expire（hard delete でない）+ kill switch で新規停止。staging smoke は owner-delete + FK cascade（§8.24 実証）。`assertRedacted`（redaction-guard）を summary に適用。
+
+**8.25.7 ⑦ staging smoke 方針**:
+- runtime 接続前（fake/no-run・unit）: gate fail-closed（production/flag/staging/canary/kill）/ fake extractor → structured → intake → orchestrator(fake) → result / null → no-op / raw → intake reject / capture service end-to-end DI fake。
+- 接続後の最初の staging smoke: **(1) observe mode**（実 extractor・**write OFF**）＝実 LLM が synthetic/dev utterance を抽出 → intake → 候補化するかを redacted 観測（write 0・extractor 品質を write 前に de-risk）。**(2) real capture**（実 extractor + 実 write・1 回・cleanup）＝§8.24 同型 + 実 extractor・staging-pin・canary user・single・read-back candidate・cleanup→0。
+
+**8.25.8 ⑧ A1-5-5a 推奨 + phasing**:
+- **推奨 A1-5-5a = Capture Gate skeleton（pure/no-run）**: `PLAN_FLAGS.realityCaptureLive` + `evaluateCaptureGate(g)`（`evaluateSmokeGate` 同型 + project-ref allowlist[STAGING] + canary allowlist + kill）。fail-closed・no-op・production hard block。**unit tests のみ**（extractor/service/route/LLM/DB なし）。
+  - 理由: 最も narrow + **安全 primitive 先行**（production 誤 write / 常時 capture を構造的に封じる）。canonical 定数 + `evaluateSmokeGate` + `canaryUserIds` を再利用。以降の全 slice が **gated by construction**。
+- phasing（各別 GO・LLM/runtime/実 write は必ず別 GO）: **A1-5-5a** Capture Gate（pure）→ **A1-5-5b** Extractor Contract（pure・`SeedExtractor`+`validateExtractorOutput`+fake・intake 必須）→ **A1-5-5c** Capture Service（no-run・DI: gate→extractor→intake→orchestrator・route 未接続・redacted obs）→ **A1-5-5d** 実 LLM extractor adapter（shift VLM mirror・env-free・fake-network test・route 未接続）→ **A1-5-5e** observe mode staging smoke（実 extractor・write OFF）→ **A1-5-5f** real capture staging smoke（実 extractor + 実 write・1 回・cleanup）→ **A1-5-5g** alter-morning/plan route 接続（flag+canary+staging・observe→write）→ **A1-5-5h** stargazer/alter chat route（広面・flag+canary+production guard）。
+
+> A1-5-0…§8.24 / **A1-5-5-0 runtime 接続設計（doc-only・§8.25・8 論点 + phasing 確定・実 LLM/runtime/DB write 0）**。推奨 **A1-5-5a = Capture Gate skeleton（pure・`PLAN_FLAGS.realityCaptureLive` + `evaluateCaptureGate`・production hard block / staging-only / canary / kill・既存 `evaluateSmokeGate`+canonical refs+`canaryUserIds` 再利用）**。接続先は **alter-morning/plan を最初（observe→write）/ stargazer/alter は最後 / shadow-dev は smoke 用**。raw は extractor 入力のみ・抽出後破棄・**必ず intake guard 通過**・新 raw store 作らない。write は **orchestrator 経由のみ**（direct insert 禁止・service_role 禁止）。次は **A1-5-5a Capture Gate skeleton**（pure・別 GO）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
