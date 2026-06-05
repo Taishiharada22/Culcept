@@ -197,4 +197,24 @@ export const PLAN_FLAGS = {
    *   route/UI/PlanClient/cron から呼ばない（manual entry 専用）。
    */
   realityCompleteShadow: process.env.REALITY_COMPLETE_SHADOW === "true",
+
+  /**
+   * A1-5-5a: Reality structured capture（seed write）を有効化するか（**runtime 未接続・gate 用 flag のみ**）。
+   *   true  : capture gate の liveEnabled が立つ（実 write は orchestrator 経由 + staging + canary + 別 GO の接続後のみ）
+   *   false : capture gate が FLAG_OFF で block（**本番デフォルト**・自動 capture なし・UI 不変）
+   *
+   * env: REALITY_CAPTURE_LIVE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §8.25/§8.26（A1-5-5-0/5a）
+   * 制約: gate（evaluateCaptureGate）が production nodeEnv / production project ref / 非 staging / 非 canary で必ず block。
+   *   route/UI/PlanClient/cron から呼ばない（capture service は A1-5-5c 以降・別 GO）。
+   */
+  realityCaptureLive: process.env.REALITY_CAPTURE_LIVE === "true",
+
+  /**
+   * A1-5-5a: Reality capture の **緊急停止（kill switch）**。**live flag より優先**して capture gate を block。
+   *   true  : REALITY_CAPTURE_LIVE=true でも gate が KILLED で block（emergency off）
+   *   false : 通常（live flag に従う）
+   * env: REALITY_CAPTURE_KILL=true で停止（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   */
+  realityCaptureKill: process.env.REALITY_CAPTURE_KILL === "true",
 } as const;
