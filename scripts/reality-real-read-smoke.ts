@@ -37,11 +37,20 @@ import { config as loadDotenv } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { createDatedColumnRestrictedAnchorSource, type UserContextClient } from "@/lib/plan/reality/integration/dev-runtime-realsource";
 import { runRealReadSmoke } from "@/lib/plan/reality/integration/dev-runtime-smoke";
+import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
 
 loadDotenv({ path: ".env.staging.local" });
 
-/** 既知の本番 project ref（誤設定でも本番を読まないための denylist）。 */
-const PROD_REF_DENYLIST = ["hjcrvndumgiovyfdacwc"];
+/**
+ * ref authority（canonical 単一ソース = lib/plan/shift/devFixtureHost）:
+ *   PRODUCTION_PROJECT_REF = aljav…（本番・拒否） / STAGING_PROJECT_REF = hjcr…（culcept-staging・許可）。
+ * A1-5-ref-fix（2026-06-05）: 旧実装は staging ref を本番扱いする **反転バグ**（実本番 ref を素通し）だった。
+ *   canonical 定数を参照し、production deny + staging allowlist の二重ガードに修正（再反転を構造的に防止）。
+ */
+/** 既知の本番 project ref（誤設定でも本番を読まないための denylist・canonical 参照）。 */
+const PROD_REF_DENYLIST = [PRODUCTION_PROJECT_REF];
+/** 許可 staging ref（read smoke はこの ref のみに向ける・positive allowlist・canonical 参照）。 */
+const STAGING_REF_ALLOWLIST = [STAGING_PROJECT_REF];
 
 function fatal(reason: string): never {
   // eslint-disable-next-line no-console
@@ -87,9 +96,13 @@ function preflight(): void {
   if (!/^[a-z0-9]{20}$/.test(PROJECT_REF)) {
     fatal(`STAGING_SUPABASE_PROJECT_REF="${PROJECT_REF}" が不正（20 文字小文字英数を期待）。`);
   }
-  // 既知本番 ref 拒否
+  // 既知本番 ref 拒否（production deny）
   if (PROD_REF_DENYLIST.includes(PROJECT_REF)) {
     fatal(`PRODUCTION GUARD: STAGING_SUPABASE_PROJECT_REF が既知の本番 ref です。staging のみ許可。`);
+  }
+  // 許可 staging ref のみ（positive allowlist・新規本番 ref が未 denylist でも staging 以外は拒否）
+  if (!STAGING_REF_ALLOWLIST.includes(PROJECT_REF)) {
+    fatal(`STAGING GUARD: STAGING_SUPABASE_PROJECT_REF が許可 staging ref（${STAGING_PROJECT_REF}）でない。staging のみ許可。`);
   }
 
   // URL host から ref を抽出し PROJECT_REF と厳格一致（staging 限定）
@@ -99,6 +112,7 @@ function preflight(): void {
   if (!m) fatal(`PRODUCTION GUARD: host="${host}" が "<ref>.supabase.co" 形でない。`);
   const ref = m[1]!;
   if (PROD_REF_DENYLIST.includes(ref)) fatal(`PRODUCTION GUARD: URL host が既知の本番 ref（${ref}）。staging のみ許可。`);
+  if (!STAGING_REF_ALLOWLIST.includes(ref)) fatal(`STAGING GUARD: URL host ref（${ref}）が許可 staging ref でない。staging のみ許可。`);
   if (ref !== PROJECT_REF) {
     fatal(`PRODUCTION GUARD: URL host ref="${ref}" が STAGING_SUPABASE_PROJECT_REF="${PROJECT_REF}" と不一致。実行拒否。`);
   }
