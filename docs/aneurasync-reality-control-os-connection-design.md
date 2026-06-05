@@ -448,4 +448,16 @@ A1-5-4b-4（`lib/plan/reality/integration/capture-rpc-adapter.ts`・新規・**b
 - tsc 自ファイル **0 error**（**full tsc 0 ではない**・project baseline 1114）。reality **594 tests** PASS。**実 RPC 実行 / 実 DB write / createClient 0**。
 - **しない（A1-5-4b-4 範囲外）**: 実 RPC 実行 / 実 DB INSERT / DB write smoke / Supabase createClient / staging write / seed capture runtime / runtime·route·UI / PRM·correction 実接続 / RealityInput 搭載 / raw parse / A1-5-4b real write / A1-5-5+。
 
-> A1-5-0…§8.19 / **A1-5-4b-3 RPC staging apply 完了 + A1-5-4b-4 RPC client adapter skeleton（landed・§8.20・fake/no-run・実 RPC 0・seed+evidence を 1 RPC call・owner/linkage は seam で前置 reject・barrel 非 export）**。次は **A1-5-4b real write（初回 実 RPC write smoke）= 次の山場・必ず別 GO で停止**（real Supabase client が writeStructuredCapture→createRpcCaptureWriteClient→RPC を 1 回呼ぶ・user-RLS）。**capture 全経路（mapper→write seam→RPC adapter→[未来 real RPC]→atomic INSERT→read projection→enrich→candidate）の pure/fake/skeleton は全て実証済**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration・no DB write を全段で維持する。
+### 8.21 A1-5-4b-5（完了）— staging real RPC write smoke（初回 実 DB write・cleanup 済）
+
+> **初回の実 DB write 境界**（別 GO・CEO 承認）。runtime/capture/UI 接続なし。CEO user-RLS（anon+user・service_role なし）で synthetic structured input を **1 件だけ** RPC に通し、即 cleanup。
+- preflight: main HEAD 4cd4f5d8 / staging pin(hjcr…wc) / **user.id === CEO id 検証**（不一致なら write 前 abort）/ cleanup 構造的保証（plan_seeds owner DELETE policy + evidence FK **ON DELETE CASCADE**）。
+- no-run payload: p_seed structured-only(11) / p_evidence structured-only(6) / duration 60(>1≤1440) / source=seed_explicit / confidence=high / source_ref opaque(smoke id) / **raw_in_payload=false**。
+- **real RPC write**: owner/linkage 検証 → `.rpc(create_plan_seed_capture_bundle, {p_user_id,p_seed,p_evidence})` を **1 回だけ**（rpcCallCount=1・atomic）→ rpcOk。fresh UUID seedId（衝突なし）。
+- **read 確認**（read seam allowed cols・source_ref/raw 非搭載）: plan_seeds **rowsRead=1** + evidence **rowsRead=1**（atomic 作成）。
+- **candidateCount>0 を実 DB row で実証**: 読んだ**実 row（fixture でない）**を実 pipeline（projectSeedRowsToPlacements + projectDurationEvidenceRowsToMap + enrich + generateComplete）に通し → durationMin=60 / durationSource=seed_explicit / grounding=strong / **candidate 1**。
+- **cleanup**: seed を owner delete → evidence FK cascade → **plan_seeds 0 / evidence 0** 確認（cleanupOk）。staging 復元。
+- **service_role 0 / raw·secret·UUID 出力 0 / committed code 0**（harness/vitest は untracked・実行後削除・痕跡なし）/ production 0 / db reset·SQL Editor 0 / remote 0 / 複数 row write なし。
+- → **capture 全経路（mapper→write seam→RPC adapter→実 atomic RPC→実 atomic INSERT→read seam→enrich→candidate）が実 staging で end-to-end 実証**。runtime/capture 配線前の最終 de-risk 完了。
+
+> A1-5-0…§8.20 / **A1-5-4b-5 staging real RPC write smoke 完了（§8.21・初回実 DB write・1 RPC atomic・実 row→candidateCount>0・cleanup 0/0・service_role/raw/UUID 0・committed code 0）**。**capture 全経路が実 staging で end-to-end 実証済**。次は seed capture runtime（実 capture: chat→抽出→`writeStructuredCapture` 接続）/ PRM·correction 実接続 / runtime·UI を各別 GO（実装は CEO 判断）。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
