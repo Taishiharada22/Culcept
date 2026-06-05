@@ -15728,3 +15728,14 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **位置づけ**: **A1 confusable tuning = 着地（cell amber 過剰解消・保存 block なし）**。次は CEO 判断で「残課題一覧の整理」or「messy 画像 A3 read-miss smoke」。[承認: CEO（A1-tune-1 commit GO・「strong のみ cell amber / medium summary」方向採用）]
 
 ---
+
+[2026-06-05] [Build] **A3 read-miss messy-image smoke — 重大所見: gemini は実 messy 表でも confidence を下げず silent 誤読する** — CEO 提供の実 messy roster（2025-07・9 人・紙テクスチャ/低解像・transcript から抽出 → png）で原田行を抽出限定 smoke（**VLM 1 回**・既存 `buildDayKeyedExtractionPrompt`（base・A3-1 read-miss 指示込み）再利用・独自 prompt なし・runner は private-eval 作成 → **実行後削除**・非 commit）。
+- **良い点**: A2 本人行 cross-check = **match**（9 人中から「原田 大志」を正しく特定・conflict なし）/ **31/31 coverage** / unknown 0 / **days 1-24 は原稿と完全一致**。
+- **重大所見（silent 誤読）**: tail（day25-31）で原稿とズレた誤読。特に **day28 = 原稿「H」（公休・白セルに薄い赤 H）を VLM が ""（空欄）と confidence 0.90（高）で出力**。confidence omission **0** / low-confidence **0**（全セル 0.90-0.95）。
+- **A3 net が catch できない理由**: 高 conf 孤立空欄は D3 通り blank_risk **非 flag**（＝確実な休みとして通過）。つまり **read-miss が「高 conf の空欄」に化けると A3 net は止められない**。A3 readiness §3.1 で「不可避」と記した *confident wrong read* が **実データで発生**した。
+- **核心**: gemini-2.5-pro は実 messy 表でも **confidence を下げない**（難セルを高 conf で誤読）。A3-1 prompt の「判読不能 → 低 conf」は **遵守されない**。→ **confidence ベースの read-miss net は実保護として不十分**。
+- **UX 含意（世界最上級の体験へ）**: 取り込みの正確性を **VLM の confidence に依存できない**。真の安全網は **(1) 確認画面での全セル原稿照合（既存 notice の方向）/ (2) coverage 検査 / (3) tail drift 等の抽出ロバスト化 / (4) 二重読み cross-validation**。confidence 表示・routing は補助に留める。
+- **安全性**: VLM **1 回** / 保存・DB・production **非接触** / raw 画像・base64・VLM raw response **非保存・非 commit** / 抽出画像・runner **削除済**。
+- **位置づけ**: A3 read-miss 本体 = **実観測完了（confident misread が実在）**。A3 の confidence-net は仕様通り動くが、VLM の overconfidence で**実保護が限定的**と判明。次は CEO 判断で read-miss 対策の再設計（review UX 強化 / 抽出ロバスト化 / cross-validation）。[承認: CEO（messy 画像 3 枚提供・「残課題を正確に進めて」「世界最上級の UX」指示）]
+
+---
