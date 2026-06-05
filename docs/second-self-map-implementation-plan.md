@@ -119,6 +119,7 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 - **L4 closeout（pure + 配線 着地・smoke 7項目 PASS）: `docs/second-self-map-l4-closeout.md`** / L4-c 較正方針: `docs/second-self-map-l4b-closeout.md`
 - **L3 mini design（selective forgetting・regime-change 緩和）: `docs/second-self-map-l3-mini-design.md`** — L3-a 実装・配線・**main 着地 live（pure `77104e1a` + 配線 `7c394a40`）**
 - **L3-a closeout / L3-b mini design: `docs/second-self-map-l3a-closeout.md` / `docs/second-self-map-l3b-mini-design.md`**
-- **L3-b-1（OD 単位 regime-change）実装・配線・main 着地 live（`0cc5217b`・mobility 213 test）** — closeout: `docs/second-self-map-l3b1-closeout.md`。場所のパターン変化を OD 全 leg に波及（同一 OD の別 leg に伝播）。L3-b-2（持続シフト）は closeout 後に判断（GPT: 誤検出リスク高）
+- **L3-b-1（OD 単位 regime-change）実装・配線・main 着地 live（`0cc5217b`・mobility 213 test）** — closeout: `docs/second-self-map-l3b1-closeout.md`。場所のパターン変化を OD 全 leg に波及（同一 OD の別 leg に伝播）。
+- **L3-b-2（selected-only 持続シフト）pure 実装済（branch `631b927a`・未配線・mobility 233 test）** — closeout + 配線判断材料: `docs/second-self-map-l3b2-closeout.md`。**配線は CEO 判断**（最弱信号・誤検出=「忘れる地図」リスク・推奨は pure 保持 → L3-c 較正後）。leg>OD>silent・λ_silent=0.8・退行ゼロ
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`

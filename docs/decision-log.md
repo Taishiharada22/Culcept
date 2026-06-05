@@ -15090,3 +15090,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(GPT で L3-b-1 のみ GO + 配線 end-to-end GO + 着地承認・L3-b-2 後回し)×GPT。ステータス: L3-b-1 live。次=L3-b-2(持続シフト・closeout 後判断・誤検出リスク) / L4-c(データ後)。
 
 ---
+
+## [2026-06-06] Second Self Map L3-b-2（selected-only 持続シフト）pure 実装・branch（未配線・配線は CEO 判断）
+
+- 決定: explicitCorrection なしの silent な習慣変化を拾う。最弱信号（明示反抗なし）ゆえ最も厳しい発火条件 + 最も緩い relaxation + legKey 限定。GPT 判断: pure までにし配線は結果を見て判断（雑に live にすると「勝手に忘れる地図」）。
+- 検出: computeSilentShiftRegimeChange = **SELECTED のみ読む**（feedback 不使用＝correction/confirmation/stale 無関係）。recent K=4 全一致で別 mode Y ∧ baseline 強(total≥4 ∧ topShare≥0.6=not split) ∧ Y≠baseline topMode のみ発火。change-point=streak 開始日。
+- 合成: computeFullRegimeFactorFn = **leg > OD > silent**（強信号優先・regimeFactor 1 つ・二重緩和なし）。silent は leg/OD regime を持たない legKey だけ。computeLegOdRegimes 抽出（L3-b-1 挙動不変・213 既存 test で検証）。
+- config: K=4 / **λ_silent=0.8**（λ_leg0.5<λ_od0.7<λ_silent0.8＝信号が弱いほど緩い）/ baseline total≥4 ∧ topShare≥0.6。legKey 限定（OD selected-only 波及は deferred=安全側）。退行ゼロ。
+- 検証: 20 tests（1-3回不発火/4回発火/弱・split baseline 不発火/recent バラバラ不発火/correction・confirmation・stale 不使用/time decay なし/changePoint/λ_silent 境界/削除でない/L3-b-1 同一/legKey-local/READ のみ/fetch なし）+ mobility 233・tsc footprint 0。
+- 状態: **branch `claude/second-self-map-l3b2`・`631b927a`・pure・未配線（MapTab=loadL3b）・main 未着地**。closeout + 配線判断材料: `docs/second-self-map-l3b2-closeout.md`。
+- **Claude 推奨: 当面 pure 保持**（最弱信号・params 実データ未検証 → L3-a/L3-b-1 データで挙動観測 → L3-c 較正 → その後配線）。即時リスクは退行ゼロで極小ゆえ CEO が適応完成優先なら配線可。
+
+承認: CEO(GPT で L3-b-2 pure GO・配線は結果判断)×GPT。ステータス: L3-b-2 pure done・配線 CEO 判断待ち。次=配線可否判断 / L3-c 較正(データ後) / L4-c(データ後)。
+
+---

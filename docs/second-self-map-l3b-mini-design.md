@@ -39,7 +39,7 @@ L3-a の **legKey 単位・explicitCorrection streak** を拡張：
 | phase | 内容 | 純度 | status |
 |---|---|---|---|
 | **L3-b-1** | OD 単位 regime-change（odKey 集約） | pure | ✅ 実装済（branch `b1ba476d`・未配線・main 未着地） |
-| **L3-b-2** | 持続シフト検出（selected の K 連続矛盾） | pure | ⏸ 後回し（GPT 判断: 仮説への明示反抗でない＝誤検出リスク高） |
+| **L3-b-2** | 持続シフト検出（selected の K 連続矛盾） | pure | ✅ pure 実装済（branch `631b927a`・未配線・配線は CEO 判断・closeout: `l3b2-closeout.md`） |
 | **L3-c** | streakN / λ_leg / λ_od / K の較正（実データ後・L4-c 同方針） | pure | planned |
 | 配線 | L3-b-1 を MapTab に（production 反映） | wiring（別 GO） | mini design 済・判断待ち |
 
