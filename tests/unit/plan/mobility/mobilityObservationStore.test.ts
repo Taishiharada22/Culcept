@@ -130,19 +130,25 @@ describe("mobilityObservationStore (L1-a・GPT 必須 20 ケース)", () => {
   });
 
   // 7
-  it("7. dest だけ sensitive → 両 place key redact", () => {
+  it("7. dest だけ sensitive → 両 place key redact（非場所フィールドは保持）", () => {
     const o = buildObservation(obsInput({ originSensitive: false, destSensitive: true }))!;
     expect(o.originKey).toBeNull();
     expect(o.destKey).toBeNull();
     expect(o.privacyClass).toBe("redacted");
+    expect(o.mode).toBe("train");
+    expect(o.timeband).toBe("morning");
+    expect(o.weekday).toBe("weekday");
   });
 
   // 8
-  it("8. 両方 sensitive → redact", () => {
+  it("8. 両方 sensitive → redact（非場所フィールドは保持）", () => {
     const o = buildObservation(obsInput({ originSensitive: true, destSensitive: true }))!;
     expect(o.privacyClass).toBe("redacted");
     expect(o.originKey).toBeNull();
     expect(o.destKey).toBeNull();
+    expect(o.mode).toBe("train");
+    expect(o.timeband).toBe("morning");
+    expect(o.weekday).toBe("weekday");
   });
 
   // 9
@@ -174,12 +180,19 @@ describe("mobilityObservationStore (L1-a・GPT 必須 20 ケース)", () => {
   });
 
   // 13
-  it("13. 朝/昼/夕/夜 の 4 分割", () => {
+  it("13. 朝/昼/夕/夜 の 4 分割（内部境界含む regression ガード）", () => {
     expect(toTimeband("08:00")).toBe("morning");
     expect(toTimeband("13:00")).toBe("afternoon");
     expect(toTimeband("19:00")).toBe("evening");
     expect(toTimeband("23:00")).toBe("night");
     expect(toTimeband("2026-06-05T09:30:00")).toBe("morning"); // ISO 形式
+    // 内部境界（フリップ regression を捕捉）
+    expect(toTimeband("10:00")).toBe("morning");
+    expect(toTimeband("11:00")).toBe("afternoon");
+    expect(toTimeband("16:00")).toBe("afternoon");
+    expect(toTimeband("17:00")).toBe("evening");
+    expect(toTimeband("21:00")).toBe("evening");
+    expect(toTimeband("22:00")).toBe("night");
   });
 
   // 14
@@ -214,7 +227,9 @@ describe("mobilityObservationStore (L1-a・GPT 必須 20 ケース)", () => {
       byDay[day] = { "a__b": OBS };
     }
     const capped = applyObservationCaps(store(byDay));
-    expect(Object.keys(capped.byDay).length).toBeLessThanOrEqual(MAX_OBSERVATION_DAYS);
+    expect(Object.keys(byDay).length).toBe(61); // 61 unique days 生成確認
+    expect(Object.keys(capped.byDay).length).toBe(MAX_OBSERVATION_DAYS); // 正確に 60 日
+    expect(capped.byDay["2026-01-01"]).toBeUndefined(); // 最古日が drop された
     // 101 leg → 100 leg
     const legs: Record<string, MobilityObservation> = {};
     for (let i = 0; i < 101; i += 1) legs[`leg_${i}__x`] = OBS;
