@@ -685,4 +685,19 @@ A1-5-5d-1（`SeedExtractor` の env-free / SDK-free core・実 network なしで
 - **5d-2 は `fetchImpl=globalThis.fetch` + env を `.server` host で差すだけ**（本 core 不変）。
 - **しない（A1-5-5d-1 範囲外）**: 実 SDK / 実 network / `.server` host（5d-2）/ runtime·route·UI / DB write / A1-5-5d-2 以降。
 
-> A1-5-0…§8.29 / **A1-5-5d-1 LLM Seed Extractor Adapter Core（landed・§8.30・SDK-free・network-free・fetchImpl/sleep/now DI・throw しない fail-safe・durationKind 保守 map(explicit→high/その他→low)・redacted observation・27 tests）**。実 SDK/network なしで adapter の全分岐（parse/map/downgrade/no_intent/timeout/retry/fail-safe）を固定。raw は prompt(transient) のみ・result/observation に非漏洩・余剰フィールド drop。出力は validateExtractorOutput を通過。**5d-2 で fetchImpl=実 fetch + env を `.server` host で差すだけ**。次は **A1-5-5d-2 実 SDK host**（実 LLM・別 GO）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
+### 8.31 A1-5-5d-2a 実装（landed）— LLM Host / Env Resolver（server-only・no-call・barrel 非 export）
+
+A1-5-5d-2a（SDK-free core §8.30 に env 境界を付ける server-only host・**実 LLM call なし=組むだけ**）:
+- **`lib/plan/reality/llm-seed-extractor-adapter.server.ts`**（新規・**server-only**・barrel 非 export・**core 本体は不変**）:
+  - `CAPTURE_LLM_ENV`（env 名・server-side のみ）: `REALITY_CAPTURE_LLM_API_KEY` / `_MODEL` / `_TIMEOUT_MS` / `_MAX_RETRY` / `_CONFIDENCE_THRESHOLD`。
+  - `resolveCaptureLlmConfig(env) → CaptureLlmResolvedConfig | null`（**pure・fail-closed**）: apiKey/model 無し → **null**。optional は妥当なら反映・不正は core 既定（fail-soft）。throw しない・apiKey を log しない。
+  - `createUnavailableSeedExtractor() → SeedExtractor`（**fail-closed no-op**・常に no_intent・**fetch しない・secret なし**）。
+  - `buildServerLlmSeedExtractor(env, fetchImpl, onObservation?) → SeedExtractor`（**pure-ish**）: resolve → 不備なら no-op / 揃えば `createLlmSeedExtractorAdapterCore({...cfg, fetchImpl, onObservation})`。**extract は呼ばない**（組むだけ）。
+  - `createServerLlmSeedExtractor(onObservation?) → SeedExtractor`（**server-only thin** = `buildServerLlmSeedExtractor(process.env, globalThis.fetch, onObservation)`）。
+- **fetchImpl 注入**: host が `globalThis.fetch` を core に注入（実 network の唯一の配線点・**5d-2a では extract 未呼出ゆえ未発火**）。
+- **secret 非漏洩**: result/observation は redacted（apiKey フィールド無し・§8.30 既定）・extractor object は `{extract}` のみ（JSON 化で secret 非出）・host は console/throw に apiKey を出さない。
+- test **20**（resolver: 欠落→null / 空白→null / 揃う→config / optional 反映 / 不正 optional→既定 / config key は apiKey·model のみ / build: missing→no-op(extract→no_intent・**fetch 未呼出**) / present→組むだけ(extract 未呼出・**throwing spy fetch 未発火**) / unavailable→no_intent / secret 非漏洩 / env 名 / 静的 server-only·globalThis.fetch·SDK·Supabase·route·UI 不在・barrel 非 export・core import）+ reality **748 PASS**。
+- tsc 自ファイル **0 error**（**full tsc 0 ではない**・baseline 1114・**core 本体不変**）。**実 LLM API call 0 / real network 0（throwing spy 未発火）/ SDK import 0 / DB read·write 0 / runtime importer 0 / route·UI import 0 / production 挙動変更 0**。
+- **しない（A1-5-5d-2a 範囲外）**: 実 LLM API call / real network / route·UI·runtime 接続 / DB write / prompt 本番運用 / A1-5-5d-2b 以降。
+
+> A1-5-0…§8.30 / **A1-5-5d-2a LLM Host / Env Resolver（landed・§8.31・server-only・env→config→`fetchImpl=globalThis.fetch` 注入・env 不備→fail-closed no-op・secret 非漏洩・no-call・core 不変・20 tests）**。env 名 `REALITY_CAPTURE_LLM_API_KEY/_MODEL/_TIMEOUT_MS/_MAX_RETRY/_CONFIDENCE_THRESHOLD`。組むだけ（extract 未呼出＝実 LLM call/real network 0・throwing spy fetch 未発火）。次は **A1-5-5d-2b 実 LLM smoke**（host が返す extractor を 1 回 extract・実 API call・**必ず別 GO で停止**）。**LLM/runtime/実 write 接続は必ず別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・no default duration を全段で維持する。
