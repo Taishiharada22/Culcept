@@ -15739,3 +15739,13 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **位置づけ**: A3 read-miss 本体 = **実観測完了（confident misread が実在）**。A3 の confidence-net は仕様通り動くが、VLM の overconfidence で**実保護が限定的**と判明。次は CEO 判断で read-miss 対策の再設計（review UX 強化 / 抽出ロバスト化 / cross-validation）。[承認: CEO（messy 画像 3 枚提供・「残課題を正確に進めて」「世界最上級の UX」指示）]
 
 ---
+
+[2026-06-05] [Build] **A4-1 source-cell visual consistency guard（pure core）実装 + 実画像検証 — confident 誤読を画像側から deterministic に捕捉** — A3 confidence-net が止められない confident 誤読（day28: 原稿コード → "" @0.90）に対し、**VLM の confidence を信じず原稿画像と抽出結果を直接突き合わせる** deterministic guard を実装。CEO「自律的に深く推論して進めよ」の下、readiness の D1-D5 推奨（複合 metric / P1 のみ / soft / fail-open / pure 先行）に沿って自律実行。
+- **実装（pure 2 module・IO/LLM/DB なし・throw しない・25 unit tests・tsc 1112 維持・commit `03552611`）**: `cellContentMetric.ts`（彩度 + 赤チャネル優位 R−max(G,B) + 暗インク の max で content score）/ `sourceCellConsistency.ts`（P1: rawCode="" ∧ content 高 → blank_with_content / P2: 任意・既定 OFF / 全 soft・保存 block しない）。
+- **実画像検証（VLM 不使用・sharp のみ・runner 削除・doc `alter-plan-shift-a4-verification-findings.md`）**: ① **day28 = content 0.951（水色 L セルを crop 目視で正捕捉）+ rawCode="" → P1 発火 ✓**（A3 net が止められない誤読を A4 が捕捉）。② 清潔/テクスチャ白 = **0.000〜0.056**（閾値 0.12 未満）＝真の空白を誤発火しない。③ **CEO 提供 3 枚すべて全セル彩色**（blank セルなし）＝この roster family では「空欄 = 必ず read-miss」で誤発火対象が構造的に不在。④ **geometry が支配的リスク（C1 実証）**: 推定 geometry で day31=0.000 → crop 目視で列ズレと判明 → 補正後 0.979 回復。本番は gridCalibration / dayColumns の確定値 + 不確実時 fail-open。
+- **registration drift への頑健性**: 抽出列ズレで rawCode 系列がずれても、A4 は「画像 content あり ∧ rawCode 空」を flag するので誤読・drift の双方に効く。
+- **残課題（wiring 前・CEO 判断）**: A4-2（sharp IO content 抽出・cellCropRegion 使用・未着手）/ A4-3（risk model `source_mismatch` soft + ShiftReviewGrid 表示・未着手）。閾値の最終 calibration は「鉛筆書き/汚れ空白を含む別形式ロスター」が出たら再測定（現サンプルには不在）。
+- **安全性**: VLM **追加実行 0** / 保存・DB・production **非接触** / raw 画像・base64・VLM raw response **非保存・非 commit** / runner・crop **削除済**（private-eval は git ignored）/ branch `feat/plan-shift-import-productization` ローカル積み上げ・**未 merge / 未 push**。
+- **位置づけ**: A4-1 = **pure core 着地 + 実証完了**（confident 誤読を画像から deterministic に捕捉できると実データで確認）。A4-2/A4-3（IO/UI wiring）は CEO 判断後。[承認: CEO（「自律的に推論を繰り返し進めよ」「世界最上級の UX」指示・readiness D5「pure なら commit 可」）]
+
+---
