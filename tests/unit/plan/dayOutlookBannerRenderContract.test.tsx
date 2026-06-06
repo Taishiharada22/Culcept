@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DayOutlookBanner } from "@/app/(culcept)/plan/components/DayOutlookBanner";
 import type { DayRehearsal, ViabilityOutlook } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
+import type { DayRepairCandidate, DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 
 const EV = { basis: [], known: [], unknown: [], inferred: [] };
 const EST = { level: "low" as const, score: 0, evidence: EV };
@@ -119,5 +120,62 @@ describe("DayOutlookBanner — Evidence「なぜ?」disclosure", () => {
     for (const w of ["amber", "orange", "bg-red", "危険", "警告", "失敗", "疲れ", "壊れ", "診断", "最適化", "予測", "予想"]) {
       expect(html).not.toContain(w);
     }
+  });
+});
+
+describe("DayOutlookBanner — Repair「どうするとよさそう？」disclosure", () => {
+  const rc = (kind: DayRepairKind, suggestion: string): DayRepairCandidate => ({ kind, suggestion, targetStepIndex: null, evidence: EV });
+
+  it("候補あり → native details + summary「どうするとよさそう？」+ suggestion 行", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("tight")} repairCandidates={[rc("leave_earlier", "ここは出発を少し早める余地があるかもしれません")]} />,
+    );
+    expect(html).toContain('data-testid="plan-day-outlook-repair"');
+    expect(html).toContain("どうするとよさそう？");
+    expect(html).toContain("ここは出発を少し早める余地があるかもしれません");
+  });
+
+  it("候補 0 件 → disclosure を出さない", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} repairCandidates={[]} />);
+    expect(html).not.toContain("plan-day-outlook-repair");
+    expect(html).not.toContain("どうするとよさそう？");
+  });
+
+  it("repairCandidates prop なし → disclosure を出さない", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} />);
+    expect(html).not.toContain("plan-day-outlook-repair");
+  });
+
+  it("default 閉（details に open 属性なし）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} repairCandidates={[rc("leave_earlier", "s")]} />);
+    expect(html).not.toMatch(/<details\b[^>]*\bopen\b/);
+  });
+
+  it("read-only: 実行 UI（button/input/適用/保存/チェック）を置かない", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[rc("leave_earlier", "ここは出発を少し早める余地があるかもしれません"), rc("protect_buffer", "この前後は余白を守ると、予定が重なりにくそうです")]} />,
+    );
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("適用");
+    expect(html).not.toContain("保存");
+    expect(html).not.toContain("type=\"checkbox\"");
+  });
+
+  it("repair 候補に禁止語・警告色を含まない", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[rc("leave_earlier", "ここは出発を少し早める余地があるかもしれません"), rc("reduce_density", "予定が立て込む区間を少し軽くできると、ゆとりが生まれそうです")]} />,
+    );
+    for (const w of ["amber", "orange", "bg-red", "危険", "警告", "失敗", "疲れ", "壊れ", "絶対", "すべき"]) {
+      expect(html).not.toContain(w);
+    }
+  });
+
+  it("「なぜ?」と「どうするとよさそう？」が共存（既存 disclosure 非破壊）", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("tight")} repairCandidates={[rc("leave_earlier", "ここは出発を少し早める余地があるかもしれません")]} />,
+    );
+    expect(html).toContain('data-testid="plan-day-outlook-why"'); // なぜ? 健在
+    expect(html).toContain('data-testid="plan-day-outlook-repair"'); // どうする? 追加
   });
 });

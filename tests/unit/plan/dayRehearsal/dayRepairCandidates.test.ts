@@ -3,7 +3,7 @@
  * read-only 候補生成 / evidence trace / 根拠が弱い時は出さない / suggestion トーン（禁止語なし）を検証。
  */
 import { describe, it, expect } from "vitest";
-import { generateDayRepairCandidates, type DayRepairCandidate } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
+import { generateDayRepairCandidates, prioritizeRepairCandidates, type DayRepairCandidate } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import type { DayRehearsal, Evidence, RehearsalStepResult, ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 
 const EV: Evidence = { basis: [], known: [], unknown: [], inferred: [] };
@@ -135,5 +135,29 @@ describe("generateDayRepairCandidates", () => {
       steps: [step({ stepIndex: 0, bufferStatus: "insufficient" }), step({ stepIndex: 1, bufferStatus: "sufficient", convergence: conv(["strain_high"]) }), step({ stepIndex: 2 })],
     }));
     expect(kinds(cs)).toEqual(["leave_earlier", "protect_buffer", "use_recovery_window", "reduce_density"]);
+  });
+});
+
+describe("prioritizeRepairCandidates", () => {
+  const c = (kind: DayRepairCandidate["kind"], targetStepIndex = 0): DayRepairCandidate => ({ kind, suggestion: "s", targetStepIndex, evidence: EV });
+
+  it("P1. 優先度順にソート（leave_earlier>protect_buffer>confirm_uncertain>use_recovery_window>reduce_density）", () => {
+    const out = prioritizeRepairCandidates([c("reduce_density"), c("use_recovery_window"), c("leave_earlier"), c("protect_buffer"), c("confirm_uncertain")], 5);
+    expect(out.map((x) => x.kind)).toEqual(["leave_earlier", "protect_buffer", "confirm_uncertain", "use_recovery_window", "reduce_density"]);
+  });
+  it("P2. 最大3件に絞る", () => {
+    const out = prioritizeRepairCandidates([c("leave_earlier"), c("protect_buffer"), c("confirm_uncertain"), c("use_recovery_window"), c("reduce_density")], 3);
+    expect(out).toHaveLength(3);
+    expect(out.map((x) => x.kind)).toEqual(["leave_earlier", "protect_buffer", "confirm_uncertain"]);
+  });
+  it("P3. 同 kind は元順序を保つ（stable）", () => {
+    expect(prioritizeRepairCandidates([c("leave_earlier", 5), c("leave_earlier", 2)], 5).map((x) => x.targetStepIndex)).toEqual([5, 2]);
+  });
+  it("P4. use_recovery_window は低優先（4件中 top3 から外れる）", () => {
+    const out = prioritizeRepairCandidates([c("leave_earlier"), c("protect_buffer"), c("confirm_uncertain"), c("use_recovery_window")], 3);
+    expect(out.map((x) => x.kind)).not.toContain("use_recovery_window");
+  });
+  it("P5. 空 → 空", () => {
+    expect(prioritizeRepairCandidates([], 3)).toEqual([]);
   });
 });
