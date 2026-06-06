@@ -872,6 +872,7 @@ export default function PlanClient({
               draftLiveEnabled={draftLiveEnabled}
               vlmInputMode={shiftDraftVlmInputMode}
               saveEnabled={shiftImportSaveEnabled}
+              onSuccess={handleAddSuccess}
             />
           )}
         </div>

@@ -45,12 +45,19 @@ export interface ShiftDraftInAppProps {
   saveEnabled?: boolean;
   /** モーダルを閉じる（親が conditional mount を解除＝unmount → hook が ObjectURL revoke）。 */
   onClose?: () => void;
+  /**
+   * RD-2 bug fix: 保存成功時に親（PlanClient）へ通知して /plan 全 refetch を triggers するための seam。
+   * 内部 onSaveSucceeded（local state 整合）と組み合わせて呼ばれる（local → 親の順）。
+   * 未指定なら従来通り（後方互換）。
+   */
+  onSuccess?: () => void;
 }
 
 export function ShiftDraftInApp({
   vlmInputMode = "combined",
   saveEnabled = false,
   onClose,
+  onSuccess,
 }: ShiftDraftInAppProps) {
   const {
     state,
@@ -324,7 +331,12 @@ export function ShiftDraftInApp({
           onGridCalibrationChange={onSetGridCalibration}
           riskReviewEnabled
           chunkBoundaries={modalProps.chunkBoundaries}
-          onSuccess={onSaveSucceeded}
+          onSuccess={() => {
+            // RD-2 bug fix: 内部 onSaveSucceeded（local state 整合）→ 親 onSuccess（PlanClient refetch）の順で呼ぶ。
+            //   未指定なら従来通り（後方互換）。
+            onSaveSucceeded();
+            onSuccess?.();
+          }}
           onClose={onCloseReview}
         />
       )}

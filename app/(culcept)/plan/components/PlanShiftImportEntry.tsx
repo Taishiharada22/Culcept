@@ -24,6 +24,7 @@ export function PlanShiftImportEntry({
   draftLiveEnabled = false,
   vlmInputMode = "combined",
   saveEnabled = false,
+  onSuccess,
 }: {
   now?: Date;
   draftLiveEnabled?: boolean;
@@ -31,6 +32,11 @@ export function PlanShiftImportEntry({
   vlmInputMode?: "split" | "combined";
   /** S-save-2: 保存導線（server-only PLAN_SHIFT_IMPORT_SAVE → prop）。default false で dormant。 */
   saveEnabled?: boolean;
+  /**
+   * RD-2 bug fix: 保存成功時に host（PlanClient）へ通知して /plan 全 refetch を triggers するための seam。
+   * 既存呼出は省略可（後方互換）。指定しない場合は従来通り modal 閉じるのみで、PlanClient state は stale。
+   */
+  onSuccess?: () => void;
 }) {
   if (!PLAN_FLAGS.shiftImportEntryEnabled) return null;
   return (
@@ -39,6 +45,7 @@ export function PlanShiftImportEntry({
       draftLiveEnabled={draftLiveEnabled}
       vlmInputMode={vlmInputMode}
       saveEnabled={saveEnabled}
+      onSuccess={onSuccess}
     />
   );
 }

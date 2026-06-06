@@ -31,6 +31,7 @@ export function ShiftImportEntryInner({
   draftLiveEnabled = false,
   vlmInputMode = "combined",
   saveEnabled = false,
+  onSuccess,
 }: {
   now?: Date;
   draftLiveEnabled?: boolean;
@@ -38,6 +39,12 @@ export function ShiftImportEntryInner({
   vlmInputMode?: "split" | "combined";
   /** S-save-2: 保存導線（server-only PLAN_SHIFT_IMPORT_SAVE → prop）。default false で dormant。live 経路へ素通し。 */
   saveEnabled?: boolean;
+  /**
+   * RD-2 bug fix: 保存成功時に親（PlanShiftImportEntry 経由で PlanClient）へ通知する seam。
+   * live 経路（ShiftDraftInApp）と fallback 経路（ShiftImportModal）両方で wire される。
+   * 未指定なら従来通り modal 閉じるのみ（後方互換）。
+   */
+  onSuccess?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // 確認画面に流す cells（fixture・live VLM 非依存・deterministic）。now は test 注入可。
@@ -76,10 +83,13 @@ export function ShiftImportEntryInner({
             vlmInputMode={vlmInputMode}
             saveEnabled={saveEnabled}
             onClose={() => setOpen(false)}
+            onSuccess={onSuccess}
           />
         )
       ) : (
         // fixture fallback（debug・既存挙動不変）。live で詰まった時の確認手段として残す。
+        // RD-2 bug fix: 親 onSuccess も呼ぶ（saveEnabled=false 固定なので実 DB write は起きないが、
+        //   親 callback 経路の整合性のため fallback でも wire しておく）。
         <ShiftImportModal
           open={open}
           year={fixture.year}
@@ -87,7 +97,10 @@ export function ShiftImportEntryInner({
           cells={fixture.cells}
           saveEnabled={false}
           riskReviewEnabled
-          onSuccess={() => setOpen(false)}
+          onSuccess={() => {
+            setOpen(false);
+            onSuccess?.();
+          }}
           onClose={() => setOpen(false)}
         />
       )}

@@ -208,3 +208,43 @@ describe("§6 saveEnabled plumbing（PLAN_SHIFT_IMPORT_SAVE → server→prop）
     expect(htmlOn).not.toContain("この内容で保存");
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §7 RD-2 bug fix: 保存成功 callback の pass-through seam
+//   - PlanShiftImportEntry / ShiftImportEntryInner / ShiftDraftInApp が onSuccess?: () => void prop を
+//     受け取れること（型 + render エラーなし）。
+//   - onSuccess 未指定でも従来通り render される（後方互換）。
+//   - onSuccess を渡しても render は壊れない（structure に影響なし）。
+//   - 実 callback の発火タイミング（save 成功 → 内部 onSaveSucceeded → 親 onSuccess の順）は実 DB 接続が
+//     必要な統合経路のため、本 render contract test では型 + render の seam が成立することまでを担保する。
+describe("§7 RD-2 bug fix: onSuccess pass-through seam（型 + render）", () => {
+  it("ShiftImportEntryInner: onSuccess 未指定でも閉状態で render OK（後方互換）", () => {
+    const html = renderToStaticMarkup(<ShiftImportEntryInner now={NOW} />);
+    expect(html).toContain('data-testid="plan-shift-import-entry"');
+  });
+
+  it("ShiftImportEntryInner: onSuccess を指定しても閉状態の render が変わらない", () => {
+    const cb = vi.fn();
+    const htmlWith = renderToStaticMarkup(
+      <ShiftImportEntryInner now={NOW} onSuccess={cb} />
+    );
+    const htmlWithout = renderToStaticMarkup(
+      <ShiftImportEntryInner now={NOW} />
+    );
+    expect(htmlWith).toBe(htmlWithout);
+    // render 時点では callback は呼ばれない（mount/save 経路）
+    expect(cb).not.toHaveBeenCalled();
+  });
+
+  it("ShiftDraftInApp: onSuccess を指定しても idle shell が変わらない（saveEnabled inert と同方針）", () => {
+    const cb = vi.fn();
+    const htmlWith = renderToStaticMarkup(
+      <ShiftDraftInApp onClose={() => {}} onSuccess={cb} />
+    );
+    const htmlWithout = renderToStaticMarkup(
+      <ShiftDraftInApp onClose={() => {}} />
+    );
+    expect(htmlWith).toBe(htmlWithout);
+    expect(cb).not.toHaveBeenCalled();
+  });
+});
