@@ -15285,3 +15285,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(S6 batch3 GO・厳格 audit)。ステータス: S6 batch3 完了。次=CEO 判断（mock multi-field 補正 / postSelectionFlow prod 型 / S5 / 据え置き別作業 のいずれか）。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline — postSelectionFlow activity null→"" 監査 GO + 実装（main 着地 live）
+
+- 監査結論（mini design `…-postselectionflow-mini-design.md`）: 前回 batch3 の「prod 型不整合」評価を**訂正**。誤って patch 専用 WHAT_PATCH_SCHEMA(null 許容) を参照していた。test の文脈は WHAT_SLOT で schema/型とも `activity: string` 必須。**production は「what 未指定」を `""`(空文字) で表す**（null 生成箇所ゼロ・全 consumer が `!activity`/`?? ""` で null/"" 同一扱い）。＝test fixture の null が production 実態(="")と乖離した stale 値。型バグでない。
+- 候補: A(test null→"")推奨 / B(型 string|null=仕様変更 NO-GO・production は null 不生成) / C(omit 不可)。HARD GATE 全通過（consumer string 前提でない・仕様変更でない・test 意味不変・S5 不波及・tsc-only でない）。
+- 決定: CEO GO で**案A 実装**。`postSelectionFlow.test.ts` の `what.{activity,activityCanonical}: null→""`（6 ペア=12 箇所・test-only）。型/schema/production source 不変。
+- before/after（main 計測）: 74→**62**（−12）/ source 31 不変 / **累計 1114→62（−1052・94%）**。
+- production 挙動変更**なし**（consumer が null/"" 同一扱い）。検証: postSelectionFlow 7 + alter-morning 199 files/4501 PASS・zero-loss（branch 1b6bfe94 一致）。
+- 残: postSelectionFlow line154 `rawRef`(mock-shape) は別案件で残存。
+- 状態: **main `d2f3b64d` 着地 live**（親 `8eeec516`）。closeout: `docs/tsc-baseline-cleanup-postselectionflow-closeout.md`。
+- 承認: CEO(監査 GO→実装 GO)。ステータス: postSelectionFlow 完了。残 62（source 31[S5 15含]+test 31）。次=CEO 判断。push/Vercel/DB/Google 不接触。
+
+---
