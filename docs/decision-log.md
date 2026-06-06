@@ -15108,3 +15108,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(GPT で L3-b-2 pure GO + main 着地 GO・配線は実データ後)×GPT。ステータス: L3-b-2 pure main 着地（未配線）。次=Wave 2 Day Rehearsal（主フェーズ）/ 配線可否(データ後) / L3-c・L4-c(較正 backlog・データ後)。
 
 ---
+
+## [2026-06-06] Wave 2 Day Rehearsal — pure simulation layer 実装・branch（未配線・main 未着地）
+
+- 決定: belief stack(L1/L4/L3) を使い 1日を先に走らせる forward simulation。**最適化でなく simulation**（予定を動かさない・修正案/auto-reschedule なし・TSP なし）。「未来の自分が先に試す」。GPT 補正: strain/recovery/friction/risk は**断定せず仮説 estimate**・**evidence trace 必須**。
+- 実装(新規ファイルのみ): `lib/plan/dayRehearsal/dayRehearsalTypes.ts`(Estimate+Evidence+config) / `dayRehearsal.ts`(rehearseDay engine + buildRehearsalInput adapter)。
+- 6 計算(前方積分): 成立(viability holds/tight/breaks/unknown)/friction/buffer(feasibility slack をそのまま=観測)/strain/recovery/convergence(「risk」=確率でなく重なり factors)。全推定が `{basis, known, unknown, inferred}` を携える。
+- 原則: strain≠fatigue 断定でない・unknown duration は捏造せず unknown・全 unknown→viability unknown・Date 不使用・degrade・読み取り専用診断層(Reality Control OS Repair が後で消費)。
+- 検証: 20 test PASS(engine 16 + adapter 4)・dayRehearsal 実ファイル tsc footprint 0・新規ファイルのみ(既存非改変=production 不変)。
+- 状態: **branch `claude/second-self-map-day-rehearsal`・`2cf09824`・pure・未配線・main 未着地**。closeout: `docs/second-self-map-day-rehearsal-step4-closeout.md`。
+
+承認: CEO(GPT で Day Rehearsal step 4 pure GO・UI/配線は別 GO)×GPT。ステータス: Day Rehearsal pure layer done(branch)。次=main 着地(CEO 判断) / 配線(UI/MapTab/PlanClient・別 GO) / belief・InnerWeather 統合拡張 / 較正(データ後)。
+
+---
