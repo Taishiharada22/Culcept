@@ -390,6 +390,27 @@ export function explainDayOutlook(
 }
 
 /**
+ * ★per-marker「なぜ?」: 詰まり(convergence) marker の根拠を、この区間固有の自然な日本語1文に（純粋）。
+ * factors（buffer_short=観測 / strain_high=推定 / friction_high=推定）を **observed>inferred 順**で合成。
+ * - 既存 FeasibilityDisclosureLine（「不足 N 分」=量的 status）と register を分ける質的 synthesis。
+ *   buffer は質的に（「移動の余白が少なめ」）・strain/friction は feasibility が持たない情報を足す。
+ * - ★生スコア / 数値 / 係数 / level 名は出さない。仮説トーン（〜そう）。空 factors は ""（呼び出し側が省略）。
+ * - recovery は uniform（specificity 弱）のため per-marker 対象外（day-level「なぜ?」で被覆）。
+ */
+const CONVERGENCE_FACTOR_PHRASE: Readonly<Record<ConvergenceFactor, string>> = {
+  buffer_short: "移動の余白が少なめ", // 観測（feasibility insufficient）
+  strain_high: "予定が立て込んでいそう", // 推定（密度/連続の意・断定でない）
+  friction_high: "移動に時間がかかりそう", // 推定（friction=移動が gap を圧迫）
+};
+
+export function explainConvergenceMarker(factors: readonly ConvergenceFactor[]): string {
+  // observed>inferred の安定順。重複除去。
+  const ordered = (["buffer_short", "strain_high", "friction_high"] as const).filter((f) => factors.includes(f));
+  if (ordered.length === 0) return "";
+  return `ここは${ordered.map((f) => CONVERGENCE_FACTOR_PHRASE[f]).join("で、")}です。`;
+}
+
+/**
  * ★Option D（status-only・CalendarTab 配線用）: DayGraph + feasibility **display** map から RehearsalInput を構築。
  * 既存 `_useCalendarTabFeasibilityDisplay` の `Map<transitionIndex, FeasibilityDisplayView>` を消費。
  * raw slack/shortfall 分数は display 層に無い → **null=未確定（捏造しない・honest degrade）**。transport も未公開 → travel unknown。

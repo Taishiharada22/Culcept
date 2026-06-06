@@ -3,7 +3,7 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw, explainDayOutlook } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
@@ -458,5 +458,45 @@ describe("explainDayOutlook", () => {
     expect(all).not.toMatch(/\d/); // 生数字なし
     expect(all).not.toMatch(/high|moderate|low|score|slack|shortfall/i); // level/内部名なし
     expect(all).not.toMatch(/危険|警告|失敗|疲れ|壊れ|診断|最適化|予測|予想/); // 断定/警告/診断なし
+  });
+});
+
+// ───────────────────────── explainConvergenceMarker（per-marker「なぜ?」） ─────────────────────────
+
+describe("explainConvergenceMarker", () => {
+  it("C1. 空 factors → 空文字（呼び出し側が省略）", () => {
+    expect(explainConvergenceMarker([])).toBe("");
+  });
+  it("C2. buffer_short + strain_high → 観測>推定 順の合成（CEO 例文準拠）", () => {
+    expect(explainConvergenceMarker(["buffer_short", "strain_high"] as const)).toBe(
+      "ここは移動の余白が少なめで、予定が立て込んでいそうです。",
+    );
+  });
+  it("C3. 入力順不同でも observed>inferred の安定順（strain→buffer でも buffer 先）", () => {
+    expect(explainConvergenceMarker(["strain_high", "buffer_short"] as const)).toBe(
+      "ここは移動の余白が少なめで、予定が立て込んでいそうです。",
+    );
+  });
+  it("C4. friction_high 単独 → 移動に時間がかかりそう", () => {
+    expect(explainConvergenceMarker(["friction_high"] as const)).toBe("ここは移動に時間がかかりそうです。");
+  });
+  it("C5. 3 factors → observed>inferred 順で全合成", () => {
+    expect(explainConvergenceMarker(["friction_high", "buffer_short", "strain_high"] as const)).toBe(
+      "ここは移動の余白が少なめで、予定が立て込んでいそうで、移動に時間がかかりそうです。",
+    );
+  });
+  it("C6. 重複 factor は 1 回（dedup）", () => {
+    expect(explainConvergenceMarker(["buffer_short", "buffer_short"] as const)).toBe("ここは移動の余白が少なめです。");
+  });
+  it("C7. 生スコア・数値・level 名・警告/診断語を含まない", () => {
+    const s = explainConvergenceMarker(["buffer_short", "strain_high", "friction_high"] as const);
+    expect(s).not.toMatch(/\d/); // 生数字なし
+    expect(s).not.toMatch(/high|moderate|low|score|slack|shortfall/i); // level/内部名なし
+    expect(s).not.toMatch(/危険|警告|失敗|疲れ|壊れ|診断|最適化|予測|予想|推奨/); // 断定/警告/診断なし
+  });
+  it("C8. day-level「なぜ?」の推定語『重なりやすさ/詰まりやすさ』と語が重複しない（粒度差）", () => {
+    const s = explainConvergenceMarker(["buffer_short", "strain_high"] as const);
+    expect(s).not.toContain("重なりやすさ");
+    expect(s).not.toContain("詰まりやすさ");
   });
 });
