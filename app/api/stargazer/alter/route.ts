@@ -522,6 +522,10 @@ import { runShadowAndCompare } from "@/lib/alter-morning/op5";
 //   flag default off / production hard block（gate）→ 完全 no-op。capture write（別 gate・別 GO）とは独立。
 import { buildMorningCaptureSurface, resolveMorningProtocolCaptureFragment, type PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
 import type { CaptureCandidateFragment } from "@/lib/plan/reality/integration/candidate-response-assembler";
+// A1-5-9-0/1: Reality capture write（fire-and-forget・structured-only・flag gated・production hard block）
+//   今回の発話から structured-only seed/evidence を capture（次回/後続の surface read で候補化）。default 両 flag off → no-op。
+import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import type { RpcCapableClient } from "@/lib/plan/reality/integration/capture-rpc-adapter";
 import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -10343,6 +10347,24 @@ export async function POST(req: NextRequest) {
               shadowLlmTargetDate ?? undefined,
             ))
         : {};
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // A1-5-9-0/1: Reality Capture Write（**fire-and-forget・response 不変**・structured-only・flag gated・production hard block）
+    //   今回の発話から structured-only seed/evidence を capture（次回/後続の surface read で候補化）。
+    //   - mode 決定（decideCaptureMode）: kill 最優先 → LIVE=write（real RPC）→ OBSERVE=observe（dry-run・実 DB 0）→ none。
+    //     **default は両 flag off → no-op**（extractor 構築なし・production 挙動変更ゼロ）。gate で production/非 staging/非 canary block。
+    //   - **fire-and-forget**（void 同期返却・helper は never-throw）+ 二重防御 try/catch で user response（envelope）に一切影響させない。
+    //   - 実 LLM(extractor) は fire-and-forget の async 内（**response 前に await しない**）。**raw を plan_seeds に保存しない**（structured-only・raw は extraction.utterance のみ）。
+    //   - surface read（上）と独立: surface=prior pending の read を先に算出済 → 今回 capture した seed は当該 response に混ざらない（次回 surface で候補化）。
+    //   - morning turn のみ発火（surface read と同条件 gate・非 morning chat で extractor を回さない）。
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (morningResponse && morningResponse.phase !== "skipped") {
+      try {
+        fireMorningCapture(message, userId, supabase as unknown as RpcCapableClient);
+      } catch {
+        // capture 配線の例外は user response に影響させない（response 不変を絶対保証）
+      }
+    }
 
     return NextResponse.json({
       ok: true,
