@@ -40,6 +40,8 @@ import {
   HelpCircle,
 } from "lucide-react";
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
+import { CaptureCandidateBanner } from "@/components/home/morning/CaptureCandidateBanner";
+import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // W3-PR-13 M3: MorningMapView を client-only lazy import。
@@ -79,6 +81,12 @@ interface MorningPlanCardProps {
    * false の時は MorningMapView の dynamic import 自体が fire しない。
    */
   visualFlowEnabled?: boolean;
+  /**
+   * A1-5-7-6: capture candidate surface（route response の data.captureCandidate?・A1-5-7-5）。
+   * **additive optional**: 未提供 / hasCandidate=false なら CaptureCandidateBanner は null＝既存 UI 完全不変。
+   * 現状 parent(AskHero) は未提供（V2 route 未消費）。将来 V2 route 消費時に流し込む。
+   */
+  captureCandidate?: CandidateSurfaceDTO | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -883,6 +891,7 @@ export default function MorningPlanCard({
   sessionId,
   events,
   visualFlowEnabled = false,
+  captureCandidate,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
   // Place detail bottom sheet state（CEO方針 2026-04-17）
@@ -1132,6 +1141,8 @@ export default function MorningPlanCard({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
+        {/* A1-5-7-6: capture candidate surface（additive・captureCandidate 無 / hasCandidate=false なら null＝既存 UI 不変） */}
+        <CaptureCandidateBanner candidate={captureCandidate} />
         {/* ヘッダー */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[14px] font-semibold text-gray-800 flex items-center gap-1.5">
