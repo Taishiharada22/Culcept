@@ -122,6 +122,6 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 - **L3-b-1（OD 単位 regime-change）実装・配線・main 着地 live（`0cc5217b`・mobility 213 test）** — closeout: `docs/second-self-map-l3b1-closeout.md`。場所のパターン変化を OD 全 leg に波及（同一 OD の別 leg に伝播）。
 - **L3-b-2（selected-only 持続シフト）pure main 着地（`846c3a2e`・未配線=production 不変・mobility 233 test）** — closeout: `docs/second-self-map-l3b2-closeout.md`。**配線は実データ後 / 明示 GO まで保留**（最弱信号・誤検出=「忘れる地図」リスク）。leg>OD>silent・λ_silent=0.8・退行ゼロ
 - **較正 backlog: `docs/second-self-map-calibration-backlog.md`** — κ/λ/K/threshold は固定値運用 → 実データ後に L3-c/L4-c で較正。現時点 tuning 実装しない。
-- **次主フェーズ = Wave 2 Day Rehearsal**（1日を先に試す forward simulation・最適化でない）。mini design → pure simulation layer → smoke → UI（別 GO）。
+- **次主フェーズ = Wave 2 Day Rehearsal**（1日を先に試す forward simulation・最適化でない）。**mini design 済（step1-3）: `docs/second-self-map-day-rehearsal-mini-design.md`** → pure simulation layer（step4・次 GO）→ smoke → UI（別 GO）。既存 DayGraph/feasibility(slack)/TransportSegment/belief stack/DayMood・InnerWeather を再利用・fatigue/recovery/forward sim engine は新規。読み取り専用診断層（Reality Control OS の Repair が後で消費）。
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`
