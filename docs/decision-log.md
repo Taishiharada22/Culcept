@@ -15138,3 +15138,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - **実機 smoke PASS（2026-06-06・CEO/GPT 判定）**: dev サーバー(main worktree・port 3012・flag 不要・READ-only)で確認 → PASS。次=timeline point marker(mini design 先行) / raw feasibility・transport・InnerWeather 統合 / evidence「なぜ?」UI / 較正(データ後)。
 
 ---
+
+## [2026-06-06] Day Rehearsal WPM-1 — 詰まり(convergence) timeline marker（main 着地 live・smoke PASS）
+
+- 決定: banner(今日全体の見通し)の次に、時間軸で「どこが詰まるか」を選択日 timeline に read-only marker で。W-Point-1 audit=安全 → 詰まり marker のみ（回復は Option D で根拠弱く別 slice・GPT/CEO 判断）。
+- 実装(3 ファイル additive): DayGraphTimeline に `convergenceSteps` prop + `ConvergenceMarkerLine`（transition 直後・FeasibilityDisclosureLine pattern・slate・仮説トーン「この前後は予定が重なりやすいかもしれません」・sensitiveProximity redaction・amber/orange/icon/生スコアなし）+ CalendarTab が dayRehearsal.convergencePoints を渡す。
+- 対応: convergencePoints(stepIndex)=event 出現順=transitionIndexByFromNodeId（W-Point-1 検証）。convergence high=buffer 不足∧strain 高（詰まった日のみ・軽い日は出ない）。
+- 検証: 実機 smoke PASS(CEO)・marker render contract 8 + DayGraphTimeline 32 + plan suite 4926 PASS・tsc footprint 0・zero-loss・banner/MapTab/DB/engine 非破壊・temp 0・push なし。
+- 状態: **main `1414bf38` 着地 live**。closeout: `docs/second-self-map-day-rehearsal-wpm1-closeout.md`。
+
+関連 commit(branch dr-timeline-marker): 4add454e。main: 1414bf38(squash)。
+承認: CEO(WPM-1=詰まり marker のみ GO + Option A smoke 前検証 + smoke PASS + 着地)×GPT。ステータス: 詰まり marker live。次=WPM-2 recovery marker(audit+mini design 先行・gapMin/gap/raw feasibility の根拠検証・弱いなら停止)。
+
+---
