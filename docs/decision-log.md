@@ -15793,3 +15793,13 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **安全性**: 保存 / DB write / VLM / LLM **非接触**（FlowTab 経由の Supabase auth read のみ・通常 /plan と同等）。production **非接触**。月 enablement flag は **一時 env のみ・恒久変更なし**。push / PR / merge なし。[承認: CEO/GPT（C-1 smoke PASS・C-2 不要・C-3 へ進む指示）]
 
 ---
+
+[2026-06-07] [Build] **SR C3-1 month view build verification PASS（flag ON で production build 成功）** — 月 enablement flag を一時 ON にして `next build` が通るか確認。visual ではなく build verification（dev fixture は production で notFound が正しいため visual に使わない・C3-1 preflight readiness `63f96b81` 方針）。
+- **一時 env（process scope のみ・`.env.local` 編集なし）**: `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true npm run build`。
+- **build 純度確保**: untracked `dev-month-grid/*` を build 前に repo 外へ `mv` 退避（削除・git clean/checkout/restore/reset は不使用）→ build 後に `mv` で復帰。
+- **結果 PASS**: `BUILD_EXIT=0` / **✓ Compiled successfully in 12.8min** / **✓ Generating static pages 362/362** / Route table 生成 / `/plan/dev-source-marker-smoke` は `ƒ`（dynamic・本番 runtime で gate→notFound＝正しい挙動）/ **month flag 起因の build error なし**。`next.config.js` は `typescript.ignoreBuildErrors:true`（既存 1112 tsc baseline では build を落とさない・webpack compile のみ）。Sentry は DSN 未設定で plugin 無効（外部 upload なし）。
+- **build 生成物の後始末**: build が `next-env.d.ts`（Next 自動生成・tracked）の routes types 参照を書換えたため、`git show HEAD:next-env.d.ts > next-env.d.ts` で HEAD へ復元（git checkout/restore 不使用）。`.next/` build 出力は gitignored。
+- **honest nuance**: 月 flag は runtime boolean（CalendarTab が `{showViewToggle && ...}`）で月 view code は常に bundle ＝ flag-ON build ≈ 通常 build + inlined boolean。本検証の主価値は「production build が健全 + flag が inline で壊れない」確認。
+- **安全性**: production flag ON / deploy / DB write / save / VLM / push / PR / merge **いずれも非実施**。`.env.local` 非編集。dev-month-grid + next-env.d.ts は build 前状態へ復帰。visual は C-1 で済（dev≈prod）。[承認: CEO/GPT（C3-1 build verification GO・PASS なら C3-1 closeout + C3-2 readiness へ）]
+
+---
