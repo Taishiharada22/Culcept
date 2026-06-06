@@ -1,7 +1,7 @@
 # Day Rehearsal — step 4 closeout（pure simulation layer・未配線・branch）
 
-> 2026-06-06 / **pure simulation layer 実装済（branch `claude/second-self-map-day-rehearsal`・`2cf09824`・20 test・tsc footprint 0・未配線・main 未着地）**。
-> GO: CEO/GPT step 4「pure simulation layer まで・UI/production は別 GO」。mini design: `docs/second-self-map-day-rehearsal-mini-design.md`。
+> 2026-06-06 / **pure simulation layer main 着地（main `f1e87f39`・pure `2cf09824` を squash・新規ファイル・未配線・20 test・tsc footprint 0）**。UI/PlanClient/MapTab/DB 非接触＝production 不変。配線は別 GO。
+> GO: CEO/GPT step 4「pure simulation layer まで・UI/production は別 GO」→ main 着地 GO。mini design: `docs/second-self-map-day-rehearsal-mini-design.md` / 配線: `docs/second-self-map-day-rehearsal-wiring-mini-design.md`。
 
 ---
 
@@ -40,8 +40,9 @@
 - **tsc footprint 0**（dayRehearsal 実ファイル・total 1114=baseline）・**新規ファイルのみ（既存非改変=production 不変）**。
 
 ## 6. 残（CEO 判断 / 別 GO）
-- **main 着地** = CEO 判断（新規ファイル・未配線で安全だが、本 closeout レビュー後に判断）。
-- **配線**（rehearseDay を画面に・仮説トーン copy・生数字なし）= 別 GO（UI/MapTab/PlanClient/production）。
+- ✅ **main 着地済**（`f1e87f39`・新規ファイル・未配線・production 不変）。
+- ✅ **配線 mini design 済**: `docs/second-self-map-day-rehearsal-wiring-mini-design.md`（どこに/粒度/仮説トーン copy/PlanClient 接続・判断点 4）。
+- **配線実装**（rehearseDay を Plan view に・仮説トーン copy・生数字なし・表示のみ）= 別 GO（CEO 判断待ち）。
 - **belief/InnerWeather 統合拡張**（mode 予測 fallback・base energy 精緻化）= 別 slice。
 - **較正**（config の係数・threshold）= `calibration-backlog.md`（実データ後）。
 - **Reality Control OS 消費**（Repair/Optimize が rehearsal を読む）= 後段。

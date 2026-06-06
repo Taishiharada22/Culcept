@@ -15116,8 +15116,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 6 計算(前方積分): 成立(viability holds/tight/breaks/unknown)/friction/buffer(feasibility slack をそのまま=観測)/strain/recovery/convergence(「risk」=確率でなく重なり factors)。全推定が `{basis, known, unknown, inferred}` を携える。
 - 原則: strain≠fatigue 断定でない・unknown duration は捏造せず unknown・全 unknown→viability unknown・Date 不使用・degrade・読み取り専用診断層(Reality Control OS Repair が後で消費)。
 - 検証: 20 test PASS(engine 16 + adapter 4)・dayRehearsal 実ファイル tsc footprint 0・新規ファイルのみ(既存非改変=production 不変)。
-- 状態: **branch `claude/second-self-map-day-rehearsal`・`2cf09824`・pure・未配線・main 未着地**。closeout: `docs/second-self-map-day-rehearsal-step4-closeout.md`。
+- **main 着地（2026-06-06・CEO GO）**: pure `2cf09824` を main `f1e87f39` に squash（新規ファイルのみ・未配線・UI/PlanClient/MapTab/DB 非接触＝production 不変）。zero-loss・dayRehearsal 20 test・tsc footprint 0・push なし。L3-b-2 pure と同パターン（pure を main 固定・live 化はまだ）。
+- **配線 mini design 済（CEO「pure 固定後に慎重設計」）**: `docs/second-self-map-day-rehearsal-wiring-mini-design.md`。①どこ=Plan view(PlanClient) day-level outlook + point マーカー ②粒度=day-level + point から(transition inline は後段) ③copy=仮説トーン(生数字なし・fatigue/risk 断定禁止・evidence は「なぜ?」開示) ④接続=PlanClient READ-only で rehearseDay 呼ぶ(表示のみ・予定変更なし)。判断点 4。
 
-承認: CEO(GPT で Day Rehearsal step 4 pure GO・UI/配線は別 GO)×GPT。ステータス: Day Rehearsal pure layer done(branch)。次=main 着地(CEO 判断) / 配線(UI/MapTab/PlanClient・別 GO) / belief・InnerWeather 統合拡張 / 較正(データ後)。
+関連 commit(branch day-rehearsal): 2cf09824(pure)。main: f1e87f39(squash 着地)。closeout: `docs/second-self-map-day-rehearsal-step4-closeout.md`。
+承認: CEO(GPT で Day Rehearsal step 4 pure GO + main 着地 GO・配線は設計後判断)×GPT。ステータス: Day Rehearsal pure main 着地（未配線）+ 配線 mini design 済。次=配線実装可否(CEO 判断・別 GO) / belief・InnerWeather 統合拡張 / 較正(データ後)。
 
 ---
