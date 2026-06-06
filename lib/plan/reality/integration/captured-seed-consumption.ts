@@ -80,6 +80,9 @@ export function pickAllowedSeedColumns(row: ColumnRestrictedSeedRow): ColumnRest
     action_shape: row.action_shape,
     confidence: row.confidence,
     status: row.status,
+    // A1-5-11-2: lifecycle metadata（allowlist・raw でない）を保持（row 経路 sanitize でも落とさない）。
+    captured_at: row.captured_at,
+    expires_at: row.expires_at,
   };
 }
 

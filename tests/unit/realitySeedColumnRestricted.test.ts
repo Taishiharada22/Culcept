@@ -34,7 +34,8 @@ function govNode(id: string, startMin: number, endMin: number): GovernedNode {
 
 describe("A1-5-2-1 列契約（structured-only・raw 除外）", () => {
   it("ALLOWED_SEED_COLUMNS は structured fields のみ（signal/desired_action を含まない）", () => {
-    expect([...ALLOWED_SEED_COLUMNS]).toEqual(["id", "user_id", "desired_date", "desired_time_hint", "action_shape", "confidence", "status"]);
+    // A1-5-11-2: captured_at/expires_at（lifecycle metadata・structured・raw でない）を追加
+    expect([...ALLOWED_SEED_COLUMNS]).toEqual(["id", "user_id", "desired_date", "desired_time_hint", "action_shape", "confidence", "status", "captured_at", "expires_at"]);
     expect(ALLOWED_SEED_COLUMNS as readonly string[]).not.toContain("signal");
     expect(ALLOWED_SEED_COLUMNS as readonly string[]).not.toContain("desired_action");
   });
@@ -46,7 +47,7 @@ describe("A1-5-2-1 列契約（structured-only・raw 除外）", () => {
     expect(SEED_COLUMNS_SQL).not.toContain("signal");
     expect(SEED_COLUMNS_SQL).not.toContain("desired_action");
     expect(SEED_COLUMNS_SQL).not.toContain("*");
-    expect(SEED_COLUMNS_SQL).toBe("id, user_id, desired_date, desired_time_hint, action_shape, confidence, status");
+    expect(SEED_COLUMNS_SQL).toBe("id, user_id, desired_date, desired_time_hint, action_shape, confidence, status, captured_at, expires_at");
     expect(SEED_TABLE).toBe("plan_seeds"); // 名前のみ（本 module は read しない）
   });
   it("ColumnRestrictedSeedRow は raw field を型に持たない（型レベル）", () => {

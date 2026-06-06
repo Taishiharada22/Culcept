@@ -80,7 +80,9 @@ describe("A1-5-7-5 loadPendingProjected（canonical source 委譲・read-only・
     expect(await loadPendingProjected(fakeClient({ seedData: [seedRow()], evErr: true }), USER_ID)).toBeNull();
   });
   it("seed 0 → evidenceMap 空（evidence read しない）", async () => {
-    expect(await loadPendingProjected(fakeClient({ seedData: [] }), USER_ID)).toEqual({ placements: [], evidenceMap: {} });
+    const r = await loadPendingProjected(fakeClient({ seedData: [] }), USER_ID);
+    expect(r?.placements).toEqual([]);
+    expect(r?.evidenceMap).toEqual({}); // A1-5-11-2: lifecycleBySeedRef は additive（placements/evidenceMap は不変）
   });
 });
 

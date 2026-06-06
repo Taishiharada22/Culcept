@@ -22,8 +22,9 @@ import { PLAN_FLAGS } from "../../featureFlags";
 import { evaluateCaptureGate, type CaptureGateInput } from "../capture-gate";
 import { createColumnRestrictedSeedSource, type SeedUserContextClient } from "./seed-source";
 import { createColumnRestrictedDurationEvidenceSource, type DurationEvidenceUserContextClient } from "./duration-evidence-source";
-import { runConsumptionSurfaceFromProjected } from "./consumption-surface-bridge";
+import { runConsumptionSurfaceFromProjected, type ConsumptionLifecycleGuard } from "./consumption-surface-bridge";
 import { morningProtocolCaptureCandidateFragment, type CaptureCandidateFragment } from "./candidate-response-assembler";
+import type { SeedLifecycleMeta } from "./seed-column-restricted";
 import type { SeedConsumptionContext } from "./captured-seed-consumption";
 import type { SeedPlacement } from "../seed-placement";
 import type { DurationEvidence } from "../seed-placement-enrich";
@@ -52,24 +53,26 @@ export type PendingCapturedRowsReadClient = SeedUserContextClient & DurationEvid
 export interface PendingProjected {
   readonly placements: readonly SeedPlacement[];
   readonly evidenceMap: Readonly<Record<string, readonly DurationEvidence[]>>;
+  /** A1-5-11-2: seedRef→lifecycle meta（lifecycle guard 用・任意・read 由来）。 */
+  readonly lifecycleBySeedRef?: ReadonlyMap<string, SeedLifecycleMeta>;
 }
 
 /**
  * pending を **canonical read source 経由** で projected read（**read-only**・bounded・**fail-open: null**）。
- *   plan_seeds → `createColumnRestrictedSeedSource`（active placements）/ evidence → `createColumnRestrictedDurationEvidenceSource`（adoptable map）。
+ *   plan_seeds → `createColumnRestrictedSeedSource`（active placements + A1-5-11-2 lifecycle meta）/ evidence → `createColumnRestrictedDurationEvidenceSource`（adoptable map）。
  *   **本 module は `.from` を持たない**（single-read-source 制約遵守）。seed 0 → evidence read しない。
  */
 export async function loadPendingProjected(
   client: PendingCapturedRowsReadClient,
   userId: string
 ): Promise<PendingProjected | null> {
-  const placements = await createColumnRestrictedSeedSource(client, { limit: PENDING_READ_LIMIT }).loadActivePlacements(userId);
-  if (!placements) return null; // read error → fail-open
-  if (placements.length === 0) return { placements: [], evidenceMap: {} }; // seed 0 → evidence read しない
-  const seedIds = placements.map((p) => p.seedRef);
+  const active = await createColumnRestrictedSeedSource(client, { limit: PENDING_READ_LIMIT }).loadActiveWithLifecycle(userId);
+  if (!active) return null; // read error → fail-open
+  if (active.placements.length === 0) return { placements: [], evidenceMap: {}, lifecycleBySeedRef: active.lifecycleBySeedRef }; // seed 0 → evidence read しない
+  const seedIds = active.placements.map((p) => p.seedRef);
   const evidenceMap = await createColumnRestrictedDurationEvidenceSource(client, { seedIds, limit: PENDING_READ_LIMIT }).loadEvidenceMap(userId);
   if (!evidenceMap) return null; // read error → fail-open
-  return { placements, evidenceMap };
+  return { placements: active.placements, evidenceMap, lifecycleBySeedRef: active.lifecycleBySeedRef };
 }
 
 /** flags/env/userId → surface gate input（**pure**・liveEnabled=realityCaptureSurface）。 */
@@ -99,7 +102,8 @@ export function resolveSurfaceGate(opts: {
 export async function buildCaptureSurfaceFromProjected(
   gateAllow: boolean,
   loadProjected: () => Promise<PendingProjected | null>,
-  context: SeedConsumptionContext
+  context: SeedConsumptionContext,
+  nowMs?: number
 ): Promise<CandidateSurfaceDTO | null> {
   if (!gateAllow) return null; // gate block → read 0
   let projected: PendingProjected | null;
@@ -110,7 +114,13 @@ export async function buildCaptureSurfaceFromProjected(
   }
   if (!projected) return null;
   try {
-    return runConsumptionSurfaceFromProjected(projected.placements, projected.evidenceMap, context).surface;
+    // A1-5-11-2: lifecycle meta + 注入 nowMs が揃う時のみ guard（stale/expired/duplicate を surface 直前に除外）。
+    //   どちらか欠落（既存 DI test 等）→ guard なし＝既存挙動不変。candidateCount と items は bridge 内で同一 guarded 集合由来。
+    const guard: ConsumptionLifecycleGuard | undefined =
+      projected.lifecycleBySeedRef && nowMs !== undefined
+        ? { metaBySeedRef: projected.lifecycleBySeedRef, nowMs }
+        : undefined;
+    return runConsumptionSurfaceFromProjected(projected.placements, projected.evidenceMap, context, guard).surface;
   } catch {
     return null; // bridge error → fail-open
   }
@@ -148,7 +158,8 @@ export async function buildMorningCaptureSurface(
       bandBounds: DEFAULT_SURFACE_DAY_CONTEXT.bandBounds,
       existing: [],
     };
-    return await buildCaptureSurfaceFromProjected(gate.allow, () => loadPendingProjected(client, userId), context);
+    // A1-5-11-2: nowMs を注入（server 側で Date.now・pure core/bridge は決定的に保つ）→ lifecycle guard が staleness/expiry を評価。
+    return await buildCaptureSurfaceFromProjected(gate.allow, () => loadPendingProjected(client, userId), context, Date.now());
   } catch {
     return null; // never-throw（response 不変を絶対保証）
   }

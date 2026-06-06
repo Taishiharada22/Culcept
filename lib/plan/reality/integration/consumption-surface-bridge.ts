@@ -24,8 +24,49 @@ import {
   type SeedConsumptionContext,
 } from "./captured-seed-consumption";
 import { presentCandidateSurface, type CandidateSurfaceDTO } from "./candidate-surface";
+import { selectSurfaceableCandidates, type CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
+import type { SeedLifecycleMeta } from "./seed-column-restricted";
 import type { SeedPlacement } from "../seed-placement";
-import type { DurationEvidence } from "../seed-placement-enrich";
+import { enrichSeedPlacementsFromEvidences, type DurationEvidence } from "../seed-placement-enrich";
+
+/**
+ * A1-5-11-2: surface read path の lifecycle guard 入力（**pure・raw 非搬送**・now は注入＝deterministic）。
+ *   `metaBySeedRef`（read 由来 actionShape/capturedAtMs/expiresAtMs）+ `nowMs`（呼出側=server が Date.now 注入）+ freshness policy。
+ */
+export interface ConsumptionLifecycleGuard {
+  readonly metaBySeedRef: ReadonlyMap<string, SeedLifecycleMeta>;
+  readonly nowMs: number;
+  readonly freshnessMs?: number;
+}
+
+/**
+ * A1-5-11-2: **enriched placements を lifecycle guard で絞る**（pure）。durationMin は enrich 後ゆえ dedup 構造キーに有効。
+ *   enriched + meta(seedRef) → `CandidateLifecycleEntry[]` → `selectSurfaceableCandidates`（active/fresh/非 expired/非 duplicate）→ 残った seedRef の enriched placement のみ返す。
+ *   meta 欠落 seedRef は fail-open（capturedAtMs=nowMs=fresh / expiresAtMs=null）で残す（join miss で正当候補を落とさない）。raw/source_ref を出さない（entry は構造のみ）。
+ */
+function applyLifecycleGuardToEnriched(
+  enriched: readonly SeedPlacement[],
+  guard: ConsumptionLifecycleGuard
+): readonly SeedPlacement[] {
+  const entries: CandidateLifecycleEntry[] = enriched.map((p) => {
+    const meta = guard.metaBySeedRef.get(p.seedRef);
+    return {
+      seedRef: p.seedRef,
+      status: "active", // read は status='active' のみ取得（defense-in-depth）
+      capturedAtMs: meta?.capturedAtMs ?? guard.nowMs, // 欠落→fresh（fail-open keep）
+      expiresAtMs: meta?.expiresAtMs ?? null,
+      actionShape: meta?.actionShape ?? null,
+      desiredDate: p.date ?? null,
+      desiredTimeHint: p.window?.band ?? null,
+      durationMin: p.durationMin, // enriched（dedup 構造キー）
+      confidence: p.confidence,
+    };
+  });
+  const refs = new Set(
+    selectSurfaceableCandidates(entries, { nowMs: guard.nowMs, freshnessMs: guard.freshnessMs }).surfaceable.map((e) => e.seedRef)
+  );
+  return enriched.filter((p) => refs.has(p.seedRef));
+}
 
 /** bridge 出力（**redacted**）。summary（observability 用 counts）と surface（response/UI 用 DTO）を **同一 canonical 計算**から出す。 */
 export interface CapturedSeedConsumptionSurfaceResult {
@@ -56,9 +97,16 @@ export function runCapturedSeedConsumptionWithSurface(
 export function runConsumptionSurfaceFromProjected(
   placements: readonly SeedPlacement[],
   evidenceMap: Readonly<Record<string, readonly DurationEvidence[]>>,
-  context?: SeedConsumptionContext
+  context?: SeedConsumptionContext,
+  lifecycleGuard?: ConsumptionLifecycleGuard
 ): CapturedSeedConsumptionSurfaceResult {
-  return surfaceFromComputation(computeConsumptionFromProjected(placements, evidenceMap, context));
+  // A1-5-11-2: lifecycle guard（任意）。enrich→guard で stale/expired/duplicate を surface 直前に除外。
+  //   core（computeConsumptionFromProjected）は guarded を **再 enrich（idempotent・durationMin 上書きなし）** ゆえ
+  //   candidateCount(summary) と surface items は **同一 guarded 集合由来**（drift なし）。guard 不在時は既存挙動不変。
+  const effective = lifecycleGuard
+    ? applyLifecycleGuardToEnriched(enrichSeedPlacementsFromEvidences(placements, evidenceMap), lifecycleGuard)
+    : placements;
+  return surfaceFromComputation(computeConsumptionFromProjected(effective, evidenceMap, context));
 }
 
 /** computation → {summary, surface}（redaction 境界は presentCandidateSurface 1 箇所・seedRef drop）。 */

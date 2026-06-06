@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { runCapturedSeedConsumptionWithSurface } from "@/lib/plan/reality/integration/consumption-surface-bridge";
+import { runCapturedSeedConsumptionWithSurface, runConsumptionSurfaceFromProjected } from "@/lib/plan/reality/integration/consumption-surface-bridge";
 import { runCapturedSeedConsumptionShadow } from "@/lib/plan/reality/integration/captured-seed-consumption";
 import { appendCaptureCandidateToMorningResult } from "@/lib/plan/reality/integration/candidate-response-assembler";
 import { collectStringValues } from "@/lib/plan/reality/integration/redaction-guard";
-import type { ColumnRestrictedSeedRow } from "@/lib/plan/reality/integration/seed-column-restricted";
-import type { ColumnRestrictedDurationEvidenceRow } from "@/lib/plan/reality/integration/duration-evidence-source";
+import { projectSeedRowsToPlacements, buildSeedLifecycleMeta, type ColumnRestrictedSeedRow } from "@/lib/plan/reality/integration/seed-column-restricted";
+import { projectDurationEvidenceRowsToMap, type ColumnRestrictedDurationEvidenceRow } from "@/lib/plan/reality/integration/duration-evidence-source";
 
 const SEED_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "22222222-2222-4222-8222-222222222222";
@@ -124,5 +124,69 @@ describe("A1-5-7-4 bridge — canonical 一致 / deterministic / 静的安全", 
   it("barrel(integration/index.ts) が consumption-surface-bridge を再 export しない", () => {
     const idx = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/integration/index.ts"), "utf8");
     expect(idx).not.toContain("consumption-surface-bridge");
+  });
+});
+
+// ── A1-5-11-2: lifecycle guard を runtime surface path（projected bridge）に通す wiring ──
+const NOW = Date.parse("2026-06-07T00:00:00.000Z");
+const SEED_B = "44444444-4444-4444-8444-444444444444";
+// lifecycle fixture: 既定 fresh（capture 1 日前）・expiry なし
+function seedL(p: Partial<ColumnRestrictedSeedRow> = {}): ColumnRestrictedSeedRow {
+  return seed({ captured_at: "2026-06-06T00:00:00.000Z", expires_at: null, ...p });
+}
+function runGuarded(seedRows: ColumnRestrictedSeedRow[], evRows: ColumnRestrictedDurationEvidenceRow[], nowMs = NOW) {
+  const placements = projectSeedRowsToPlacements(seedRows);
+  const evMap = projectDurationEvidenceRowsToMap(evRows);
+  return runConsumptionSurfaceFromProjected(placements, evMap, CTX, { metaBySeedRef: buildSeedLifecycleMeta(seedRows), nowMs });
+}
+
+describe("A1-5-11-2 lifecycle guard wiring — runtime surface path（projected bridge）", () => {
+  it("active fresh + high evidence → candidate（candidateCount と items 整合）", () => {
+    const r = runGuarded([seedL()], [evidence({ source: "seed_explicit" })]);
+    expect(r.surface.hasCandidate).toBe(true);
+    expect(r.surface.candidateCount).toBe(1);
+    expect(r.surface.items).toHaveLength(1);
+    expect(r.summary.candidateCount).toBe(r.surface.candidateCount); // 同一 guarded 集合由来＝drift なし
+  });
+  it("duplicate fresh seeds（同構造）→ 1 candidate に抑制（items 1）", () => {
+    const a = seedL({ id: SEED_ID });
+    const b = seedL({ id: SEED_B }); // 同 action_shape/date/time_hint・同 duration
+    const evA = evidence({ id: "a0000000-0000-4000-8000-000000000001", seed_id: SEED_ID });
+    const evB = evidence({ id: "b0000000-0000-4000-8000-000000000002", seed_id: SEED_B });
+    const r = runGuarded([a, b], [evA, evB]);
+    expect(r.surface.hasCandidate).toBe(true);
+    expect(r.surface.items).toHaveLength(1); // dedup（2→1）
+  });
+  it("expired active seed（expires_at 経過）→ no candidate", () => {
+    const r = runGuarded([seedL({ expires_at: "2026-06-06T00:00:00.000Z" })], [evidence()]); // NOW より前＝失効
+    expect(r.surface.hasCandidate).toBe(false);
+    expect(r.surface.items).toEqual([]);
+    expect(r.summary.candidateCount).toBe(0);
+  });
+  it("stale active seed（capture が freshness 窓より古い）→ no candidate", () => {
+    const r = runGuarded([seedL({ captured_at: "2026-05-01T00:00:00.000Z" })], [evidence()]); // 37 日前 > 14 日
+    expect(r.surface.hasCandidate).toBe(false);
+    expect(r.summary.candidateCount).toBe(0);
+  });
+  it("guard 不在（lifecycleGuard 省略）→ 既存挙動不変（filter なし）", () => {
+    const placements = projectSeedRowsToPlacements([seed()]);
+    const r = runConsumptionSurfaceFromProjected(placements, projectDurationEvidenceRowsToMap([evidence()]), CTX);
+    expect(r.surface.candidateCount).toBe(1); // guard なし＝従来通り
+  });
+  it("low evidence / prm_typical / no evidence → no candidate（上流 isSurfaceableCandidate・guard 経由でも維持）", () => {
+    expect(runGuarded([seedL()], [evidence({ confidence: "low" })]).surface.hasCandidate).toBe(false);
+    expect(runGuarded([seedL()], [evidence({ source: "prm_typical" })]).surface.hasCandidate).toBe(false);
+    expect(runGuarded([seedL()], []).surface.hasCandidate).toBe(false);
+  });
+  it("非 surface: surface に UUID / source_ref / seedRef / raw を出さない", () => {
+    const json = JSON.stringify(runGuarded([seedL()], [evidence()]).surface);
+    expect(json).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+    for (const leak of ["source_ref", "seedRef", "signal", "desired_action"]) expect(json).not.toContain(leak);
+  });
+  it("deterministic（同一入力→同一出力）", () => {
+    expect(runGuarded([seedL()], [evidence()])).toEqual(runGuarded([seedL()], [evidence()]));
+  });
+  it("静的: bridge は Date.now を持たない（now 注入＝deterministic）", () => {
+    expect(CODE).not.toContain("Date.now");
   });
 });

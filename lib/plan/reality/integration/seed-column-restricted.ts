@@ -32,6 +32,9 @@ export const ALLOWED_SEED_COLUMNS = [
   "action_shape",
   "confidence",
   "status",
+  // A1-5-11-2: lifecycle metadata（**structured・raw でない**・既存 schema 列）。staleness/expiry guard 用。
+  "captured_at",
+  "expires_at",
 ] as const;
 export type AllowedSeedColumn = (typeof ALLOWED_SEED_COLUMNS)[number];
 
@@ -57,6 +60,10 @@ export interface ColumnRestrictedSeedRow {
   readonly action_shape: string | null;
   readonly confidence: number;
   readonly status: string;
+  /** A1-5-11-2: capture 時刻（ISO・staleness 判定・既存 NOT NULL 列）。real read は常に取得・欠落時は guard が fail-safe（最古=stale 扱い）。 */
+  readonly captured_at?: string;
+  /** A1-5-11-2: 明示失効時刻（ISO / null・expiry 判定・既存 nullable 列）。 */
+  readonly expires_at?: string | null;
 }
 
 /**
@@ -87,4 +94,38 @@ function rowToStructuredSeed(row: ColumnRestrictedSeedRow): PlanSeed {
  */
 export function projectSeedRowsToPlacements(rows: readonly ColumnRestrictedSeedRow[]): readonly SeedPlacement[] {
   return buildSeedPlacements(rows.map(rowToStructuredSeed));
+}
+
+/**
+ * A1-5-11-2: lifecycle guard 用メタ（**構造化・raw でない**・seedRef で placement と join）。
+ *   actionShape は dedup 構造キー / capturedAtMs は staleness / expiresAtMs は expiry。
+ */
+export interface SeedLifecycleMeta {
+  readonly actionShape: string | null;
+  readonly capturedAtMs: number;
+  readonly expiresAtMs: number | null;
+}
+
+/** ISO → epoch ms（**Date.parse は決定的・Date.now でない**）。不正/空 → null。 */
+function parseIsoMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * A1-5-11-2: column-restricted seed row[] → **seedRef→lifecycle meta map**（pure・raw 非搬送）。
+ *   captured_at 不正/欠落 → capturedAtMs=0（最古＝stale 扱い・fail-safe で surface しない側に倒す）。
+ *   guard（selectSurfaceableCandidates）が staleness/expiry/dedup に使う。
+ */
+export function buildSeedLifecycleMeta(rows: readonly ColumnRestrictedSeedRow[]): ReadonlyMap<string, SeedLifecycleMeta> {
+  const m = new Map<string, SeedLifecycleMeta>();
+  for (const r of rows) {
+    m.set(r.id, {
+      actionShape: r.action_shape,
+      capturedAtMs: parseIsoMs(r.captured_at) ?? 0, // 不正→最古（fail-safe: stale 側）
+      expiresAtMs: parseIsoMs(r.expires_at),
+    });
+  }
+  return m;
 }

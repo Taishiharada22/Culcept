@@ -22,7 +22,9 @@ import {
   SEED_TABLE,
   SEED_COLUMNS_SQL,
   projectSeedRowsToPlacements,
+  buildSeedLifecycleMeta,
   type ColumnRestrictedSeedRow,
+  type SeedLifecycleMeta,
 } from "./seed-column-restricted";
 import type { SeedPlacement } from "../seed-placement";
 import { evaluateSmokeGate, type SmokeGate } from "./dev-runtime";
@@ -64,9 +66,17 @@ export interface SeedReadBounds {
   readonly activeAsOfIso?: string;
 }
 
+/** A1-5-11-2: placements + seedRef→lifecycle meta（lifecycle guard 用・raw 非搬送）。 */
+export interface ActivePlacementsWithLifecycle {
+  readonly placements: readonly SeedPlacement[];
+  readonly lifecycleBySeedRef: ReadonlyMap<string, SeedLifecycleMeta>;
+}
+
 /** plan_seeds の active 行を `SeedPlacement[]` として返す source（**seed のみ・RealityInput でない**）。 */
 export interface ColumnRestrictedSeedSource {
   loadActivePlacements(userId: string): Promise<readonly SeedPlacement[] | null>;
+  /** A1-5-11-2: placements + lifecycle meta（同一 read から projection + meta・lifecycle guard 用）。 */
+  loadActiveWithLifecycle(userId: string): Promise<ActivePlacementsWithLifecycle | null>;
 }
 
 /**
@@ -79,20 +89,30 @@ export function createColumnRestrictedSeedSource(
   client: SeedUserContextClient,
   bounds: SeedReadBounds
 ): ColumnRestrictedSeedSource {
+  // 共有 row read（column-restricted SELECT・bounded・active のみ・write なし）。
+  async function loadRows(userId: string): Promise<readonly ColumnRestrictedSeedRow[] | null> {
+    let q = client
+      .from(SEED_TABLE) // "plan_seeds"（定数・本ファイルのみ）
+      .select(SEED_COLUMNS_SQL) // 許可列のみ（"*" でない・raw / source_ref なし。A1-5-11-2 で captured_at/expires_at 追加）
+      .eq("user_id", userId) // RLS + 明示 user 限定（二重防御）
+      .eq("status", "active"); // active のみ
+    if (bounds.activeAsOfIso) {
+      // 期限切れ除外（境界注入）
+      q = q.or(`expires_at.is.null,expires_at.gt.${bounds.activeAsOfIso}`);
+    }
+    const { data, error } = await q.limit(clampSeedLimit(bounds.limit)); // 件数上限（無制限禁止・>50 は clamp）
+    return error || !data ? null : data;
+  }
   return {
     async loadActivePlacements(userId: string) {
-      let q = client
-        .from(SEED_TABLE) // "plan_seeds"（定数・本ファイルのみ）
-        .select(SEED_COLUMNS_SQL) // 許可列のみ（"*" でない・raw / source_ref なし）
-        .eq("user_id", userId) // RLS + 明示 user 限定（二重防御）
-        .eq("status", "active"); // active のみ
-      if (bounds.activeAsOfIso) {
-        // 期限切れ除外（expires_at は SELECT せず WHERE のみ・境界注入）
-        q = q.or(`expires_at.is.null,expires_at.gt.${bounds.activeAsOfIso}`);
-      }
-      const { data, error } = await q.limit(clampSeedLimit(bounds.limit)); // 件数上限（無制限禁止・>50 は clamp）
-      if (error || !data) return null;
-      return projectSeedRowsToPlacements(data); // 許可列のみ → raw 非搬送 / active のみ / durationMin=null
+      const rows = await loadRows(userId);
+      return rows ? projectSeedRowsToPlacements(rows) : null; // raw 非搬送 / active のみ / durationMin=null
+    },
+    async loadActiveWithLifecycle(userId: string) {
+      const rows = await loadRows(userId);
+      return rows
+        ? { placements: projectSeedRowsToPlacements(rows), lifecycleBySeedRef: buildSeedLifecycleMeta(rows) }
+        : null;
     },
   };
 }

@@ -53,7 +53,7 @@ describe("A1-5-2-2-2c seed source — column-restricted SELECT 契約", () => {
     const { client, calls } = mockClient([]);
     await createColumnRestrictedSeedSource(client, { limit: 50 }).loadActivePlacements("u1");
     expect(calls.select).toBe(SEED_COLUMNS_SQL);
-    expect(calls.select).toBe("id, user_id, desired_date, desired_time_hint, action_shape, confidence, status");
+    expect(calls.select).toBe("id, user_id, desired_date, desired_time_hint, action_shape, confidence, status, captured_at, expires_at");
     expect(calls.select).not.toContain("*");
   });
 
@@ -90,11 +90,11 @@ describe("A1-5-2-2-2c seed source — column-restricted SELECT 契約", () => {
     expect(calls.limit).toBe(MAX_SEED_LIMIT);
   });
 
-  it("expired 除外: activeAsOfIso 注入時のみ expires_at の WHERE OR を足す（SELECT には載せない）", async () => {
+  it("expired 除外: activeAsOfIso 注入時のみ expires_at の WHERE OR を足す（A1-5-11-2 で SELECT にも載る）", async () => {
     const withBound = mockClient([]);
     await createColumnRestrictedSeedSource(withBound.client, { limit: 50, activeAsOfIso: "2026-06-05T00:00:00Z" }).loadActivePlacements("u1");
     expect(withBound.calls.ors.some((f) => f.includes("expires_at"))).toBe(true);
-    expect(withBound.calls.select).not.toContain("expires_at"); // WHERE のみ・SELECT しない
+    expect(withBound.calls.select).toContain("expires_at"); // A1-5-11-2: lifecycle guard 用に SELECT にも載せる（raw でない structured 列）
 
     const noBound = mockClient([]);
     await createColumnRestrictedSeedSource(noBound.client, { limit: 50 }).loadActivePlacements("u1");
@@ -165,7 +165,10 @@ describe("A1-5-2-2-2c seed source — gate fail-closed（load 0）", () => {
   const base: SmokeGate = { nodeEnv: "development", flagEnabled: true, capability: "dev-only", requestedUserId: "u1", allowedDevUserId: "u1" };
   function spySource() {
     const state = { loads: 0 };
-    const source: ColumnRestrictedSeedSource = { async loadActivePlacements() { state.loads += 1; return []; } };
+    const source: ColumnRestrictedSeedSource = {
+      async loadActivePlacements() { state.loads += 1; return []; },
+      async loadActiveWithLifecycle() { state.loads += 1; return { placements: [], lifecycleBySeedRef: new Map() }; },
+    };
     return { source, state };
   }
 
