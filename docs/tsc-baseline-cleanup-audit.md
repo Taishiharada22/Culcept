@@ -49,9 +49,7 @@
 | # | slice | 件数 | 内容 | リスク | 依存 |
 |---|---|---|---|---|---|
 | **S1 ✅ DONE** | **vitest globals 認識** | **−970** | `types/vitest-globals.d.ts`（`/// <reference types="vitest/globals" />`・additive）で解消。**main `a8eb7a04` 着地済**（1114→144・TS2304 622→1・TS2582 349→0）。runtime 不変（型のみ・9796 tests PASS）。closeout: `tsc-baseline-cleanup-s1-closeout.md`。 | 低 | 完了 |
-| **S2** | ceo dashboard | ~6 | `SkillSummary`/`SkillSummaryResult` に `autoCloseCount` 追加 or 使用側削除。skillTelemetry 引数型整合。 | 低〜中 | S1 後 |
-| **S3** | origin / baseline | ~4 | OriginPageClient `onStartExploration` prop 整合・BaselineCollectionClient tuple/unknown 修正。 | 低〜中 | S1 後 |
-| **S4** | lib misc | ~13 | tourState null 化・generatePairInsight coreValues・alter-morning lib・MorningMapView・useMemoryItems。scattered な小修正を個別に。 | 低 | S1 後 |
+| **S2-S4 ✅ 一部 DONE** | ceo / origin・baseline / lib misc | **−6** | **main `be6f12f6` 着地**（144→138）。低リスク型ズレ 6 件のみ修正: autoCloseCount(CeoDash interface + route emptySkill)・notifications setType union・useMemoryItems status:string・EndpointAnchor fixedStart。**残置（HARD GATE）**: skillTelemetry isAutoClose(real bug・挙動変更)・coreValues(feature 半完成)・llmPlanExtractor "work"・SynthesisSource・journeyOrigin・MorningMapView google・OCCUPATION・tourState null・origin onStartExploration → 各々 owning 機能の仕様/logic 判断要。closeout: `…-s2s4-closeout.md`。 | 低 | 完了 |
 | **S5** | stargazer/alter ↔ perspectiveEngine | ~15 | **要 owning-session 文脈**: A1-5-8/9 の searchTaskClassification 等が「未完配線」か「perspectiveEngine 側に追加すべき API」かを判定してから修正。core path のため慎重。 | **中** | S1 後・単独 slice |
 | **S6** | test 型エラー（実型） | ~106 | alter-morning/journey・extract・post・coalter・plan-anchor の fixture/signature 陳腐化を subsystem 別に分割修正。runtime 影響なし。 | 低 | S1 後（最後） |
 

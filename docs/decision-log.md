@@ -15232,3 +15232,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(S1 GO)。ステータス: S1 完了。次=CEO 判断（S2 以降の GO or 別タスク）。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup S2-S4 — source 低リスク型ズレ 6件（main 着地 live）
+
+- 決定: CEO GO で S2-S4 の source cleanup。read-only 監査で「明確に型のみ・production 挙動不変」のものだけ外科的修正、危険/仕様判断要は HARD GATE で残置。
+- **修正（6 errors・型のみ）**: ① autoCloseCount を CeoDashboardClient.SkillSummary interface + route emptySkill literal に補完（missing field・API/集計既出）② notifications setType を NOTIFICATION_TYPES value union に（literal narrowing）③ useMemoryItems subscribe param に string 注釈（implicit any・非 any）④ EndpointAnchor に fixedStart?:string additive（intentParser が既に代入済の runtime 形）。
+- **残置（HARD GATE: 仕様/logic/挙動変更/ripple）**: skillTelemetry isAutoClose（query が summary 未 select=real bug・修正は挙動変更）・generatePairInsight coreValues（AlterGrowthSummary に field なし=feature 半完成）・llmPlanExtractor "work" 比較・morningPipeline SynthesisSource・journeyOrigin StargazerEvent・MorningMapView google 重複宣言・baseline OCCUPATION 型推論・tourState null・origin onStartExploration。S5 stargazer/alter(15) は明示対象外・S6 test(107) 後回し。
+- before/after（main 計測）: 144→**138**（−6）/ 累計 1114→138（−976）/ 新規エラー 0 / OOM なし / source 37→31。
+- production 挙動変更**なし**（全て型注釈/missing field/param 注釈・runtime 不変）。
+- 検証: alter-morning + plan **463 files / 9474 PASS** + useMemoryItems **47 PASS**・zero-loss（branch c47b12fd 一致）・scope外/temp/node_modules 混入 0・変更は 5 ファイル型のみ（+7 −3）。
+- 状態: **main `be6f12f6` 着地 live**（親 `19e64b34`）。closeout: `docs/tsc-baseline-cleanup-s2s4-closeout.md`。
+- 承認: CEO(S2-S4 GO)。ステータス: S2-S4 完了（低リスク分のみ）。次=CEO 判断（S6 test / S5 / 残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
