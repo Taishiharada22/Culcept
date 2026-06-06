@@ -15151,3 +15151,15 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(WPM-1=詰まり marker のみ GO + Option A smoke 前検証 + smoke PASS + 着地)×GPT。ステータス: 詰まり marker live。次=WPM-2 recovery marker(audit+mini design 先行・gapMin/gap/raw feasibility の根拠検証・弱いなら停止)。
 
 ---
+
+## [2026-06-06] Day Rehearsal WPM-2 audit — recovery marker 根拠検証 → 実装せず停止（gapMin 弱い）
+
+- 結論: **recovery marker は実装せず停止**（CEO「根拠が弱いなら停止して報告」に該当）。doc: `docs/second-self-map-day-rehearsal-wpm2-audit.md`。
+- 実コード検証: gapMin=`max(0, next.start − prev.end)`=event 間隔（**移動時間を含む**＝free time の上界・過大評価）。GapNode も同じ。真の余白 slack=gap−travel は `transitionRecovery` が依存するが Option D で **slackMin=null**（display 層が raw を破棄）。bufferStatus "sufficient" は余白の量を言わず過大評価を解消できない。
+- なぜ詰まりは OK で回復は NG: convergence は「buffer 不足」という観測を根拠にできた（sound）。recovery は「余白が十分」という量の主張が必要で、量が無い Option D では sound にならない。gapMin で出すと移動が大半の gap を誤って「一息つけそう」表示＝misleading。
+- 道筋: **Option A（raw feasibility を pipeline/hook の戻りに additive 公開・既存 display 不変）**が前提。raw slack は `runFeasibilityDisplayPipeline:143` で計算済だが破棄。公開すれば既存 transitionRecovery がそのまま動き recovery を sound に出せる（convergence も magnitude を持て精度↑）。Option A は banner 段で defer 済。
+- CEO 判断点: (1) recovery のため Option A を解禁するか（解禁→WPM-2a Option A→WPM-2b recovery / 非解禁→recovery 保留・詰まり marker で時間軸価値は既出）。(2) transport 統合でも slack 算出可だが provider 依存で重い→Option A が最短最 sound。
+
+承認: CEO(WPM-2 audit GO)×GPT。ステータス: WPM-2 audit done・recovery 実装は停止（根拠不足）。次=CEO 判断（Option A 解禁 or recovery 保留）。push/Vercel 未実施。
+
+---
