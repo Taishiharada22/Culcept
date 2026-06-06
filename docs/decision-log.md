@@ -15258,3 +15258,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(S6 GO)。ステータス: S6 batch1 完了。次=CEO 判断（S6 batch2 / anchor cast / S5 / 残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup S6 batch2 — test fixture 型ズレ 14件（main 着地 live）
+
+- 決定: CEO GO で S6 batch2。明確安全な同一原因のみ修正（production source 不接触・期待値不変・cast は意図的 inspection の 10 件限定）。
+- **修正（14・test-only）**: ① anchor cast(10): `(X as Record).field).toBeUndefined()`→`as unknown as Record`（**削除/非存在 field の不在確認＝意図的 inspection**・CEO 限定許可）。anchorUpdateValidation 6/anchorInputForm 2/anchorPrefillIntegration 1（全 as Record が対象=file replace_all）+ externalAnchorSupabaseRepository 1（3 中 line126 のみ per-line・他 2 不変）② @ts-expect-error 除去(2): declinedRecovery/locationOptInState の TS2578（unused=stale）③ planHistory(1): mode "walking"→"walk"（alter-morning TransportMode 値）④ previousDayInheritance(1): result?.source を type-guard helper labelOf()（cast でなく `"label" in r`）で narrow。
+- **HARD GATE 遵守**: blanket sed なし・cast 計 10 ちょうど（型黙らせでなく inspection）・prod source 不変・意味不変・S5 不関与。
+- before/after（main 計測）: 101→**87**（−14）/ source 31 不変 / **累計 1114→87（−1027・92%）**。
+- production 挙動変更**なし**。検証: plan+alter-morning **463 files / 9474 PASS**・zero-loss（branch 0f375134 一致）・対象解消（planHistory 101 は別原因で意図的残置）・scope外/temp/node_modules 混入 0。
+- **残置（CEO GO/仕様/S5）**: postSelectionFlow null(13)・urgentLayerDismiss(12)・stargazer 7(S5)・phaseC isWeekday(5・複数 stale field)・misc 個別。これ以上の test-only 安全 batch は限定的（残りは prod 型/仕様/Mock/S5 判断要）。
+- 状態: **main `08ff945d` 着地 live**（親 `888b1c5a`）。closeout: `docs/tsc-baseline-cleanup-s6b2-closeout.md`。
+- 承認: CEO(S6 batch2 GO)。ステータス: S6 batch2 完了。次=CEO 判断（postSelectionFlow/urgentLayerDismiss/S5/残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
