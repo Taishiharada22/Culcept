@@ -1,16 +1,29 @@
 /**
- * DayOutlookBanner render contract — 仮説トーン / warning 色禁止 / 断定語禁止 / unknown 非表示。
- * Day Rehearsal 初回 UI 露出の安全性を render で機械保証。
+ * DayOutlookBanner render contract — 仮説トーン / warning 色禁止 / 断定語禁止 / unknown 非表示
+ * + Evidence「なぜ?」disclosure（read-only details・default 閉・観測/推定/未確定・生数字/警告/診断なし）。
+ * Day Rehearsal UI 露出の安全性を render で機械保証。
  */
 import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DayOutlookBanner } from "@/app/(culcept)/plan/components/DayOutlookBanner";
 import type { DayRehearsal, ViabilityOutlook } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 
-function rehearsalWith(outlook: ViabilityOutlook): DayRehearsal {
+const EV = { basis: [], known: [], unknown: [], inferred: [] };
+const EST = { level: "low" as const, score: 0, evidence: EV };
+
+/** 完全形 fixture（explainDayOutlook が steps/density/convergencePoints を読むため）。 */
+function rehearsalWith(outlook: ViabilityOutlook, over: Partial<DayRehearsal> = {}): DayRehearsal {
   return {
-    viability: { outlook, breaksAtStepIndex: null, evidence: { basis: [], known: [], unknown: [], inferred: [] } },
-  } as unknown as DayRehearsal;
+    date: "2026-06-07",
+    density: "balanced",
+    viability: { outlook, breaksAtStepIndex: null, evidence: EV },
+    steps: [],
+    peakStrain: EST,
+    recoveryWindows: [],
+    convergencePoints: [],
+    coverage: { transitionsTotal: 0, travelKnown: 0, travelUnknown: 0, eventsAssumedDuration: 0 },
+    ...over,
+  };
 }
 
 describe("DayOutlookBanner — 仮説トーン / warning 色禁止 / unknown 非表示", () => {
@@ -58,6 +71,53 @@ describe("DayOutlookBanner — 仮説トーン / warning 色禁止 / unknown 非
       expect(html).not.toContain("危険");
       expect(html).not.toContain("疲れ");
       expect(html).not.toContain("壊れ");
+    }
+  });
+});
+
+describe("DayOutlookBanner — Evidence「なぜ?」disclosure", () => {
+  it("なぜ? disclosure を含む（native details + summary + testid）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} />);
+    expect(html).toContain('data-testid="plan-day-outlook-why"');
+    expect(html).toContain("<details");
+    expect(html).toContain("<summary");
+    expect(html).toContain("なぜ?");
+  });
+
+  it("default 閉（details に open 属性なし）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} />);
+    expect(html).not.toMatch(/<details\b[^>]*\bopen\b/);
+  });
+
+  it("観測行『この予定の並び』を常に含む（観測フレーム）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("holds")} />);
+    expect(html).toContain("この見通しは、");
+    expect(html).toContain("この予定の並び");
+    expect(html).toContain("から見ています");
+  });
+
+  it("packed → 観測『予定の密度』を展開に含む", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight", { density: "packed" })} />);
+    expect(html).toContain("予定の密度");
+  });
+
+  it("convergence → 推定『重なりやすさ』を含む", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("breaks", { convergencePoints: [0] })} />);
+    expect(html).toContain("重なりやすさ");
+    expect(html).toContain("推定");
+  });
+
+  it("recoveryStepCount>0 → 推定『一息つけそうな区間』を含む", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("holds")} recoveryStepCount={2} />);
+    expect(html).toContain("一息つけそうな区間");
+  });
+
+  it("disclosure も warning 色 / 断定・警告・診断語を含まない", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks", { density: "packed", convergencePoints: [0] })} recoveryStepCount={1} />,
+    );
+    for (const w of ["amber", "orange", "bg-red", "危険", "警告", "失敗", "疲れ", "壊れ", "診断", "最適化", "予測", "予想"]) {
+      expect(html).not.toContain(w);
     }
   });
 });
