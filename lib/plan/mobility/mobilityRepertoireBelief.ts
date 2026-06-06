@@ -20,10 +20,13 @@ import { buildWeightedModeBelief, precisionWeight } from "./beliefReadAdapter";
 import {
   computeRegimeFactorFn,
   computeCombinedRegimeFactorFn,
+  computeFullRegimeFactorFn,
   DEFAULT_L3_CONFIG,
   DEFAULT_L3B_CONFIG,
+  DEFAULT_L3B2_CONFIG,
   type SelectiveForgettingConfig,
   type CombinedForgettingConfig,
+  type FullForgettingConfig,
 } from "./mobilitySelectiveForgetting";
 import {
   parseStore,
@@ -428,4 +431,32 @@ export function loadL3bPooledBeliefMultiLevel(
   kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
 ): ModeBelief {
   return buildL3bPooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, config, kappa);
+}
+
+// ───────────────────────── L3-b-2: silent shift 統合版（pure・additive・未配線） ─────────────────────────
+
+/**
+ * L3-b-2 belief（pure）。leg(L3-a) + OD(L3-b-1) + silent(L3-b-2) を統合した full regimeFactorFn を
+ * L4-b の buildPooledBeliefMultiLevel に注入。優先 leg > OD > silent（二重緩和なし）。
+ * ★silent shift も leg/OD regime も無ければ恒等 → L3-b-1/L4-b と完全同一（退行ゼロ）。古い観測は削除されず ×λ_silent のみ。
+ */
+export function buildL3b2PooledBeliefMultiLevel(
+  obs: MobilityObservationStore,
+  selected: SelectedModeStore,
+  feedback: HypothesisFeedbackStore,
+  query: RepertoireQuery,
+  config: FullForgettingConfig = DEFAULT_L3B2_CONFIG,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  const regimeFactorFn = computeFullRegimeFactorFn(feedback, obs, selected, config);
+  return buildPooledBeliefMultiLevel(obs, selected, feedback, query, kappa, regimeFactorFn);
+}
+
+/** ★L3-b-2 配線用（GO 後・現状未配線）。silent shift 込みの multi-level pooled belief。store fail-open。 */
+export function loadL3b2PooledBeliefMultiLevel(
+  query: RepertoireQuery,
+  config: FullForgettingConfig = DEFAULT_L3B2_CONFIG,
+  kappa: PoolingKappaConfig = DEFAULT_KAPPA_CONFIG,
+): ModeBelief {
+  return buildL3b2PooledBeliefMultiLevel(loadObservations(), loadSelected(), loadFeedback(), query, config, kappa);
 }
