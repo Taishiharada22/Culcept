@@ -22,7 +22,8 @@ import {
 } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
-import { fireMorningCaptureObserve } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import type { RpcCapableClient } from "@/lib/plan/reality/integration/capture-rpc-adapter";
 
 export const runtime = "nodejs";
 
@@ -114,13 +115,14 @@ export async function POST(request: Request) {
     );
   }
 
-  // A1-5-5g-2: capture observe（**observe-only・fire-and-forget・write OFF・response 不変**）。
-  //   flag off / kill / production / 非 staging / 非 canary なら no-op（observer 0）。observe ON + staging + canary でも dry-run fake write（実 DB 0）。
+  // A1-5-5g-2/4: capture（**fire-and-forget・response 不変**・observe/write は flag が決める）。
+  //   mode 決定は helper（decideCaptureMode）: kill 最優先 → LIVE=write（real RPC・実 DB）→ OBSERVE=observe（dry-run・実 DB 0）→ none（no-op・default）。
+  //   gate（production / 非 staging / 非 canary / kill）で extractor 0 / write 0。write mode は認証済 supabase client を RPC 先に使う（user-RLS・service_role 不要）。
   //   fire-and-forget（void 同期返却・helper は never-throw 契約）+ ここでも try/catch（二重防御）で user response（{ok,data}/{ok,error}）に一切影響させない。
   try {
-    fireMorningCaptureObserve(body.utterance, user.id);
+    fireMorningCapture(body.utterance, user.id, supabase as unknown as RpcCapableClient);
   } catch {
-    // observe 配線の例外は user response に影響させない（response 不変を絶対保証）
+    // capture 配線の例外は user response に影響させない（response 不変を絶対保証）
   }
 
   // Providers を組む（orchestrator が唯一の配線点）

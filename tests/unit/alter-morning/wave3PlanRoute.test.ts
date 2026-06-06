@@ -86,11 +86,11 @@ vi.mock("@/lib/alter-morning/expression/llmNarrationProvider", async () => {
 
 // A1-5-5g-2: capture observe を no-op spy 化（route が実 LLM/observer を発火しないことを保証 + 配線検証）
 vi.mock("@/lib/plan/reality/integration/alter-morning-capture-observe", () => ({
-  fireMorningCaptureObserve: vi.fn(),
+  fireMorningCapture: vi.fn(),
 }));
 
 import { POST } from "@/app/api/alter-morning/plan/route";
-import { fireMorningCaptureObserve } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
 import { resetEventCounter } from "@/lib/alter-morning/comprehension/eventSchema";
 
 function mkRequest(body: unknown): Request {
@@ -104,7 +104,7 @@ function mkRequest(body: unknown): Request {
 beforeEach(() => {
   resetEventCounter();
   mockGetUser.mockReset();
-  vi.mocked(fireMorningCaptureObserve).mockClear();
+  vi.mocked(fireMorningCapture).mockClear();
 });
 
 describe("POST /api/alter-morning/plan (W3-PR-3)", () => {
@@ -177,32 +177,33 @@ describe("A1-5-5g-2 capture observe wiring（observe-only・fire-and-forget・re
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.status).toBe("ok"); // response 不変（observer は混ざらない）
-    expect(fireMorningCaptureObserve).toHaveBeenCalledTimes(1);
-    expect(fireMorningCaptureObserve).toHaveBeenCalledWith("9時にスタバでコーヒー", "u1");
+    expect(fireMorningCapture).toHaveBeenCalledTimes(1);
+    // utterance + user.id + 認証済 supabase client（write mode の RPC 先）。observe/write は flag が決める。
+    expect(fireMorningCapture).toHaveBeenCalledWith("9時にスタバでコーヒー", "u1", expect.anything());
     vi.unstubAllEnvs();
   });
 
   test("404（flag off）/ 401（unauth）/ 400（bad body）では observe を呼ばない", async () => {
     vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "false");
     await POST(mkRequest({ utterance: "x" }));
-    expect(fireMorningCaptureObserve).not.toHaveBeenCalled();
+    expect(fireMorningCapture).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
 
     vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "true");
     mockGetUser.mockResolvedValue({ data: { user: null } });
     await POST(mkRequest({ utterance: "x" }));
-    expect(fireMorningCaptureObserve).not.toHaveBeenCalled();
+    expect(fireMorningCapture).not.toHaveBeenCalled();
 
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
     await POST(mkRequest({ foo: "bar" }));
-    expect(fireMorningCaptureObserve).not.toHaveBeenCalled();
+    expect(fireMorningCapture).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
   });
 
   test("observer が throw しても route response 不変（route 側 try/catch・二重防御）", async () => {
     vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "true");
     mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
-    vi.mocked(fireMorningCaptureObserve).mockImplementationOnce(() => {
+    vi.mocked(fireMorningCapture).mockImplementationOnce(() => {
       throw new Error("observer boom");
     });
     const res = await POST(mkRequest({ utterance: "9時にスタバでコーヒー" }));

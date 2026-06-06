@@ -4,12 +4,14 @@ import * as path from "path";
 import {
   resolveMorningObserveGate,
   runMorningCaptureObserve,
+  decideCaptureMode,
   setCaptureObserveSink,
   resetCaptureObserveSink,
   emitCaptureObserve,
 } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
 import type { CaptureRouteRunnerResult } from "@/lib/plan/reality/integration/capture-route-runner";
 import { createFakeCaptureWriteClient } from "@/lib/plan/reality/integration/capture-write-repository";
+import { createRpcCaptureWriteClient, createFakeRpcClient, CAPTURE_RPC_NAME } from "@/lib/plan/reality/integration/capture-rpc-adapter";
 import type { SeedExtractor, ExtractorResult } from "@/lib/plan/reality/seed-extractor-contract";
 import type { CaptureGateInput } from "@/lib/plan/reality/capture-gate";
 import type { CaptureServiceDeps } from "@/lib/plan/reality/integration/capture-service";
@@ -36,14 +38,63 @@ const SRC = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/integrati
 const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 
 describe("A1-5-5g-2 resolveMorningObserveGate（pure）", () => {
-  it("observeEnabled → liveEnabled / 他フィールド透過", () => {
-    const g = resolveMorningObserveGate({ observeEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, userId: USER, canaryUserIds: [USER] });
+  it("flagEnabled → liveEnabled / 他フィールド透過", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, userId: USER, canaryUserIds: [USER] });
     expect(g).toEqual({ liveEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, requestedUserId: USER, canaryUserIds: [USER] });
   });
-  it("observeEnabled false → liveEnabled false / killed 透過", () => {
-    const g = resolveMorningObserveGate({ observeEnabled: false, killed: true, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [] });
+  it("flagEnabled false → liveEnabled false / killed 透過", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: false, killed: true, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [] });
     expect(g.liveEnabled).toBe(false);
     expect(g.killed).toBe(true);
+  });
+});
+
+describe("A1-5-5g-4 decideCaptureMode（pure・kill>LIVE>OBSERVE>none）", () => {
+  it("kill 最優先 → null（LIVE/OBSERVE 無視）", () => {
+    expect(decideCaptureMode({ killed: true, live: true, observe: true })).toBeNull();
+  });
+  it("LIVE（kill なし）→ write", () => {
+    expect(decideCaptureMode({ killed: false, live: true, observe: false })).toBe("write");
+  });
+  it("LIVE 優先（LIVE+OBSERVE）→ write", () => {
+    expect(decideCaptureMode({ killed: false, live: true, observe: true })).toBe("write");
+  });
+  it("OBSERVE のみ → observe", () => {
+    expect(decideCaptureMode({ killed: false, live: false, observe: true })).toBe("observe");
+  });
+  it("両 flag off → null（no-op・production default）", () => {
+    expect(decideCaptureMode({ killed: false, live: false, observe: false })).toBeNull();
+  });
+});
+
+describe("A1-5-5g-4 runMorningCaptureObserve（write mode・real RPC client は fake で DB 0）", () => {
+  it("mode=write + RPC client(fake) + valid → captured / RPC 1 回 / DB write 0", async () => {
+    const rpc = createFakeRpcClient();
+    const writeClient = createRpcCaptureWriteClient(rpc);
+    const ext = counting({ kind: "extracted", raw: VALID_HIGH });
+    const r = await runMorningCaptureObserve(RAW, gate(), { extractor: ext.extractor, writeClient }, { ...OPTS, mode: "write" });
+    expect(r.mode).toBe("write");
+    expect(r.summary?.outcome).toBe("captured");
+    expect(r.summary?.wouldEvidence).toBe(true);
+    expect(ext.calls()).toBe(1);
+    expect(rpc.calls).toHaveLength(1); // create_plan_seed_capture_bundle 1 回（fake=実 DB 0）
+    expect(rpc.calls[0].fn).toBe(CAPTURE_RPC_NAME);
+    expect(rpc.calls[0].args.p_seed.id).toBe(OPTS.seedId); // seed draft に seedId
+  });
+  it("mode=write + gate block（production ref）→ RPC 0 / extractor 0（production hard block）", async () => {
+    const rpc = createFakeRpcClient();
+    const writeClient = createRpcCaptureWriteClient(rpc);
+    const ext = counting({ kind: "extracted", raw: VALID_HIGH });
+    const r = await runMorningCaptureObserve(RAW, gate({ supabaseUrl: PROD_URL }), { extractor: ext.extractor, writeClient }, { ...OPTS, mode: "write" });
+    expect(r.summary?.outcome).toBe("gate_blocked");
+    expect(ext.calls()).toBe(0);
+    expect(rpc.calls).toHaveLength(0); // production → RPC 0
+  });
+  it("mode=write + RPC client(fake) でも result に raw/seedId が出ない", async () => {
+    const rpc = createFakeRpcClient();
+    const r = await runMorningCaptureObserve(RAW, gate(), { extractor: counting({ kind: "extracted", raw: { ...VALID_HIGH, signal: RAW } }).extractor, writeClient: createRpcCaptureWriteClient(rpc) }, { ...OPTS, mode: "write" });
+    const json = JSON.stringify(r);
+    for (const leak of [RAW, "signal", OPTS.seedId]) expect(json).not.toContain(leak);
   });
 });
 

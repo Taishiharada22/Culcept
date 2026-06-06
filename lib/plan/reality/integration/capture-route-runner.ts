@@ -11,7 +11,9 @@ import "server-only";
  * mode 分離（厳守・runner で固定）:
  *   - **observe**: gate → extractor → capture service（**dry-run fake write client・実 DB 0**）→ `summarizeWouldCapture`。
  *     gate liveEnabled は caller が `REALITY_CAPTURE_OBSERVE` で解決。write OFF（実 DB に書かない）。
- *   - **write**: **A1-5-5g-0/1 では未接続・fail-closed**（extract も write もしない）。実 write は別 GO（A1-5-5g-2+）。
+ *   - **write（A1-5-5g-4 接続）**: gate → extractor → capture service（**real RPC write client・実 DB write**）→ did-capture。
+ *     gate liveEnabled は caller が `REALITY_CAPTURE_LIVE` で解決。**実 write は caller(helper) が LIVE+staging+canary で real client を注入したときのみ**到達。
+ *   両モードとも `runCaptureService` が **gate を最初に通す**（production/staging/canary block・kill 最優先）。observe/write の差は **注入される writeClient**（fake vs real RPC）のみ。
  *
  * 安全（厳守）:
  *   - **throw しない**: route response 不変のため、全 error を catch して redacted result（raw なし）を返す。
@@ -27,7 +29,7 @@ import { summarizeWouldCapture, type WouldCaptureSummary } from "./capture-obser
 import type { CaptureGateInput } from "../capture-gate";
 import type { CaptureExtractionInput } from "../seed-extractor-contract";
 
-/** capture route の mode。observe=観測（write OFF）/ write=実 write（**5g-0/1 では未接続**）。 */
+/** capture route の mode。observe=観測（fake write・実 DB 0）/ write=実 write（real RPC・A1-5-5g-4 接続）。 */
 export type CaptureRouteMode = "observe" | "write";
 
 /** runner 入力。`extraction.utterance` が唯一の raw。gate.liveEnabled は caller が mode の flag で解決。 */
@@ -44,31 +46,28 @@ export interface CaptureRouteRunnerInput {
 /** runner 結果（**redacted**・raw なし）。route は log/observability にのみ使い response に出さない。 */
 export interface CaptureRouteRunnerResult {
   readonly mode: CaptureRouteMode;
-  /** observe を実行したか（observe mode で成功時 true / write mode・error 時 false）。 */
+  /** capture service を実行したか（成功時 true / error 時 false）。 */
   readonly observed: boolean;
-  /** observe の would-capture summary（redacted）。未実行（write mode / error）は null。 */
+  /** would/did-capture summary（redacted）。error 時は null。 */
   readonly summary: WouldCaptureSummary | null;
-  /** redacted note（"write_mode_not_connected" / "observer_error" / null）。 */
+  /** redacted note（"observer_error" / null）。 */
   readonly note: string | null;
 }
 
 /**
- * A1-5-5g-0/1: capture route observer（**server-only・throw しない・DI**）。
- *   - write mode → **fail-closed**（未接続・extract/write しない）。
- *   - observe mode → `runCaptureService`（DI: extractor + dry-run fake write client）→ `summarizeWouldCapture`。
- *   - 全 error を catch（route response 不変）。result は redacted（raw なし）。
+ * A1-5-5g-0/1/4: capture route observer（**server-only・throw しない・DI**）。
+ *   - observe / write の両モードとも `runCaptureService`（gate → extractor → validate → orchestrator(writeClient)）を実行。
+ *   - observe → dry-run fake write client（実 DB 0）/ write → real RPC write client（実 DB write）。**差は注入 writeClient のみ**。
+ *   - `runCaptureService` が gate を最初に通す（production/staging/canary block・kill 最優先）。write の実書きは caller が LIVE+staging+canary で real client を注入したときのみ到達。
+ *   - 全 error を catch（route response 不変）。result は redacted（raw なし）。**seedId/raw は result に出さない**。
  *
- * deps（DI）: observe は **dry-run fake write client（実 DB 0）** を注入すること。実 write は本 runner では到達しない。
+ * deps（DI）: observe は dry-run fake write client、write は real RPC write client を caller が注入する。
  */
 export async function runCaptureRouteObserver(
   input: CaptureRouteRunnerInput,
   deps: CaptureServiceDeps
 ): Promise<CaptureRouteRunnerResult> {
-  // write mode は A1-5-5g-0/1 では未接続・fail-closed（extract も write もしない）
-  if (input.mode === "write") {
-    return { mode: "write", observed: false, summary: null, note: "write_mode_not_connected" };
-  }
-  // observe mode: gate → extractor → capture service（dry-run write）→ would-capture
+  // observe / write 共通: gate → extractor → capture service（writeClient が観測/実書きを決める）→ would/did-capture
   try {
     const serviceInput: CaptureServiceInput = {
       gate: input.gate,
@@ -77,9 +76,9 @@ export async function runCaptureRouteObserver(
       capturedAt: input.capturedAt,
     };
     const result = await runCaptureService(serviceInput, deps);
-    return { mode: "observe", observed: true, summary: summarizeWouldCapture(result), note: null };
+    return { mode: input.mode, observed: true, summary: summarizeWouldCapture(result), note: null };
   } catch {
     // route response 不変のため throw しない（raw を含めない redacted error）
-    return { mode: "observe", observed: false, summary: null, note: "observer_error" };
+    return { mode: input.mode, observed: false, summary: null, note: "observer_error" };
   }
 }

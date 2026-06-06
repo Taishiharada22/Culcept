@@ -31,12 +31,33 @@ const VALID_NONE = { confidence: 0.9, source: "chat", desiredDate: "2026-06-07",
 const SRC = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/integration/capture-route-runner.ts"), "utf8");
 const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 
-describe("A1-5-5g-0/1 route runner — write mode は fail-closed（未接続）", () => {
-  it("write mode → extract 0 / write 0 / write_mode_not_connected", async () => {
+describe("A1-5-5g-4 route runner — write mode 接続（real client は caller 注入・gate 不変）", () => {
+  it("write mode + valid → captured / mode=write / write client 1 回（fake で実 DB 0）", async () => {
     const ext = counting({ kind: "extracted", raw: VALID_HIGH });
     const fake = createFakeCaptureWriteClient();
     const r = await runCaptureRouteObserver(input("write"), { extractor: ext.extractor, writeClient: fake });
-    expect(r).toEqual({ mode: "write", observed: false, summary: null, note: "write_mode_not_connected" });
+    expect(r.mode).toBe("write");
+    expect(r.observed).toBe(true);
+    expect(r.summary?.outcome).toBe("captured");
+    expect(r.summary?.wouldCapture).toBe(true);
+    expect(r.summary?.wouldEvidence).toBe(true);
+    expect(ext.calls()).toBe(1);
+    expect(fake.writes.length).toBe(1); // write client 1 回（fake=実 DB 0）
+  });
+  it("write mode + gate block（production ref）→ extractor 0 / write 0（production hard block 維持）", async () => {
+    const ext = counting({ kind: "extracted", raw: VALID_HIGH });
+    const fake = createFakeCaptureWriteClient();
+    const r = await runCaptureRouteObserver(input("write", { supabaseUrl: "https://aljavfujeqcwnqryjmhl.supabase.co" }), { extractor: ext.extractor, writeClient: fake });
+    expect(r.mode).toBe("write");
+    expect(r.summary?.outcome).toBe("gate_blocked");
+    expect(ext.calls()).toBe(0);
+    expect(fake.writes.length).toBe(0);
+  });
+  it("write mode + flag off（liveEnabled false）→ extractor 0 / write 0", async () => {
+    const ext = counting({ kind: "extracted", raw: VALID_HIGH });
+    const fake = createFakeCaptureWriteClient();
+    const r = await runCaptureRouteObserver(input("write", { liveEnabled: false }), { extractor: ext.extractor, writeClient: fake });
+    expect(r.summary?.outcome).toBe("gate_blocked");
     expect(ext.calls()).toBe(0);
     expect(fake.writes.length).toBe(0);
   });
