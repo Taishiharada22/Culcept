@@ -134,7 +134,7 @@ describe("Map category pre-fill → submit", () => {
     if (r.valid) {
       expect(r.input.locationCategory).toBe("home");
       // locationText が undefined であることを確認（自動入力されてない）
-      expect((r.input as Record<string, unknown>).locationText).toBeUndefined();
+      expect((r.input as unknown as Record<string, unknown>).locationText).toBeUndefined();
     }
   });
 

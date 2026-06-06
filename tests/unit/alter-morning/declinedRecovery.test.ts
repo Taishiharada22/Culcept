@@ -54,7 +54,6 @@ function stubWindow(storage?: ReturnType<typeof createMockStorage>) {
     globalThis.window = globalThis;
   }
   if (storage) {
-    // @ts-expect-error テスト用 stub
     globalThis.localStorage = storage;
   }
 }

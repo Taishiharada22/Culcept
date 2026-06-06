@@ -15,6 +15,14 @@ import {
   type AnchorSource,
 } from "@/lib/alter-morning/journey/anchorState";
 
+/** test helper: JourneyAnchorState union を label/source を持つ variant に narrow（cast でなく type guard・期待外は throw）。 */
+function labelOf(r: JourneyAnchorState | null): Extract<JourneyAnchorState, { label: string }> {
+  if (!r || !("label" in r)) {
+    throw new Error(`expected label-bearing JourneyAnchorState, got kind=${r?.kind ?? "null"}`);
+  }
+  return r;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Fixtures
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -178,7 +186,7 @@ describe("preserveStrongPriorOrigin — STRONG source 守る + samePlanDate 連�
       exactOrigin("previous_day_assumed_endpoint"),
       { samePlanDate: true },
     );
-    expect(result?.source).toBe("previous_day_assumed_endpoint");
+    expect(labelOf(result).source).toBe("previous_day_assumed_endpoint");
   });
 
   it("[CEO/GPT 規律 PR B-2e] user_override (origin clarify 由来) → 守る", () => {

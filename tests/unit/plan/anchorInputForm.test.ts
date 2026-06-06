@@ -185,7 +185,7 @@ describe("buildAnchorInputFromForm — one_off happy", () => {
     const r = buildAnchorInputFromForm(oneOffComplete({ locationText: "   " }));
     expect(r.valid).toBe(true);
     if (r.valid)
-      expect((r.input as Record<string, unknown>).locationText).toBeUndefined();
+      expect((r.input as unknown as Record<string, unknown>).locationText).toBeUndefined();
   });
 });
 
@@ -570,7 +570,7 @@ describe("buildAnchorInputFromForm — exceptionDates (W1-X4)", () => {
     expect(r.valid).toBe(true);
     if (r.valid) {
       expect(
-        (r.input as Record<string, unknown>).exceptionDates
+        (r.input as unknown as Record<string, unknown>).exceptionDates
       ).toBeUndefined();
     }
   });

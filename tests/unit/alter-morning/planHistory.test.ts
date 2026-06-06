@@ -171,7 +171,7 @@ describe("isPlanWorthSaving — GPT 修正 2 反映", () => {
         {
           fromEventId: "event_1",
           toEventId: "event_2",
-          mode: "walking",
+          mode: "walk",
           estimatedDurationMin: 10,
           durationSource: "heuristic",
           distanceM: null,

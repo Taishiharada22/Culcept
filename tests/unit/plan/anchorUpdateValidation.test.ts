@@ -143,8 +143,8 @@ describe("validateAnchorUpdate — one_off", () => {
         // existing date が残る
         expect(r.merged.date).toBe("2026-05-25");
         // recurring 専用 field は除去
-        expect((r.merged as Record<string, unknown>).validFrom).toBeUndefined();
-        expect((r.merged as Record<string, unknown>).recurrenceRule).toBeUndefined();
+        expect((r.merged as unknown as Record<string, unknown>).validFrom).toBeUndefined();
+        expect((r.merged as unknown as Record<string, unknown>).recurrenceRule).toBeUndefined();
       }
     }
   });
@@ -217,7 +217,7 @@ describe("validateAnchorUpdate — recurring", () => {
         // existing 維持
         expect(r.merged.recurrenceRule).toBe("FREQ=WEEKLY;BYDAY=MO,WE,FR");
         // one_off field は除外
-        expect((r.merged as Record<string, unknown>).date).toBeUndefined();
+        expect((r.merged as unknown as Record<string, unknown>).date).toBeUndefined();
       }
     }
   });
@@ -260,9 +260,9 @@ describe("validateAnchorUpdate — sanitization & immutability", () => {
     expect(r.valid).toBe(true);
     if (r.valid) {
       // merged には id/userId/sourceId が含まれない (validateCreateExternalAnchorInput が無視)
-      expect((r.merged as Record<string, unknown>).id).toBeUndefined();
-      expect((r.merged as Record<string, unknown>).userId).toBeUndefined();
-      expect((r.merged as Record<string, unknown>).sourceId).toBeUndefined();
+      expect((r.merged as unknown as Record<string, unknown>).id).toBeUndefined();
+      expect((r.merged as unknown as Record<string, unknown>).userId).toBeUndefined();
+      expect((r.merged as unknown as Record<string, unknown>).sourceId).toBeUndefined();
     }
   });
 

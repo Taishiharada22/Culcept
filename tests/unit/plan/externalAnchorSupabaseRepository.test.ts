@@ -123,7 +123,7 @@ describe("SupabaseExternalAnchorRepository — contract", () => {
         expect(a.validFrom).toBe("2026-04-01");
         expect(a.recurrenceRule).toBe("FREQ=WEEKLY;BYDAY=MO");
         // one_off 専用 field は乗らない
-        expect((a as Record<string, unknown>).date).toBeUndefined();
+        expect((a as unknown as Record<string, unknown>).date).toBeUndefined();
       } else {
         throw new Error("expected recurring");
       }
