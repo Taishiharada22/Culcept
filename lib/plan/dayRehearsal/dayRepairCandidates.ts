@@ -1,5 +1,5 @@
 /**
- * lib/plan/dayRehearsal/dayRepairCandidates.ts — Day Rehearsal Repair Candidate v0（pure・read-only）
+ * lib/plan/dayRehearsal/dayRepairCandidates.ts — Day Rehearsal Repair Candidate v1（pure・read-only）
  *
  * Day Rehearsal が出した「詰まり / 移動余白不足 / 未確定 / 一息できる区間 / 密度」から、
  * ユーザーへの **read-only な対処候補** を生成する。★予定変更・自動修正・保存・DB 書き込み・Repair 実行は一切しない。
@@ -10,15 +10,26 @@
  *   - 各候補は **evidence trace** を持つ（basis/known/unknown/inferred）。
  *   - **根拠が弱い場合は候補を出さない**（viability unknown → 空配列・シグナルが無い step は候補なし）。
  *   - pure / Date 不使用 / 予定を動かさない / UI 配線しない。
+ *
+ * v1（target-aware / evidence-aware copy・2026-06-07 GO）— ★logic 不変・COPY 文のみ改善:
+ *   - 各 kind の構造的意味に grounded した具体化のみ（生数値・factor 差分は production で無根拠＝使わない）:
+ *     leave_earlier / confirm_uncertain は **必ず transition** にだけ出る → 「この移動の…」と言える。
+ *     use_recovery_window は **gap（一息）** にだけ出る → 「この一息つけそうな区間…」と言える。
+ *   - What-if preview の distinct value（clarity=見通し / utilization=次に入りやすい）を **candidate 文へ統合**
+ *     （preview UI を増やさず候補文を自己完結させる方針）。previewRepairEffect は保持（inert）。
+ *   - ★production（Option D=buildRehearsalInputFromDisplay）では bufferMin=null・friction 一律 moderate・
+ *     recovery 一律 low（recoveryWindows 空・use_recovery_window は raw 由来 recoverySteps 経由で到達）。
+ *     **protect_buffer は Option D 到達不能**（convergencePoint=高 conv は buffer_short 必須＝insufficient→leave_earlier 分岐）。
+ *     full path（buildRehearsalInput）でのみ到達するため copy は generic 維持（factor 差分の dead-path 複雑化を避ける）。
  */
 import type { DayRehearsal, Evidence } from "./dayRehearsalTypes";
 
 /** 対処候補の種類（read-only・実処理なし）。 */
 export type DayRepairKind =
-  | "protect_buffer" // この前後は余白を守るとよさそう
-  | "leave_earlier" // 出発を少し早める余地があるかも
-  | "confirm_uncertain" // 未確定の移動/余白を確認するとよさそう
-  | "use_recovery_window" // ここで一息入れられそう
+  | "protect_buffer" // 重なりやすい前後の余白を守るとよさそう（full path のみ到達）
+  | "leave_earlier" // この移動の前後は出発を少し早める余地があるかも
+  | "confirm_uncertain" // 未確定の移動の余白を確認すると見通しが立てやすそう
+  | "use_recovery_window" // この一息つけそうな区間をそのまま残せるとよさそう
   | "reduce_density"; // 予定が立て込む区間を軽くできるかも
 
 export interface DayRepairCandidate {
@@ -37,10 +48,15 @@ export interface DayRepairContext {
 }
 
 const COPY: Readonly<Record<DayRepairKind, string>> = {
+  // protect_buffer: full path のみ到達（Option D 不到達）。generic 維持。
   protect_buffer: "この前後は余白を守ると、予定が重なりにくそうです",
-  leave_earlier: "ここは出発を少し早める余地があるかもしれません",
-  confirm_uncertain: "未確定の移動の余白を確認できると安心かもしれません",
-  use_recovery_window: "ここで一息入れられそうです",
+  // leave_earlier: 必ず transition（insufficient な移動）→「この移動」と grounded に具体化。
+  leave_earlier: "この移動の前後は、出発を少し早める余地があるかもしれません",
+  // confirm_uncertain: 必ず transition（travel 未確定の移動）。clarity preview の value（見通し）を統合。
+  confirm_uncertain: "未確定の移動の余白を確認できると、見通しが立てやすくなりそうです",
+  // use_recovery_window: 必ず gap（一息）。utilization preview の value（次に入りやすい）を統合。
+  use_recovery_window: "この一息つけそうな区間は、そのまま残せると、次の予定に入りやすそうです",
+  // reduce_density: 予定変更に見えやすいため弱め維持（具体的な削除/変更を促さない）。
   reduce_density: "予定が立て込む区間を少し軽くできると、ゆとりが生まれそうです",
 };
 
