@@ -48,7 +48,7 @@
 ## 4. mini plan（修正順序・小 slice・各 slice は read-only 診断→最小修正→footprint 検証→着地。1 回で全部直さない）
 | # | slice | 件数 | 内容 | リスク | 依存 |
 |---|---|---|---|---|---|
-| **S1** | **vitest globals 認識** | **~971** | tsc に vitest/globals を導入。**案B 推奨**: `vitest-globals.d.ts` に `/// <reference types="vitest/globals" />`（additive・types フィールド restrict を避ける）。案A（tsconfig `types:[...]`）は auto-include を制限するため node/react 等の列挙が必要でリスク高。runtime 不変（型のみ）。 | **低** | なし（最優先・87%解消） |
+| **S1 ✅ DONE** | **vitest globals 認識** | **−970** | `types/vitest-globals.d.ts`（`/// <reference types="vitest/globals" />`・additive）で解消。**main `a8eb7a04` 着地済**（1114→144・TS2304 622→1・TS2582 349→0）。runtime 不変（型のみ・9796 tests PASS）。closeout: `tsc-baseline-cleanup-s1-closeout.md`。 | 低 | 完了 |
 | **S2** | ceo dashboard | ~6 | `SkillSummary`/`SkillSummaryResult` に `autoCloseCount` 追加 or 使用側削除。skillTelemetry 引数型整合。 | 低〜中 | S1 後 |
 | **S3** | origin / baseline | ~4 | OriginPageClient `onStartExploration` prop 整合・BaselineCollectionClient tuple/unknown 修正。 | 低〜中 | S1 後 |
 | **S4** | lib misc | ~13 | tourState null 化・generatePairInsight coreValues・alter-morning lib・MorningMapView・useMemoryItems。scattered な小修正を個別に。 | 低 | S1 後 |

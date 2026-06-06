@@ -15220,3 +15220,15 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(監査指示)。ステータス: 監査完了・方針提出。chip task_d50a2f2c は本 inline 監査で達成のため dismiss。次=CEO の slice GO 判断。push/Vercel 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup S1 — vitest globals 認識（main 着地 live）
+
+- 決定: CEO GO で S1 のみ実施。`types/vitest-globals.d.ts`（**13 行 additive**・`/// <reference types="vitest/globals" />`）を追加。tsconfig は無変更（types フィールド restrict の副作用回避・案B）。`include: **/*.ts` で tsc に取り込まれ vitest globals(describe/it/expect/test/...) を global scope に。
+- before/after（main 計測・8GB）: 総 **1114→144（−970）** / TS2304 622→1 / TS2582 349→0 / OOM なし / d.ts 自体エラー 0。残 TS2304 1=`travelTimeEngine.test.ts: 'fail'`（vitest に無い jest global＝S6）。
+- production 挙動変更**なし**（型のみ・runtime emit なし・SWC bundle は d.ts 非含・vitest globals:true は元々 runtime 提供）。
+- 検証: runtime 非影響= alter-morning + calendar + plan **479 files / 9796 tests PASS**(exit 0)・zero-loss(branch f88b4848 一致)・scope外/temp/node_modules 混入 0・変更は d.ts 1 ファイルのみ。
+- 残 144（実型不一致・source 37 + test 107）= S2 ceo / S3 origin・baseline / S4 lib misc / S5 stargazer・alter(core path) / S6 test fixture。**S2 以降は CEO GO 待ち・未着手**（S1 完了で停止）。
+- 状態: **main `a8eb7a04` 着地 live**（親 `a13448bb`）。closeout: `docs/tsc-baseline-cleanup-s1-closeout.md`。
+- 承認: CEO(S1 GO)。ステータス: S1 完了。次=CEO 判断（S2 以降の GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
