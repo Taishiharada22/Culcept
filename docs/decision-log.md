@@ -15177,3 +15177,18 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(Option A 解禁 GO + WPM-2a/b 実装 + smoke PASS + 着地)×GPT。ステータス: 詰まり+一息 marker live。次=Evidence「なぜ?」UI(mini design 先行・placement 監査)。
 
 ---
+
+## [2026-06-07] Day Rehearsal Evidence「なぜ?」UI — day-level banner disclosure（main 着地 live・smoke PASS）
+
+- 決定: day-level banner（DayOutlookBanner）に **native `<details>`「なぜ?」toggle**（default 閉・read-only）を追加。outlook 1 行の根拠を **観測 / 推定 / 未確定** の 3 カテゴリ・最大 3 行で開示。placement は banner 内（per-marker は次フェーズ）。
+- pure `explainDayOutlook(rehearsal, recoveryStepCount)`: 観測=この予定の並び/移動の余白(feasibility)/予定の密度(packed)・推定=重なりやすさ(convergence)|詰まりやすさ(tight/breaks)/一息つけそうな区間(recovery)・未確定=移動の余白を確認できない区間。`DayRehearsal.density`(passthrough) + `DayOutlookExplanation` 型を additive 追加。
+- ★「未確定」設計判断: **travelUnknown を常時表示にしなかった**。banner の display path（`buildRehearsalInputFromDisplay`・Option D）は travelMin/travelKnown を常に null/false で返す→`coverage.travelUnknown` は移動がある日は毎日オン＝ノイズ + 「outlook が移動を無視した」と誤解（実際は feasibility status が overlay で移動を織り込み済）。代わりに feasibility が個別 gap を評価できない `not_applicable` のみを honest uncertainty として「移動の余白を確認できない区間」と開示（CEO menu「不明な余白」側）。
+- 検証: 実機 smoke PASS(CEO 2026-06-07・閉/展開両状態 + 文面「この見通しは、この予定の並び・移動の余白から見ています。詰まりやすさ・一息つけそうな区間を加味しています（推定）。」確認)・explainDayOutlook 10 + banner render contract 7 + DayGraphTimeline 24 + CalendarTab wiring 110 + **plan suite 4956 PASS**・**tsc footprint 0**(新 export の consumer は私の 6 ファイルのみ)・zero-loss(6 ファイル branch 一致)・temp 0・push なし。
+- ⚠ **main pre-existing tsc errors 1114**（ceo/origin/baseline/stargazer alter/perspectiveEngine 等・**他セッション着地由来**・私の変更と無関係）。`npx tsc` は default ~2GB で OOM（exit 134）→`--max-old-space-size=8192` 必須。CEO に別途報告。
+- 不変: read-only / 生スコア・数値・level 名なし / 断定・警告・診断なし / 仮説トーン / banner outlook 行・詰まり/一息 marker・timeline・feasibility disclosure 非破壊。MapTab/DB/Google/push 不接触。
+- 状態: **main `c221ac2d` 着地 live**（親 `2e56832d`）。closeout: `docs/second-self-map-day-rehearsal-evidence-ui-closeout.md`。
+
+関連 commit(branch dr-evidence-ui): cb139d56。main: c221ac2d(squash)。
+承認: CEO(Evidence UI GO + smoke PASS + 着地)×GPT。ステータス: day-level「なぜ?」live。次=per-marker「なぜ?」/ detail disclosure（audit + mini design 先行・いきなり実装しない）。
+
+---
