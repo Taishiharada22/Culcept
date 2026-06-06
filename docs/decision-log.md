@@ -15360,3 +15360,13 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - closeout: `…-repair-v0-ui-closeout.md`。
 
 ---
+
+## [2026-06-07] Day Rehearsal What-if Preview v0 — pure layer 実装・branch commit（UI 配線前で停止）
+
+- 決定: CEO/GPT GO で What-if Preview v0 を **定性 pure layer** として実装。判断点回答: 定性のみ（定量は別 slice）/ category 3 系統 / reduce_density 弱 / UI 未実装 / pure 関数新設可。
+- 実装（branch `claude/dr-repair-preview` HEAD `2122b486`・未配線）: `lib/plan/dayRehearsal/dayRepairPreview.ts` の `previewRepairEffect(candidate)` / `previewRepairEffects(candidates)`。`RepairEffectPreview = {kind, category, headline, body, confidence, uncertainty, evidence, appliesTo}`。category=effect(leave_earlier/protect_buffer/reduce_density)/clarity(confirm_uncertain)/utilization(use_recovery_window)。confidence=level のみ（effect=medium・reduce_density=low・clarity/utilization=high）。**「改善します/解決します」断定なし・禁止語/生数値なし・reduce_density は具体的予定変更を促さない**。evidence は candidate 保持・appliesTo=targetStepIndex(UI 未出力)。★rehearsal param は v0 定性では不要で candidate-only（CEO「同等の関数」許容・定量 re-simulation 時に追加）。
+- 検証: unit 11 + dayRehearsal dir 79 + plan suite 5009 PASS・tsc footprint 0（baseline 55 不変・起因 0）・additive・production 挙動不変（consumer=test のみ）。
+- HARD GATE 照合: 予定変更指示でない / 定量出さない / raw feasibility・re-simulation 不使用 / shape 想定どおり / confidence 数値化なしで成立 / UI 配線なし。
+- 状態: pure layer 完成・branch commit 済。**main 着地・UI 配線は次の判断**（CEO「UI 配線前で停止・main 着地は次に回す」）。closeout: `docs/second-self-map-day-rehearsal-whatif-v0-closeout.md`。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---
