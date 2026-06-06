@@ -15310,3 +15310,18 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(S6 batch4 GO)。ステータス: S6 batch4 完了。**無判断 test-only safe は尽きた**（5 batch+psf で 1114→55=95%減）。残 55 は prod export/型整合・mock semantic 値/複合型・spec・S5 のいずれか要。次=CEO 判断（据え置き別作業 / 残置個別 GO / S5）。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline — 広範囲 auto cleanup 停止 + 残 55 blocker ledger 作成（read-only）
+
+- 決定: CEO 指示で広範囲の自動 tsc cleanup を一旦停止。**1114→55（−1059・95%減）達成後、以後は blocker-ledger 段階**へ。残 55 は仕様判断が混ざるため自動修正しない。
+- read-only ledger 作成（実装なし）: `docs/tsc-baseline-blocker-ledger.md`。残 55 を A-F 分類:
+  - **A test-only・小判断で直せる可能性(8)**: morningPipelineJourneyAnchors(2)・placeResolver HardAnchor(2)・planHistory*(2)・rawRef(b3b/postSelectionFlow 2)。mock missing field の値/構築を 1 件ずつ確認 GO 要。
+  - **B production source 変更要(16)**: tourState null(4)・baseline OCCUPATION(3)・skillTelemetry isAutoClose(2・real bug 挙動変更)・generatePairInsight coreValues(2・feature 半完成)・llmPlanExtractor/morningPipeline/journeyOrigin/MorningMapView/origin(各 1)。
+  - **C production export 要(1)**: presenceTelemetry TelemetryEvent。
+  - **D spec/test expectation 判断(8)**: ceoScenario(3)・domainRouter/planIntakeGate/sceneWeighting/planner/b3c2(各 1)。
+  - **E S5/perspectiveEngine/core path(22・NO-GO)**: stargazer/alter route(15)+stargazer test(7)。route 15 は perspectiveEngine API 乖離で**機能バグの可能性**→ A1-5-x owning session に別途エスカレーション推奨。
+- 最安全 top3: ①morningPipelineJourneyAnchors priorPersistedEvents(extraneous なら除去) ②placeResolver/planHistory mock 補完(値の assertion 非依存を確認) ③planIntakeGate stale assertion(runtime 不変)。いずれも 1 件ずつ確認 GO。
+- **baseline 固定の是非**: 妥当（推奨度高）。残 55 は型エラーのみで runtime は健全（route 15 除く）・owning 機能が触る時に spec 込みで直すのが自然・CI footprint 0 ルールで自然減衰。route 15 のみ機能確認を別投げ。
+- ステータス: blocker-ledger 段階。実装修正なし。次に何を倒すかは CEO 判断に戻す。push/Vercel/DB/Google/source/test/S5 不接触。
+
+---
