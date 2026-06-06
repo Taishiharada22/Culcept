@@ -1,17 +1,19 @@
 /**
  * DayOutlookBanner — Wave 2 Day Rehearsal の day-level outlook（選択日・presentation）
  *
- * 「今日のあなたの1日を先に試した」見通しを **1 行・仮説トーン**で出す。+ Evidence「なぜ?」disclosure。
+ * 「今日のあなたの1日を先に試した」見通しを **1 行・仮説トーン**で出す。+ Evidence「なぜ?」+ Repair「どうするとよさそう?」disclosure。
  *
  * 不変原則（CEO/GPT 2026-06-06〜07）:
  *   - 仮説トーンのみ（〜かも / 〜そう / 〜ています）。fatigue/risk を事実・警告として断定しない。
  *   - 「疲れます」「危険です」「壊れます」「失敗」禁止。生スコア・raw 分数・level 名を出さない。
  *   - amber/orange/red を使わない（slate 中立）。viability unknown は出さない。
- *   - 「なぜ?」は **native <details>（read-only disclosure・default 閉）**。known/unknown/inferred を観測/推定/未確定で。
- *     evidence が弱い（行なし）なら出さない。timeline point marker は別 slice。
+ *   - 「なぜ?」「どうするとよさそう?」は **native <details>（read-only disclosure・default 閉）**。
+ *   - ★Repair 候補は **read-only の示唆テキストのみ**。ボタン/適用/保存/チェック等の実行 UI を一切置かない（予定変更でない）。
+ *     copy は generateDayRepairCandidates の suggestion をそのまま使う（ad-hoc copy なし）。0 件なら disclosure を出さない。
  */
 import { explainDayOutlook } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { DayOutlookExplanation, DayRehearsal, ViabilityOutlook } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
+import type { DayRepairCandidate } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 
 /** outlook → 仮説トーン copy（unknown は表示しないので除外）。 */
 const OUTLOOK_COPY: Record<Exclude<ViabilityOutlook, "unknown">, string> = {
@@ -32,9 +34,12 @@ function explanationLines(e: DayOutlookExplanation): string[] {
 export function DayOutlookBanner({
   rehearsal,
   recoveryStepCount = 0,
+  repairCandidates = [],
 }: {
   rehearsal: DayRehearsal | null;
   recoveryStepCount?: number;
+  /** Repair Candidate v0: read-only 対処候補（優先度順・最大3・表示のみ）。0 件なら disclosure を出さない。 */
+  repairCandidates?: readonly DayRepairCandidate[];
 }) {
   if (!rehearsal) return null;
   const outlook = rehearsal.viability.outlook;
@@ -57,6 +62,19 @@ export function DayOutlookBanner({
               <p key={i}>{line}</p>
             ))}
           </div>
+        </details>
+      )}
+      {repairCandidates.length > 0 && (
+        <details data-testid="plan-day-outlook-repair" className="mt-1">
+          <summary className="cursor-pointer list-none text-[11px] text-slate-400 underline">どうするとよさそう？</summary>
+          {/* ★read-only：示唆テキストのみ。ボタン/適用/保存/チェック等の実行 UI は置かない。 */}
+          <ul className="mt-1 space-y-0.5 text-[11px] text-slate-500 list-none">
+            {repairCandidates.map((c, i) => (
+              <li key={i} data-repair-kind={c.kind}>
+                {c.suggestion}
+              </li>
+            ))}
+          </ul>
         </details>
       )}
     </div>

@@ -77,6 +77,7 @@ import {
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { generateDayRepairCandidates, prioritizeRepairCandidates } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
@@ -265,6 +266,16 @@ export function CalendarTab({
   const recoverySteps = useMemo(
     () => recoveryStepsFromFeasibilityRaw(calendarFeasibilityRawByTransitionIndex),
     [calendarFeasibilityRawByTransitionIndex],
+  );
+
+  // Repair Candidate v0: read-only 対処候補（優先度順・最大3件）。recoverySteps を一息判定に渡す。
+  // ★表示のみ・予定変更/repair 実行なし。0 件なら banner 側で disclosure を出さない。
+  const repairCandidates = useMemo(
+    () =>
+      dayRehearsal
+        ? prioritizeRepairCandidates(generateDayRepairCandidates(dayRehearsal, { recoverySteps }), 3)
+        : [],
+    [dayRehearsal, recoverySteps],
   );
 
   // M-3d disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
@@ -557,7 +568,7 @@ export function CalendarTab({
                   <DayIndicatorBadge indicator={selectedDayIndicator} />
                 </div>
               )}
-              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} />
+              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} />
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}

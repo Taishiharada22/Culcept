@@ -120,3 +120,27 @@ export function generateDayRepairCandidates(
 
   return candidates;
 }
+
+/** 表示優先度（小さいほど上位）。leave_earlier > protect_buffer > confirm_uncertain > use_recovery_window > reduce_density。 */
+const REPAIR_PRIORITY: Readonly<Record<DayRepairKind, number>> = {
+  leave_earlier: 0,
+  protect_buffer: 1,
+  confirm_uncertain: 2,
+  use_recovery_window: 3,
+  reduce_density: 4,
+};
+
+/**
+ * 表示用に優先度でソートし上位 `limit` 件に絞る（純粋・read-only）。
+ * 同 kind 内は元の順序（step 順）を保つ stable sort。UI は上位 limit 件のみ表示。
+ */
+export function prioritizeRepairCandidates(
+  candidates: readonly DayRepairCandidate[],
+  limit = 3,
+): readonly DayRepairCandidate[] {
+  return candidates
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => REPAIR_PRIORITY[a.c.kind] - REPAIR_PRIORITY[b.c.kind] || a.i - b.i)
+    .slice(0, Math.max(0, limit))
+    .map((x) => x.c);
+}
