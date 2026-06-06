@@ -77,6 +77,7 @@ import {
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
@@ -247,6 +248,18 @@ export function CalendarTab({
     () => new Set<number>(dayRehearsal?.convergencePoints ?? []),
     [dayRehearsal],
   );
+
+  // per-marker「なぜ?」: convergence marker の factors（transitionIndex→factors・additive・convergencePoints と同 key）。
+  // DayGraphTimeline が expanded 時に explainConvergenceMarker で自然日本語化。recovery は uniform で対象外。
+  const convergenceFactorsByTransitionIndex = useMemo(() => {
+    const m = new Map<number, readonly ConvergenceFactor[]>();
+    if (!dayRehearsal) return m;
+    for (const idx of dayRehearsal.convergencePoints) {
+      const factors = dayRehearsal.steps[idx]?.convergence?.factors;
+      if (factors && factors.length > 0) m.set(idx, factors);
+    }
+    return m;
+  }, [dayRehearsal]);
 
   // WPM-2b: 「一息つけそう」recovery の stepIndex（真の余白 slack≥閾値・raw feasibility 由来・strain と decouple）。
   const recoverySteps = useMemo(
@@ -795,6 +808,7 @@ export function CalendarTab({
               expandedTransitionIndices={expandedTransitionIndices}
               onToggleFeasibilityDisclosure={handleToggleFeasibilityDisclosure}
               convergenceSteps={convergenceSteps}
+              convergenceFactorsByTransitionIndex={convergenceFactorsByTransitionIndex}
               recoverySteps={recoverySteps}
             />
           </div>

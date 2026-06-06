@@ -43,6 +43,8 @@ import type {
 } from "@/lib/plan/dayGraph/dayGraphTypes";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
+import { explainConvergenceMarker } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -158,6 +160,13 @@ export interface DayGraphTimelineProps {
   readonly convergenceSteps?: ReadonlySet<number>;
 
   /**
+   * per-marker「なぜ?」: convergence marker の factors（transitionIndex→factors・= optional・read-only）。
+   * **既存 transition disclosure の expanded 時のみ**、当該区間の「なぜ?」を質的 synthesis 1 行で出す（piggyback・新 tap target なし）。
+   * ★sensitiveProximity には出さない（redaction）。feasibility 行（量的「不足 N 分」）と register を分ける（質的）。recovery は uniform で対象外。
+   */
+  readonly convergenceFactorsByTransitionIndex?: ReadonlyMap<number, readonly ConvergenceFactor[]>;
+
+  /**
    * Day Rehearsal（Wave 2・WPM-2b）: 「一息つけそう」recovery の stepIndex 集合（= optional・read-only）。
    * 真の余白 slack≥閾値の sufficient transition のみ（gapMin でなく raw slack）。convergence と排他（詰まり優先）。
    * ★sensitiveProximity には出さない（redaction）。成功色/icon/生スコアなし・layout 非破壊。
@@ -265,6 +274,10 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
           ? () => props.onToggleFeasibilityDisclosure!(transitionIndex)
           : undefined;
 
+        // per-marker「なぜ?」: convergence marker の factors → 自然日本語（expanded 時のみ表示・piggyback）。
+        const convergenceFactors = props.convergenceFactorsByTransitionIndex?.get(transitionIndex);
+        const convergenceWhy = convergenceFactors ? explainConvergenceMarker(convergenceFactors) : "";
+
         return (
           <Fragment key={node.key}>
             {renderNode(node, props.onEventClick)}
@@ -288,6 +301,14 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
                 view={feasibilityView}
                 transitionIndex={transitionIndex}
               />
+            )}
+            {/*
+             * per-marker「なぜ?」: 既存 transition disclosure の expanded 時のみ、convergence の根拠を
+             * 質的 synthesis 1 行で追加（piggyback・新 tap target/新 state なし・marker 行は不変）。
+             * ★sensitiveProximity は出さない（redaction）。feasibility 行（量的「不足 N 分」）と register を分ける。
+             */}
+            {canDisclose && isExpanded && convergenceWhy !== "" && !transitionView.sensitiveProximity && (
+              <ConvergenceWhyLine transitionIndex={transitionIndex} text={convergenceWhy} />
             )}
             {/*
              * Day Rehearsal WPM-1: 「詰まりやすい」transition の read-only marker（常時表示・disclosure 独立）。
@@ -645,6 +666,32 @@ function ConvergenceMarkerLine({
       data-testid="day-graph-convergence-marker"
     >
       この前後は予定が重なりやすいかもしれません
+    </li>
+  );
+}
+
+interface ConvergenceWhyLineProps {
+  readonly transitionIndex: number;
+  readonly text: string;
+}
+
+/**
+ * per-marker「なぜ?」: convergence の根拠（質的 synthesis 1 行）。**expanded 時のみ**表示（FeasibilityDisclosureLine と同階調）。
+ * 仮説トーン・slate 中立のみ（icon / 生スコア / 数値なし）。text は explainConvergenceMarker(factors) 由来。
+ */
+function ConvergenceWhyLine({
+  transitionIndex,
+  text,
+}: ConvergenceWhyLineProps): ReactElement {
+  return (
+    <li
+      role="listitem"
+      id={`day-rehearsal-convergence-why-${transitionIndex}`}
+      aria-label={text}
+      className="text-xs italic text-slate-400 pl-8"
+      data-testid="day-graph-convergence-why"
+    >
+      {text}
     </li>
   );
 }
