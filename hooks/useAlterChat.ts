@@ -5,6 +5,10 @@ import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMe
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
 import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, PendingClarify } from "@/lib/alter-morning/types";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+// A1-5-8-3: capture candidate surface（B案 step 2・client consumption）。response の morningProtocol.captureCandidate を
+//   client boundary で redacted DTO に抽出（source_ref/UUID/raw drop）。absent → undefined → banner 非表示（既存 UI 不変）。
+import { selectMorningProtocolCaptureCandidate } from "@/components/home/morning/captureCandidateClient";
+import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
 // CEO/GPT 2026-05-02 PR B-2d-b/d: location opt-in state machine + declined recovery
 import {
   readLocationOptIn,
@@ -241,6 +245,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningDialogState, setMorningDialogState] = useState<DialogState | null>(
     restoredSession?.dialogState ?? null,
   );
+  // A1-5-8-3: capture candidate surface（B案 step 2・**transient**・毎 morning turn 再導出・**永続化しない**）。
+  //   server（A1-5-8-2）が morningProtocol.captureCandidate? を additive 返却した時のみ DTO を保持。
+  //   absent / flag OFF（production default）→ undefined → AskHero/MorningPlanCard banner 非表示（既存 UI 完全不変）。
+  //   raw response を state に持たない（selectMorningProtocolCaptureCandidate が redacted DTO のみ抽出）。
+  const [morningCaptureCandidate, setMorningCaptureCandidate] = useState<CandidateSurfaceDTO | undefined>(undefined);
   /**
    * W3-PR-9 commit 5c: Place selection 進行中の placeId。
    *   - null: 送信中ではない
@@ -803,6 +812,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         if (data.morningProtocol.dialogState !== undefined) {
           setMorningDialogState(data.morningProtocol.dialogState ?? null);
         }
+        // A1-5-8-3: capture candidate surface を **client boundary で redacted DTO に抽出**して保持。
+        //   selectMorningProtocolCaptureCandidate は morningProtocol.captureCandidate のみ読み、
+        //   source_ref/UUID/raw を drop（redaction core 共有）。captureCandidate absent → undefined（毎 turn 再導出＝
+        //   候補消滅時はクリア）。既存 plan/dialogState handling は上で完了済み・本行は read-only 追加（壊さない）。
+        setMorningCaptureCandidate(selectMorningProtocolCaptureCandidate(data));
       }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
@@ -1067,6 +1081,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     morningPlan,
     /** Morning Protocol: 現在フェーズ */
     morningPhase,
+    /** A1-5-8-3: capture candidate surface（redacted DTO・absent→undefined・banner 非表示／既存 UI 不変） */
+    morningCaptureCandidate,
     /** Morning Protocol: プランを更新（UI操作後） */
     setMorningPlan,
     /** Morning Protocol: パーソナライズヒント（性格ベースの提案含む） */

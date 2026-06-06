@@ -186,3 +186,108 @@ describe("A1-5-7-7 AskHero wiring（静的配線確認・heavy render 回避）"
     }
   });
 });
+
+// ── A1-5-8-3: Stargazer Client Consumption（/api/stargazer/alter response → morningCaptureCandidate state → banner）──
+// 本流 /api/stargazer/alter response 形（top-level ok/sessionId/response + 完全 morningProtocol）。useAlterChat が消費する shape。
+function alterChatResponse(cc?: unknown) {
+  return {
+    ok: true,
+    sessionId: "sess-1",
+    response: "おはよう。今日のプランだよ。",
+    morningProtocol: {
+      phase: "presented",
+      sessionId: "sess-1",
+      pipelineVersion: "v2",
+      plan: { date: "2026-06-07", confirmed: false, items: [{ title: "朝のルーティン" }] },
+      rawInputs: [{ text: "x" }],
+      parsedIntent: { foo: 1 },
+      planStateV2: { state: "ok" },
+      dialogState: { v: 2 },
+      ...(cc !== undefined ? { captureCandidate: cc } : {}),
+    },
+  };
+}
+// useAlterChat の handler が state に入れる値 = selectMorningProtocolCaptureCandidate(data)
+const consumeAlterResponse = (resp: unknown) => selectMorningProtocolCaptureCandidate(resp);
+
+describe("A1-5-8-3 client consumption — /api/stargazer/alter response → morningCaptureCandidate state", () => {
+  it("captureCandidate なし → state undefined（既存 morning plan flow 不変）", () => {
+    const resp = alterChatResponse();
+    expect(consumeAlterResponse(resp)).toBeUndefined();
+    // extraction は read-only: 既存 morningProtocol flow（plan/dialogState/planStateV2/rawInputs）を壊さない
+    expect(resp.morningProtocol.plan).toEqual({ date: "2026-06-07", confirmed: false, items: [{ title: "朝のルーティン" }] });
+    expect(resp.morningProtocol.dialogState).toEqual({ v: 2 });
+    expect(resp.morningProtocol.planStateV2).toEqual({ state: "ok" });
+    expect(resp.morningProtocol.rawInputs).toEqual([{ text: "x" }]);
+  });
+  it("captureCandidate present → state は redacted DTO", () => {
+    expect(consumeAlterResponse(alterChatResponse(SURFACE))).toEqual(SURFACE);
+  });
+  it("hasCandidate=false → state undefined（banner 非表示）", () => {
+    expect(consumeAlterResponse(alterChatResponse({ hasCandidate: false, candidateCount: 0, status: "none", items: [] }))).toBeUndefined();
+  });
+  it("error response（{error} / {ok:false}）→ state undefined（既存挙動不変）", () => {
+    expect(consumeAlterResponse({ error: "Internal error" })).toBeUndefined();
+    expect(consumeAlterResponse({ ok: false })).toBeUndefined();
+  });
+  it("extraction は read-only（response を mutate しない）", () => {
+    const resp = alterChatResponse(SURFACE);
+    const before = JSON.stringify(resp);
+    consumeAlterResponse(resp);
+    expect(JSON.stringify(resp)).toBe(before);
+  });
+});
+
+describe("A1-5-8-3 client consumption — present→banner 表示 / absent→banner なし（UI 既存同等）", () => {
+  it("captureCandidate present → 抽出 DTO を banner に渡すと「候補があります」", () => {
+    const cc = consumeAlterResponse(alterChatResponse(SURFACE));
+    expect(renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />)).toContain("候補があります");
+  });
+  it("captureCandidate absent → undefined → banner 空 markup（既存 UI 完全不変）", () => {
+    const cc = consumeAlterResponse(alterChatResponse());
+    expect(renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />)).toBe("");
+  });
+  it("error response → undefined → banner 空 markup", () => {
+    const cc = consumeAlterResponse({ error: "Internal error" });
+    expect(renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />)).toBe("");
+  });
+});
+
+describe("A1-5-8-3 client consumption — raw/source_ref/UUID non-surface（state/DOM 双方）", () => {
+  it("汚染 captureCandidate → state（抽出値）に leak しない", () => {
+    const contaminated = { ...SURFACE, source_ref: "SREF", rawNote: "歯医者", items: [{ ...SURFACE.items[0], seedRef: SEED_UUID, signal: "RAW_SIG" }] };
+    const json = JSON.stringify(consumeAlterResponse(alterChatResponse(contaminated)));
+    for (const leak of ["SREF", "source_ref", "seedRef", "rawNote", "歯医者", "RAW_SIG", SEED_UUID]) expect(json).not.toContain(leak);
+    expect(json).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+  });
+  it("汚染 captureCandidate → banner DOM にも leak しない（enum 技術名も非表示）", () => {
+    const contaminated = { ...SURFACE, source_ref: "SREF", items: [{ ...SURFACE.items[0], seedRef: SEED_UUID, signal: "RAW_SIG" }] };
+    const cc = consumeAlterResponse(alterChatResponse(contaminated));
+    const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />);
+    for (const leak of ["SREF", "source_ref", "seedRef", "RAW_SIG", SEED_UUID, "seed_explicit"]) expect(html).not.toContain(leak);
+  });
+  it("state は raw response 本文/plan text/他 morningProtocol field を保持しない（redacted DTO のみ）", () => {
+    const json = JSON.stringify(consumeAlterResponse(alterChatResponse(SURFACE)));
+    for (const leak of ["おはよう", "朝のルーティン", "rawInputs", "dialogState", "planStateV2", "pipelineVersion"]) expect(json).not.toContain(leak);
+  });
+});
+
+describe("A1-5-8-3 wiring（静的配線確認・heavy render 回避）", () => {
+  const HOME = fs.readFileSync(path.join(process.cwd(), "app/AneurasyncHome.tsx"), "utf8");
+  const HOOK = fs.readFileSync(path.join(process.cwd(), "hooks/useAlterChat.ts"), "utf8");
+  it("AneurasyncHome が AskHero へ morningCaptureCandidate={alterChat.morningCaptureCandidate} を渡す", () => {
+    expect(HOME).toContain("morningCaptureCandidate={alterChat.morningCaptureCandidate}");
+  });
+  it("AneurasyncHome 既存 morning props（morningPlan/morningPhase）を消していない", () => {
+    for (const k of ["morningPlan={alterChat.morningPlan}", "morningPhase={alterChat.morningPhase}"]) expect(HOME).toContain(k);
+  });
+  it("useAlterChat が selectMorningProtocolCaptureCandidate(data) で抽出し state へ set", () => {
+    expect(HOOK).toContain("setMorningCaptureCandidate(selectMorningProtocolCaptureCandidate(data))");
+  });
+  it("useAlterChat が morningCaptureCandidate を return する", () => {
+    expect(HOOK).toMatch(/return \{[\s\S]*morningCaptureCandidate/);
+  });
+  it("useAlterChat の既存 setMorningPlan(data.morningProtocol.plan) を壊していない（壊さない最優先）", () => {
+    expect(HOOK).toContain("setMorningPlan(data.morningProtocol.plan)");
+  });
+});

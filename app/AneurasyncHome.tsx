@@ -862,6 +862,8 @@ export default function AneurasyncHome({
                 morningPhase={alterChat.morningPhase}
                 morningPersonalizeHints={alterChat.morningPersonalizeHints}
                 morningEvents={alterChat.morningPersistedEvents ?? undefined}
+                /* A1-5-8-3: capture candidate surface（redacted DTO・absent→undefined→banner 非表示／既存 UI 不変） */
+                morningCaptureCandidate={alterChat.morningCaptureCandidate}
                 visualFlowEnabled={visualFlowEnabled}
                 onMorningPlanConfirm={(plan) => {
                   alterChat.setMorningPlan(plan);
