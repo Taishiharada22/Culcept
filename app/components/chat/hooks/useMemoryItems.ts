@@ -400,7 +400,7 @@ export function useMemoryItems(
           scheduleUpdate(next);
         },
       )
-      .subscribe((status) => {
+      .subscribe((status: string) => {
         // 接続状態の error fallback (publication 未追加環境含む、CEO Gate C)
         if (status === "CHANNEL_ERROR") {
           setRealtimeError("channel_channel_error");

@@ -195,6 +195,8 @@ export interface EndpointAnchor {
   canonicalId?: string;
   /** 非自宅系で市区町村が未確認のとき true（clarify が必要） */
   needsAreaConfirm: boolean;
+  /** 終点の固定開始時刻（"HH:MM"）。intentParser が「帰る」等の時刻指定を検出したとき設定（任意）。 */
+  fixedStart?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

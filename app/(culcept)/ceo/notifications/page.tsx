@@ -15,7 +15,7 @@ type SendState = "idle" | "confirming" | "sending" | "sent" | "error";
 type SendTarget = "all" | "specific";
 
 export default function CeoNotificationsPage() {
-    const [type, setType] = useState(NOTIFICATION_TYPES[0].value);
+    const [type, setType] = useState<(typeof NOTIFICATION_TYPES)[number]["value"]>(NOTIFICATION_TYPES[0].value);
     const [title, setTitle] = useState("");
     const [body, setBody] = useState("");
     const [link, setLink] = useState("");

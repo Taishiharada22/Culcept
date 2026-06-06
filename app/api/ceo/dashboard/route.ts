@@ -171,7 +171,7 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Skill data ──
-  const emptySkill: SkillSummaryResult = { totalCount: 0, successCount: 0, successRate: 0, avgDurationMs: 0, failureCount: 0, failedSkills: [], bySkill: [] };
+  const emptySkill: SkillSummaryResult = { totalCount: 0, successCount: 0, successRate: 0, avgDurationMs: 0, failureCount: 0, autoCloseCount: 0, failedSkills: [], bySkill: [] };
   const skillData = val(skillSummary, emptySkill);
   const prevSkillData = val(prevSkillSummary, emptySkill);
   const lastRunBySkill = val(lastRunBySkillRes, {} as Record<string, { executedAt: string; status: string; durationMs: number | null; summary: string | null }>);

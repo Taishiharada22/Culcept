@@ -50,6 +50,8 @@ interface SkillSummary {
   successRate: number;
   avgDurationMs: number;
   failureCount: number;
+  /** 自動クローズ（ゾンビ回収）件数。API の SkillSummaryResult が常に返す（UI は ?. + ?? 0 で防御的に読む）。 */
+  autoCloseCount: number;
   failedSkills: string[];
   bySkill: { skill_name: string; count: number; successCount: number; avgMs: number }[];
 }
