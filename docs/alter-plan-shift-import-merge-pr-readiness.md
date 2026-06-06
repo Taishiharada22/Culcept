@@ -12,9 +12,9 @@
 |---|---|
 | branch | `feat/plan-shift-import-productization` |
 | base | `499b6801` |
-| ahead | **70 commits** |
-| diff scope | **102 files・+10926 / −359** |
-| 内訳 | docs 26 / tests 33 / source ~43 |
+| ahead | **71 commits**（base 起点・docs 補正 commit で逐次 +1） |
+| diff scope | **103 files・+11080 / −359** |
+| 内訳 | docs 27 / tests 33 / source 43 |
 | working tree | `?? app/(culcept)/plan/dev-month-grid/*`（untracked throwaway）**のみ** |
 | `dev-month-grid/*` | **untracked = PR に載らない**（never committed throwaway・無視で可・CEO 任意で削除） |
 | 未 merge / 未 push | はい（local only） |
@@ -23,7 +23,7 @@
 
 ```
 git status --short --untracked-files=all      # dev-month-grid のみ untracked であること
-git diff --stat main...HEAD                    # 102 files・scope 確認
+git diff --stat main...HEAD                    # 103 files・scope 確認
 git diff --name-only main...HEAD               # forbidden file 非混入を grep
 NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit   # 1112
 npx vitest run tests/unit/plan/                # plan tests PASS
@@ -122,7 +122,7 @@ land behind default-OFF flags; nothing is enabled in production by this PR.
 tsc --noEmit = 1112
 plan tests PASS
 git status = dev-month-grid のみ untracked
-diff scope = 102 files・forbidden 非混入
+diff scope = 103 files・forbidden 非混入
 forbidden grep = 0 hit
 dev route gate check（flag OFF / production notFound）
 production flag default OFF check（4 flag すべて env 未設定で false）
@@ -134,7 +134,7 @@ production flag default OFF check（4 flag すべて env 未設定で false）
 1. push branch    : git push -u origin feat/plan-shift-import-productization
 2. create PR      : base=main / head=branch / body=§7 draft（gh pr create）
 3. wait CI        : tsc + tests green を確認
-4. review diff    : 102 files・forbidden 非混入・flag OFF を再確認
+4. review diff    : 103 files・forbidden 非混入・flag OFF を再確認
 5. merge          : **CEO GO 後のみ**（squash or merge は CEO 方針）
 ```
 - 各 step は **CEO GO 待ち**。push すら未実施。
@@ -150,5 +150,5 @@ proxy.ts 変更 / auth 例外追加 / dev route 削除 / raw・base64・VLM raw 
 ---
 
 ## 結論
-- branch は **70 commits・102 files・forbidden 非混入・全 flag dormant・tsc 1112 / plan 4919 PASS**＝**安全に push/PR できる状態**。
+- branch は **71 commits・103 files・forbidden 非混入・全 flag dormant・tsc 1112 / plan 4919 PASS**＝**安全に push/PR できる状態**。
 - 本書は手順書（docs-only）。**実 push → PR → merge は §9 を CEO GO 後に**。次は CEO が **push / PR 作成の可否**を判断。
