@@ -335,6 +335,28 @@ export function buildRehearsalInput(
   };
 }
 
+/** ★WPM-2b: recovery（一息つけそう）の閾値（真の余白 slack 分・較正は backlog）。 */
+export const DEFAULT_RECOVERY_MIN_SLACK_MIN = 60;
+
+/**
+ * ★WPM-2b: raw feasibility から recovery の stepIndex 集合（純粋）。
+ * status==="sufficient" かつ **真の余白 slack（=gap−travel）が minSlackMin 以上**の transition のみ。
+ * ★gapMin でなく raw slack を根拠（過大評価しない・honest）。strain forward 積分とは decouple
+ *   （WPM-1 convergence / banner / strain を変えない）。not_applicable / insufficient / slack 不明は対象外。
+ */
+export function recoveryStepsFromFeasibilityRaw(
+  rawByTransitionIndex: ReadonlyMap<number, FeasibilitySlackView>,
+  minSlackMin: number = DEFAULT_RECOVERY_MIN_SLACK_MIN,
+): Set<number> {
+  const steps = new Set<number>();
+  for (const [idx, view] of rawByTransitionIndex) {
+    if (view.status === "sufficient" && view.slackMin != null && view.slackMin >= minSlackMin) {
+      steps.add(idx);
+    }
+  }
+  return steps;
+}
+
 /**
  * ★Option D（status-only・CalendarTab 配線用）: DayGraph + feasibility **display** map から RehearsalInput を構築。
  * 既存 `_useCalendarTabFeasibilityDisplay` の `Map<transitionIndex, FeasibilityDisplayView>` を消費。

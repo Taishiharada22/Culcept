@@ -47,6 +47,7 @@ import {
   formatFeasibilityForDisplay,
   type FeasibilityDisplayResult,
 } from "./feasibilityDisplayFormatter";
+import type { DayFeasibilityResult } from "./feasibilityTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Input / Output types
@@ -100,6 +101,12 @@ export interface FeasibilityDisplayPipelineResult {
     readonly notApplicable: number;
   };
 
+  /**
+   * ★WPM-2a additive: M-1 の raw DayFeasibilityResult（slack/shortfall 分数込み・not_applicable 含む）。
+   * 既存 feasibilityDisplay / feasibilityCounts は不変。Day Rehearsal recovery（真の slack＝gap−travel）用。
+   */
+  readonly feasibilityRaw: DayFeasibilityResult;
+
   /** tracingId passthrough (= L-3c hook 整合) */
   readonly tracingId?: string;
 }
@@ -152,6 +159,7 @@ export function runFeasibilityDisplayPipeline(
   return {
     feasibilityDisplay: display,
     feasibilityCounts: feasibility.counts,
+    feasibilityRaw: feasibility, // ★WPM-2a additive（display 不変・recovery 用 raw slack）
     ...(input.tracingId !== undefined ? { tracingId: input.tracingId } : {}),
   };
 }
