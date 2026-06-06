@@ -22,6 +22,7 @@ import {
 } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
+import { fireMorningCaptureObserve } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
 
 export const runtime = "nodejs";
 
@@ -111,6 +112,15 @@ export async function POST(request: Request) {
       { ok: false, error: body.error },
       { status: 400 },
     );
+  }
+
+  // A1-5-5g-2: capture observe（**observe-only・fire-and-forget・write OFF・response 不変**）。
+  //   flag off / kill / production / 非 staging / 非 canary なら no-op（observer 0）。observe ON + staging + canary でも dry-run fake write（実 DB 0）。
+  //   fire-and-forget（void 同期返却・helper は never-throw 契約）+ ここでも try/catch（二重防御）で user response（{ok,data}/{ok,error}）に一切影響させない。
+  try {
+    fireMorningCaptureObserve(body.utterance, user.id);
+  } catch {
+    // observe 配線の例外は user response に影響させない（response 不変を絶対保証）
   }
 
   // Providers を組む（orchestrator が唯一の配線点）
