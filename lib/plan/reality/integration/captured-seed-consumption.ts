@@ -31,7 +31,7 @@ import {
 } from "./duration-evidence-source";
 import { enrichSeedPlacementsFromEvidences } from "../seed-placement-enrich";
 import { generateComplete, type Interval } from "../complete-generator";
-import type { TimeBand } from "../seed-placement";
+import type { TimeBand, SeedPlacement } from "../seed-placement";
 import type { GovernedNode } from "../candidate-generator";
 
 /** consumption の day context（generateComplete の placements 以外・caller/未来 runtime 提供・shadow では DI fake）。 */
@@ -98,17 +98,25 @@ export function pickAllowedDurationEvidenceColumns(
 }
 
 /**
- * A1-5-6-0/1: captured seed/evidence を candidate へ消費する **shadow runner**（pure・DI・no-run・redacted）。
- *   1. **sanitize**: allowlist 再構築（raw / source_ref 列を drop・ignore fail-closed）。
- *   2. **project**: projectSeedRowsToPlacements / projectDurationEvidenceRowsToMap（read seam・adoptable evidence は high のみ surface）。
- *   3. **enrich**: enrichSeedPlacementsFromEvidences（seed_explicit/correction high→strong / prm_typical→weak・既存規則）。
- *   4. **generateComplete**: 結合条件（isPlaceable ∧ source≠unknown ∧ grounding=strong ∧ disposition=place ∧ date）→ candidate or null。
- *   5. **redacted summary**（counts + reason code・raw / source_ref / id なし）。
- * runtime visible behavior を変えない（route response / UI / DB に一切触れない）。
+ * consumption の **canonical 計算結果**（A1-5-7-4・**内部**）。summary（redacted）と候補化した enriched placements を **1 計算**で出す。
+ *   `enrichedCandidatePlacements` は **seedRef を持つ内部値**（candidateCount>0 のとき候補 placements・0 のとき []）。
+ *   **surface 境界を越える前に `presentCandidateSurface` で redact（seedRef drop）必須**。本値を route response / UI に直接出さない。
  */
-export function runCapturedSeedConsumptionShadow(
+export interface ConsumptionComputation {
+  readonly summary: CapturedSeedConsumptionSummary;
+  /** 候補化した enriched placements（seedRef 持つ・内部のみ・surface 前に redact 必須）。candidateCount=0 のとき []。 */
+  readonly enrichedCandidatePlacements: readonly SeedPlacement[];
+}
+
+/**
+ * A1-5-7-4: consumption の **canonical core**（pure・DI・no-run）。summary と enriched candidate placements を **1 計算**で導出する。
+ *   1. sanitize（allowlist 再構築・raw/source_ref drop）→ 2. project（read seam）→ 3. enrich（既存規則）→ 4. generateComplete（結合条件）。
+ *   summary（counts・redacted）と enrichedCandidatePlacements（候補時のみ・内部）を返す。
+ *   **candidateCount と surface items が同一計算から出る**よう、bridge（runCapturedSeedConsumptionWithSurface）と summary-only runner が本 core を共有（drift 防止）。
+ */
+export function computeCapturedSeedConsumption(
   input: CapturedSeedConsumptionInput
-): CapturedSeedConsumptionSummary {
+): ConsumptionComputation {
   // 1. sanitize（allowlist 再構築・raw / source_ref drop）
   const seedRows = input.seedRows.map(pickAllowedSeedColumns);
   const evidenceRows = input.evidenceRows.map(pickAllowedDurationEvidenceColumns);
@@ -138,12 +146,21 @@ export function runCapturedSeedConsumptionShadow(
     candidateCount > 0 ? "candidate" : seedCount === 0 ? "no_seed" : "no_candidate";
 
   return {
-    seedCount,
-    adoptableEvidenceCount,
-    candidateCount,
-    wouldCandidate: candidateCount > 0,
-    reason,
+    summary: { seedCount, adoptableEvidenceCount, candidateCount, wouldCandidate: candidateCount > 0, reason },
+    // 候補時のみ enriched を露出（全 placement が eligible=候補・all-or-nothing）。0 のとき []。seedRef は内部・surface 前に redact。
+    enrichedCandidatePlacements: candidateCount > 0 ? enriched : [],
   };
+}
+
+/**
+ * A1-5-6-0/1: captured seed/evidence を candidate へ消費する **shadow runner**（pure・DI・no-run・**redacted summary-only**）。
+ *   **既存 API 維持**: canonical core（computeCapturedSeedConsumption）の summary を返す（surface items を要らない caller 用）。
+ *   surface（items 込み）が要るなら bridge `runCapturedSeedConsumptionWithSurface` を使う。
+ */
+export function runCapturedSeedConsumptionShadow(
+  input: CapturedSeedConsumptionInput
+): CapturedSeedConsumptionSummary {
+  return computeCapturedSeedConsumption(input).summary;
 }
 
 /** sanitize が漏れなく allowed column を写すかの自己点検用（test が allowlist と照合）。 */
