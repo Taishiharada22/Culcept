@@ -15192,3 +15192,18 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(Evidence UI GO + smoke PASS + 着地)×GPT。ステータス: day-level「なぜ?」live。次=per-marker「なぜ?」/ detail disclosure（audit + mini design 先行・いきなり実装しない）。
 
 ---
+
+## [2026-06-07] Day Rehearsal per-marker「なぜ?」— convergence 詰まり marker（main 着地 live・smoke PASS）
+
+- audit 結論（read-only）: convergence evidence は `rehearsal.steps[i].convergence.factors`（marker=level high=≥2 factors）で **per-marker varied**。recovery は `recoveryStepsFromFeasibilityRaw` 由来で全 marker **uniform**（slack≥閾値のみ）→ per-marker の価値低。安全な表示位置=既存 transition tap→expand disclosure（default closed・smoke 済 live）→ piggyback 可能。停止せず実装 GO。
+- 決定: **案A piggyback** で実装。**convergence/詰まり marker のみ**（recovery は uniform で defer）。pure `explainConvergenceMarker(factors)` が buffer_short/strain_high/friction_high を observed>inferred 順で1文合成（「ここは移動の余白が少なめで、予定が立て込んでいそうです。」）。CalendarTab が `convergenceFactorsByTransitionIndex` を additive 構築 → DayGraphTimeline の expanded 域に `ConvergenceWhyLine`（新 tap target/新 state なし・sensitiveProximity redaction）。
+- dedup: feasibility 行（量的「不足 N 分」）と register 分離（質的 synthesis + strain/friction）。day-level「なぜ?」（集約）とも粒度差。
+- 検証: 実機 smoke PASS(CEO 2026-06-07)・explainConvergenceMarker 8 + convergence-why render 6 + 構造 3 + **plan suite 4973 PASS**・**tsc footprint 0**(per-marker 5 ファイル起因 0)・zero-loss(5 ファイル branch 0bfa845b 一致)・forbidden copy なし・marker/banner/timeline/feasibility 非破壊・temp 0・push なし。
+- ⚠ main pre-existing tsc errors 1114（他セッション由来・per-marker 無関係・blocker にしない）。次工程で `tsc-baseline-cleanup` 監査。
+- 不変: read-only / 生スコア・数値・level 名なし / 断定・警告・診断なし / 仮説トーン / slate / 予定変更・repair・optimize・auto-reschedule なし。MapTab/DB/Google/push 不接触。
+- 状態: **main `ea3556c2` 着地 live**（親 `b609ff8b`）。closeout: `docs/second-self-map-day-rehearsal-per-marker-why-closeout.md`。
+
+関連 commit(branch dr-per-marker-why): 0bfa845b。main: ea3556c2(squash)。
+承認: CEO(per-marker GO + smoke PASS + 着地)×GPT。ステータス: convergence per-marker「なぜ?」live。次=tsc baseline cleanup 監査・mini plan（実装は CEO GO 待ち）。
+
+---
