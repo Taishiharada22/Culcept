@@ -135,6 +135,8 @@ export interface MonthGridViewProps {
    * 未指定 or null 返却なら短縮 title / 予定 に fallback。MonthGridView は辞書非依存。
    */
   getAnchorChip?: (anchor: ExternalAnchor) => MonthGridChip | null;
+  /** B-1: シフト取込（shift_image）由来 source の id 集合。cell 単位の「取込」marker 用。未指定なら marker なし。 */
+  importedShiftSourceIds?: ReadonlySet<string>;
 }
 
 export function MonthGridView({
@@ -145,6 +147,7 @@ export function MonthGridView({
   todayIso,
   onSelectDate,
   getAnchorChip,
+  importedShiftSourceIds,
 }: MonthGridViewProps) {
   // iso → cell chips。grid / anchors / indicators / resolver 変化時のみ計算
   // （selectedIso / todayIso 変化では再計算しない）。将来は month-level index 化の seam。
@@ -161,6 +164,29 @@ export function MonthGridView({
     }
     return map;
   }, [grid, anchors, dayIndicatorByIso, getAnchorChip]);
+
+  // B-1: cell 単位の「シフト取込（shift_image）由来あり」判定。
+  //   per-chip ではなく per-cell（過密回避）。anchor は anchorsForDay 経由（recurring/validity 継承）。
+  const importedIsoSet = useMemo(() => {
+    const set = new Set<string>();
+    const hasImportedSources =
+      importedShiftSourceIds != null && importedShiftSourceIds.size > 0;
+    for (const cell of grid.cells) {
+      if (dayIndicatorByIso.get(cell.iso)?.sourceType === "shift_image") {
+        set.add(cell.iso);
+        continue;
+      }
+      if (
+        hasImportedSources &&
+        anchorsForDay(anchors, cell.date).some((a) =>
+          importedShiftSourceIds!.has(a.sourceId)
+        )
+      ) {
+        set.add(cell.iso);
+      }
+    }
+    return set;
+  }, [grid, anchors, dayIndicatorByIso, importedShiftSourceIds]);
 
   return (
     <div data-testid="plan-month-grid">
@@ -229,6 +255,18 @@ export function MonthGridView({
                       {chip.label}
                     </span>
                   ))}
+                  {/* B-1: cell 単位の控えめな「取込」由来表示（box なし・muted・per-cell） */}
+                  {importedIsoSet.has(cell.iso) && (
+                    <span
+                      data-testid={`plan-month-grid-imported-${cell.iso}`}
+                      data-imported-source="shift_image"
+                      className="text-[8px] leading-none font-medium text-slate-400"
+                      title="シフト取込"
+                      aria-label="シフト取込"
+                    >
+                      取込
+                    </span>
+                  )}
                 </button>
               );
             })}

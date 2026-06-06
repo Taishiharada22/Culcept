@@ -104,6 +104,7 @@ import {
   type FlowWeekdayTone,
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
+import { ImportedSourceBadge } from "../components/ImportedSourceBadge";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -136,6 +137,8 @@ export function FlowTab({
   dayGraphByDate,
   // SR #216 D3: 休み/希望休 の day-level badge（iso → viewModel）。anchor と別レイヤー。
   dayIndicatorByIso,
+  // B-1: シフト取込（shift_image）由来 source の id 集合。AnchorRow へ imported flag として配る。
+  importedShiftSourceIds,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -151,6 +154,8 @@ export function FlowTab({
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
   /** SR #216 D3: 休み/希望休 day-level badge（dayIndicatorsByDate の結果）。未指定なら badge なし。 */
   dayIndicatorByIso?: ReadonlyMap<string, DayIndicatorViewModel>;
+  /** B-1: シフト取込（shift_image）由来 source の id 集合。未指定なら取込 marker なし。 */
+  importedShiftSourceIds?: ReadonlySet<string>;
 }) {
   const baseNow = now ?? new Date();
   const today = useMemo(
@@ -396,6 +401,7 @@ export function FlowTab({
             today={today}
             anchors={dayAnchors}
             dayIndicator={dayIndicatorByIso?.get(iso)}
+            importedShiftSourceIds={importedShiftSourceIds}
             dayOverlaps={dayOverlaps}
             onEmptyClick={
               onAddRequest ? () => handleEmptyDayClick(day) : undefined
@@ -456,6 +462,7 @@ function FlowDaySection({
   today,
   anchors,
   dayIndicator,
+  importedShiftSourceIds,
   dayOverlaps,
   onEmptyClick,
   onAnchorClick,
@@ -470,6 +477,8 @@ function FlowDaySection({
   anchors: ExternalAnchor[];
   /** SR #216 D3: 当日の休み/希望休 badge（親で iso lookup 済）。undefined なら badge なし。 */
   dayIndicator?: DayIndicatorViewModel;
+  /** B-1: シフト取込（shift_image）由来 source の id 集合。AnchorRow の imported flag 算出用。 */
+  importedShiftSourceIds?: ReadonlySet<string>;
   /** Phase 2-E: 同日の overlap anchor id Set (= 親から detectTimedAnchorOverlaps の結果) */
   dayOverlaps: ReadonlySet<string>;
   /** 予定なし日の inline button onClick (onAddRequest あり時のみ undefined でない) */
@@ -513,8 +522,13 @@ function FlowDaySection({
 
   // SR #216 D3: day-level 休み/希望休 badge（anchor と別レイヤー。dayIndicator なしなら null）
   const indicatorBadge = dayIndicator ? (
-    <div className="px-4 pt-2" data-testid={`plan-flow-day-indicator-${iso}`}>
+    <div
+      className="px-4 pt-2 flex items-center gap-1.5"
+      data-testid={`plan-flow-day-indicator-${iso}`}
+    >
       <DayIndicatorBadge indicator={dayIndicator} />
+      {/* B-1: 休みも shift_image 由来なら控えめに「取込」（警告でなく由来表示） */}
+      {dayIndicator.sourceType === "shift_image" && <ImportedSourceBadge />}
     </div>
   ) : null;
 
@@ -579,6 +593,15 @@ function FlowDaySection({
     // 8b-8: bookends 込み events から transitions 生成 (= 出発↔最初、 最後↔帰宅 にも移動 chip)
     //   - convertEventsToTransitions は events 配列から直接、 bookends 込みで通せる
     const newTimelineTransitions = convertEventsToTransitions(newTimelineEvents);
+    // B-1: シフト取込（shift_image）由来 event id 集合（event.id = anchor.id）。
+    //   bookends（出発/帰宅 virtual）は anchor でないため自然に対象外。
+    const importedEventIds = importedShiftSourceIds
+      ? new Set(
+          anchors
+            .filter((a) => importedShiftSourceIds.has(a.sourceId))
+            .map((a) => a.id)
+        )
+      : undefined;
     return (
       <section
         data-testid={`plan-flow-section-${iso}`}
@@ -599,6 +622,7 @@ function FlowDaySection({
             <TimelineSpine
               events={newTimelineEvents}
               transitions={newTimelineTransitions}
+              importedEventIds={importedEventIds}
               onEventTap={
                 onAnchorClick
                   ? (id: string) => {
@@ -690,6 +714,7 @@ function FlowDaySection({
               key={a.id}
               anchor={a}
               hasOverlap={dayOverlaps.has(a.id)}
+              imported={importedShiftSourceIds?.has(a.sourceId) ?? false}
               onClick={onAnchorClick}
             />
           ))}
@@ -751,11 +776,14 @@ function FlowDaySection({
 function AnchorRow({
   anchor,
   hasOverlap,
+  imported,
   onClick,
 }: {
   anchor: ExternalAnchor;
   /** Phase 2-E: 同日内で時刻が他 anchor と重なるか */
   hasOverlap: boolean;
+  /** B-1: シフト取込（shift_image）由来の勤務 anchor か。true で控えめな「取込」表示。 */
+  imported?: boolean;
   onClick?: (anchor: ExternalAnchor) => void;
 }) {
   const clickable = !!onClick;
@@ -830,6 +858,8 @@ function AnchorRow({
               <span>重なり</span>
             </span>
           )}
+          {/* B-1: シフト取込（shift_image）由来の勤務なら控えめに「取込」（警告でなく由来表示） */}
+          {imported && <ImportedSourceBadge />}
         </div>
         <p className="mt-1 text-base font-medium text-slate-900 truncate">
           {anchor.title}

@@ -138,6 +138,7 @@ export const SOURCE_TYPE_LABEL: Record<
   ics: "カレンダー", // P3 W3 (= 2026-05-26): .ics / iCalendar
   google_calendar: "Google", // P3 Phase B (= 2026-05-29): Google Calendar 連携
   microsoft_calendar: "Outlook", // Track B (= 2026-05-29): Outlook / Microsoft 365 連携
+  shift_image: "シフト取込", // SR (= 2026-05-31): シフト表画像取り込み
 };
 
 /** anchor.locationCategory + locationText を 1 行に整形。両方無ければ "場所未指定" */

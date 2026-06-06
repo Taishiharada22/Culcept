@@ -47,6 +47,7 @@ import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { PlanDayIndicator } from "@/lib/plan/planDayIndicatorReader";
 import { dayIndicatorsByDate } from "@/lib/plan/dayIndicatorView";
+import { shiftImageSourceIds } from "@/lib/plan/shiftImageSource";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 // ── Phase 3-J-6e-1 / J-6e-2: Proposal 接続 ──
 // 注: TestOverrideContext は import しない (= production import 禁止)。
@@ -514,6 +515,14 @@ export default function PlanClient({
     [state]
   );
 
+  // B-1: シフト取込（shift_image）由来の source id 集合。
+  //   勤務 anchor は source_type を直接持たないため anchor.sourceId → この Set で取込由来を判定する。
+  //   週/日/月 view へ渡し、控えめな「取込」由来 marker を表示する（= 警告ではなく provenance）。
+  const importedShiftSourceIds = useMemo(
+    () => shiftImageSourceIds(state.kind === "ok" ? state.sources : []),
+    [state]
+  );
+
   // accept callback (= 9-step transaction、 ref + state 二段防御)
   const handleProposalAccept = useCallback(
     async (proposal: ProposedAnchor) => {
@@ -975,6 +984,7 @@ export default function PlanClient({
                 onProposalUndo={handleProposalUndo}
                 dayGraphByDate={dayGraphByDate}
                 dayIndicatorByIso={dayIndicatorByIso}
+                importedShiftSourceIds={importedShiftSourceIds}
               />
             )}
             {activeTab === "flow" && (
@@ -984,6 +994,7 @@ export default function PlanClient({
                 onAnchorClick={openDetail}
                 dayGraphByDate={dayGraphByDate}
                 dayIndicatorByIso={dayIndicatorByIso}
+                importedShiftSourceIds={importedShiftSourceIds}
               />
             )}
             {/* 9 closeout cleanup: MapTab 単一 path 化、 受領 prop は anchors + now + onAnchorClick のみ。
