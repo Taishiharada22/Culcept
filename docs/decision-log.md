@@ -15325,3 +15325,14 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ステータス: blocker-ledger 段階。実装修正なし。次に何を倒すかは CEO 判断に戻す。push/Vercel/DB/Google/source/test/S5 不接触。
 
 ---
+
+## [2026-06-07] tsc cleanup 完全停止・baseline 55 固定 + 本流復帰（Day Rehearsal Repair Candidate v0）
+
+- 決定: CEO 判断で **tsc cleanup を完全停止・残 55 を baseline として固定**（route 15 audit も不要）。理由: 1114→55 で低リスク cleanup 完了・残りは仕様判断/core path/未完配線/prod export/mock 複合型中心・これ以上は型のために仕様を壊すリスク。本流（プロダクト）へ復帰。着地済 worktree 11 本を整理（branch 全保持・ディスク 29Gi 解放）。
+- 本流復帰タスク（GPT 提案・CEO 確認）= **Day Rehearsal Repair Candidate v0**: Day Rehearsal 出力から read-only な対処候補を生成する pure layer。予定変更でなく「壊れにくくする候補」（Aneurasync 哲学=最適化でなく示唆）。
+- W-Repair-1 audit: rehearsal 出力（viability/convergencePoints/bufferStatus/recoveryWindows/density/evidence）に必要シグナル全存在・pure 導出可・suggestion 形に閉じ可 → 安全と判断し pure 実装。
+- 実装（branch `claude/dr-repair-v0` HEAD `eeca4fcc`・未配線）: `lib/plan/dayRehearsal/dayRepairCandidates.ts` の `generateDayRepairCandidates(rehearsal, context?)`。5 kind(protect_buffer/leave_earlier/confirm_uncertain/use_recovery_window/reduce_density)・leave_earlier↔protect_buffer 排他・viability unknown/シグナルなし→候補 0・各候補 evidence trace・suggestion トーン・禁止語/生スコアなし。★GPT 例文「壊れにくそう」は禁止語「壊れる」抵触で不採用→「重なりにくそう」。
+- 検証: unit 13 + dayRehearsal dir 63 + plan suite 4986 PASS・tsc footprint 0（baseline 55 不変）・additive（既存不接触）・UI 未配線。
+- ステータス: **pure layer 完成・branch commit 済。main 着地・UI 配線は CEO 判断待ち**（原典 step4 同様 branch→CEO GO 段階）。closeout: `docs/second-self-map-day-rehearsal-repair-v0-closeout.md`。push/Vercel/DB/Google/予定変更/UI 不接触。
+
+---
