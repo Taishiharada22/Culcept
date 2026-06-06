@@ -3,7 +3,7 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
@@ -355,5 +355,32 @@ describe("buildRehearsalInputFromDisplay (Option D: status-only・honest degrade
   it("25. display 全空 → viability unknown（banner 非表示ケース）", () => {
     const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
     expect(rehearseDay(buildRehearsalInputFromDisplay(g, displayMap([]))).viability.outlook).toBe("unknown");
+  });
+});
+
+// ── WPM-2b: recoveryStepsFromFeasibilityRaw（真の slack≥閾値・gapMin でない） ──
+describe("recoveryStepsFromFeasibilityRaw (WPM-2b)", () => {
+  function raw(entries: Array<[number, Partial<FeasibilitySlackView>]>): Map<number, FeasibilitySlackView> {
+    const m = new Map<number, FeasibilitySlackView>();
+    for (const [i, v] of entries) m.set(i, { transitionIndex: i, status: "sufficient", ...v } as FeasibilitySlackView);
+    return m;
+  }
+  it("R1. sufficient + slack≥60 → 含む", () => {
+    expect(recoveryStepsFromFeasibilityRaw(raw([[0, { status: "sufficient", slackMin: 90 }]]))).toEqual(new Set([0]));
+  });
+  it("R2. sufficient + slack<60 → 含まない", () => {
+    expect(recoveryStepsFromFeasibilityRaw(raw([[0, { status: "sufficient", slackMin: 30 }]])).size).toBe(0);
+  });
+  it("R3. insufficient → 含まない（詰まり側）", () => {
+    expect(recoveryStepsFromFeasibilityRaw(raw([[0, { status: "insufficient", shortfallMin: 40 }]])).size).toBe(0);
+  });
+  it("R4. slack 不明（undefined）→ 含まない（捏造しない）", () => {
+    expect(recoveryStepsFromFeasibilityRaw(raw([[0, { status: "sufficient" }]])).size).toBe(0);
+  });
+  it("R5. not_applicable → 含まない", () => {
+    expect(recoveryStepsFromFeasibilityRaw(raw([[0, { status: "not_applicable" }]])).size).toBe(0);
+  });
+  it("R6. 閾値 param で調整可", () => {
+    expect(recoveryStepsFromFeasibilityRaw(raw([[2, { status: "sufficient", slackMin: 45 }]]), 30)).toEqual(new Set([2]));
   });
 });

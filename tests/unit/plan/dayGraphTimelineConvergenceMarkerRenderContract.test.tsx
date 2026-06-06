@@ -76,3 +76,60 @@ describe("DayGraphTimeline convergence marker — 構造 invariants", () => {
     expect(region).toContain("text-slate-400");
   });
 });
+
+// ── WPM-2b: recovery marker render ──
+describe("DayGraphTimeline recovery marker — render", () => {
+  it("recoverySteps に該当 → recovery marker（一息つけそう・仮説トーン）", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" recoverySteps={new Set([0])} />,
+    );
+    expect(html).toContain('data-testid="day-graph-recovery-marker"');
+    expect(html).toContain("一息つけそう");
+  });
+
+  it("recoverySteps なし → recovery marker は出ない", () => {
+    const html = renderToStaticMarkup(<DayGraphTimeline result={movement} view="user_self" />);
+    expect(html).not.toContain("day-graph-recovery-marker");
+  });
+
+  it("convergence と recovery 両方該当 → convergence 優先（recovery 出ない）", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])} recoverySteps={new Set([0])} />,
+    );
+    expect(html).toContain("day-graph-convergence-marker");
+    expect(html).not.toContain("day-graph-recovery-marker");
+  });
+
+  it("recovery marker は成功色(green/emerald)/警告色/断定を含まない・slate 中立", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" recoverySteps={new Set([0])} />,
+    );
+    expect(html).not.toContain("green");
+    expect(html).not.toContain("emerald");
+    expect(html).not.toContain("amber");
+    expect(html).toMatch(/day-graph-recovery-marker[\s\S]{0,200}text-slate-400|text-slate-400[\s\S]{0,200}day-graph-recovery-marker/);
+  });
+
+  it("sensitiveProximity の transition には recovery marker を出さない（redaction）", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={sensitive} view="user_self" recoverySteps={new Set([0, 1, 2])} />,
+    );
+    expect(html).not.toContain("day-graph-recovery-marker");
+  });
+});
+
+describe("DayGraphTimeline recovery marker — 構造 invariants", () => {
+  const content = readFileSync("app/(culcept)/plan/components/DayGraphTimeline.tsx", "utf-8");
+  it("recovery は convergence と排他（!convergenceSteps）+ sensitiveProximity redaction", () => {
+    const idx = content.indexOf("RecoveryMarkerLine transitionIndex");
+    const region = content.slice(Math.max(0, idx - 400), idx + 100);
+    expect(region).toMatch(/!\s*\(props\.convergenceSteps\?\.has\(transitionIndex\)/);
+    expect(region).toMatch(/!\s*transitionView\.sensitiveProximity/);
+  });
+  it("RecoveryMarkerLine は成功色/警告色を持たない（slate のみ）", () => {
+    const idx = content.indexOf("function RecoveryMarkerLine");
+    const region = content.slice(idx, idx + 800);
+    expect(region).not.toMatch(/green|emerald|amber|orange|bg-red/);
+    expect(region).toContain("text-slate-400");
+  });
+});

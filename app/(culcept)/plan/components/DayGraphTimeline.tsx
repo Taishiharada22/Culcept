@@ -156,6 +156,13 @@ export interface DayGraphTimelineProps {
    * ★sensitiveProximity の transition には出さない（redaction）。amber/orange 系の色/icon/生スコアなし・layout 非破壊。
    */
   readonly convergenceSteps?: ReadonlySet<number>;
+
+  /**
+   * Day Rehearsal（Wave 2・WPM-2b）: 「一息つけそう」recovery の stepIndex 集合（= optional・read-only）。
+   * 真の余白 slack≥閾値の sufficient transition のみ（gapMin でなく raw slack）。convergence と排他（詰まり優先）。
+   * ★sensitiveProximity には出さない（redaction）。成功色/icon/生スコアなし・layout 非破壊。
+   */
+  readonly recoverySteps?: ReadonlySet<number>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -289,6 +296,15 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
             {(props.convergenceSteps?.has(transitionIndex) ?? false) &&
               !transitionView.sensitiveProximity && (
                 <ConvergenceMarkerLine transitionIndex={transitionIndex} />
+              )}
+            {/*
+             * Day Rehearsal WPM-2b: 「一息つけそう」recovery marker（真の余白 slack≥閾値・read-only）。
+             * ★convergence と排他（詰まり優先）・sensitiveProximity 非出力（redaction）・成功色/icon/生スコアなし。
+             */}
+            {(props.recoverySteps?.has(transitionIndex) ?? false) &&
+              !(props.convergenceSteps?.has(transitionIndex) ?? false) &&
+              !transitionView.sensitiveProximity && (
+                <RecoveryMarkerLine transitionIndex={transitionIndex} />
               )}
           </Fragment>
         );
@@ -629,6 +645,30 @@ function ConvergenceMarkerLine({
       data-testid="day-graph-convergence-marker"
     >
       この前後は予定が重なりやすいかもしれません
+    </li>
+  );
+}
+
+interface RecoveryMarkerLineProps {
+  readonly transitionIndex: number;
+}
+
+/**
+ * Day Rehearsal WPM-2b: 「一息つけそう」recovery の read-only marker 行（真の余白 slack≥閾値）。
+ * 仮説トーン・slate 中立・成功色(green 等)/icon/生スコアなし（ConvergenceMarkerLine と同階調・layout 非破壊）。
+ */
+function RecoveryMarkerLine({
+  transitionIndex,
+}: RecoveryMarkerLineProps): ReactElement {
+  return (
+    <li
+      role="listitem"
+      id={`day-rehearsal-recovery-${transitionIndex}`}
+      aria-label="ここは一息つけそうです"
+      className="text-xs italic text-slate-400 pl-8"
+      data-testid="day-graph-recovery-marker"
+    >
+      ここは一息つけそうです
     </li>
   );
 }

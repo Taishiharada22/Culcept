@@ -39,6 +39,7 @@ import { buildDayGraph } from "@/lib/plan/dayGraph/buildDayGraph";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { runFeasibilityDisplayPipeline } from "@/lib/plan/feasibility/feasibilityDisplayPipeline";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
+import type { FeasibilitySlackView } from "@/lib/plan/feasibility/feasibilityTypes";
 import { buildCoordsByAnchorIdFromGeocodeResults } from "@/lib/plan/transport/mapTabCoordsBridge";
 import { resolveMovementSegmentOverlay } from "@/lib/plan/transport/movementSegmentOverlay";
 import { createHeuristicDistanceProvider } from "@/lib/plan/transport/heuristicDistanceProvider";
@@ -51,6 +52,16 @@ import type { AnchorResolution } from "./_usePlanGeocode";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const EMPTY_DISPLAY_MAP: ReadonlyMap<number, FeasibilityDisplayView> = new Map();
+const EMPTY_RAW_MAP: ReadonlyMap<number, FeasibilitySlackView> = new Map();
+
+/**
+ * ★WPM-2a additive: hook 戻り。display は従来どおり（byte 不変）+ raw（真の slack/shortfall）を additive 追加。
+ * raw は Day Rehearsal recovery marker（真の余白 slack）用。既存 caller は displayByTransitionIndex を読む。
+ */
+export interface CalendarTabFeasibility {
+  readonly displayByTransitionIndex: ReadonlyMap<number, FeasibilityDisplayView>;
+  readonly rawByTransitionIndex: ReadonlyMap<number, FeasibilitySlackView>;
+}
 
 /**
  * CalendarTab selected day feasibility display hook (= M-3d)。
@@ -85,7 +96,7 @@ export function useCalendarTabFeasibilityDisplay(
   anchors: ReadonlyArray<ExternalAnchor>,
   date: string,
   resolutions: ReadonlyMap<string, AnchorResolution | null>,
-): ReadonlyMap<number, FeasibilityDisplayView> {
+): CalendarTabFeasibility {
   // (1) bridge (= sync pure、 useMemo で再計算最小化)
   const coords = useMemo(
     () => buildCoordsByAnchorIdFromGeocodeResults(resolutions),
@@ -106,6 +117,7 @@ export function useCalendarTabFeasibilityDisplay(
   const [displayMap, setDisplayMap] = useState<ReadonlyMap<number, FeasibilityDisplayView>>(
     EMPTY_DISPLAY_MAP,
   );
+  const [rawMap, setRawMap] = useState<ReadonlyMap<number, FeasibilitySlackView>>(EMPTY_RAW_MAP);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,13 +147,20 @@ export function useCalendarTabFeasibilityDisplay(
         for (const view of pipelineResult.feasibilityDisplay.feasibilityDisplayByTransitionKey.values()) {
           indexed.set(view.transitionIndex, view);
         }
+        // ★WPM-2a: raw（真の slack/shortfall・not_applicable 含む）も transitionIndex で index（recovery 用）
+        const rawIndexed = new Map<number, FeasibilitySlackView>();
+        for (const view of pipelineResult.feasibilityRaw.feasibilityByTransitionKey.values()) {
+          rawIndexed.set(view.transitionIndex, view);
+        }
 
         if (cancelled) return;
         setDisplayMap(indexed);
+        setRawMap(rawIndexed);
       } catch {
         if (cancelled) return;
-        // fail-safe: 空 map (= 「詳細」 hint 0 / 補助行 0)
+        // fail-safe: 空 map (= 「詳細」 hint 0 / 補助行 0 / recovery 0)
         setDisplayMap(EMPTY_DISPLAY_MAP);
+        setRawMap(EMPTY_RAW_MAP);
       }
     })();
 
@@ -150,5 +169,5 @@ export function useCalendarTabFeasibilityDisplay(
     };
   }, [anchors, date, coords, providers]);
 
-  return displayMap;
+  return { displayByTransitionIndex: displayMap, rawByTransitionIndex: rawMap };
 }

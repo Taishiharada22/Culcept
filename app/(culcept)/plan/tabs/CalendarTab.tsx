@@ -76,7 +76,7 @@ import {
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
-import { rehearseDay, buildRehearsalInputFromDisplay } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
@@ -222,7 +222,10 @@ export function CalendarTab({
   //    pipeline 解決前 / エラー時は空 Map で disclosure UI 非活性化。
   //    not_applicable / sensitive / unresolved は M-2a で map から除外済。
   //    month / grid 全件展開は **絶対禁止** (= selected day detail のみ)。
-  const calendarFeasibilityDisplayByTransitionIndex = useCalendarTabFeasibilityDisplay(
+  const {
+    displayByTransitionIndex: calendarFeasibilityDisplayByTransitionIndex,
+    rawByTransitionIndex: calendarFeasibilityRawByTransitionIndex,
+  } = useCalendarTabFeasibilityDisplay(
     selectedDayAnchors,
     selectedDate,
     selectedDayResolutions,
@@ -243,6 +246,12 @@ export function CalendarTab({
   const convergenceSteps = useMemo(
     () => new Set<number>(dayRehearsal?.convergencePoints ?? []),
     [dayRehearsal],
+  );
+
+  // WPM-2b: 「一息つけそう」recovery の stepIndex（真の余白 slack≥閾値・raw feasibility 由来・strain と decouple）。
+  const recoverySteps = useMemo(
+    () => recoveryStepsFromFeasibilityRaw(calendarFeasibilityRawByTransitionIndex),
+    [calendarFeasibilityRawByTransitionIndex],
   );
 
   // M-3d disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
@@ -786,6 +795,7 @@ export function CalendarTab({
               expandedTransitionIndices={expandedTransitionIndices}
               onToggleFeasibilityDisclosure={handleToggleFeasibilityDisclosure}
               convergenceSteps={convergenceSteps}
+              recoverySteps={recoverySteps}
             />
           </div>
         )}
