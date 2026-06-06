@@ -23,6 +23,7 @@ import { evaluateCaptureGate, type CaptureGateInput } from "../capture-gate";
 import { createColumnRestrictedSeedSource, type SeedUserContextClient } from "./seed-source";
 import { createColumnRestrictedDurationEvidenceSource, type DurationEvidenceUserContextClient } from "./duration-evidence-source";
 import { runConsumptionSurfaceFromProjected } from "./consumption-surface-bridge";
+import { morningProtocolCaptureCandidateFragment, type CaptureCandidateFragment } from "./candidate-response-assembler";
 import type { SeedConsumptionContext } from "./captured-seed-consumption";
 import type { SeedPlacement } from "../seed-placement";
 import type { DurationEvidence } from "../seed-placement-enrich";
@@ -151,4 +152,27 @@ export async function buildMorningCaptureSurface(
   } catch {
     return null; // never-throw（response 不変を絶対保証）
   }
+}
+
+/**
+ * A1-5-8-2: morningProtocol への capture candidate fragment を、**surface loader（DI）から fail-open に解決**する seam。
+ *   production route（`/api/stargazer/alter`）の morningProtocol assembly がこれを呼び、`() => buildMorningCaptureSurface(...)` を渡す。
+ *
+ *   - loader が **throw**（read 例外）/ **null**（flag off・kill・production/非 staging/非 canary gate block・no candidate）→ `{}`
+ *     （spread しても morningProtocol は完全不変＝既存 response 維持・後方互換）。
+ *   - candidate 有 → `{ captureCandidate: <redacted DTO> }`（`morningProtocolCaptureCandidateFragment` 経由で最終 redaction）。
+ *
+ *   surface 由来の例外を握り潰し **response 成功を壊さない**（fail-open）。**実 LLM await なし**（loader は read-only consumption のみ）。
+ *   capture write（fire-and-forget・別 gate・別 GO）とは独立。route はこの fragment を inline morningProtocol object に 1 行 spread する。
+ */
+export async function resolveMorningProtocolCaptureFragment(
+  loader: () => Promise<CandidateSurfaceDTO | null>
+): Promise<CaptureCandidateFragment> {
+  let surface: CandidateSurfaceDTO | null = null;
+  try {
+    surface = await loader();
+  } catch {
+    surface = null; // read failure → fail-open（captureCandidate を付けない）
+  }
+  return morningProtocolCaptureCandidateFragment(surface);
 }

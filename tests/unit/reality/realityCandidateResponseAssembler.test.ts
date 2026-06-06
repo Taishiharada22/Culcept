@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   appendCaptureCandidateToMorningResult,
+  morningProtocolCaptureCandidateFragment,
   redactCaptureCandidateSurface,
   CAPTURE_CANDIDATE_RESPONSE_KEY,
 } from "@/lib/plan/reality/integration/candidate-response-assembler";
@@ -119,6 +120,101 @@ describe("A1-5-7-2 redactCaptureCandidateSurface — allowlist 再構築 / drift
     expect((clean as unknown as Record<string, unknown>).extra).toBeUndefined();
     expect((clean.items[0] as unknown as Record<string, unknown>).rawX).toBeUndefined();
     expect(clean).toEqual(SURFACE);
+  });
+});
+
+// ── A1-5-8-2: morningProtocolCaptureCandidateFragment（inline morningProtocol への spread fragment）──
+const SEED_UUID = "11111111-1111-4111-8111-111111111111";
+// 本流 route `/api/stargazer/alter` の morningProtocol object と同じ key 集合（assembly 模写）
+function morningProtocol(extra: Record<string, unknown> = {}) {
+  return {
+    sessionId: "sess-1",
+    pipelineVersion: "v2",
+    phase: "presented",
+    plan: { date: "2026-06-07", items: [{ title: "朝のルーティン" }] },
+    clarifyQuestion: null,
+    personalizeHints: ["hint"],
+    rawInputs: [{ text: "x" }],
+    parsedIntent: { foo: 1 },
+    sufficiency: null,
+    planStateV2: { state: "ok" },
+    pendingClarify: null,
+    persistedEvents: null,
+    dialogState: { v: 2 },
+    ...extra,
+  };
+}
+
+describe("A1-5-8-2 fragment — 候補無 → {}（spread しても morningProtocol 不変・fail-open）", () => {
+  it("surface=null/undefined → {}（captureCandidate key なし）", () => {
+    expect(morningProtocolCaptureCandidateFragment(null)).toEqual({});
+    expect(morningProtocolCaptureCandidateFragment(undefined)).toEqual({});
+    expect(CAPTURE_CANDIDATE_RESPONSE_KEY in morningProtocolCaptureCandidateFragment(null)).toBe(false);
+  });
+  it("hasCandidate=false → {}", () => {
+    expect(morningProtocolCaptureCandidateFragment(EMPTY)).toEqual({});
+  });
+  it("morningProtocol へ spread（候補無）→ 完全 no-op（deep-equal・全 key 維持）", () => {
+    const mp = morningProtocol();
+    expect({ ...mp, ...morningProtocolCaptureCandidateFragment(null) }).toEqual(mp);
+    expect({ ...mp, ...morningProtocolCaptureCandidateFragment(EMPTY) }).toEqual(mp);
+    expect("captureCandidate" in { ...mp, ...morningProtocolCaptureCandidateFragment(EMPTY) }).toBe(false);
+  });
+});
+
+describe("A1-5-8-2 fragment — 候補有 → captureCandidate を additive（既存 morningProtocol keys 維持）", () => {
+  it("hasCandidate=true → { captureCandidate: redacted }", () => {
+    expect(morningProtocolCaptureCandidateFragment(SURFACE)).toEqual({ captureCandidate: SURFACE });
+  });
+  it("morningProtocol へ spread（候補有）→ 既存 plan/dialogState/planStateV2/rawInputs/parsedIntent 維持 + 1 key 追加", () => {
+    const mp = morningProtocol();
+    const assembled = { ...mp, ...morningProtocolCaptureCandidateFragment(SURFACE) } as Record<string, unknown>;
+    // 既存 morningProtocol keys を壊さない
+    expect(assembled.plan).toEqual({ date: "2026-06-07", items: [{ title: "朝のルーティン" }] });
+    expect(assembled.dialogState).toEqual({ v: 2 });
+    expect(assembled.planStateV2).toEqual({ state: "ok" });
+    expect(assembled.rawInputs).toEqual([{ text: "x" }]);
+    expect(assembled.parsedIntent).toEqual({ foo: 1 });
+    expect(assembled.phase).toBe("presented");
+    expect(assembled.sessionId).toBe("sess-1");
+    // additive は captureCandidate のみ
+    expect(assembled.captureCandidate).toEqual(SURFACE);
+    expect(Object.keys(assembled).filter((k) => !(k in mp))).toEqual(["captureCandidate"]);
+  });
+  it("top-level response envelope を壊さない（morningProtocol を内包した response 模写）", () => {
+    const mp = morningProtocol();
+    const response = { ok: true, sessionId: "s", response: "text", morningProtocol: { ...mp, ...morningProtocolCaptureCandidateFragment(SURFACE) } } as Record<string, unknown>;
+    expect(response.ok).toBe(true);
+    expect(response.response).toBe("text");
+    expect((response.morningProtocol as Record<string, unknown>).plan).toEqual(mp.plan);
+    expect((response.morningProtocol as Record<string, unknown>).captureCandidate).toEqual(SURFACE);
+  });
+});
+
+describe("A1-5-8-2 fragment — 最終 redaction（raw/source_ref/UUID/seedRef non-surface）", () => {
+  it("汚染 surface（source_ref/seedRef/UUID/raw）→ fragment に leak しない（allowlist 再構築）", () => {
+    const contaminated = {
+      ...SURFACE,
+      source_ref: "SREF",
+      rawNote: "歯医者に行きたい",
+      items: [{ ...SURFACE.items[0], seedRef: SEED_UUID, signal: "RAW_SIGNAL" }],
+    } as unknown as CandidateSurfaceDTO;
+    const json = JSON.stringify(morningProtocolCaptureCandidateFragment(contaminated));
+    for (const leak of ["SREF", "source_ref", "seedRef", "RAW_SIGNAL", "rawNote", "歯医者", SEED_UUID]) {
+      expect(json).not.toContain(leak);
+    }
+    expect(json).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+  });
+  it("morningProtocol へ spread後も全 string が安全（collectStringValues）", () => {
+    const mp = morningProtocol();
+    const assembled = { ...mp, ...morningProtocolCaptureCandidateFragment(SURFACE) } as Record<string, unknown>;
+    const cc = assembled.captureCandidate;
+    for (const s of collectStringValues(cc).map((l) => l.value)) {
+      expect(s).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+      expect(s).not.toContain("source_ref");
+    }
+    const json = JSON.stringify(cc);
+    for (const leak of ["prompt", "apiKey", "api_key", "utterance", "signal", "seedRef"]) expect(json).not.toContain(leak);
   });
 });
 

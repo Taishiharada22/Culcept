@@ -73,3 +73,23 @@ export function appendCaptureCandidateToMorningResult<T extends object>(
   if (!surface || !surface.hasCandidate) return result; // candidate 無 → 元 result 完全一致（fail-open）
   return { ...result, captureCandidate: redactCaptureCandidateSurface(surface) }; // candidate 有 → additive + 最終 redaction
 }
+
+/** spread 可能な additive fragment 型（候補無→空 object・有→`captureCandidate` 1 key のみ）。 */
+export type CaptureCandidateFragment = Readonly<Record<string, never>> | CaptureCandidateResponseSurface;
+
+/**
+ * A1-5-8-2: 既存の **inline morningProtocol object**（route 内で object literal として構築される箇所・
+ *   例 `/api/stargazer/alter` の `morningProtocol: { ... }`）へ **1 行 spread で additive 注入**するための
+ *   optional fragment を返す（**pure・fail-open・最終 redaction**）。
+ *   - surface 無（null/undefined・hasCandidate=false）→ `{}`（spread しても morningProtocol は完全不変）。
+ *   - hasCandidate=true → `{ captureCandidate: redactCaptureCandidateSurface(surface) }`（最終 redaction・raw/source_ref/UUID drop）。
+ *   `appendCaptureCandidateToMorningResult` の **spread 版**（merge 済 object ではなく fragment を返す）。両者は
+ *   `redactCaptureCandidateSurface` という同一 redaction core を共有する。既存 inline object を再配置せず
+ *   additive 統合する用途（巨大 route を最小・外科的に保つ）。pure・deterministic・DB/route/UI import なし。
+ */
+export function morningProtocolCaptureCandidateFragment(
+  surface: CandidateSurfaceDTO | null | undefined
+): CaptureCandidateFragment {
+  if (!surface || !surface.hasCandidate) return {}; // 候補無 → spread no-op（morningProtocol 不変・fail-open）
+  return { captureCandidate: redactCaptureCandidateSurface(surface) }; // 候補有 → 1 key additive + 最終 redaction
+}

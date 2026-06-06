@@ -517,6 +517,11 @@ import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-mo
 //   PR B-2c: fetchPreviousDayPlan で前日 plan を取得し Layer 2 inheritance に渡す
 import { upsertPlanHistory, fetchPreviousDayPlan } from "@/lib/alter-morning/persistence/planHistory";
 import { runShadowAndCompare } from "@/lib/alter-morning/op5";
+// A1-5-8-2: Reality capture candidate surface（read-only・fail-open・gated・additive・実 LLM await なし）
+//   pending captured seed/evidence を read-only consumption し、候補があれば morningProtocol.captureCandidate? を additive 追加。
+//   flag default off / production hard block（gate）→ 完全 no-op。capture write（別 gate・別 GO）とは独立。
+import { buildMorningCaptureSurface, resolveMorningProtocolCaptureFragment, type PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
+import type { CaptureCandidateFragment } from "@/lib/plan/reality/integration/candidate-response-assembler";
 import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -10320,6 +10325,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // A1-5-8-2: Capture Candidate Surface（read-only・fail-open・gated・additive・実 LLM await なし）
+    //   morningProtocol を返す時のみ、pending captured seed/evidence を read-only consumption し
+    //   候補があれば morningProtocol.captureCandidate? を additive 注入（fragment を下で 1 行 spread）。
+    //   - flag off / kill / production / 非 staging・非 canary gate block / no candidate / read 失敗
+    //     → fragment={} → morningProtocol 完全不変（既存 response と後方互換）。
+    //   - buildMorningCaptureSurface は read-only・never-throw・実 LLM なし・production hard block 内蔵（gate）。
+    //   - capture write（fire-and-forget・別 gate・別 GO）とは独立。surface は read 側のみ。
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const captureCandidateFragment: CaptureCandidateFragment =
+      morningResponse && morningResponse.phase !== "skipped"
+        ? await resolveMorningProtocolCaptureFragment(() =>
+            buildMorningCaptureSurface(
+              supabase as unknown as PendingCapturedRowsReadClient,
+              userId,
+              shadowLlmTargetDate ?? undefined,
+            ))
+        : {};
+
     return NextResponse.json({
       ok: true,
       sessionId,
@@ -10369,6 +10393,9 @@ export async function POST(req: NextRequest) {
           ...(lastTraceSnapshot != null
             ? { _debug: { trace: lastTraceSnapshot } }
             : {}),
+          // A1-5-8-2: capture candidate surface（候補有時のみ captureCandidate を additive・
+          //   候補無 / flag off / gate block / read 失敗 → fragment={} → 既存 morningProtocol 完全不変）
+          ...captureCandidateFragment,
         },
       } : {}),
       ...(queryContext ? {

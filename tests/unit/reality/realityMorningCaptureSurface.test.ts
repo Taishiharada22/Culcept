@@ -5,9 +5,11 @@ import {
   resolveSurfaceGate,
   loadPendingProjected,
   buildCaptureSurfaceFromProjected,
+  resolveMorningProtocolCaptureFragment,
   type PendingProjected,
   type PendingCapturedRowsReadClient,
 } from "@/lib/plan/reality/integration/morning-capture-surface.server";
+import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
 import type { ColumnRestrictedSeedRow } from "@/lib/plan/reality/integration/seed-column-restricted";
 import type { ColumnRestrictedDurationEvidenceRow } from "@/lib/plan/reality/integration/duration-evidence-source";
 import type { SeedPlacement } from "@/lib/plan/reality/seed-placement";
@@ -133,5 +135,43 @@ describe("A1-5-7-5 morning-capture-surface — 静的安全（read-only・single
   it("barrel(integration/index.ts) が morning-capture-surface を再 export しない", () => {
     const idx = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/integration/index.ts"), "utf8");
     expect(idx).not.toContain("morning-capture-surface");
+  });
+});
+
+// ── A1-5-8-2: resolveMorningProtocolCaptureFragment（route 用 DI fail-open seam）──
+const SURFACE_DTO: CandidateSurfaceDTO = {
+  hasCandidate: true,
+  candidateCount: 1,
+  status: "has_candidate",
+  items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: null, band: "morning", confidenceBand: "high" }],
+};
+
+describe("A1-5-8-2 resolveMorningProtocolCaptureFragment（DI fail-open seam・実 read は loader 内）", () => {
+  it("loader → candidate surface → { captureCandidate: redacted }", async () => {
+    expect(await resolveMorningProtocolCaptureFragment(async () => SURFACE_DTO)).toEqual({ captureCandidate: SURFACE_DTO });
+  });
+  it("loader → null（flag off / kill / gate block / no candidate）→ {}（morningProtocol 不変）", async () => {
+    expect(await resolveMorningProtocolCaptureFragment(async () => null)).toEqual({});
+  });
+  it("loader → throws（read failure）→ {}（fail-open・response 成功を壊さない）", async () => {
+    expect(await resolveMorningProtocolCaptureFragment(async () => { throw new Error("read fail"); })).toEqual({});
+  });
+  it("loader → hasCandidate=false → {}", async () => {
+    expect(await resolveMorningProtocolCaptureFragment(async () => ({ hasCandidate: false, candidateCount: 0, status: "none", items: [] }))).toEqual({});
+  });
+  it("loader → 汚染 surface（source_ref/seedRef/UUID）→ fragment に leak しない（最終 redaction）", async () => {
+    const contaminated = { ...SURFACE_DTO, source_ref: "SREF", items: [{ ...SURFACE_DTO.items[0], seedRef: SEED_ID }] } as unknown as CandidateSurfaceDTO;
+    const json = JSON.stringify(await resolveMorningProtocolCaptureFragment(async () => contaminated));
+    for (const leak of ["SREF", "source_ref", "seedRef", SEED_ID]) expect(json).not.toContain(leak);
+    expect(json).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+  });
+  it("loader を 1 回だけ await（DB/RPC/Supabase 実接続/実 LLM はテストに不在＝fake loader）", async () => {
+    let called = 0;
+    await resolveMorningProtocolCaptureFragment(async () => { called++; return null; });
+    expect(called).toBe(1);
+  });
+  it("静的: resolveMorningProtocolCaptureFragment は read-only seam（write/.from/.rpc を持たない）", () => {
+    expect(CODE).toContain("resolveMorningProtocolCaptureFragment");
+    for (const t of [".insert(", ".rpc(", ".update(", ".upsert(", ".delete("]) expect(CODE).not.toContain(t);
   });
 });
