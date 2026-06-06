@@ -15347,3 +15347,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: pure layer main live。UI 実装は mini design GO 後。push/PR/Vercel/DB/Google/予定変更/UI 配線 不接触。次フェーズ未着手。
 
 ---
+
+## [2026-06-07] Day Rehearsal Repair Candidate v0 UI 配線 main 着地 + What-if Preview mini design（実装は次 GO）
+
+- 決定: CEO GO（判断点6点）で Repair v0 UI を配線・実機 smoke PASS（CEO + 自己監査）後 main 着地。
+- 実装（main `98332f09`・親 `ed9aed7e`・5 ファイル）: day-level banner 下に native `<details>`「**どうするとよさそう？**」（default 閉）。`prioritizeRepairCandidates`(優先度 stable+cap3) + CalendarTab で `repairCandidates`(generateDayRepairCandidates(dayRehearsal,{recoverySteps})→prioritize) を banner に。**read-only・suggestion テキスト行のみ・実行 UI（button/適用/保存/チェック）一切なし・0 件非表示・copy は pure layer 由来**。
+- production 挙動: 候補ありの選択日で banner 下に read-only「どうするとよさそう？」。予定変更/保存なし。banner/なぜ?/marker/timeline 非破壊。
+- smoke: 6/6 tight 日で use_recovery_window 表示（convergencePoints 空+余白不足なし→1 件のみが正・他 kind は render test 7 本で保証）。
+- 検証: prioritize 5 + banner repair render 7 + dayRepairCandidates 18 + wiring/banner/DayGraphTimeline 101 + plan suite 4998 PASS・tsc footprint 0（baseline 55 不変）・zero-loss（branch 1be59ce4）。
+- **What-if Preview mini design 作成**（実装なし）: `…-repair-v0-whatif-mini-design.md`。結論=**定性 what-if は feasible/pure/safe・定量は NO-GO**（banner は Option D で slackMin/shortfallMin null=raw 数値なし・定量には raw feasibility 露出 + re-simulation 要で予定変更モデリングに接近）。category 3 分(effect/clarity/utilization)で confirm_uncertain=不確定解消・use_recovery_window=既存余裕活用 を改善と別扱い。reduce_density は予定変更に見えやすく v0 弱める。「改善します」断定禁止。pure `previewRepairEffect` 案。CEO 判断点 5 件。
+- 状態: Repair v0 UI main live。What-if 実装は CEO GO 後（定性 v0 or raw feasibility slice 先行）。push/PR/Vercel/DB/Google/予定変更/実行/保存 不接触。
+- closeout: `…-repair-v0-ui-closeout.md`。
+
+---
