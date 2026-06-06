@@ -6,7 +6,8 @@ import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as fs from "fs";
 import * as path from "path";
-import { selectCaptureCandidate, fetchCaptureCandidate, buildCaptureCandidateRequestBody, submitForCaptureCandidate, CAPTURE_CANDIDATE_V2_ROUTE } from "@/components/home/morning/captureCandidateClient";
+import { selectCaptureCandidate, selectMorningProtocolCaptureCandidate, fetchCaptureCandidate, buildCaptureCandidateRequestBody, submitForCaptureCandidate, CAPTURE_CANDIDATE_V2_ROUTE } from "@/components/home/morning/captureCandidateClient";
+import { appendCaptureCandidateToMorningResult } from "@/lib/plan/reality/integration/candidate-response-assembler";
 import { CaptureCandidateBanner } from "@/components/home/morning/CaptureCandidateBanner";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
 
@@ -123,6 +124,51 @@ describe("A1-5-7-8 submitForCaptureCandidate — inert submit bridge（dormant�
   it("propagation: submit → DTO → banner「候補があります」", async () => {
     const cc = await submitForCaptureCandidate({ utterance: "x" }, { enabled: true, fetchImpl: fakeFetch(okResponse(SURFACE)) });
     expect(renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />)).toContain("候補があります");
+  });
+});
+
+describe("A1-5-8-0/1 selectMorningProtocolCaptureCandidate — B案 contract（morningProtocol.captureCandidate）", () => {
+  function alterResponse(cc?: unknown) {
+    return { morningProtocol: { phase: "presented", sessionId: "s", plan: { date: "2026-06-07", items: [] }, ...(cc !== undefined ? { captureCandidate: cc } : {}) } };
+  }
+  it("morningProtocol なし / captureCandidate なし / hasCandidate=false → undefined", () => {
+    expect(selectMorningProtocolCaptureCandidate(undefined)).toBeUndefined();
+    expect(selectMorningProtocolCaptureCandidate({})).toBeUndefined();
+    expect(selectMorningProtocolCaptureCandidate(alterResponse())).toBeUndefined();
+    expect(selectMorningProtocolCaptureCandidate(alterResponse({ hasCandidate: false, items: [] }))).toBeUndefined();
+  });
+  it("morningProtocol.captureCandidate present → DTO（redacted）", () => {
+    expect(selectMorningProtocolCaptureCandidate(alterResponse(SURFACE))).toEqual(SURFACE);
+  });
+  it("汚染（source_ref/seedRef）→ client boundary で drop", () => {
+    const cc = selectMorningProtocolCaptureCandidate(alterResponse({ ...SURFACE, source_ref: "SREF", items: [{ ...SURFACE.items[0], seedRef: SEED_UUID }] }));
+    const json = JSON.stringify(cc);
+    for (const leak of ["SREF", "source_ref", "seedRef", SEED_UUID]) expect(json).not.toContain(leak);
+    expect(json).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+  });
+  it("V2 contract（data.captureCandidate）には反応しない（B案 extractor は morningProtocol を読む）", () => {
+    expect(selectMorningProtocolCaptureCandidate(okResponse(SURFACE))).toBeUndefined();
+  });
+  it("元 response の既存 morningProtocol keys を壊さない（read-only extract）", () => {
+    const resp = alterResponse(SURFACE);
+    selectMorningProtocolCaptureCandidate(resp);
+    expect(resp.morningProtocol.plan).toEqual({ date: "2026-06-07", items: [] });
+    expect(resp.morningProtocol.phase).toBe("presented");
+  });
+});
+
+describe("A1-5-8-0/1 server side reuse — appendCaptureCandidateToMorningResult が morningProtocol へ additive（B案）", () => {
+  const mp = { phase: "presented", sessionId: "s", plan: { date: "x", items: [] } };
+  it("no candidate → 元 morningProtocol と deep-equal（既存 keys 不変）", () => {
+    expect(appendCaptureCandidateToMorningResult(mp, undefined)).toEqual(mp);
+    expect("captureCandidate" in appendCaptureCandidateToMorningResult(mp, undefined)).toBe(false);
+  });
+  it("candidate present → captureCandidate を additive（既存 keys 維持）", () => {
+    const out = appendCaptureCandidateToMorningResult(mp, SURFACE) as Record<string, unknown>;
+    expect(out.phase).toBe("presented");
+    expect((out.plan as { date: string }).date).toBe("x");
+    expect(out.captureCandidate).toEqual(SURFACE);
+    expect(Object.keys(out).filter((k) => !(k in mp))).toEqual(["captureCandidate"]);
   });
 });
 

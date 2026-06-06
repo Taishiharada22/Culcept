@@ -25,16 +25,33 @@ export const CAPTURE_CANDIDATE_V2_ROUTE = "/api/alter-morning/plan";
  *   ok!==true / data なし / captureCandidate なし / hasCandidate!==true → **undefined**（既存 UI 不変）。
  *   有効時は **`redactCaptureCandidateSurface` で再構築**（client が source_ref/UUID/raw を保持しない）。
  */
+/** captureCandidate 値（unknown）→ validate + **client boundary 最終 redaction**（hasCandidate/items 検証→既知 field のみ再構築）。 */
+function toRedactedCaptureCandidate(cc: unknown): CandidateSurfaceDTO | undefined {
+  if (!cc || typeof cc !== "object") return undefined;
+  const c = cc as Partial<CandidateSurfaceDTO>;
+  if (c.hasCandidate !== true || !Array.isArray(c.items)) return undefined;
+  // extra/raw/source_ref/UUID を drop（既知 field のみ）
+  return redactCaptureCandidateSurface(c as CandidateSurfaceDTO);
+}
+
 export function selectCaptureCandidate(responseJson: unknown): CandidateSurfaceDTO | undefined {
   if (!responseJson || typeof responseJson !== "object") return undefined;
   const r = responseJson as { ok?: unknown; data?: unknown };
   if (r.ok !== true || !r.data || typeof r.data !== "object") return undefined;
-  const cc = (r.data as { captureCandidate?: unknown }).captureCandidate;
-  if (!cc || typeof cc !== "object") return undefined;
-  const c = cc as Partial<CandidateSurfaceDTO>;
-  if (c.hasCandidate !== true || !Array.isArray(c.items)) return undefined;
-  // client boundary の最終 redaction（既知 field のみ再構築・extra/raw/source_ref/UUID を drop）
-  return redactCaptureCandidateSurface(c as CandidateSurfaceDTO);
+  return toRedactedCaptureCandidate((r.data as { captureCandidate?: unknown }).captureCandidate);
+}
+
+/**
+ * A1-5-8-0/1: **B案 contract** の extractor — production morning route(`/api/stargazer/alter`)response の
+ *   `morningProtocol.captureCandidate` を抽出（redacted）。client は `data.morningProtocol.plan` を読むゆえ captureCandidate も同じ morningProtocol 直下が自然。
+ *   morningProtocol なし / captureCandidate なし / hasCandidate!==true → undefined（既存 UI 不変・fail-open）。
+ *   route alignment 決定（B案）の **pure contract skeleton**。本 slice では UI 未配線（live は別 GO）。
+ */
+export function selectMorningProtocolCaptureCandidate(responseJson: unknown): CandidateSurfaceDTO | undefined {
+  if (!responseJson || typeof responseJson !== "object") return undefined;
+  const mp = (responseJson as { morningProtocol?: unknown }).morningProtocol;
+  if (!mp || typeof mp !== "object") return undefined;
+  return toRedactedCaptureCandidate((mp as { captureCandidate?: unknown }).captureCandidate);
 }
 
 /**
