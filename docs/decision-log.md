@@ -15778,3 +15778,18 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **安全性**: flag ON・DB write・save・VLM・production・push・merge・proxy.ts・auth・月 enablement flag 変更 **いずれも非接触**。B-2 dev route は gated + production notFound。C-0 は docs-only。[承認: CEO/GPT（B-2 commit GO `4162be39`・smoke PASS・C は read-only audit + docs-only readiness 指示）]
 
 ---
+
+[2026-06-07] [Build] **SR C-1 月 view local/dev smoke PASS（実 CalendarTab toggle + month + 月送り + mobile）** — B-2 fixture（`/plan/dev-source-marker-smoke`）を再利用し、月 enablement flag を一時 ON にして実 CalendarTab 経由の月 view を screenshot smoke。新 route・新 code なし。
+- **一時 env（process scope のみ・`.env.local` は編集していない）**: `PLAN_SHIFT_SOURCE_MARKER_VISUAL_SMOKE_PREVIEW=true` + `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true`。dev server 停止後は env も消滅（恒久変更なし）。
+- **smoke 結果 PASS（CEO 認証ブラウザ + Claude 独立スクショ監査）**:
+  - **初期表示は week default のまま**（`週|月` toggle で週が選択状態）。
+  - **`週|月` toggle が表示された**（月 flag が client に到達した証拠）。
+  - **月 view に切り替えできた**（toggle→月で 6×7 grid・コード chip(N/BD)・取込 marker・today/selected/前後月 dimmed が描画）。
+  - **週 view に戻せた**。
+  - **月送りが破綻しなかった**（◀▶ で 6月→7月へ・7/10 selected・clamp 自然・戻って壊れない・July は fixture 無で marker なし＝期待通り）。
+  - **mobile 375px で致命的破綻なし**（**CEO 確認**。Claude は提供 desktop スクショで desktop 幅の非破綻を独立確認・375px 専用スクショは監査対象外）。
+  - **shift_image source marker の regression なし**（週/日/月 全 section で shift=6/10・6/12 取込 / non=6/11・6/13 なし）。
+- **C-2 polish は現時点では不要（CEO 判定）**。
+- **安全性**: 保存 / DB write / VLM / LLM **非接触**（FlowTab 経由の Supabase auth read のみ・通常 /plan と同等）。production **非接触**。月 enablement flag は **一時 env のみ・恒久変更なし**。push / PR / merge なし。[承認: CEO/GPT（C-1 smoke PASS・C-2 不要・C-3 へ進む指示）]
+
+---
