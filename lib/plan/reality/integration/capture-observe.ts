@@ -47,5 +47,8 @@ export function summarizeWouldCapture(result: CaptureServiceResult): WouldCaptur
       return { wouldCapture: false, wouldEvidence: false, outcome: "intake_rejected", reason: result.reason };
     case "write_failed":
       return { wouldCapture: false, wouldEvidence: false, outcome: "write_failed", reason: result.code };
+    case "suppressed":
+      // A1-5-11-4: write-side dedup で書かなかった（既存 active fresh 重複）。redacted reason code のみ。
+      return { wouldCapture: false, wouldEvidence: false, outcome: "suppressed", reason: "duplicate_active_fresh" };
   }
 }
