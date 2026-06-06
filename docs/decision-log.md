@@ -15245,3 +15245,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(S2-S4 GO)。ステータス: S2-S4 完了（低リスク分のみ）。次=CEO 判断（S6 test / S5 / 残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup S6 batch1 — test fixture 型ズレ 37件（main 着地 live）
+
+- 決定: CEO GO で S6 test fixture cleanup。read-only 監査で「明確に安全・同一原因・cast 不使用・期待値不変・production source 不接触」の 3 cluster のみ修正。
+- **修正（37・test-only）**: ① extractExplicitPlace.test.ts(17): mock 3rd arg の余剰 `entry: {...} as any` 除去（ActivitySpanLike={span,index}・関数は entry 不参照=dead field）② originAnchorExtractor.test.ts(19): JourneyAnchorState union の label/source を type-guard helper `labelOf()`（`"label" in r` 判定・cast 不使用・assertion 不変）で narrow ③ travelTimeEngine.test.ts(1): jest `fail()`（vitest に無し）→ `throw new Error()`。
+- **残置（HARD GATE/別原因）**: anchor `as Record`→`as unknown as Record`(10・cast 多数で「大量キャスト停止」回避)・postSelectionFlow null(13・prod 型 string vs test null=型変更/意味リスク)・urgentLayerDismiss(12・mock+Mock→fn cast 混在)・stargazer 7(S5 隣接 core path)・misc 長尾(~22)。
+- before/after（main 計測）: 138→**101**（−37）/ test 107→70 / source 31 不変 / **累計 1114→101（−1013・91%）**。
+- production 挙動変更**なし**（test ファイルのみ・assertion 不変）。
+- 検証: alter-morning **199 files / 4501 PASS**・zero-loss（branch 3c7ac215 一致）・scope外/temp/node_modules 混入 0・変更は test 3 ファイルのみ。
+- 状態: **main `6138d99a` 着地 live**（親 `9f70563e`）。closeout: `docs/tsc-baseline-cleanup-s6-closeout.md`。
+- 承認: CEO(S6 GO)。ステータス: S6 batch1 完了。次=CEO 判断（S6 batch2 / anchor cast / S5 / 残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
