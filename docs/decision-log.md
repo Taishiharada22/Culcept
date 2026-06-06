@@ -15370,3 +15370,15 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: pure layer 完成・branch commit 済。**main 着地・UI 配線は次の判断**（CEO「UI 配線前で停止・main 着地は次に回す」）。closeout: `docs/second-self-map-day-rehearsal-whatif-v0-closeout.md`。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
 
 ---
+
+## [2026-06-07] Day Rehearsal What-if Preview v0 — pure layer main 着地 + UI placement mini design（実装は次 GO）
+
+- 決定: CEO GO で What-if Preview v0 pure layer を main 固定（UI 未配線）。squash 着地。
+- 着地: main `a39ba2d4`（親 `98332f09`）。changed = `dayRepairPreview.ts` + test の 2 ファイルのみ。
+- ★着地時、main worktree に**別セッションの未コミット reality WIP**（reality integration 5 + stargazer/alter-morning route 2 + 新 test 1）が存在。私の commit は明示パス（私の 2 ファイル）のみで**別セッション WIP は不接触**（未コミットのまま保全）。私の branch diff も reality/route を含まない（完全非衝突）。
+- 検証: zero-loss（branch 2122b486 一致）・**tsc footprint 0（dayRepairPreview 起因 0）**・私の test 29 PASS・additive・production 挙動不変（consumer=test のみ・UI 未配線）。
+- closeout 補足（CEO 指示）: **将来の定量 preview では rehearsal/raw feasibility を入力に追加し re-simulation する可能性あり**（v0 candidate-only からの拡張）と明記。
+- **UI placement mini design 作成**（実装なし）: `docs/second-self-map-day-rehearsal-whatif-ui-mini-design.md`。★核心 finding=**candidate.suggestion と preview.body は重複大**（特に clarity/utilization はほぼ同義）→ 常時全 preview は overload。**推奨=案B（候補ごと「もしやるなら？」second-level disclosure・default 閉・effect 候補のみ・uncertainty 主体・confidence 内部のみ・raw evidence 非表示）or UI 出さず pure 保持**。CEO 判断点 6。
+- 状態: pure layer main live。UI 実装は mini design GO 後。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---

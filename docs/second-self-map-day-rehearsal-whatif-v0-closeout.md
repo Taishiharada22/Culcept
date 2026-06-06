@@ -5,8 +5,10 @@
 ---
 
 ## 0. 状態
-- code branch `claude/dr-repair-preview`（HEAD `2122b486`）。**main 着地・UI 配線は次の判断**（CEO「UI 配線前で停止・main 着地は次の判断に回す」）。
+- **ローカル main 着地済**（squash・main HEAD `a39ba2d4`・親 `98332f09`）。code branch `claude/dr-repair-preview`（HEAD `2122b486`）保持。**UI 配線は次の slice（mini design 先行）**。
 - 予定変更 / repair 実行 / optimize / auto-reschedule / 保存 / DB / Google / MapTab / UI 配線 / raw feasibility 改修 / re-simulation **一切なし**。
+- ★着地時、main worktree に別セッションの未コミット reality WIP（reality integration 5 + route 2）が存在したが、私の commit は明示パス（dayRepairPreview 2 ファイル）のみで**別セッション WIP は不接触**（未コミットのまま保全）。
+- ★**将来の定量（quantitative）preview**（「余白が N 分増える」等）では `rehearsal` / raw `DayFeasibilityResult` を入力に追加し re-simulation する可能性あり（v0 candidate-only からの拡張）。その slice は raw feasibility 露出が前提。
 
 ## 1. 実装（定性・pure・read-only）
 - `lib/plan/dayRehearsal/dayRepairPreview.ts`:
