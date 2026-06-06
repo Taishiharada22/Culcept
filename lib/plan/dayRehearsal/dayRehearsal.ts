@@ -8,6 +8,7 @@
  * 不変: pure / READ のみ / Date 不使用（時刻は "HH:MM" を分に変換）/ unknown は unknown（捏造しない）。
  */
 import type { DayFeasibilityResult, FeasibilitySlackView, SlackStatus } from "@/lib/plan/feasibility/feasibilityTypes";
+import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import type { TransportSegment, TransportMode } from "@/lib/alter-morning/transport/types";
 import type { DayGraph, EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
 import {
@@ -172,6 +173,7 @@ export function rehearseDay(input: RehearsalInput, config: DayRehearsalConfig = 
   let eventsAssumed = 0;
   let firstBreakIdx: number | null = null;
   let anyInsufficient = false;
+  let hasBufferSignal = false; // not_applicable 以外の buffer が 1 つでもあるか（travel unknown でも outlook 可）
 
   input.steps.forEach((step: RehearsalStep, i: number) => {
     if (step.event.durationAssumed) eventsAssumed += 1;
@@ -207,6 +209,7 @@ export function rehearseDay(input: RehearsalInput, config: DayRehearsalConfig = 
       if (t.travelMin != null && t.travelKnown) travelKnown += 1;
       if (t.travelMin == null) travelUnknown += 1;
       bufferStatus = t.bufferStatus;
+      if (t.bufferStatus !== "not_applicable") hasBufferSignal = true;
       bufferMin = t.bufferStatus === "sufficient" ? (t.slackMin ?? null) : t.bufferStatus === "insufficient" ? (t.shortfallMin != null ? -t.shortfallMin : null) : null;
       if (t.bufferStatus === "insufficient") anyInsufficient = true;
 
@@ -230,7 +233,7 @@ export function rehearseDay(input: RehearsalInput, config: DayRehearsalConfig = 
 
   const peakStrain: Estimate = { level: levelOf(budget > 0 ? peakScore / budget : peakScore, config), score: peakScore, evidence: peakEvidence };
   const coverage: RehearsalCoverage = { transitionsTotal, travelKnown, travelUnknown, eventsAssumedDuration: eventsAssumed };
-  const viability = computeViability(input, anyInsufficient, peakStrain.level, firstBreakIdx, coverage);
+  const viability = computeViability(input, anyInsufficient, peakStrain.level, firstBreakIdx, coverage, hasBufferSignal);
 
   return { date: input.date, viability, steps, peakStrain, recoveryWindows, convergencePoints, coverage };
 }
@@ -242,14 +245,16 @@ function computeViability(
   peakStrainLevel: EstimateLevel,
   firstBreakIdx: number | null,
   coverage: RehearsalCoverage,
+  hasBufferSignal: boolean,
 ): ViabilityEstimate {
   const known: string[] = [];
   const unknown: string[] = [];
   const inferred: string[] = [];
   const basis: string[] = [];
-  // 入力不足: transition が 0 or 全 unknown → unknown outlook
-  if (input.steps.length === 0 || (coverage.transitionsTotal > 0 && coverage.travelKnown === 0 && coverage.travelUnknown === coverage.transitionsTotal)) {
-    if (coverage.transitionsTotal > 0) unknown.push("all travel durations unknown");
+  // 入力不足: step 0 / (transition あるが buffer signal も travel signal も無い) → unknown（過剰主張しない）
+  // ★buffer signal（feasibility status）があれば travel unknown でも outlook を出す（Option D: status-only）。
+  if (input.steps.length === 0 || (coverage.transitionsTotal > 0 && !hasBufferSignal && coverage.travelKnown === 0)) {
+    if (coverage.transitionsTotal > 0) unknown.push("no feasibility or travel signal");
     if (input.steps.length === 0) unknown.push("no steps");
     return { outlook: "unknown", breaksAtStepIndex: null, evidence: { basis: ["insufficient input"], known, unknown, inferred } };
   }
@@ -307,6 +312,57 @@ export function buildRehearsalInput(
         bufferStatus: view?.status ?? "not_applicable",
         slackMin: view?.slackMin ?? null,
         shortfallMin: view?.shortfallMin ?? null,
+        gapMin,
+      };
+    }
+    return {
+      event: {
+        id: ev.id,
+        timeBucket: ev.timeBucket,
+        durationMin: ev.durationMin,
+        durationAssumed: ev.durationSource === "assumed_default",
+        sensitive: ev.sensitive,
+      },
+      transitionAfter,
+    };
+  });
+  return {
+    date: dayGraph.attributes.date,
+    dayMood: dayGraph.attributes.dayMood,
+    density: dayGraph.attributes.density,
+    baseEnergyLevel: opts?.baseEnergyLevel ?? null,
+    steps,
+  };
+}
+
+/**
+ * ★Option D（status-only・CalendarTab 配線用）: DayGraph + feasibility **display** map から RehearsalInput を構築。
+ * 既存 `_useCalendarTabFeasibilityDisplay` の `Map<transitionIndex, FeasibilityDisplayView>` を消費。
+ * raw slack/shortfall 分数は display 層に無い → **null=未確定（捏造しない・honest degrade）**。transport も未公開 → travel unknown。
+ * not_applicable は display map から除外済 → 不在キー = not_applicable。pure・READ のみ・Date 不使用。
+ */
+export function buildRehearsalInputFromDisplay(
+  dayGraph: DayGraph,
+  displayByTransitionIndex: ReadonlyMap<number, FeasibilityDisplayView>,
+  opts?: { readonly baseEnergyLevel?: number | null },
+): RehearsalInput {
+  const events = dayGraph.nodes.filter((n): n is EventNode => n.kind === "event");
+  const steps: RehearsalStep[] = events.map((ev, i) => {
+    const next = events[i + 1];
+    let transitionAfter: RehearsalTransitionInput | null = null;
+    if (next) {
+      const view = displayByTransitionIndex.get(i); // 不在 = not_applicable（display は除外）
+      const bufferStatus: SlackStatus = view ? (view.variant === "slack" ? "sufficient" : "insufficient") : "not_applicable";
+      const aEnd = hhmmToMin(ev.endTime);
+      const bStart = hhmmToMin(next.startTime);
+      const gapMin = aEnd != null && bStart != null ? Math.max(0, bStart - aEnd) : null;
+      transitionAfter = {
+        mode: "unknown", // transport 未公開 → unknown（fake duration を作らない）
+        travelMin: null, // honest degrade
+        travelKnown: false,
+        bufferStatus, // ★status のみ（display 由来）
+        slackMin: null, // raw 分数なし → 未確定（捏造しない）
+        shortfallMin: null, // raw 分数なし → 未確定
         gapMin,
       };
     }

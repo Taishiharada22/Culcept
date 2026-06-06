@@ -75,6 +75,8 @@ import {
   type WeekStripCell,
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
+import { DayOutlookBanner } from "../components/DayOutlookBanner";
+import { rehearseDay, buildRehearsalInputFromDisplay } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
@@ -225,6 +227,17 @@ export function CalendarTab({
     selectedDate,
     selectedDayResolutions,
   );
+
+  // ★Wave 2 Day Rehearsal（選択日 day-level outlook・READ-only）。既存 dayGraph + feasibility display を再利用。
+  //   raw 分数/transport は display 層に無い → status-only honest degrade（buildRehearsalInputFromDisplay）。
+  //   表示のみ・予定変更/repair/optimize なし。viability unknown は banner 側で非表示。
+  const dayRehearsal = useMemo(() => {
+    const graph = dayGraphByDate?.[selectedDate]?.graph;
+    if (!graph) return null;
+    return rehearseDay(
+      buildRehearsalInputFromDisplay(graph, calendarFeasibilityDisplayByTransitionIndex),
+    );
+  }, [dayGraphByDate, selectedDate, calendarFeasibilityDisplayByTransitionIndex]);
 
   // M-3d disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
   //   React lazy initial state pattern (= 関数 ref を渡す)。
@@ -516,6 +529,7 @@ export function CalendarTab({
                   <DayIndicatorBadge indicator={selectedDayIndicator} />
                 </div>
               )}
+              <DayOutlookBanner rehearsal={dayRehearsal} />
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}

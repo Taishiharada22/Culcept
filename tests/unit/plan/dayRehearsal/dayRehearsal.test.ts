@@ -3,7 +3,8 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
   type RehearsalEventInput,
@@ -173,16 +174,27 @@ describe("rehearseDay engine — 6 計算 + evidence", () => {
     }
   });
 
-  it("14. 全 transition unknown → viability unknown（過剰主張しない）", () => {
+  it("14. buffer/travel ともに signal なし → viability unknown（過剰主張しない）", () => {
     const r = rehearseDay(
       mkInput([
-        { event: ev("a"), transitionAfter: trans({ travelMin: null, travelKnown: false }) },
-        { event: ev("b"), transitionAfter: trans({ travelMin: null, travelKnown: false }) },
+        { event: ev("a"), transitionAfter: trans({ travelMin: null, travelKnown: false, bufferStatus: "not_applicable", slackMin: null }) },
+        { event: ev("b"), transitionAfter: trans({ travelMin: null, travelKnown: false, bufferStatus: "not_applicable", slackMin: null }) },
         { event: ev("c"), transitionAfter: null },
       ]),
     );
     expect(r.viability.outlook).toBe("unknown");
-    expect(r.viability.evidence.unknown).toContain("all travel durations unknown");
+    expect(r.viability.evidence.unknown).toContain("no feasibility or travel signal");
+  });
+
+  it("14b. buffer signal あり・travel 全 unknown → unknown でない（Option D: status-only で outlook 可）", () => {
+    const r = rehearseDay(
+      mkInput([
+        { event: ev("a"), transitionAfter: trans({ travelMin: null, travelKnown: false, bufferStatus: "insufficient", slackMin: null, shortfallMin: null }) },
+        { event: ev("b"), transitionAfter: null },
+      ]),
+    );
+    expect(r.viability.outlook).not.toBe("unknown"); // buffer status があるので outlook を出す
+    expect(["tight", "breaks"]).toContain(r.viability.outlook); // insufficient あり
   });
 
   it("15. holds: 全余白十分・strain 低", () => {
@@ -298,5 +310,50 @@ describe("buildRehearsalInput adapter — 既存 building blocks の join", () =
     const r = rehearseDay(input);
     expect(r.date).toBe("2026-06-06");
     expect(r.coverage.eventsAssumedDuration).toBe(1);
+  });
+});
+
+// ── Option D adapter: buildRehearsalInputFromDisplay（display map status → input・status-only） ──
+function displayMap(entries: Array<[number, "slack" | "shortfall"]>): ReadonlyMap<number, FeasibilityDisplayView> {
+  const m = new Map<number, FeasibilityDisplayView>();
+  for (const [i, variant] of entries) {
+    m.set(i, { transitionIndex: i, displayText: variant === "slack" ? "余白 N 分" : "不足 N 分", variant, tier: "tier_2_movement_aux" });
+  }
+  return m;
+}
+
+describe("buildRehearsalInputFromDisplay (Option D: status-only・honest degrade)", () => {
+  it("21. shortfall → insufficient・分数 null(捏造しない)・travel unknown・gap 算出", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    const t = buildRehearsalInputFromDisplay(g, displayMap([[0, "shortfall"]])).steps[0]!.transitionAfter!;
+    expect(t.bufferStatus).toBe("insufficient");
+    expect(t.slackMin).toBeNull();
+    expect(t.shortfallMin).toBeNull();
+    expect(t.travelMin).toBeNull();
+    expect(t.travelKnown).toBe(false);
+    expect(t.mode).toBe("unknown");
+    expect(t.gapMin).toBe(60); // 11:00 - 10:00
+  });
+
+  it("22. slack → sufficient", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    expect(buildRehearsalInputFromDisplay(g, displayMap([[0, "slack"]])).steps[0]!.transitionAfter!.bufferStatus).toBe("sufficient");
+  });
+
+  it("23. display 不在 transition → not_applicable", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    expect(buildRehearsalInputFromDisplay(g, displayMap([])).steps[0]!.transitionAfter!.bufferStatus).toBe("not_applicable");
+  });
+
+  it("24. engine 結合: shortfall display → viability unknown でない（status-only で outlook）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    const r = rehearseDay(buildRehearsalInputFromDisplay(g, displayMap([[0, "shortfall"]])));
+    expect(r.viability.outlook).not.toBe("unknown");
+    expect(["tight", "breaks"]).toContain(r.viability.outlook);
+  });
+
+  it("25. display 全空 → viability unknown（banner 非表示ケース）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    expect(rehearseDay(buildRehearsalInputFromDisplay(g, displayMap([]))).viability.outlook).toBe("unknown");
   });
 });
