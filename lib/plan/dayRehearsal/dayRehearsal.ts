@@ -16,6 +16,7 @@ import {
   type ConvergenceEstimate,
   type ConvergenceFactor,
   type DayRehearsal,
+  type DayOutlookExplanation,
   type DayRehearsalConfig,
   type Estimate,
   type EstimateLevel,
@@ -235,7 +236,7 @@ export function rehearseDay(input: RehearsalInput, config: DayRehearsalConfig = 
   const coverage: RehearsalCoverage = { transitionsTotal, travelKnown, travelUnknown, eventsAssumedDuration: eventsAssumed };
   const viability = computeViability(input, anyInsufficient, peakStrain.level, firstBreakIdx, coverage, hasBufferSignal);
 
-  return { date: input.date, viability, steps, peakStrain, recoveryWindows, convergencePoints, coverage };
+  return { date: input.date, density: input.density, viability, steps, peakStrain, recoveryWindows, convergencePoints, coverage };
 }
 
 /** 1日成立（仮説）。時間(feasibility insufficient) と 状態(peak strain) の両面。 */
@@ -355,6 +356,37 @@ export function recoveryStepsFromFeasibilityRaw(
     }
   }
   return steps;
+}
+
+/**
+ * ★Evidence「なぜ?」UI: day outlook の根拠を自然な日本語カテゴリに（純粋）。
+ * 観測 = この予定の並び / 移動の余白（feasibility 観測）/ 予定の密度（packed）。
+ * 推定 = 重なりやすさ（convergence）or 詰まりやすさ（tight/breaks）/ 一息つけそうな区間（recovery）。
+ * 未確定 = 移動の余白を確認できない区間（feasibility not_applicable）。
+ * recoveryStepCount は WPM-2b の recoverySteps.size（banner の rehearsal は Option D で recoveryWindows 空のため別途渡す）。
+ * ★生スコア / 数値 / level 名は返さない。空カテゴリは呼び出し側が省略。
+ */
+export function explainDayOutlook(
+  rehearsal: DayRehearsal,
+  recoveryStepCount: number = 0,
+): DayOutlookExplanation {
+  const observed: string[] = ["この予定の並び"]; // 予定構造は常に観測
+  const inferred: string[] = [];
+  const uncertain: string[] = [];
+
+  const transitionSteps = rehearsal.steps.filter((s) => s.friction !== null); // transition のある step
+  if (transitionSteps.some((s) => s.bufferStatus === "sufficient" || s.bufferStatus === "insufficient")) {
+    observed.push("移動の余白");
+  }
+  if (rehearsal.density === "packed") observed.push("予定の密度");
+
+  if (rehearsal.convergencePoints.length > 0) inferred.push("重なりやすさ");
+  else if (rehearsal.viability.outlook === "tight" || rehearsal.viability.outlook === "breaks") inferred.push("詰まりやすさ");
+  if (recoveryStepCount > 0) inferred.push("一息つけそうな区間");
+
+  if (transitionSteps.some((s) => s.bufferStatus === "not_applicable")) uncertain.push("移動の余白を確認できない区間");
+
+  return { observed, inferred, uncertain };
 }
 
 /**

@@ -3,13 +3,16 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw, explainDayOutlook } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
+  type DayRehearsal,
+  type Evidence,
   type RehearsalEventInput,
   type RehearsalInput,
   type RehearsalStep,
+  type RehearsalStepResult,
   type RehearsalTransitionInput,
 } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayGraph, EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
@@ -382,5 +385,78 @@ describe("recoveryStepsFromFeasibilityRaw (WPM-2b)", () => {
   });
   it("R6. 閾値 param で調整可", () => {
     expect(recoveryStepsFromFeasibilityRaw(raw([[2, { status: "sufficient", slackMin: 45 }]]), 30)).toEqual(new Set([2]));
+  });
+});
+
+// ───────────────────────── explainDayOutlook（Evidence「なぜ?」UI） ─────────────────────────
+
+describe("explainDayOutlook", () => {
+  const EV: Evidence = { basis: [], known: [], unknown: [], inferred: [] };
+  const EST = { level: "low" as const, score: 0, evidence: EV };
+  /** transition step（friction !== null）を最小構築。 */
+  const tStep = (bufferStatus: RehearsalStepResult["bufferStatus"]): RehearsalStepResult => ({
+    stepIndex: 0,
+    eventId: "e",
+    cumulativeStrain: EST,
+    friction: EST, // transition あり = friction non-null
+    bufferStatus,
+    bufferMin: null,
+    recovery: null,
+    convergence: null,
+  });
+  const reh = (over: Partial<DayRehearsal> = {}): DayRehearsal => ({
+    date: "2026-06-07",
+    density: "balanced",
+    viability: { outlook: "holds", breaksAtStepIndex: null, evidence: EV },
+    steps: [],
+    peakStrain: EST,
+    recoveryWindows: [],
+    convergencePoints: [],
+    coverage: { transitionsTotal: 0, travelKnown: 0, travelUnknown: 0, eventsAssumedDuration: 0 },
+    ...over,
+  });
+
+  it("E1. 観測は常に『この予定の並び』を含む（予定構造は観測）", () => {
+    expect(explainDayOutlook(reh()).observed).toContain("この予定の並び");
+  });
+  it("E2. feasibility 余白観測あり → 観測『移動の余白』", () => {
+    expect(explainDayOutlook(reh({ steps: [tStep("sufficient")] })).observed).toContain("移動の余白");
+    expect(explainDayOutlook(reh({ steps: [tStep("insufficient")] })).observed).toContain("移動の余白");
+  });
+  it("E3. not_applicable のみ → 観測『移動の余白』は出さない（誇張しない）", () => {
+    expect(explainDayOutlook(reh({ steps: [tStep("not_applicable")] })).observed).not.toContain("移動の余白");
+  });
+  it("E4. density packed → 観測『予定の密度』", () => {
+    expect(explainDayOutlook(reh({ density: "packed" })).observed).toContain("予定の密度");
+    expect(explainDayOutlook(reh({ density: "balanced" })).observed).not.toContain("予定の密度");
+  });
+  it("E5. convergence あり → 推定『重なりやすさ』（詰まりやすさは出さない）", () => {
+    const e = explainDayOutlook(reh({ convergencePoints: [0], viability: { outlook: "tight", breaksAtStepIndex: null, evidence: EV } }));
+    expect(e.inferred).toContain("重なりやすさ");
+    expect(e.inferred).not.toContain("詰まりやすさ");
+  });
+  it("E6. convergence なし & tight/breaks → 推定『詰まりやすさ』", () => {
+    expect(explainDayOutlook(reh({ viability: { outlook: "tight", breaksAtStepIndex: null, evidence: EV } })).inferred).toContain("詰まりやすさ");
+    expect(explainDayOutlook(reh({ viability: { outlook: "breaks", breaksAtStepIndex: 0, evidence: EV } })).inferred).toContain("詰まりやすさ");
+  });
+  it("E7. holds & convergence なし → 推定『詰まりやすさ』『重なりやすさ』なし", () => {
+    const e = explainDayOutlook(reh());
+    expect(e.inferred).not.toContain("詰まりやすさ");
+    expect(e.inferred).not.toContain("重なりやすさ");
+  });
+  it("E8. recoveryStepCount>0 → 推定『一息つけそうな区間』", () => {
+    expect(explainDayOutlook(reh(), 2).inferred).toContain("一息つけそうな区間");
+    expect(explainDayOutlook(reh(), 0).inferred).not.toContain("一息つけそうな区間");
+  });
+  it("E9. not_applicable transition あり → 未確定『移動の余白を確認できない区間』", () => {
+    expect(explainDayOutlook(reh({ steps: [tStep("not_applicable")] })).uncertain).toContain("移動の余白を確認できない区間");
+    expect(explainDayOutlook(reh({ steps: [tStep("sufficient")] })).uncertain).not.toContain("移動の余白を確認できない区間");
+  });
+  it("E10. 生スコア・数値・level 名・警告語を含まない（信頼性の核）", () => {
+    const e = explainDayOutlook(reh({ density: "packed", convergencePoints: [0], steps: [tStep("sufficient"), tStep("not_applicable")] }), 1);
+    const all = [...e.observed, ...e.inferred, ...e.uncertain].join(" / ");
+    expect(all).not.toMatch(/\d/); // 生数字なし
+    expect(all).not.toMatch(/high|moderate|low|score|slack|shortfall/i); // level/内部名なし
+    expect(all).not.toMatch(/危険|警告|失敗|疲れ|壊れ|診断|最適化|予測|予想/); // 断定/警告/診断なし
   });
 });

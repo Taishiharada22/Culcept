@@ -122,12 +122,24 @@ export interface RehearsalCoverage {
 
 export interface DayRehearsal {
   readonly date: string;
+  /** ★Evidence UI: 予定の密度（観測・input から passthrough）。 */
+  readonly density: "sparse" | "balanced" | "packed";
   readonly viability: ViabilityEstimate;
   readonly steps: readonly RehearsalStepResult[];
   readonly peakStrain: Estimate;
   readonly recoveryWindows: readonly number[];
   readonly convergencePoints: readonly number[];
   readonly coverage: RehearsalCoverage;
+}
+
+/**
+ * ★Evidence「なぜ?」UI: day outlook の根拠を自然な日本語カテゴリに分けたもの（read-only disclosure 用）。
+ * 生スコア・内部数値・level 名を出さない。known/unknown/inferred を観測/推定/未確定で分ける。
+ */
+export interface DayOutlookExplanation {
+  readonly observed: readonly string[]; // 観測: この予定の並び / 移動の余白 / 予定の密度
+  readonly inferred: readonly string[]; // 推定: 重なりやすさ / 詰まりやすさ / 一息つけそうな区間
+  readonly uncertain: readonly string[]; // 未確定: 移動の余白を確認できない区間
 }
 
 // ───────────────────────── config（固定値・較正は backlog） ─────────────────────────
