@@ -426,8 +426,6 @@ describe("アンカーと gap fill の衝突なし検証", () => {
     ];
 
     const dayConditions: DayConditions = {
-      isWeekday: true,
-      timeOfDay: "morning",
       mainTransport: "car",
     };
 
@@ -464,8 +462,6 @@ describe("アンカーと gap fill の衝突なし検証", () => {
     ];
 
     const dayConditions: DayConditions = {
-      isWeekday: true,
-      timeOfDay: "afternoon",
       mainTransport: "train",
     };
 
@@ -502,8 +498,6 @@ describe("アンカーと gap fill の衝突なし検証", () => {
     ];
 
     const dayConditions: DayConditions = {
-      isWeekday: true,
-      timeOfDay: "morning",
       mainTransport: "car",
     };
 
@@ -728,8 +722,6 @@ describe("Phase C E2E: baseline住所 + placeResolution + Routes API → buildDa
 
     // ── 7. buildDayPlanAsync（本線パイプライン）──
     const dayConditions: DayConditions = {
-      isWeekday: true,
-      timeOfDay: "morning",
       mainTransport: "car",
     };
 
@@ -810,8 +802,6 @@ describe("Phase C E2E: baseline住所 + placeResolution + Routes API → buildDa
     ];
 
     const plan = await buildDayPlanAsync(items, {
-      isWeekday: false,
-      timeOfDay: "morning",
       mainTransport: "walk",
     }, new Date("2026-04-16T08:00:00+09:00"), {
       goOut: true,

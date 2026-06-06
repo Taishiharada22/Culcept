@@ -133,7 +133,8 @@ interface NodeSpec {
 }
 function ctxFrom(specs: NodeSpec[]): GenerationContext {
   const dayNodes = specs.map((s) => ({ id: s.id, startMin: s.startMin, endMin: s.endMin, importance: s.importance ?? ("normal" as const), hard: s.hard ?? false }));
-  const anchors: RealityInput["anchors"] = {};
+  // mutable 局所型で構築（RealityInput["anchors"] は Readonly のため書き込み不可）。値型は同一。
+  const anchors: Record<string, RealityInput["anchors"][string]> = {};
   for (const s of specs) anchors[s.id] = { governance: s.governance, importance: "normal", sensitive: false };
   return buildGenerationContext({ mode: "repair", dayNodes, anchors, seedTraces: [] });
 }
