@@ -62,3 +62,41 @@ export async function fetchCaptureCandidate(opts: {
     return undefined; // fail-open（UI を壊さない）
   }
 }
+
+// ── A1-5-7-8 inert submit bridge（audit 結果: production morning は /api/stargazer/alter・V2 route は未消費＝live は別 GO） ──
+
+/** submit から V2 route body を作る最小入力（utterance のみ・任意 targetDateHint）。 */
+export interface CaptureCandidateSubmit {
+  /** ユーザー発話（V2 route の必須 field・**body は transient・client で persist しない**）。 */
+  readonly utterance: string;
+  /** 任意の対象日 hint（today/tomorrow/YYYY-MM-DD）。 */
+  readonly targetDateHint?: string;
+}
+
+/**
+ * A1-5-7-8: submit → V2 route body（**pure・必要最小限**）。`utterance`（+ 任意 `targetDateHint`）のみ。
+ *   phenotype / partyBaseline / weatherContext 等の richer field は **載せない**（最小 body・raw を余計に持ち込まない）。
+ */
+export function buildCaptureCandidateRequestBody(
+  submit: CaptureCandidateSubmit
+): { readonly utterance: string; readonly targetDateHint?: string } {
+  return submit.targetDateHint
+    ? { utterance: submit.utterance, targetDateHint: submit.targetDateHint }
+    : { utterance: submit.utterance };
+}
+
+/**
+ * A1-5-7-8: **inert submit bridge**（submit → body → gated fetch → captureCandidate）。**dormant**。
+ *   `enabled=false`（本番デフォルト）→ fetch 0 → undefined（既存 UI 不変）。`enabled=true` → fetchImpl（テスト fake）→ captureCandidate。
+ *   **本 slice では live で呼ばれない**（AneurasyncHome 未配線）。audit 結果ゆえ live fetch は別 GO（V2 が production morning route 化、または surface を /api/stargazer/alter へ移す）。
+ */
+export async function submitForCaptureCandidate(
+  submit: CaptureCandidateSubmit,
+  opts: { readonly enabled: boolean; readonly fetchImpl?: typeof fetch }
+): Promise<CandidateSurfaceDTO | undefined> {
+  return fetchCaptureCandidate({
+    enabled: opts.enabled,
+    body: buildCaptureCandidateRequestBody(submit),
+    fetchImpl: opts.fetchImpl,
+  });
+}

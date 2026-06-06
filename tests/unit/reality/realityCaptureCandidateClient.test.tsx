@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as fs from "fs";
 import * as path from "path";
-import { selectCaptureCandidate, fetchCaptureCandidate, CAPTURE_CANDIDATE_V2_ROUTE } from "@/components/home/morning/captureCandidateClient";
+import { selectCaptureCandidate, fetchCaptureCandidate, buildCaptureCandidateRequestBody, submitForCaptureCandidate, CAPTURE_CANDIDATE_V2_ROUTE } from "@/components/home/morning/captureCandidateClient";
 import { CaptureCandidateBanner } from "@/components/home/morning/CaptureCandidateBanner";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
 
@@ -83,6 +83,46 @@ describe("A1-5-7-7 propagation — bridge → captureCandidate → banner（Morn
     const cc = selectCaptureCandidate(okResponse({ ...SURFACE, source_ref: "SREF", items: [{ ...SURFACE.items[0], seedRef: SEED_UUID }] }));
     const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />);
     for (const leak of ["SREF", "source_ref", "seedRef", SEED_UUID, "seed_explicit", "hasCandidate"]) expect(html).not.toContain(leak);
+  });
+});
+
+describe("A1-5-7-8 buildCaptureCandidateRequestBody — 必要最小限の body（utterance のみ）", () => {
+  it("utterance のみ → { utterance }（phenotype/weather 等 載せない）", () => {
+    const body = buildCaptureCandidateRequestBody({ utterance: "9時にスタバ" });
+    expect(body).toEqual({ utterance: "9時にスタバ" });
+    expect(Object.keys(body)).toEqual(["utterance"]);
+  });
+  it("targetDateHint あり → { utterance, targetDateHint }（それ以外は載せない）", () => {
+    const body = buildCaptureCandidateRequestBody({ utterance: "x", targetDateHint: "2026-06-07" });
+    expect(body).toEqual({ utterance: "x", targetDateHint: "2026-06-07" });
+    expect(Object.keys(body).sort()).toEqual(["targetDateHint", "utterance"]);
+  });
+});
+
+describe("A1-5-7-8 submitForCaptureCandidate — inert submit bridge（dormant・fail-open）", () => {
+  it("enabled=false → fetchImpl 未呼出（fetch 0）/ undefined（既存 UI 不変）", async () => {
+    const spy = vi.fn();
+    expect(await submitForCaptureCandidate({ utterance: "x" }, { enabled: false, fetchImpl: spy as unknown as typeof fetch })).toBeUndefined();
+    expect(spy).not.toHaveBeenCalled();
+  });
+  it("enabled=true + fake candidate → DTO / body は utterance のみ（POST /api/alter-morning/plan）", async () => {
+    const f = vi.fn(async () => ({ json: async () => okResponse(SURFACE) }));
+    const cc = await submitForCaptureCandidate({ utterance: "9時にスタバ" }, { enabled: true, fetchImpl: f as unknown as typeof fetch });
+    expect(cc).toEqual(SURFACE);
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(CAPTURE_CANDIDATE_V2_ROUTE);
+    expect(JSON.parse(init.body as string)).toEqual({ utterance: "9時にスタバ" }); // 最小 body
+  });
+  it("enabled=true + no candidate → undefined（既存 UI 不変）", async () => {
+    expect(await submitForCaptureCandidate({ utterance: "x" }, { enabled: true, fetchImpl: fakeFetch(okResponse()) })).toBeUndefined();
+  });
+  it("enabled=true + fetch error → undefined（fail-open・既存 UI 不変）", async () => {
+    const f = (async () => { throw new Error("net"); }) as unknown as typeof fetch;
+    expect(await submitForCaptureCandidate({ utterance: "x" }, { enabled: true, fetchImpl: f })).toBeUndefined();
+  });
+  it("propagation: submit → DTO → banner「候補があります」", async () => {
+    const cc = await submitForCaptureCandidate({ utterance: "x" }, { enabled: true, fetchImpl: fakeFetch(okResponse(SURFACE)) });
+    expect(renderToStaticMarkup(<CaptureCandidateBanner candidate={cc} />)).toContain("候補があります");
   });
 });
 
