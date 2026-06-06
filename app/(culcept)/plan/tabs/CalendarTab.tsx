@@ -239,6 +239,12 @@ export function CalendarTab({
     );
   }, [dayGraphByDate, selectedDate, calendarFeasibilityDisplayByTransitionIndex]);
 
+  // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
+  const convergenceSteps = useMemo(
+    () => new Set<number>(dayRehearsal?.convergencePoints ?? []),
+    [dayRehearsal],
+  );
+
   // M-3d disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
   //   React lazy initial state pattern (= 関数 ref を渡す)。
   //   - 初期 state は必ず新規 empty Set (= mutation 攻撃面 0)
@@ -779,6 +785,7 @@ export function CalendarTab({
               feasibilityDisplayByTransitionIndex={calendarFeasibilityDisplayByTransitionIndex}
               expandedTransitionIndices={expandedTransitionIndices}
               onToggleFeasibilityDisclosure={handleToggleFeasibilityDisclosure}
+              convergenceSteps={convergenceSteps}
             />
           </div>
         )}

@@ -149,6 +149,13 @@ export interface DayGraphTimelineProps {
    * - hover では発火しない (= CEO 規約)
    */
   readonly onToggleFeasibilityDisclosure?: (transitionIndex: number) => void;
+
+  /**
+   * Day Rehearsal（Wave 2・WPM-1）: 「詰まりやすい」transition の stepIndex 集合（= optional・read-only）。
+   * 含まれる transitionIndex の直後に小さな仮説トーン marker を出す（disclosure とは独立・常時表示）。
+   * ★sensitiveProximity の transition には出さない（redaction）。amber/orange 系の色/icon/生スコアなし・layout 非破壊。
+   */
+  readonly convergenceSteps?: ReadonlySet<number>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -275,6 +282,14 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
                 transitionIndex={transitionIndex}
               />
             )}
+            {/*
+             * Day Rehearsal WPM-1: 「詰まりやすい」transition の read-only marker（常時表示・disclosure 独立）。
+             * ★sensitiveProximity は出さない（redaction）。仮説トーン・slate・amber/orange 系の色/icon/生スコアなし。
+             */}
+            {(props.convergenceSteps?.has(transitionIndex) ?? false) &&
+              !transitionView.sensitiveProximity && (
+                <ConvergenceMarkerLine transitionIndex={transitionIndex} />
+              )}
           </Fragment>
         );
       })}
@@ -590,6 +605,30 @@ function FeasibilityDisclosureLine({
       data-tier={view.tier}
     >
       {view.displayText}
+    </li>
+  );
+}
+
+interface ConvergenceMarkerLineProps {
+  readonly transitionIndex: number;
+}
+
+/**
+ * Day Rehearsal WPM-1: 「詰まりやすい」transition の read-only marker 行。
+ * 仮説トーン・slate 中立・amber/orange 系の色/icon/生スコアなし（FeasibilityDisclosureLine と同階調・layout 非破壊）。
+ */
+function ConvergenceMarkerLine({
+  transitionIndex,
+}: ConvergenceMarkerLineProps): ReactElement {
+  return (
+    <li
+      role="listitem"
+      id={`day-rehearsal-convergence-${transitionIndex}`}
+      aria-label="この前後は予定が重なりやすいかもしれません"
+      className="text-xs italic text-slate-400 pl-8"
+      data-testid="day-graph-convergence-marker"
+    >
+      この前後は予定が重なりやすいかもしれません
     </li>
   );
 }
