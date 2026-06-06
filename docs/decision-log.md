@@ -15758,3 +15758,14 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **位置づけ**: **A4 帯クローズ**。confident 誤読（confidence net が止められない）を画像から捕まえる相補的安全網が、pure core 実証 + 全 unit + 実機 visual smoke まで揃った。残: visual smoke の自動回帰化（proxy.ts public allowlist の gated 例外）は auth 境界変更のため未着手（必要時に readiness）。[承認: CEO（Option X 認証実行・DOM 確認指示）]
 
 ---
+
+[2026-06-06] [Build] **SR B-1 取込（shift_image）source marker 実装着地 — 取込シフトを週/日/月 view で一貫識別** — 画像取込された勤務 anchor / 休み day_indicator を手動入力と見分けられる控えめな「取込」由来表示を 3 view 横断で実装（警告でなく provenance）。commit `4d11b84c`（branch `feat/plan-shift-month-grid-reflection`・未 merge / 未 push・15 files・+590/−3）。
+- **B-0 read-only 調査で判明した型 gap**: runtime では `external_anchor_sources.source_type='shift_image'`（migration CHECK・CEO 承認 2026-05-31）が `/api/plan/anchors` → `PlanClient.state.sources[]` まで届く（repository L153 の cast pass-through）。**だが TS `ExternalAnchorSourceType` union に "shift_image" が無く** `=== "shift_image"` が型エラー（TS2367）。→ **localized cast で逃げず union-add で DB 実態と TS 型を一致**（論点A・CEO/GPT 判断）。tsc 強制の exhaustive Record 2 件（`SOURCE_TYPE_LABEL` / `SOURCE_TYPE_LABELS`）に「シフト取込」追加で過不足なく充足（blast radius = この 2 件のみ・origin の sourceType 比較は別型で無関係）。
+- **LIVE 日 view = 新 path の発見**: `LIST_NEW_TIMELINE_ENABLED=true`（8a 採用済）＝日 view の LIVE は **TimelineSpine + EventCard**。当初 anchor marker を旧 AnchorRow（dormant fallback）に入れていたが **render test で検出**（点4 失敗）し、`importedEventIds`（event.id=anchor.id・出発/帰宅 bookends は anchor でないため自然に対象外）を FlowDaySection→TimelineSpine→EventCard へ配線して修正。旧 AnchorRow にも parity で残置（flag-gated dormant・非 live-tested）。
+- **実装**: pure helper `shiftImageSource.ts`（`shiftImageSourceIds(sources)→Set` + `isImportedShiftAnchor`）/ presentational `ImportedSourceBadge`（muted slate・薄 border・title/aria「シフト取込」・amber/red 不使用＝feasibility/警告色と分離）。PlanClient で `useMemo` 導出 → CalendarTab / FlowTab / MonthGridView へ配布（CalendarTab→MonthGridView 転送）。
+- **表示（控えめ・由来表示）**: 日 view = EventCard + 休み badge に「取込」/ 週 view = day-level「取」（個別 item でなく「その日に取込由来あり」・密度配慮・title/aria「シフト取込あり」）/ 月 view = per-cell「取込」（box なし muted）。source ラベル =「シフト取込」。切り分け: anchor=`sourceId ∈ shiftImageSourceIds`・indicator=`vm.sourceType==="shift_image"`・non-shift_image は非表示（test で固定）。
+- **検証**: 新規 28 tests（helper 8 + badge 4 + 3view marker 9 + MonthGrid §11 7）+ **plan 全体 252 files / 4947 tests PASS（回帰ゼロ）**・tsc **1112 維持**・B-1 起因エラー 0。
+- **安全性**: VLM / DB write / save / proxy.ts / auth **非接触** / 月 view enablement flag（`NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED`）**非変更**（月 marker は component/test 上は動作・本番は dormant のまま）/ `PLAN_SHIFT_IMPORT_SAVE` 非接触 / 個別 stage（15 files）・dev-month-grid / `.temp` 非混入。
+- **次**: B-2 = source marker の visual smoke / screenshot 確認（新機能でなく見た目確認。週/日 は LIVE で可・月は flag ON が必要なため dormant のまま deferred）。[承認: CEO/GPT（型 gap union-add 採用・週 day-level「取」確定・B-1 一括 commit GO `4d11b84c`）]
+
+---
