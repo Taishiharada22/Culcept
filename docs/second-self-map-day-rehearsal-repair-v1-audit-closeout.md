@@ -1,7 +1,7 @@
 # Day Rehearsal Repair Candidate v1 — audit + closeout（target-aware / evidence-aware copy）
 
-> 2026-06-07 / **read-only audit → pure copy 改修 → test → branch commit 完了。実機 smoke 前で停止（main 着地は smoke PASS 後 CEO 判断）。**
-> branch `claude/dr-repair-v1`（HEAD `9e4b8d74`・base main `b521cbf2`）。前提: Repair v0 +「どうするとよさそう？」UI + What-if Preview v0 が main live。
+> 2026-06-07 / **read-only audit → pure copy 改修 → test → branch commit → 実機 smoke PASS（CEO+自己監査）→ main 着地 完了。**
+> **main 着地済（squash・main HEAD `25337696`・親 `d2ce57ef`）。** code branch `claude/dr-repair-v1`（HEAD `9e4b8d74`・base `b521cbf2`）保持。前提: Repair v0 +「どうするとよさそう？」UI + What-if Preview v0 が main live。
 
 ---
 
@@ -46,9 +46,12 @@ production の唯一の配線は CalendarTab → `rehearseDay(buildRehearsalInpu
 - **表示文のみ変化**（DayOutlookBanner が `c.suggestion` を直接描画＝既存 UI に自然反映・**UI コード不変**）。
 - 候補の **出る/出ない・件数・優先度・evidence** は不変。予定変更・repair 実行・保存・DB・最適化 **一切なし**。
 
-## 4. 検証
+## 4. 検証（branch + main 着地後）
 - vitest: dayRehearsal dir + banner render contract **106 PASS**（既存 R1-R13/P1-P5 不変 + 新規 V1-V6: 移動 anchor / 見通し統合 / 次の予定統合 / reduce_density 弱め / 禁止語・生数値・命令なし / deterministic）。
-- **tsc footprint 0**（自分の 3 ファイル起因 0）・total **55**（baseline 不変）。`--max-old-space-size=8192` 必須。
+- main 着地後: **plan suite 5015 PASS（266 files）**・relevant vitest 106 PASS 再確認。
+- **tsc footprint 0**（自分の 3 ファイル起因 0）・total **55**（baseline 不変・main で再確認）。`--max-old-space-size=8192` 必須。
+- **zero-loss**: main `25337696` ↔ branch `9e4b8d74` の私の 3 ファイル diff 空。明示パス commit で別セッション WIP（supabase/.temp 等）不接触。
+- 実機 smoke PASS（CEO + 自己監査）: 「どうするとよさそう？」に v1 copy 描画確認（leave_earlier「この移動の前後は…」/ use_recovery_window「そのまま残せると、次の予定に入りやすそう」）・read-only・既存「なぜ?」/outlook/marker 非破壊。
 - render contract の leave_earlier リテラルを v1 に更新（fixture truthfulness・assertion 構造不変）。
 
 ## 5. HARD GATE 照合（全 PASS）
@@ -63,6 +66,7 @@ production の唯一の配線は CalendarTab → `rehearseDay(buildRehearsalInpu
 - **同 kind の同一文重複**: production で insufficient transition が複数あると `leave_earlier` が複数生成され同一文が並びうる（prioritize top-3）。v1 は per-kind copy 品質が scope（CEO 例も per-kind）。dedup 方針（1 件に集約 / position 差分）は **別 slice の判断**（位置 anchor が UI に無いため安易な序数化は無根拠＝非推奨）。
 - **rehearsal が display path 固定**: CalendarTab には raw feasibility（`calendarFeasibilityRawByTransitionIndex`）が既に有る（recoverySteps に使用）が、rehearsal 自体は display path → protect_buffer/bufferMin/friction が degraded。full path 化は **deferred な定量 what-if slice**（raw 露出 + re-simulation）の前提。v1 scope 外。
 
-## 7. 次（smoke 前で停止）
-- branch commit 済（`9e4b8d74`）。実機 smoke 観点を提示（§ 別途・report）。
-- **main 着地は smoke PASS 後に CEO 判断**（squash・明示パス）。
+## 7. 次（main 着地完了）
+- **main 着地済（`25337696`）**。実機 smoke PASS。
+- 次 = **Repair Candidate dedup mini design**（実装なし・別 doc）: 同 kind 同一文の重複を display 段で集約する設計の検討。
+- rehearsal の full path 化（protect_buffer/bufferMin/friction 解放=定量 what-if 前提）は更に別 slice。いずれも CEO GO 待ち。

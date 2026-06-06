@@ -15383,18 +15383,29 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 
 ---
 
-## [2026-06-07] [Build] Day Rehearsal Repair Candidate v1 — target-aware / evidence-aware copy（branch commit・smoke 前で停止）[承認: CEO/GPT GO]
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate v1 — target-aware / evidence-aware copy（main 着地完了）[承認: CEO/GPT GO]
 - 判断: What-if Preview UI は **保留**（candidate↔preview.body 重複大で UI 価値薄）。次は **候補文そのものの質**を上げる（UI を増やさない）= Repair v1。
-- 実装（COPY 3 文・logic 不変・read-only）: branch `claude/dr-repair-v1`（HEAD `9e4b8d74`・base main `b521cbf2`）。
+- **main 着地済（squash・main HEAD `25337696`・親 `d2ce57ef`）。** 実機 smoke PASS（CEO+自己監査・「どうするとよさそう？」に v1 copy 描画確認）。code branch `claude/dr-repair-v1`（HEAD `9e4b8d74`）保持。
+- 実装（COPY 3 文・logic 不変・read-only）:
   - leave_earlier「ここは…」→「**この移動の前後は**、出発を少し早める余地があるかもしれません」（必ず insufficient transition → 移動 grounded）
   - confirm_uncertain →「未確定の移動の余白を確認できると、**見通しが立てやすくなりそうです**」（clarity preview value 統合）
   - use_recovery_window「ここで一息入れられそうです」→「この一息つけそうな区間は、**そのまま残せると、次の予定に入りやすそうです**」（utilization preview value 統合）
   - protect_buffer / reduce_density: 据置（前者 Option D 不到達=full path のみ・後者 弱め維持）
 - ★audit 知見: production（Option D）は bufferMin=null・friction 一律 moderate・recoveryWindows 空 → **分/factor 差分は無根拠**。kind の構造的意味（移動/一息/全体）にのみ grounded。**protect_buffer は Option D 到達不能**（convergencePoint=buffer_short[insufficient] 必須 ⇒ leave_earlier 分岐）。
 - evidence trace / 型 / kind 判定 / prioritize / preview（`previewRepairEffect`）は **不変**。UI コード不変（banner が `c.suggestion` 直接描画 → 既存 UI に自然反映）。production 挙動=**表示文のみ変化**。
-- 検証: dayRehearsal dir + render contract **106 PASS**（新規 V1-V6）・**tsc footprint 0（total 55 baseline 不変）**。
-- follow-up（v1 未対応・別判断）: 同 kind 同一文重複（dedup 方針）/ rehearsal の full path 化（protect_buffer/bufferMin/friction 解放=定量 what-if の前提）。
+- 検証: dayRehearsal dir + render contract **106 PASS**（新規 V1-V6）・**plan suite 5015 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（main↔branch diff 空・明示パス commit で別セッション WIP 不接触）。
+- follow-up（v1 未対応・別判断）: 同 kind 同一文重複（**次=dedup mini design**）/ rehearsal の full path 化（protect_buffer/bufferMin/friction 解放=定量 what-if の前提）。
 - closeout: `docs/second-self-map-day-rehearsal-repair-v1-audit-closeout.md`。
-- 状態: branch commit 済・**実機 smoke 前で停止**。main 着地は smoke PASS 後 CEO 判断。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+- 状態: **main 着地完了・実機 smoke PASS**。次=Repair dedup mini design（実装なし）。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — dedup mini design（設計のみ・実装なし・停止）[CEO 指示]
+- 目的: 同 kind 同一文の重複（busy 日に「この移動の前後は…」等が複数並ぶ）への設計検討。実装はしない。
+- ★finding: 生成は step ごとに push → 同 kind は複数 step で発火 → kind 固定 COPY で**同一文が並ぶ**（production でも leave_earlier/confirm_uncertain/use_recovery_window で起こりうる）。候補文は移動を指さない（anchor 無し）→ 同一文 2 本は 1 本と同じ情報＝ノイズ。
+- 推奨 = **display 段で同 kind→代表1件に集約**（copy 無改変・read-only）。generation は full-fidelity 維持（将来 per-row anchoring 両立）。集約は **prioritize と別の composable `dedupeRepairCandidates`**（既存 prioritize/P3 契約不変）。CalendarTab で `prioritize(dedupe(generate(...)))`。
+- max-3 と矛盾せず**改善**（top-3 が「3 行」→「3 種の示唆」＝kind 多様性↑）。qualitative-plural（「いくつかの…」）は別オプション・数値出さない・v1.1 非推奨。
+- CEO 5 問（複数並ぶか/まとめるか/異 targetStepIndex 扱い/max-3 矛盾/copy 安全）に回答・判断点 5。doc: `docs/second-self-map-day-rehearsal-repair-dedup-mini-design.md`。
+- 状態: **mini design 提出で停止**。dedup 実装は CEO GO 後。push/PR/Vercel/DB/予定変更/実行 不接触。
 
 ---
