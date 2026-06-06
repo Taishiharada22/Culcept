@@ -15207,3 +15207,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(per-marker GO + smoke PASS + 着地)×GPT。ステータス: convergence per-marker「なぜ?」live。次=tsc baseline cleanup 監査・mini plan（実装は CEO GO 待ち）。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup — read-only 監査 + mini plan（実装は CEO GO 待ち）
+
+- main `ea3556c2` で `--max-old-space-size=8192 npx tsc` = **1114 errors** を read-only 監査。doc: `docs/tsc-baseline-cleanup-audit.md`。
+- ★**核心発見**: 1114 のうち **971 件（87%）= vitest globals（describe/it/expect/beforeAll/test）未認識**（TS2304/TS2582）。`vitest.config` は globals:true だが **tsconfig に `types` フィールドが無く vitest/globals が tsc scope 外**。tsconfig 履歴は init + Pre-production の 2 commit のみ＝構造的ギャップ（globals-style テスト増加で累積・単一 commit 由来でない）。私の plan テストは明示 import でクリーン（記法 2 種混在）。
+- 残り **143 件（13%）= 実型不一致**: stargazer/alter/route ↔ perspectiveEngine 乖離(~15・A1-5-8/9 由来・存在しない searchTaskClassification 等参照)・ceo autoCloseCount(~6)・origin/baseline(~4)・lib misc tourState/coreValues 等(~13)・test fixture 陳腐化(~106)。
+- **per-marker / Day Rehearsal 由来 0 件 再確認**（私の着地ファイルにエラーなし・plan の anchor 系 TS2352 は pre-existing 別件）。
+- ⚠ 型エラーのみ＝vitest は SWC で型剥がし実行のため多くは runtime PASS（plan suite 4973 PASS）。型安全(CI/IDE)の問題。
+- **mini plan（6 slice・各 read-only 診断→最小修正→footprint 検証→着地・1 回で全部直さない）**: S1=vitest globals 認識(~971・案B `vitest-globals.d.ts` に `/// <reference types="vitest/globals" />`・additive・runtime 不変・最優先) → S2 ceo → S3 origin/baseline → S4 lib misc → S5 stargazer/alter(core path・owning session 文脈要・中リスク・単独) → S6 test 型エラー(runtime 影響なし・最後)。
+- 実装は **slice ごとに CEO GO 待ち**。推奨: S1（1 ファイル additive で 87%解消）を最初の GO 候補に。
+- 承認: CEO(監査指示)。ステータス: 監査完了・方針提出。chip task_d50a2f2c は本 inline 監査で達成のため dismiss。次=CEO の slice GO 判断。push/Vercel 不接触。
+
+---
