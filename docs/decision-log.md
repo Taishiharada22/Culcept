@@ -15815,3 +15815,20 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **次トラック（別 branch）**: 実データ save→/plan 反映の本番 end-to-end（productization branch freeze 解凍 + production migration 待ち）を新 branch で計画予定。[承認: CEO（月 view enablement local closeout / freeze 指示・本番 ON は別 GO）]
 
 ---
+
+[2026-06-07] [Build] **SR RD-2 staging realdata save → /plan 反映 end-to-end PASS（save success refetch bug fix 完了）** — stacked branch `feat/plan-shift-import-realdata-reflection`（base `72d49987`）で staging 実 save → DB write 成功 → reflection bug 特定 → surgical fix → CEO ブラウザで hard reload なし自動反映 PASS まで完了。
+- **準備（docs-only）**: RD-0 readiness `e6a49095` → RD-1 staging runbook `bfac760e`。
+- **preflight（read-only・3 回）**: CLI link が **production ref のまま**残存 → STOP 条件成立で停止 → CEO の手動 `supabase link --project-ref hjcrvndumgiovyfdacwc` + `mv supabase/.temp/linked-project.json /tmp/...` で完全 staging に揃え → 3 回目 preflight で全 gate 通過（`project-ref` = staging / Supabase URL = staging / `PLAN_SHIFT_IMPORT_SAVE` = true / `.temp` 内 production ref 残存 0）。**`linked-project.json` は absent**（現環境では `project-ref` / `pooler-url` で operational metadata が成立）。
+- **本実行（staging・dev server）**: env = `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true` + `NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED=true` + `PLAN_SHIFT_DRAFT_LIVE_ENABLED=true` + `.env.local` 既存 `PLAN_SHIFT_IMPORT_SAVE=true`。CEO 認証ブラウザでシフト画像投入→保存。
+- **bug 観測**: 保存ボタン押下で **DB write は完全成功**（Dashboard SQL Editor 確認：直近 10 分で source 1 + anchors 19 + indicators 12 が staging に書かれる）が、**hard reload なしでは /plan に反映されない**。
+- **原因特定**: dev server log で save 直後の `GET /api/plan/anchors` が呼ばれていないことを確認。コード調査で **`PlanShiftImportEntry` / `ShiftImportEntryInner` / `ShiftDraftInApp` の 3 階層に `onSuccess` prop seam が存在せず**、save 成功通知が PlanClient.handleAddSuccess（refetch trigger）に到達しないことを確証。
+- **surgical fix（commit `d181e153`・5 ファイル・+75/−2）**: 3 component に `onSuccess?: () => void` 追加（後方互換）+ live path（ShiftDraftInApp）/ fallback path（ShiftImportModal）両方で内部 onSaveSucceeded 後に親 onSuccess を呼ぶ wiring + `PlanClient` に `onSuccess={handleAddSuccess}` 1 行追加 + render contract test §7（pass-through seam）3 件追加。**save logic / RPC / S-save-0 guard / DB schema / migration / reader query は不変**。
+- **検証**: tsc baseline **1112 維持**（触ファイル起因 0）/ plan 全体 **253 files / 4954 tests PASS**（回帰ゼロ）/ **CEO 認証ブラウザで hard reload なし自動反映 PASS 確認済**。
+- **安全性**: production / push / PR / merge / deploy / Vercel env 変更 / 追加 save / cleanup / DELETE / DB schema / migration / RPC / S-save-0 guard / proxy.ts / auth 変更・**いずれも未実施**。staging 接続のみ（CLI link + Supabase URL 共に staging ref）。
+- **残置 staging データ（CEO keep 判断）**: 本 smoke で生成された source 1 + anchors 19 + indicators 12 は staging に残置（cleanup 未実行・テストデータ扱い）。CEO が cleanup したい時に RD-1 §6 SQL を Dashboard で実行（user_id + source_id 起点・順序厳守・blanket 禁止・6 項目報告→GO 方式）。
+- **dev server**: 本 closeout 時点で停止済（clean state 復帰）。
+- **位置づけ**: **RD-2 帯クローズ**（staging で実データ save→反映 end-to-end が bug fix 込みで成立）。本番反映は引き続き別 GO（productization branch 解凍 + production migration + CEO + GitHub 復旧待ち）。本 branch は当面 active 保持（次の作業で再利用可能・必要時に CEO 指示で freeze）。[承認: CEO（GPT 案 B 採用＝本 branch で bug fix・cleanup keep・dev server 停止・decision-log 別 commit）]
+
+---
+
+---
