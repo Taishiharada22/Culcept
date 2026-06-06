@@ -1,7 +1,7 @@
 # Second Self Map — L3-b-2 closeout（selected-only 持続シフト・pure・未配線）+ 配線判断材料
 
-> 2026-06-06 / **L3-b-2 pure 実装済（branch `claude/second-self-map-l3b2`・`631b927a`・mobility 233 test・tsc 0・未配線・main 未着地）**。配線は CEO 判断待ち。
-> 上位: `docs/second-self-map-l3b-mini-design.md`。前提: L3-a/L3-b-1 が main live（`0cc5217b`）。
+> 2026-06-06 / **L3-b-2 pure main 着地（main `846c3a2e`・未配線・mobility 233 test・tsc 0）**。MapTab 未配線＝production 不変・退行ゼロ。配線は CEO 判断待ち（実データ後 / 明示 GO まで保留）。
+> 上位: `docs/second-self-map-l3b-mini-design.md`。前提: L3-a/L3-b-1 が main live（`0cc5217b`→`846c3a2e`）。
 
 ---
 

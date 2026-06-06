@@ -120,6 +120,8 @@ v0-A ✅ → v0-B ✅ → v0-C ✅ → split修正✅ → v0-F-lite ✅ → v0-D
 - **L3 mini design（selective forgetting・regime-change 緩和）: `docs/second-self-map-l3-mini-design.md`** — L3-a 実装・配線・**main 着地 live（pure `77104e1a` + 配線 `7c394a40`）**
 - **L3-a closeout / L3-b mini design: `docs/second-self-map-l3a-closeout.md` / `docs/second-self-map-l3b-mini-design.md`**
 - **L3-b-1（OD 単位 regime-change）実装・配線・main 着地 live（`0cc5217b`・mobility 213 test）** — closeout: `docs/second-self-map-l3b1-closeout.md`。場所のパターン変化を OD 全 leg に波及（同一 OD の別 leg に伝播）。
-- **L3-b-2（selected-only 持続シフト）pure 実装済（branch `631b927a`・未配線・mobility 233 test）** — closeout + 配線判断材料: `docs/second-self-map-l3b2-closeout.md`。**配線は CEO 判断**（最弱信号・誤検出=「忘れる地図」リスク・推奨は pure 保持 → L3-c 較正後）。leg>OD>silent・λ_silent=0.8・退行ゼロ
+- **L3-b-2（selected-only 持続シフト）pure main 着地（`846c3a2e`・未配線=production 不変・mobility 233 test）** — closeout: `docs/second-self-map-l3b2-closeout.md`。**配線は実データ後 / 明示 GO まで保留**（最弱信号・誤検出=「忘れる地図」リスク）。leg>OD>silent・λ_silent=0.8・退行ゼロ
+- **較正 backlog: `docs/second-self-map-calibration-backlog.md`** — κ/λ/K/threshold は固定値運用 → 実データ後に L3-c/L4-c で較正。現時点 tuning 実装しない。
+- **次主フェーズ = Wave 2 Day Rehearsal**（1日を先に試す forward simulation・最適化でない）。mini design → pure simulation layer → smoke → UI（別 GO）。
 - FH 戦略原典: `docs/plan-map-second-self-strategy.md`（main）
 - FH 着地 closeout: `docs/fh-maptab-squash-landing-closeout.md`

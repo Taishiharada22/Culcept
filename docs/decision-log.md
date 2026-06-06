@@ -15101,6 +15101,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **branch `claude/second-self-map-l3b2`・`631b927a`・pure・未配線（MapTab=loadL3b）・main 未着地**。closeout + 配線判断材料: `docs/second-self-map-l3b2-closeout.md`。
 - **Claude 推奨: 当面 pure 保持**（最弱信号・params 実データ未検証 → L3-a/L3-b-1 データで挙動観測 → L3-c 較正 → その後配線）。即時リスクは退行ゼロで極小ゆえ CEO が適応完成優先なら配線可。
 
-承認: CEO(GPT で L3-b-2 pure GO・配線は結果判断)×GPT。ステータス: L3-b-2 pure done・配線 CEO 判断待ち。次=配線可否判断 / L3-c 較正(データ後) / L4-c(データ後)。
+- **main 着地（2026-06-06・CEO GO）**: L3-b-2 pure を main `846c3a2e` に squash（未配線・MapTab=loadL3b 維持＝production 不変・退行ゼロ）。zero-loss・tsc footprint 0・mobility 233・store/MobilityLegCard 不変・temp 0・push なし。**pure を main に固定・live 化は保留**（実データ後 or 明示 GO まで）。
+- **較正保留（CEO 方針）**: κ/λ/K/threshold は固定値運用 → 実データ後に較正。`docs/second-self-map-calibration-backlog.md` に記録（見る指標: selected/confirmation/correction 比率・FP/FN・silent は特に慎重）。現時点で tuning 実装しない。
+
+関連 commit(branch l3b2): 631b927a(pure)。main: 846c3a2e(squash 着地)。closeout: `docs/second-self-map-l3b2-closeout.md`。
+承認: CEO(GPT で L3-b-2 pure GO + main 着地 GO・配線は実データ後)×GPT。ステータス: L3-b-2 pure main 着地（未配線）。次=Wave 2 Day Rehearsal（主フェーズ）/ 配線可否(データ後) / L3-c・L4-c(較正 backlog・データ後)。
 
 ---
