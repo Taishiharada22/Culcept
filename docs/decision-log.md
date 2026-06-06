@@ -15382,3 +15382,19 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: pure layer main live。UI 実装は mini design GO 後。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
 
 ---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate v1 — target-aware / evidence-aware copy（branch commit・smoke 前で停止）[承認: CEO/GPT GO]
+- 判断: What-if Preview UI は **保留**（candidate↔preview.body 重複大で UI 価値薄）。次は **候補文そのものの質**を上げる（UI を増やさない）= Repair v1。
+- 実装（COPY 3 文・logic 不変・read-only）: branch `claude/dr-repair-v1`（HEAD `9e4b8d74`・base main `b521cbf2`）。
+  - leave_earlier「ここは…」→「**この移動の前後は**、出発を少し早める余地があるかもしれません」（必ず insufficient transition → 移動 grounded）
+  - confirm_uncertain →「未確定の移動の余白を確認できると、**見通しが立てやすくなりそうです**」（clarity preview value 統合）
+  - use_recovery_window「ここで一息入れられそうです」→「この一息つけそうな区間は、**そのまま残せると、次の予定に入りやすそうです**」（utilization preview value 統合）
+  - protect_buffer / reduce_density: 据置（前者 Option D 不到達=full path のみ・後者 弱め維持）
+- ★audit 知見: production（Option D）は bufferMin=null・friction 一律 moderate・recoveryWindows 空 → **分/factor 差分は無根拠**。kind の構造的意味（移動/一息/全体）にのみ grounded。**protect_buffer は Option D 到達不能**（convergencePoint=buffer_short[insufficient] 必須 ⇒ leave_earlier 分岐）。
+- evidence trace / 型 / kind 判定 / prioritize / preview（`previewRepairEffect`）は **不変**。UI コード不変（banner が `c.suggestion` 直接描画 → 既存 UI に自然反映）。production 挙動=**表示文のみ変化**。
+- 検証: dayRehearsal dir + render contract **106 PASS**（新規 V1-V6）・**tsc footprint 0（total 55 baseline 不変）**。
+- follow-up（v1 未対応・別判断）: 同 kind 同一文重複（dedup 方針）/ rehearsal の full path 化（protect_buffer/bufferMin/friction 解放=定量 what-if の前提）。
+- closeout: `docs/second-self-map-day-rehearsal-repair-v1-audit-closeout.md`。
+- 状態: branch commit 済・**実機 smoke 前で停止**。main 着地は smoke PASS 後 CEO 判断。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---
