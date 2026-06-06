@@ -161,3 +161,52 @@ describe("prioritizeRepairCandidates", () => {
     expect(prioritizeRepairCandidates([], 3)).toEqual([]);
   });
 });
+
+describe("v1 target-aware / evidence-aware copy（logic 不変・文のみ grounded 具体化）", () => {
+  const sugg = (cs: readonly DayRepairCandidate[], kind: DayRepairCandidate["kind"]) =>
+    cs.find((c) => c.kind === kind)?.suggestion ?? "";
+
+  it("V1. leave_earlier は transition 起点 → 「移動」に grounded（generic な「ここは」でない）", () => {
+    const cs = generateDayRepairCandidates(reh({ steps: [step({ bufferStatus: "insufficient" })] }));
+    expect(sugg(cs, "leave_earlier")).toContain("移動");
+  });
+
+  it("V2. confirm_uncertain は移動の余白＋clarity（見通し）を統合", () => {
+    const cs = generateDayRepairCandidates(reh({ steps: [step({ bufferStatus: "not_applicable", friction: EST })] }));
+    const s = sugg(cs, "confirm_uncertain");
+    expect(s).toContain("移動"); // grounded（confirm_uncertain は必ず transition）
+    expect(s).toContain("見通し"); // clarity preview value の統合
+  });
+
+  it("V3. use_recovery_window は utilization（次に入りやすい）を統合", () => {
+    const cs = generateDayRepairCandidates(reh({ steps: [step({ stepIndex: 2 })] }), { recoverySteps: new Set([2]) });
+    const s = sugg(cs, "use_recovery_window");
+    expect(s).toContain("一息"); // grounded（gap）
+    expect(s).toMatch(/次の予定|残せる/); // utilization preview value の統合
+  });
+
+  it("V4. reduce_density は弱め維持（具体的な予定削除/変更を促さない）", () => {
+    const cs = generateDayRepairCandidates(reh({ density: "packed", steps: [] }));
+    const s = sugg(cs, "reduce_density");
+    expect(s).not.toMatch(/削除|やめ|減らし|外す|キャンセル/); // 予定変更指示でない
+    expect(s).toMatch(/そう|かもしれません/); // suggestion トーン
+  });
+
+  it("V5. v1 全文も禁止語・生数値・命令なし（R12 を v1 copy で再保証）", () => {
+    const cs = generateDayRepairCandidates(reh({
+      density: "packed",
+      recoveryWindows: [2],
+      steps: [step({ stepIndex: 0, bufferStatus: "insufficient" }), step({ stepIndex: 1, bufferStatus: "not_applicable", friction: EST }), step({ stepIndex: 2 })],
+    }));
+    const all = cs.map((c) => c.suggestion).join(" / ");
+    expect(all).not.toMatch(/危険|警告|失敗|疲れ|疲労|壊れ|絶対|すべき|べきです/);
+    expect(all).not.toMatch(/\d/);
+    expect(all).not.toMatch(/high|moderate|low|score|slack|shortfall/i);
+    expect(all).toMatch(/そう|かもしれません/);
+  });
+
+  it("V6. deterministic（同入力 → 同 suggestion）", () => {
+    const mk = () => generateDayRepairCandidates(reh({ steps: [step({ bufferStatus: "insufficient" })] }));
+    expect(mk().map((c) => c.suggestion)).toEqual(mk().map((c) => c.suggestion));
+  });
+});
