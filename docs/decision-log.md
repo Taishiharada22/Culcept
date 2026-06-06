@@ -15298,3 +15298,15 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(監査 GO→実装 GO)。ステータス: postSelectionFlow 完了。残 62（source 31[S5 15含]+test 31）。次=CEO 判断。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup S6 batch4 — test fixture 型ズレ 7件（厳格 audit・main 着地 live）
+
+- 決定: CEO GO で S6 batch4。残 test 24（S5 7 除外）を厳格 audit し「断定 safe・test-only」のみ修正。
+- **修正（7・test-only・cast 不使用・挙動不変）**: ① phaseC-integration(5): DayConditions の isWeekday/timeOfDay 除去（production 参照ゼロ・現行 field 置換なし=removed-old-spec dead field・assertion 不参照・残 mainTransport 有効）② realityCandidate Generator/Evaluator(2): `const anchors: RealityInput["anchors"](Readonly)={}` を mutable `Record<string, RealityInput["anchors"][string]>` に（書き込み解消・同値型・cast/import なし）。
+- **STOP（HARD GATE）**: rawRef 系(b3bFoundation 多 field overhaul+rawRef 複合型構築・postSelectionFlow rawRef)・placeResolver/planHistory(HardAnchor order/anchorScore・PlanItem fixedStart の semantic 値)・ceoScenario(MorningSession spec)・planIntakeGate(assertion 編集)・domainRouter("schedule" 意図)・presenceTelemetry(prod export 要)・sceneWeighting/planner/morningPipeline/b3c2(個別)・stargazer 7(S5)。
+- before/after（main 計測）: 62→**55**（−7）/ source 31 不変 / **累計 1114→55（−1059・95%）**。
+- production 挙動変更**なし**（phaseC は buildDayPlan が isWeekday/timeOfDay を元々読まない・realityCandidate は同一 record）。検証: phaseC+reality 82 + alter-morning 199 files/4501 PASS・zero-loss（branch a9b5c9ef 一致）。
+- 状態: **main `60ee0a9e` 着地 live**（親 `d2f3b64d`）。closeout: `docs/tsc-baseline-cleanup-s6b4-closeout.md`。
+- 承認: CEO(S6 batch4 GO)。ステータス: S6 batch4 完了。**無判断 test-only safe は尽きた**（5 batch+psf で 1114→55=95%減）。残 55 は prod export/型整合・mock semantic 値/複合型・spec・S5 のいずれか要。次=CEO 判断（据え置き別作業 / 残置個別 GO / S5）。push/Vercel/DB/Google 不接触。
+
+---
