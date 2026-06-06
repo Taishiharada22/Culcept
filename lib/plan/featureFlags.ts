@@ -241,4 +241,15 @@ export const PLAN_FLAGS = {
    *   fail-open: flag off / no candidate / read error / gate block では `captureCandidate` を付けず response を壊さない。
    */
   realityCaptureSurface: process.env.REALITY_CAPTURE_SURFACE === "true",
+
+  /**
+   * A1-5-7-7: Reality capture candidate の **client-side surface consumer**（V2 route response の `data.captureCandidate?` を
+   *   client で fetch/extract し MorningPlanCard へ流す bridge）を有効化するか。
+   *   true  : caller（将来 AskHero 親）が `fetchCaptureCandidate` で V2 route を fetch し captureCandidate を MorningPlanCard prop に流せる。
+   *   false : **本番デフォルト**・**fetch 0・captureCandidate undefined・既存 UI 完全不変**（dormant）。
+   * env: NEXT_PUBLIC_REALITY_CAPTURE_SURFACE_CLIENT=true で有効化（**client-side 評価可・NEXT_PUBLIC_**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §8.47（A1-5-7-7）
+   * 制約: server surface flag（realityCaptureSurface）とは別（client 消費の dormant gate）。real network は本 slice では走らせない（caller の live fetch は別 GO）。
+   */
+  realityCaptureSurfaceClient: process.env.NEXT_PUBLIC_REALITY_CAPTURE_SURFACE_CLIENT === "true",
 } as const;

@@ -10,6 +10,7 @@ import type { MorningPlan, MorningPhase } from "@/lib/alter-morning/types";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 import { AlterFeedback } from "@/components/stargazer/AlterFeedback";
 import MorningPlanCard from "@/components/home/morning/MorningPlanCard";
+import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
 import MorningOutfitCard from "@/components/home/morning/MorningOutfitCard";
 import FollowUpChip from "@/components/home/morning/FollowUpChip";
 import JournalPromptChip from "@/components/home/morning/JournalPromptChip";
@@ -128,6 +129,12 @@ type Props = {
   morningEvents?: ComprehensionEvent[];
   /** W3-PR-13 M3: visualFlow flag gate（server-side eval 済み boolean） */
   visualFlowEnabled?: boolean;
+  /**
+   * A1-5-7-7: capture candidate surface（V2 route response の data.captureCandidate?・A1-5-7-5）。
+   * **additive optional・dormant**: 未提供（親が未供給）→ MorningPlanCard の banner は null＝既存 UI 完全不変。
+   * 親（V2 route 消費時）が captureCandidateClient.fetchCaptureCandidate の結果を流し込む（live は別 GO）。
+   */
+  morningCaptureCandidate?: CandidateSurfaceDTO | null;
   /** Morning Protocol: プラン確定コールバック */
   onMorningPlanConfirm?: (plan: MorningPlan) => void;
   /** Morning Protocol: 変更リクエストコールバック */
@@ -276,6 +283,7 @@ export default function AskHero({
   morningPersonalizeHints,
   morningEvents,
   visualFlowEnabled = false,
+  morningCaptureCandidate,
   onMorningPlanConfirm,
   onMorningPlanChange,
   morningWeather,
@@ -430,6 +438,7 @@ export default function AskHero({
             sessionId={alterSessionId ?? null}
             events={morningEvents}
             visualFlowEnabled={visualFlowEnabled}
+            captureCandidate={morningCaptureCandidate}
           />
         )}
 
