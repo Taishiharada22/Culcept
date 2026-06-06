@@ -12,6 +12,19 @@ import {
   extractOriginAnchorFromUtterance,
   stripTemporalPrefix,
 } from "@/lib/alter-morning/journey/originAnchorExtractor";
+import type { JourneyAnchorState } from "@/lib/alter-morning/journey/anchorState";
+
+/**
+ * test helper: JourneyAnchorState union を label を持つ variant に narrow する（cast でなく type guard）。
+ * label/source は known_exact / known_label_only にのみ存在し unknown には無いため、union 直アクセスは TS2339。
+ * 期待外（null / unknown）なら throw して test を失敗させる（assertion の意味は不変）。
+ */
+function labelOf(r: JourneyAnchorState | null): Extract<JourneyAnchorState, { label: string }> {
+  if (!r || !("label" in r)) {
+    throw new Error(`expected label-bearing JourneyAnchorState, got kind=${r?.kind ?? "null"}`);
+  }
+  return r;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Positive (= public POI 抽出)
@@ -21,75 +34,75 @@ describe("[Positive] public POI extract", () => {
   it("「東京駅から渋谷へ」 → 東京駅", () => {
     const r = extractOriginAnchorFromUtterance("東京駅から渋谷へ");
     expect(r?.kind).toBe("known_label_only");
-    expect(r?.label).toBe("東京駅");
-    expect(r?.source).toBe("user_declared");
+    expect(labelOf(r).label).toBe("東京駅");
+    expect(labelOf(r).source).toBe("user_declared");
   });
 
   it("「明日8時東京駅から渋谷へ」 → 東京駅 (= temporal strip)", () => {
     const r = extractOriginAnchorFromUtterance("明日8時東京駅から渋谷へ");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("「明日 8 時東京駅から渋谷へ」 → 東京駅 (= 半角 space 含む temporal strip)", () => {
     const r = extractOriginAnchorFromUtterance("明日 8 時東京駅から渋谷へ");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("「成田空港から行きます」 → 成田空港", () => {
     const r = extractOriginAnchorFromUtterance("成田空港から行きます");
-    expect(r?.label).toBe("成田空港");
+    expect(labelOf(r).label).toBe("成田空港");
   });
 
   it("「渋谷スクランブルスクエアから」 → 渋谷スクランブルスクエア", () => {
     const r = extractOriginAnchorFromUtterance("渋谷スクランブルスクエアから");
-    expect(r?.label).toBe("渋谷スクランブルスクエア");
+    expect(labelOf(r).label).toBe("渋谷スクランブルスクエア");
   });
 
   it("「さいたまスーパーアリーナから」 → さいたまスーパーアリーナ", () => {
     const r = extractOriginAnchorFromUtterance("さいたまスーパーアリーナから");
-    expect(r?.label).toBe("さいたまスーパーアリーナ");
+    expect(labelOf(r).label).toBe("さいたまスーパーアリーナ");
   });
 
   it("「ANAインターコンチネンタルホテル東京から」 → ANAインターコンチネンタルホテル東京", () => {
     const r = extractOriginAnchorFromUtterance(
       "ANAインターコンチネンタルホテル東京から",
     );
-    expect(r?.label).toBe("ANAインターコンチネンタルホテル東京");
+    expect(labelOf(r).label).toBe("ANAインターコンチネンタルホテル東京");
   });
 
   it("「Shibuya Streamから」 → Shibuya Stream (= internal space 許容)", () => {
     const r = extractOriginAnchorFromUtterance("Shibuya Streamから");
-    expect(r?.label).toBe("Shibuya Stream");
+    expect(labelOf(r).label).toBe("Shibuya Stream");
   });
 
   it("「ANA InterContinental Tokyoから」 → ANA InterContinental Tokyo (= 英文 multi-word)", () => {
     const r = extractOriginAnchorFromUtterance("ANA InterContinental Tokyoから");
-    expect(r?.label).toBe("ANA InterContinental Tokyo");
+    expect(labelOf(r).label).toBe("ANA InterContinental Tokyo");
   });
 
   it("「羽田空港第3ターミナルから」 → 羽田空港第3ターミナル (= 数字混在)", () => {
     const r = extractOriginAnchorFromUtterance("羽田空港第3ターミナルから");
-    expect(r?.label).toBe("羽田空港第3ターミナル");
+    expect(labelOf(r).label).toBe("羽田空港第3ターミナル");
   });
 
   it("「東京駅を出発して渋谷へ」 → 東京駅 (= 構文 2)", () => {
     const r = extractOriginAnchorFromUtterance("東京駅を出発して渋谷へ");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("「東京駅を出て」 → 東京駅 (= 構文 2 動詞 「出て」)", () => {
     const r = extractOriginAnchorFromUtterance("東京駅を出て");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("「東京駅発で行く」 → 東京駅 (= 構文 3)", () => {
     const r = extractOriginAnchorFromUtterance("東京駅発で行く");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("「東京駅発の電車」 → 東京駅 (= 構文 3 「発の」)", () => {
     const r = extractOriginAnchorFromUtterance("東京駅発の電車");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 });
 
@@ -153,7 +166,7 @@ describe("[Negative] 誤爆防止", () => {
     // legacyAdapter の chain では呼ばれない (= 安全)
     if (r !== null) {
       // 万一 public_poi 扱いされた場合は label が「自宅」 になる
-      expect(r.label).toBe("自宅");
+      expect(labelOf(r).label).toBe("自宅");
     }
   });
 });
@@ -173,17 +186,17 @@ describe("[Edge] edge cases", () => {
 
   it("「、東京駅から」 → 東京駅 (= 句読点 delimiter)", () => {
     const r = extractOriginAnchorFromUtterance("、東京駅から");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("「『東京駅から』」 → 東京駅 (= 鉤括弧 delimiter)", () => {
     const r = extractOriginAnchorFromUtterance("『東京駅から』");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 
   it("複数 「から」 がある場合 → 最初の match", () => {
     const r = extractOriginAnchorFromUtterance("東京駅から横浜から渋谷へ");
-    expect(r?.label).toBe("東京駅");
+    expect(labelOf(r).label).toBe("東京駅");
   });
 });
 

@@ -22,7 +22,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿でランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 7 },
+      { span: "ランチ", index: 7 },
     );
     expect(result).toBe("新宿");
   });
@@ -31,7 +31,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "午後3時に渋谷で打ち合わせ",
       { value: "15:00", span: "3時", index: 2 },
-      { entry: { canonical: "打ち合わせ" } as any, span: "打ち合わせ", index: 7 },
+      { span: "打ち合わせ", index: 7 },
     );
     expect(result).toBe("渋谷");
   });
@@ -40,7 +40,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "18時から新宿で飲み会",
       { value: "18:00", span: "18時", index: 0 },
-      { entry: { canonical: "飲み会" } as any, span: "飲み会", index: 7 },
+      { span: "飲み会", index: 7 },
     );
     expect(result).toBe("新宿");
   });
@@ -49,7 +49,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "明日12時に新宿でランチ",
       { value: "12:00", span: "12時", index: 2 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 9 },
+      { span: "ランチ", index: 9 },
     );
     expect(result).toBe("新宿");
   });
@@ -59,7 +59,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "ランチ12時新宿",
       { value: "12:00", span: "12時", index: 3 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 0 },
+      { span: "ランチ", index: 0 },
     );
     expect(result).toBeNull();
   });
@@ -69,7 +69,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿、ランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 7 },
+      { span: "ランチ", index: 7 },
     );
     expect(result).toBeNull();
   });
@@ -79,7 +79,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時ランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 3 },
+      { span: "ランチ", index: 3 },
     );
     expect(result).toBeNull();
   });
@@ -92,7 +92,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       utterance,
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: activityIdx },
+      { span: "ランチ", index: activityIdx },
     );
     expect(result).toBeNull();
   });
@@ -101,7 +101,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に変更でランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 7 },
+      { span: "ランチ", index: 7 },
     );
     expect(result).toBeNull();
   });
@@ -110,7 +110,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時にかなでランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 7 },
+      { span: "ランチ", index: 7 },
     );
     expect(result).toBeNull();
   });
@@ -120,7 +120,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に、でランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 6 },
+      { span: "ランチ", index: 6 },
     );
     expect(result).toBeNull();
   });
@@ -129,7 +129,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿駅でランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 8 },
+      { span: "ランチ", index: 8 },
     );
     expect(result).toBe("新宿駅");
   });
@@ -146,7 +146,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿で高橋とランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 10 },
+      { span: "ランチ", index: 10 },
     );
     expect(result).toBeNull();
   });
@@ -156,7 +156,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿で30分だけランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 12 },
+      { span: "ランチ", index: 12 },
     );
     expect(result).toBeNull();
   });
@@ -166,7 +166,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿で2時間ランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 10 },
+      { span: "ランチ", index: 10 },
     );
     expect(result).toBeNull();
   });
@@ -176,7 +176,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に電車で新宿に行ってランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 13 },
+      { span: "ランチ", index: 13 },
     );
     expect(result).toBeNull();
   });
@@ -186,7 +186,7 @@ describe("extractExplicitPlace", () => {
     const result = extractExplicitPlace(
       "12時に新宿三丁目でランチ",
       { value: "12:00", span: "12時", index: 0 },
-      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 10 },
+      { span: "ランチ", index: 10 },
     );
     expect(result).toBe("新宿三丁目");
   });

@@ -341,7 +341,7 @@ describe("E2E: CEO scenario with travel", () => {
     for (const item of plan.items) {
       if (item.kind === "travel" && lastKind === "travel") {
         // 連続する travel は不正（間に stay がないといけない）
-        fail("連続する travel アイテムが存在します");
+        throw new Error("連続する travel アイテムが存在します"); // vitest に jest の fail() global は無い
       }
       lastKind = item.kind;
     }
