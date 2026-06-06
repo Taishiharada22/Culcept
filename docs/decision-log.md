@@ -15803,3 +15803,15 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **安全性**: production flag ON / deploy / DB write / save / VLM / push / PR / merge **いずれも非実施**。`.env.local` 非編集。dev-month-grid + next-env.d.ts は build 前状態へ復帰。visual は C-1 で済（dev≈prod）。[承認: CEO/GPT（C3-1 build verification GO・PASS なら C3-1 closeout + C3-2 readiness へ）]
 
 ---
+
+[2026-06-07] [Build] **SR 月 view enablement トラック local closeout / freeze（C3-3 dogfood ON judgment 完了・本番 ON は保留）** — shift_image source marker（B-1）+ 月 view 有効化（C トラック）を local で完成・検証・enablement 設計まで揃え、branch `feat/plan-shift-month-grid-reflection` を freeze。**本番 flag ON は未実施・別 GO**。
+- **トラック完了状態（全 local commit・未 push）**: B-1 shift_image source marker 実装 `4d11b84c` → B-1 closeout `82b47c60` → B-2 gated dev fixture `4162be39`（visual smoke PASS）→ B-2 closeout + C-0 readiness `00d959f9` → C-1 dev smoke PASS `f253cba4`（実 CalendarTab toggle/month/月送り/mobile）→ C-3 plan `c47fdd3a` → C3-1 preflight `63f96b81` → C3-1 build verification PASS `3c1b635a`（`flag=true npm run build` exit 0・362/362 pages）→ C3-2 production env readiness `83bb0e3c` → **C3-3 dogfood ON judgment `f29a28ee`**。
+- **deploy feasibility（read-only）**: deploy 経路 = **Vercel**（`vercel.json` + GitHub remote `Taishiharada22/Culcept` + CI `ci.yml`/`staging-smoke.yml`）。`vercel.json` の `ignoreCommand` で **.md のみの commit は build/deploy を skip**。flag は Vercel env var として設定 + redeploy で反映。
+- **dogfood ON は現状保留**。理由: **GitHub 未復旧 / branch は local-only（未 push）/ Vercel env 変更 禁止 / remote・push・PR・merge 操作 禁止**。→ Vercel への反映経路が現状塞がっている。
+- **ON 可能条件**: GitHub/remote 復旧 + CEO GO → branch 反映 → Vercel production env に `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true` 設定 → rebuild/redeploy → /plan smoke → observe/rollback window。
+- **flag**: `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true`。**影響**: 全ユーザーに `週\|月` toggle・**default は week**・月 view は opt-in。**rollback**: flag false + rebuild/redeploy → week default。**per-user canary は本 NEXT_PUBLIC global flag では不可**（必要なら server-driven flag 別実装）。
+- **無関係の明示**: 月 view は `PLAN_SHIFT_IMPORT_SAVE` / DB / VLM / save path とは **無関係**（presentational・read-only・DB write 不要）。
+- **branch freeze**: `feat/plan-shift-month-grid-reflection` を本 closeout で freeze。以降この branch へは追加しない（productization branch への直接追加も禁止継続）。production / deploy / push / PR / merge は **未実施**。
+- **次トラック（別 branch）**: 実データ save→/plan 反映の本番 end-to-end（productization branch freeze 解凍 + production migration 待ち）を新 branch で計画予定。[承認: CEO（月 view enablement local closeout / freeze 指示・本番 ON は別 GO）]
+
+---
