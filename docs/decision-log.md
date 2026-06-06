@@ -15769,3 +15769,12 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **次**: B-2 = source marker の visual smoke / screenshot 確認（新機能でなく見た目確認。週/日 は LIVE で可・月は flag ON が必要なため dormant のまま deferred）。[承認: CEO/GPT（型 gap union-add 採用・週 day-level「取」確定・B-1 一括 commit GO `4d11b84c`）]
 
 ---
+
+[2026-06-07] [Build] **SR B-2 取込 marker visual smoke PASS + C-0 月 view enablement readiness** — B-1 取込 marker を gated dev fixture で週/日/月 一括 screenshot 確認 → PASS。続けて月 view 有効化の read-only audit + readiness（docs-only）。
+- **B-2 gated dev fixture（commit `4162be39`・5 files）**: route `/plan/dev-source-marker-smoke`。gate = `PLAN_SHIFT_SOURCE_MARKER_VISUAL_SMOKE_PREVIEW==="true" && NODE_ENV!=="production"`（server 専用・NEXT_PUBLIC でない・default OFF・production notFound・a4SmokeGate mirror + unit test 4 PASS）。synthetic fixture（夜勤6/10 shift・面談6/10 manual 同日・歯医者6/11 manual・休み6/12 shift・休み6/13 manual）を本番と同じ marker 経路で 3 view 描画（週=CalendarTab / 日=FlowTab LIVE / 月=MonthGridView 直接描画・enablement flag 非依存）。
+- **R1 安全性検証**: FlowTab LIVE は `enhanceAlterNotesAction` を fire するが `alterNoteLive`/`personalModelIntegration` **default OFF** → PM 抽出（Stargazer DB read・`extractPersonalModelV2`）skip・LLM 非発火。→ **DB write/save/VLM/LLM/Stargazer DB read 非接触**。ただし通常認証として **Supabase auth read（`auth.getUser`）は発生し得る**（通常 /plan と同等・blocker でない）。GPT 表現補正反映。
+- **screenshot smoke PASS（CEO 認証ブラウザ + Claude 独立監査）**: 週=10・12 に「取」/ 11・13 なし。日=6/10 夜勤 EventCard に「取込」/ 同日 面談に なし。月=10(面談+N+取込)・12(BD+取込) / 11(歯医者)・13(BD) は marker なし。muted・崩れなし・non-shift_image 非表示・**保存/DB UI なし**。Claude 監査も同結論（cell 10 最密 3 段だが破綻なし）。
+- **C-0 月 view enablement readiness（docs `alter-plan-month-view-enablement-readiness.md`）**: ① MonthGridView は build 完成（code chip + tint + 取込 marker 統合）② flag `calendarMonthGridEnabled` = `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED`（**global NEXT_PUBLIC・default OFF**）③ `DEFAULT_CALENDAR_VIEW_MODE="week"`＝flag ON でも月は opt-in toggle・週体験不変 ④ 月送り nav 既存 ⑤ **本命=C 案（flag ON で toggle 表示・週 default）= 低リスク**。**B（per-user canary）は NEXT_PUBLIC global 制約で本 flag では不可**＝server 駆動 flag の別実装が必要。残=C-1 smoke（実 CalendarTab toggle + mobile 幅）→ C-2 polish（条件付き）→ C-3 本番判断。
+- **安全性**: flag ON・DB write・save・VLM・production・push・merge・proxy.ts・auth・月 enablement flag 変更 **いずれも非接触**。B-2 dev route は gated + production notFound。C-0 は docs-only。[承認: CEO/GPT（B-2 commit GO `4162be39`・smoke PASS・C は read-only audit + docs-only readiness 指示）]
+
+---
