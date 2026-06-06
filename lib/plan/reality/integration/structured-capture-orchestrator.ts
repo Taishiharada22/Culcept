@@ -29,12 +29,15 @@ import "server-only";
  */
 
 import { buildStructuredCaptureInput, type IntakeRejectReason } from "../seed-capture-intake";
-import { captureToDrafts } from "../seed-capture-mapper";
+import { captureToDrafts, type StructuredCaptureInput, type PlanSeedInsertDraft, type DurationEvidenceInsertDraft } from "../seed-capture-mapper";
 import {
   writeStructuredCapture,
   type CaptureWriteClient,
   type CaptureWriteCode,
 } from "./capture-write-repository";
+// A1-5-11-4: write-side policy（read-before-write dedup + TTL・**optional DI**・未指定なら既存挙動不変）
+import { decideCaptureWrite, computeCaptureExpiry, type CaptureWritePolicyDeps } from "./capture-write-policy";
+import type { CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
 
 /**
  * orchestrator 入力。`extracted` は **untrusted structured output**（extractor の生出力・raw 発話でない）。
@@ -58,7 +61,9 @@ export interface StructuredCapturePipelineInput {
 export type StructuredCapturePipelineResult =
   | { readonly ok: true; readonly stage: "write"; readonly code: "ok"; readonly wroteEvidence: boolean }
   | { readonly ok: false; readonly stage: "write"; readonly code: CaptureWriteCode; readonly wroteEvidence: boolean }
-  | { readonly ok: false; readonly stage: "intake"; readonly reason: IntakeRejectReason; readonly field?: string };
+  | { readonly ok: false; readonly stage: "intake"; readonly reason: IntakeRejectReason; readonly field?: string }
+  // A1-5-11-4: write-side dedup で suppress（**writeClient を呼ばない**・既存 active fresh 重複ゆえ書かない）。
+  | { readonly ok: true; readonly stage: "suppressed"; readonly wroteEvidence: false };
 
 /**
  * A1-5-4d-1: untrusted structured output → intake guard → draft → write seam を 1 本に束ねる pipeline。
@@ -69,7 +74,8 @@ export type StructuredCapturePipelineResult =
  */
 export async function runStructuredCapturePipeline(
   input: StructuredCapturePipelineInput,
-  client: CaptureWriteClient
+  client: CaptureWriteClient,
+  policy?: CaptureWritePolicyDeps
 ): Promise<StructuredCapturePipelineResult> {
   // 1. intake guard（fail-closed・raw 遮断・allowlist 再構築）。seedId/userId/capturedAt は caller 注入。
   const intake = buildStructuredCaptureInput(input.seedId, input.userId, input.capturedAt, input.extracted);
@@ -80,9 +86,28 @@ export async function runStructuredCapturePipeline(
       : { ok: false, stage: "intake", reason: intake.reason };
   }
 
+  // A1-5-11-4: TTL — policy 指定時のみ expires_at を反映（明示があれば尊重・undated/dated に初期値）。policy 未指定なら既存挙動不変。
+  const structured = policy ? withCaptureExpiry(intake.input, policy) : intake.input;
+
   // 2. structured-only draft 化（pure・raw なし・default duration なし）。
-  const drafts = captureToDrafts(intake.input);
+  const drafts = captureToDrafts(structured);
   const wroteEvidence = drafts.evidenceDraft !== null;
+
+  // A1-5-11-4: read-before-write dedup — write 直前に既存 active と比較し suppress（**writeClient を呼ばない**）。policy 未指定ならスキップ。
+  //   provider error は **fail-open**（existing=[] 扱い→write 継続・best-effort・data loss 回避）。race-prone（read↔write 非原子）は限界として許容。
+  if (policy) {
+    let existing: readonly CandidateLifecycleEntry[] = [];
+    try {
+      existing = await policy.existingActive();
+    } catch {
+      existing = []; // fail-open: provider error → 既存なし扱い → write 継続
+    }
+    const candidate = draftToCandidateEntry(drafts.seedDraft, drafts.evidenceDraft, policy.nowMs);
+    const decision = decideCaptureWrite(candidate, existing, { nowMs: policy.nowMs, freshnessMs: policy.freshnessMs });
+    if (decision.decision === "suppress") {
+      return { ok: true, stage: "suppressed", wroteEvidence: false }; // writeClient 0 回
+    }
+  }
 
   // 3. write seam（DI client・atomic・no-run/fake では実 DB write 0）。
   const outcome = await writeStructuredCapture(drafts, client);
@@ -90,4 +115,34 @@ export async function runStructuredCapturePipeline(
     return { ok: true, stage: "write", code: "ok", wroteEvidence };
   }
   return { ok: false, stage: "write", code: outcome.code, wroteEvidence };
+}
+
+/** A1-5-11-4: structured input に TTL 由来の `expiresAt`(ISO) を反映（明示があれば尊重・pure・new Date(ms) は決定的）。 */
+function withCaptureExpiry(input: StructuredCaptureInput, policy: CaptureWritePolicyDeps): StructuredCaptureInput {
+  if (input.expiresAt != null) return input; // 明示尊重（上書きしない）
+  const expiryMs = computeCaptureExpiry(
+    { desiredDate: input.desiredDate ?? null, explicitExpiresAtMs: null },
+    policy.nowMs,
+    policy.ttlDays
+  );
+  return expiryMs !== null ? { ...input, expiresAt: new Date(expiryMs).toISOString() } : input;
+}
+
+/** A1-5-11-4: seed/evidence draft → lifecycle entry（dedup 判定用・**raw なし**・new write は active・capturedAt=now）。 */
+function draftToCandidateEntry(
+  seed: PlanSeedInsertDraft,
+  evidence: DurationEvidenceInsertDraft | null,
+  nowMs: number
+): CandidateLifecycleEntry {
+  return {
+    seedRef: seed.id,
+    status: "active", // 新規 write は active
+    capturedAtMs: nowMs, // 今 capture
+    expiresAtMs: seed.expires_at ? Date.parse(seed.expires_at) : null,
+    actionShape: seed.action_shape,
+    desiredDate: seed.desired_date,
+    desiredTimeHint: seed.desired_time_hint,
+    durationMin: evidence?.duration_min ?? null,
+    confidence: seed.confidence,
+  };
 }

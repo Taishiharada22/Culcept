@@ -32,6 +32,23 @@ import {
   type CandidateLifecycleContext,
 } from "./candidate-lifecycle-guard";
 
+/**
+ * A1-5-11-4: capture write path に policy を **optional DI** で注入する依存（**pure・raw 非搬送**・now/provider 注入）。
+ *   未指定（undefined）→ orchestrator は既存挙動（dedup なし・TTL なし）。指定時のみ read-before-write dedup + TTL を適用。
+ *   `existingActive` は**既存 active seeds（lifecycle + durationMin・read seam 由来）**を返す DI provider（テストは fake・本番は read seam）。
+ *   provider error は **fail-open**（orchestrator 側で existing=[] 扱い→write 継続・best-effort・data loss 回避）。
+ */
+export interface CaptureWritePolicyDeps {
+  /** 既存 active seeds（CandidateLifecycleEntry[]）。DI・テストは fake・本番は read seam。error は orchestrator が fail-open 握り潰し。 */
+  readonly existingActive: () => Promise<readonly CandidateLifecycleEntry[]>;
+  /** 判定基準時刻（epoch ms・caller=server が Date.now 注入・pure orchestrator を決定的に保つ）。 */
+  readonly nowMs: number;
+  /** freshness 窓（ms・既定 = read-side と同じ 14 日）。 */
+  readonly freshnessMs?: number;
+  /** TTL 日数（既定 14）。 */
+  readonly ttlDays?: number;
+}
+
 // ── 1. duplicate-on-write policy（read-before-write・既存 schema・race-prone） ──
 
 /** write 判定（insert=書く / suppress=既存 active fresh 重複ゆえ書かない）。 */

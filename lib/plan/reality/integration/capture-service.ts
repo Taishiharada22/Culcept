@@ -25,6 +25,7 @@ import {
 } from "../seed-extractor-contract";
 import { runStructuredCapturePipeline } from "./structured-capture-orchestrator";
 import type { CaptureWriteClient, CaptureWriteCode } from "./capture-write-repository";
+import type { CaptureWritePolicyDeps } from "./capture-write-policy";
 import type { IntakeRejectReason } from "../seed-capture-intake";
 
 /** service 入力。`extraction.utterance` が唯一の raw。seedId/capturedAt は server/caller 注入。 */
@@ -43,6 +44,8 @@ export interface CaptureServiceInput {
 export interface CaptureServiceDeps {
   readonly extractor: SeedExtractor;
   readonly writeClient: CaptureWriteClient;
+  /** A1-5-11-4: write-side policy（read-before-write dedup + TTL・**optional**・未指定なら既存挙動不変）。 */
+  readonly policy?: CaptureWritePolicyDeps;
 }
 
 /**
@@ -60,7 +63,9 @@ export type CaptureServiceResult =
   | { readonly outcome: "invalid_extraction"; readonly reason: IntakeRejectReason }
   | { readonly outcome: "captured"; readonly wroteEvidence: boolean }
   | { readonly outcome: "intake_rejected"; readonly reason: IntakeRejectReason }
-  | { readonly outcome: "write_failed"; readonly code: CaptureWriteCode };
+  | { readonly outcome: "write_failed"; readonly code: CaptureWriteCode }
+  // A1-5-11-4: write-side dedup で suppress（既存 active fresh 重複ゆえ書かない・write 0）。
+  | { readonly outcome: "suppressed" };
 
 /**
  * A1-5-5c: capture service（**gate → extractor → validate → orchestrator**・no-run）。
@@ -82,8 +87,8 @@ export async function runCaptureService(
   const validation = validateExtractorOutput(extracted.raw);
   if (!validation.ok) return { outcome: "invalid_extraction", reason: validation.reason };
 
-  // 4. orchestrator（intake firewall + mapper + write seam・DI client・no-run/fake）。
-  //    extracted.raw を渡し orchestrator の intake が再検証（pre-validated ゆえ通常 ok）。
+  // 4. orchestrator（intake firewall + mapper + A1-5-11-4 policy(dedup/TTL・任意) + write seam・DI client・no-run/fake）。
+  //    extracted.raw を渡し orchestrator の intake が再検証（pre-validated ゆえ通常 ok）。policy は deps から透過（未指定なら既存挙動不変）。
   const pipeline = await runStructuredCapturePipeline(
     {
       seedId: input.seedId,
@@ -91,10 +96,12 @@ export async function runCaptureService(
       capturedAt: input.capturedAt,
       extracted: extracted.raw,
     },
-    deps.writeClient
+    deps.writeClient,
+    deps.policy
   );
 
   // 5. redacted result へ写像
+  if (pipeline.ok && pipeline.stage === "suppressed") return { outcome: "suppressed" }; // A1-5-11-4: write 0（dedup 抑制）
   if (pipeline.ok) return { outcome: "captured", wroteEvidence: pipeline.wroteEvidence };
   if (pipeline.stage === "intake") return { outcome: "intake_rejected", reason: pipeline.reason };
   return { outcome: "write_failed", code: pipeline.code };
