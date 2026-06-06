@@ -22,8 +22,7 @@ import {
 } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
-import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
-import type { RpcCapableClient } from "@/lib/plan/reality/integration/capture-rpc-adapter";
+import { fireMorningCapture, type MorningCaptureClient } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
 import {
   buildMorningCaptureSurface,
   type PendingCapturedRowsReadClient,
@@ -125,7 +124,7 @@ export async function POST(request: Request) {
   //   gate（production / 非 staging / 非 canary / kill）で extractor 0 / write 0。write mode は認証済 supabase client を RPC 先に使う（user-RLS・service_role 不要）。
   //   fire-and-forget（void 同期返却・helper は never-throw 契約）+ ここでも try/catch（二重防御）で user response（{ok,data}/{ok,error}）に一切影響させない。
   try {
-    fireMorningCapture(body.utterance, user.id, supabase as unknown as RpcCapableClient);
+    fireMorningCapture(body.utterance, user.id, supabase as unknown as MorningCaptureClient);
   } catch {
     // capture 配線の例外は user response に影響させない（response 不変を絶対保証）
   }

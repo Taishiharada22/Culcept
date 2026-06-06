@@ -524,8 +524,7 @@ import { buildMorningCaptureSurface, resolveMorningProtocolCaptureFragment, type
 import type { CaptureCandidateFragment } from "@/lib/plan/reality/integration/candidate-response-assembler";
 // A1-5-9-0/1: Reality capture write（fire-and-forget・structured-only・flag gated・production hard block）
 //   今回の発話から structured-only seed/evidence を capture（次回/後続の surface read で候補化）。default 両 flag off → no-op。
-import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
-import type { RpcCapableClient } from "@/lib/plan/reality/integration/capture-rpc-adapter";
+import { fireMorningCapture, type MorningCaptureClient } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
 import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -10360,7 +10359,7 @@ export async function POST(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (morningResponse && morningResponse.phase !== "skipped") {
       try {
-        fireMorningCapture(message, userId, supabase as unknown as RpcCapableClient);
+        fireMorningCapture(message, userId, supabase as unknown as MorningCaptureClient);
       } catch {
         // capture 配線の例外は user response に影響させない（response 不変を絶対保証）
       }

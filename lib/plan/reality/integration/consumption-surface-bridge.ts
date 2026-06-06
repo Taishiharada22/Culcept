@@ -24,7 +24,7 @@ import {
   type SeedConsumptionContext,
 } from "./captured-seed-consumption";
 import { presentCandidateSurface, type CandidateSurfaceDTO } from "./candidate-surface";
-import { selectSurfaceableCandidates, type CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
+import { selectSurfaceableCandidates, buildLifecycleEntryFromPlacement, type CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
 import type { SeedLifecycleMeta } from "./seed-column-restricted";
 import type { SeedPlacement } from "../seed-placement";
 import { enrichSeedPlacementsFromEvidences, type DurationEvidence } from "../seed-placement-enrich";
@@ -48,20 +48,10 @@ function applyLifecycleGuardToEnriched(
   enriched: readonly SeedPlacement[],
   guard: ConsumptionLifecycleGuard
 ): readonly SeedPlacement[] {
-  const entries: CandidateLifecycleEntry[] = enriched.map((p) => {
-    const meta = guard.metaBySeedRef.get(p.seedRef);
-    return {
-      seedRef: p.seedRef,
-      status: "active", // read は status='active' のみ取得（defense-in-depth）
-      capturedAtMs: meta?.capturedAtMs ?? guard.nowMs, // 欠落→fresh（fail-open keep）
-      expiresAtMs: meta?.expiresAtMs ?? null,
-      actionShape: meta?.actionShape ?? null,
-      desiredDate: p.date ?? null,
-      desiredTimeHint: p.window?.band ?? null,
-      durationMin: p.durationMin, // enriched（dedup 構造キー）
-      confidence: p.confidence,
-    };
-  });
+  // A1-5-11-5: 共有 builder で entry 構築（read-before-write provider と同一＝dedup キー drift 防止）。
+  const entries: CandidateLifecycleEntry[] = enriched.map((p) =>
+    buildLifecycleEntryFromPlacement(p, guard.metaBySeedRef.get(p.seedRef), guard.nowMs)
+  );
   const refs = new Set(
     selectSurfaceableCandidates(entries, { nowMs: guard.nowMs, freshnessMs: guard.freshnessMs }).surfaceable.map((e) => e.seedRef)
   );

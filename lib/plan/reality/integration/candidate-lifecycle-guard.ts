@@ -18,6 +18,9 @@
  *   - **schema 変更しない**（captured_at/expires_at は既存列・read への expose は別 slice の wiring）。本 module は read/write を一切しない。
  */
 
+import type { SeedPlacement } from "../seed-placement";
+import type { SeedLifecycleMeta } from "./seed-column-restricted";
+
 /** plan_seeds.status（lifecycle 状態）。active 以外は surface しない。 */
 export type CandidateLifecycleStatus = "active" | "consumed" | "expired" | "rejected";
 
@@ -43,6 +46,31 @@ export interface CandidateLifecycleEntry {
   readonly durationMin: number | null;
   /** dedup tie-break（高い方を残す）。 */
   readonly confidence: number;
+}
+
+/**
+ * A1-5-11-5: enriched placement + lifecycle meta → `CandidateLifecycleEntry`（**pure・raw 非搬送**・now 注入）。
+ *   surface guard（consumption-surface-bridge）と read-before-write provider（morning-capture-surface loadActiveCandidateEntries）が
+ *   **同一構築**で entry を作る単一ソース（dedup キー drift 防止）。desiredTimeHint は placement の **band**
+ *   （morning/afternoon/evening・anytime/未指定→null）を採用し、write 側 draftToCandidateEntry の band 正規化と一致させる。
+ *   meta 欠落 seedRef は fail-open（capturedAtMs=nowMs=fresh / expiresAtMs=null）で残す。
+ */
+export function buildLifecycleEntryFromPlacement(
+  p: SeedPlacement,
+  meta: SeedLifecycleMeta | undefined,
+  nowMs: number
+): CandidateLifecycleEntry {
+  return {
+    seedRef: p.seedRef,
+    status: "active", // read は status='active' のみ取得（defense-in-depth）
+    capturedAtMs: meta?.capturedAtMs ?? nowMs, // 欠落→fresh（fail-open keep）
+    expiresAtMs: meta?.expiresAtMs ?? null,
+    actionShape: meta?.actionShape ?? null,
+    desiredDate: p.date ?? null,
+    desiredTimeHint: p.window?.band ?? null, // band（anytime/未指定→null）
+    durationMin: p.durationMin, // enriched（dedup 構造キー）
+    confidence: p.confidence,
+  };
 }
 
 /** candidate を surface しない理由（**redacted・raw なし**）。 */

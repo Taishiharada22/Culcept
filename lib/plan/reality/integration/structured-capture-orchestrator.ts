@@ -141,8 +141,18 @@ function draftToCandidateEntry(
     expiresAtMs: seed.expires_at ? Date.parse(seed.expires_at) : null,
     actionShape: seed.action_shape,
     desiredDate: seed.desired_date,
-    desiredTimeHint: seed.desired_time_hint,
+    // A1-5-11-5: read 側（placement.window.band / buildLifecycleEntryFromPlacement）と同一 band 正規化で dedup キーを一致させる。
+    desiredTimeHint: bandFromTimeHint(seed.desired_time_hint),
     durationMin: evidence?.duration_min ?? null,
     confidence: seed.confidence,
   };
+}
+
+/**
+ * A1-5-11-5: desired_time_hint → band（morning/afternoon/evening のみ・anytime/null→null）。
+ *   read 側（seed-placement windowFromTimeHint → placement.window.band → buildLifecycleEntryFromPlacement）と
+ *   **同一 band 正規化**にし、write 候補と既存 active の dedup キーを一致させる（anytime/null の取りこぼし防止）。
+ */
+function bandFromTimeHint(hint: string | null): string | null {
+  return hint === "morning" || hint === "afternoon" || hint === "evening" ? hint : null;
 }

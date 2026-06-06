@@ -27,6 +27,11 @@ import { createRpcCaptureWriteClient, type RpcCapableClient } from "./capture-rp
 import { runCaptureRouteObserver, type CaptureRouteRunnerResult, type CaptureRouteMode } from "./capture-route-runner";
 import type { CaptureGateInput } from "../capture-gate";
 import type { CaptureServiceDeps } from "./capture-service";
+import { loadActiveCandidateEntries, type PendingCapturedRowsReadClient } from "./morning-capture-surface.server";
+import type { CaptureWritePolicyDeps } from "./capture-write-policy";
+
+/** A1-5-11-5: fireMorningCapture が要求する client。write=RPC + read=dedup provider を 1 client から構築（実 Supabase client が構造的に満たす・read-only/RLS）。 */
+export type MorningCaptureClient = RpcCapableClient & PendingCapturedRowsReadClient;
 
 /** capture の source_ref（opaque・raw 本文でない）。 */
 const MORNING_CAPTURE_SOURCE = "alter-morning-plan";
@@ -136,14 +141,14 @@ export function decideCaptureMode(flags: {
  *   route は `fireMorningCapture(body.utterance, user.id, supabase)` を呼ぶだけ（await しない）。
  *   mode 決定（decideCaptureMode・kill 最優先 → LIVE=write → OBSERVE=observe → none）:
  *     - null（kill / 両 flag off）→ **即 return（extractor 構築なし・write 0）**。default は両 flag off ゆえ production 挙動変更ゼロ。
- *     - "write"（REALITY_CAPTURE_LIVE）→ **real RPC write client**（`rpcClient`=route の認証済 Supabase client・user-RLS・SECURITY INVOKER・service_role 不要）。
+ *     - "write"（REALITY_CAPTURE_LIVE）→ **real RPC write client**（`client`=route の認証済 Supabase client・user-RLS・SECURITY INVOKER・service_role 不要）。
  *     - "observe"（REALITY_CAPTURE_OBSERVE）→ **dry-run fake write client（実 DB 0）**。
  *   gate（production/staging/canary・kill）は runCaptureService が最初に通す（block→extractor 0/write 0）。
  *   例外は同期/非同期とも握りつぶす（route response 不変）。
  *
- * @param rpcClient route の認証済 Supabase client（write mode の RPC 先・observe mode では未使用）。
+ * @param client route の認証済 Supabase client（write=RPC 先 + read=dedup provider・MorningCaptureClient・flags off は no-op）。
  */
-export function fireMorningCapture(utterance: string, userId: string, rpcClient: RpcCapableClient): void {
+export function fireMorningCapture(utterance: string, userId: string, client: MorningCaptureClient): void {
   try {
     const mode = decideCaptureMode({
       killed: PLAN_FLAGS.realityCaptureKill,
@@ -156,7 +161,7 @@ export function fireMorningCapture(utterance: string, userId: string, rpcClient:
     const flagEnabled = mode === "write" ? PLAN_FLAGS.realityCaptureLive : PLAN_FLAGS.realityCaptureObserve;
     const writeClient: CaptureWriteClient =
       mode === "write"
-        ? createRpcCaptureWriteClient(rpcClient) // 実 RPC（atomic・service_role 0）
+        ? createRpcCaptureWriteClient(client) // 実 RPC（atomic・service_role 0）
         : createFakeCaptureWriteClient(); // dry-run・実 DB 0
 
     const gate = resolveMorningObserveGate({
@@ -167,7 +172,16 @@ export function fireMorningCapture(utterance: string, userId: string, rpcClient:
       userId,
       canaryUserIds: PLAN_FLAGS.canaryUserIds,
     });
-    const deps: CaptureServiceDeps = { extractor: createServerLlmSeedExtractor(), writeClient };
+    // A1-5-11-5: write-side policy（read-before-write dedup + TTL expires_at）を runtime write path に効かせる。
+    //   client から read provider（loadActiveCandidateEntries）を構築。nowMs は server で 1 回注入（pure orchestrator/policy を決定的に保つ）。
+    //   write/observe 両 mode に適用＝observe を write の忠実な dry-run にする（would-suppress / would-expiry を観測）。
+    //   gate block 時は runCaptureService が orchestrator 前に停止し provider を呼ばない（production hard block で read 0）。provider error / read 0 は fail-open。
+    const nowMs = Date.now();
+    const policy: CaptureWritePolicyDeps = {
+      existingActive: () => loadActiveCandidateEntries(client, userId, nowMs),
+      nowMs,
+    };
+    const deps: CaptureServiceDeps = { extractor: createServerLlmSeedExtractor(), writeClient, policy };
 
     void runMorningCaptureObserve(utterance, gate, deps, { mode })
       .then((result) => {

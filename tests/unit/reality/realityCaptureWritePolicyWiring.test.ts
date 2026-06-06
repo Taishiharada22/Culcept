@@ -245,17 +245,17 @@ describe("A1-5-11-4 service 配線 — suppressed outcome + summary", () => {
   });
 });
 
-// ── 5. 静的安全（production 非接触 / live entry 未活性化 / route.ts 非接触） ──
-describe("A1-5-11-4 静的安全 — production 非接触 / fireMorningCapture 未活性化 / route.ts 非接触", () => {
+// ── 5. 静的安全（production 非接触 / A1-5-11-5 で live entry 活性化 / orchestrator·service は policy 透過で DB 非接触） ──
+describe("A1-5-11-4/5 静的安全 — production 非接触 / fireMorningCapture 活性化(A1-5-11-5) / orchestrator·service DB 非接触", () => {
   function stripped(rel: string): string {
     const src = fs.readFileSync(path.join(process.cwd(), rel), "utf8");
     return src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
   }
 
-  it("fireMorningCapture（alter-morning-capture-observe）は write policy を import/参照しない（live entry 未活性化＝production 挙動変更 0）", () => {
+  it("fireMorningCapture（alter-morning-capture-observe）は A1-5-11-5 で write policy を活性化（loadActiveCandidateEntries + CaptureWritePolicyDeps + existingActive を参照・flags off は no-op 維持）", () => {
     const code = stripped("lib/plan/reality/integration/alter-morning-capture-observe.ts");
-    for (const t of ["capture-write-policy", "decideCaptureWrite", "computeCaptureExpiry", "CaptureWritePolicyDeps", "existingActive"]) {
-      expect(code).not.toContain(t);
+    for (const t of ["loadActiveCandidateEntries", "CaptureWritePolicyDeps", "existingActive"]) {
+      expect(code).toContain(t);
     }
   });
 

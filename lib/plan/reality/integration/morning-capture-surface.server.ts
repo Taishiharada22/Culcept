@@ -25,9 +25,10 @@ import { createColumnRestrictedDurationEvidenceSource, type DurationEvidenceUser
 import { runConsumptionSurfaceFromProjected, type ConsumptionLifecycleGuard } from "./consumption-surface-bridge";
 import { morningProtocolCaptureCandidateFragment, type CaptureCandidateFragment } from "./candidate-response-assembler";
 import type { SeedLifecycleMeta } from "./seed-column-restricted";
+import { buildLifecycleEntryFromPlacement, type CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
 import type { SeedConsumptionContext } from "./captured-seed-consumption";
 import type { SeedPlacement } from "../seed-placement";
-import type { DurationEvidence } from "../seed-placement-enrich";
+import { enrichSeedPlacementsFromEvidences, type DurationEvidence } from "../seed-placement-enrich";
 import type { CandidateSurfaceDTO } from "./candidate-surface";
 
 /** pending read の件数上限（canonical source 側でも clamp）。 */
@@ -73,6 +74,24 @@ export async function loadPendingProjected(
   const evidenceMap = await createColumnRestrictedDurationEvidenceSource(client, { seedIds, limit: PENDING_READ_LIMIT }).loadEvidenceMap(userId);
   if (!evidenceMap) return null; // read error → fail-open
   return { placements: active.placements, evidenceMap, lifecycleBySeedRef: active.lifecycleBySeedRef };
+}
+
+/**
+ * A1-5-11-5: 既存 active seeds を **read-before-write dedup 用の `CandidateLifecycleEntry[]`** に投影する provider（read-only・**fail-open: []**）。
+ *   capture write path（fireMorningCapture → orchestrator `policy.existingActive`）が **write 直前**に呼ぶ。
+ *   loadPendingProjected（active placements + evidence + lifecycle meta）→ `enrichSeedPlacementsFromEvidences`（durationMin 充足）→
+ *   `buildLifecycleEntryFromPlacement`（**surface guard と同一構築**＝dedup キー drift なし）。read 失敗 / seed 0 → `[]`（orchestrator は fail-open で write 継続）。
+ *   **本 module は `.from` を持たない**（canonical read source 委譲）。raw/source_ref を出さない（entry は構造のみ）。nowMs は caller(server) 注入＝決定的。
+ */
+export async function loadActiveCandidateEntries(
+  client: PendingCapturedRowsReadClient,
+  userId: string,
+  nowMs: number
+): Promise<readonly CandidateLifecycleEntry[]> {
+  const projected = await loadPendingProjected(client, userId);
+  if (!projected || projected.placements.length === 0) return []; // read error / seed 0 → []（fail-open）
+  const enriched = enrichSeedPlacementsFromEvidences(projected.placements, projected.evidenceMap);
+  return enriched.map((p) => buildLifecycleEntryFromPlacement(p, projected.lifecycleBySeedRef?.get(p.seedRef), nowMs));
 }
 
 /** flags/env/userId → surface gate input（**pure**・liveEnabled=realityCaptureSurface）。 */

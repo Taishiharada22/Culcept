@@ -15,16 +15,17 @@ const CODE = ROUTE.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.rep
 
 describe("A1-5-9-0/1 capture write wiring — import", () => {
   it("fireMorningCapture を alter-morning-capture-observe から import", () => {
-    expect(CODE).toMatch(/import\s*\{\s*fireMorningCapture\s*\}\s*from\s*"@\/lib\/plan\/reality\/integration\/alter-morning-capture-observe"/);
+    expect(CODE).toMatch(/import\s*\{[^}]*\bfireMorningCapture\b[^}]*\}\s*from\s*"@\/lib\/plan\/reality\/integration\/alter-morning-capture-observe"/);
   });
-  it("RpcCapableClient 型を import", () => {
-    expect(CODE).toContain("RpcCapableClient");
+  it("MorningCaptureClient 型を import（A1-5-11-5: write=RPC + read=dedup provider・RpcCapableClient cast は廃止）", () => {
+    expect(CODE).toContain("MorningCaptureClient");
+    expect(CODE).not.toContain("RpcCapableClient");
   });
 });
 
 describe("A1-5-9-0/1 capture write wiring — fire-and-forget call", () => {
-  it("fireMorningCapture(message, userId, supabase as unknown as RpcCapableClient) を呼ぶ", () => {
-    expect(CODE).toMatch(/fireMorningCapture\(\s*message\s*,\s*userId\s*,\s*supabase as unknown as RpcCapableClient\s*\)/);
+  it("fireMorningCapture(message, userId, supabase as unknown as MorningCaptureClient) を呼ぶ", () => {
+    expect(CODE).toMatch(/fireMorningCapture\(\s*message\s*,\s*userId\s*,\s*supabase as unknown as MorningCaptureClient\s*\)/);
   });
   it("fire-and-forget（await しない）", () => {
     expect(CODE).not.toMatch(/await\s+fireMorningCapture/);
