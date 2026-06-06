@@ -15749,3 +15749,12 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 - **位置づけ**: A4-1 = **pure core 着地 + 実証完了**（confident 誤読を画像から deterministic に捕捉できると実データで確認）。A4-2/A4-3（IO/UI wiring）は CEO 判断後。[承認: CEO（「自律的に推論を繰り返し進めよ」「世界最上級の UX」指示・readiness D5「pure なら commit 可」）]
 
 ---
+
+[2026-06-06] [Build] **SR A4 source-cell consistency guard 帯クローズ — visual smoke PASS（DOM 確定）** — 「VLM の confidence を信じず、原稿画像と抽出結果を画像側から deterministic に突き合わせる」安全網を A4-1〜A4-3 + visual smoke で完成・検証。
+- **実装の連鎖（全 local commit・未 merge / 未 push）**: A4-1 `03552611`（pure metric `cellContentMetric` + guard `sourceCellConsistency` + 25 tests）→ 検証 `2ad0234c`（実 July ロスターで day28=content 0.951→P1 発火を deterministic 確認）→ A4-2a `dd0f7239`（pure ImageData readout adapter・DOM/canvas 非依存）→ A4-2b `6d67248a`（blank-cell only の client canvas readout・fail-open/stale/unmount/debounce）→ A4-3 `83568aad`（warning banner + cell amber 接続・safe-copy・保存 block しない）→ V-1 `6532e4fd`（gated synthetic dev route `/plan/dev-a4-smoke`）→ V-2 `4b018820`（Playwright spec・flag skip-guard）。
+- **auth 壁の発見（重要）**: app 全体の auth は **`proxy.ts`（Next.js 16 の middleware）**。`PUBLIC_PATHS`/`PUBLIC_PREFIXES` 以外は未認証で `/login?next=<path>` に 307。**GPT の Y-lite（route を /plan 外へ移せば auth-free）は経験的に否定**（top-level `/dev-a4-smoke` も 307→login。auth は /plan 固有でなく app 全体）。→ auth 境界（proxy.ts）は**一切触らず**、**Option X（CEO 認証済ブラウザで実行）**で smoke を実施。
+- **V-3 visual smoke PASS（CEO 認証ブラウザ・DOM 確定）**: `{"warning":true,"days":"3","cells":["false","false","true","false","false","false","false"],"save":[false,true]}`。= warning banner 表示 / `data-source-mismatch-days="3"` / **day3 のみ `data-source-mismatch="true"`・day1/2/4/5/6/7 は "false"**（blank-only filter の保証通り）/ 保存 CTA dormant（「この内容で保存」なし）。合成 fixture（day3 空欄・原稿側 read region に青ブロック）でブラウザ runtime の canvas readout 発火 → A4-3 warning/amber を実機確認。
+- **安全性**: VLM 追加実行 0 / 保存・DB write・production・push いずれも非接触 / `PLAN_SHIFT_IMPORT_SAVE` 非設定 / dev server は smoke flag のみで起動 / raw 画像・base64・canvas data を保存/commit せず / auth(proxy.ts) 非変更 / 一時 Playwright config・probe は実行後削除。
+- **位置づけ**: **A4 帯クローズ**。confident 誤読（confidence net が止められない）を画像から捕まえる相補的安全網が、pure core 実証 + 全 unit + 実機 visual smoke まで揃った。残: visual smoke の自動回帰化（proxy.ts public allowlist の gated 例外）は auth 境界変更のため未着手（必要時に readiness）。[承認: CEO（Option X 認証実行・DOM 確認指示）]
+
+---
