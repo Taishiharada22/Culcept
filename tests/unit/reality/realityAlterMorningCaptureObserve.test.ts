@@ -1,10 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import {
   resolveMorningObserveGate,
   runMorningCaptureObserve,
+  setCaptureObserveSink,
+  resetCaptureObserveSink,
+  emitCaptureObserve,
 } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import type { CaptureRouteRunnerResult } from "@/lib/plan/reality/integration/capture-route-runner";
 import { createFakeCaptureWriteClient } from "@/lib/plan/reality/integration/capture-write-repository";
 import type { SeedExtractor, ExtractorResult } from "@/lib/plan/reality/seed-extractor-contract";
 import type { CaptureGateInput } from "@/lib/plan/reality/capture-gate";
@@ -112,6 +116,51 @@ describe("A1-5-5g-2 runMorningCaptureObserve（DI・observe-only）", () => {
     const r = await runMorningCaptureObserve(RAW, gate(), d, OPTS);
     const json = JSON.stringify(r);
     for (const leak of [RAW, "signal", "prompt", "transcript", "desiredAction"]) expect(json).not.toContain(leak);
+  });
+});
+
+describe("A1-5-5g-3 redacted observation sink", () => {
+  afterEach(() => resetCaptureObserveSink());
+  const RESULT: CaptureRouteRunnerResult = {
+    mode: "observe",
+    observed: true,
+    summary: { wouldCapture: true, wouldEvidence: true, outcome: "captured", reason: null },
+    note: null,
+  };
+
+  it("setCaptureObserveSink → emitCaptureObserve が差し替え sink に redacted result を渡す", () => {
+    const captured: CaptureRouteRunnerResult[] = [];
+    setCaptureObserveSink((r) => captured.push(r));
+    emitCaptureObserve(RESULT);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].summary?.wouldCapture).toBe(true);
+    expect(captured[0].summary?.wouldEvidence).toBe(true);
+  });
+
+  it("resetCaptureObserveSink → 既定 sink（redacted console.log）に戻る", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    setCaptureObserveSink(() => { throw new Error("should be replaced"); });
+    resetCaptureObserveSink();
+    emitCaptureObserve(RESULT);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0]).toBe("[reality.capture.observe]");
+    spy.mockRestore();
+  });
+
+  it("既定 sink の log payload は redacted（raw/prompt/response/apiKey なし・safe field のみ）", () => {
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    emitCaptureObserve(RESULT);
+    const payload = spy.mock.calls[0][1] as string;
+    expect(JSON.parse(payload)).toEqual({
+      mode: "observe", observed: true, outcome: "captured", wouldCapture: true, wouldEvidence: true, reason: null, note: null,
+    });
+    for (const leak of ["utterance", "signal", "prompt", "response", "apiKey", "api_key", "raw"]) expect(payload).not.toContain(leak);
+    spy.mockRestore();
+  });
+
+  it("emitCaptureObserve は sink が throw しても never-throw（route response 不変）", () => {
+    setCaptureObserveSink(() => { throw new Error("sink boom"); });
+    expect(() => emitCaptureObserve(RESULT)).not.toThrow();
   });
 });
 

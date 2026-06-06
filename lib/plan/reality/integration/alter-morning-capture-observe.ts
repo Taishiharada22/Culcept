@@ -29,6 +29,56 @@ import type { CaptureServiceDeps } from "./capture-service";
 /** capture の source_ref（opaque・raw 本文でない）。 */
 const MORNING_CAPTURE_SOURCE = "alter-morning-plan";
 
+/**
+ * A1-5-5g-3: redacted observation sink（**route response に混ぜない**観測点）。
+ *   fire-and-forget observer の結果を redacted に観測する唯一の口。受け取る `CaptureRouteRunnerResult` は
+ *   元々 redacted（mode/observed/summary{wouldCapture,wouldEvidence,outcome,reason}/note のみ・**raw/prompt/response/apiKey なし**）。
+ *   既定 = redacted console.log（observe ON 時の production 監視）。test/smoke は `setCaptureObserveSink` で deterministic 捕捉。
+ */
+export type CaptureObserveSink = (result: CaptureRouteRunnerResult) => void;
+
+/** 既定 sink: redacted log（raw を出さない・既知 safe field のみ projection）。 */
+function defaultCaptureObserveSink(result: CaptureRouteRunnerResult): void {
+  try {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[reality.capture.observe]",
+      JSON.stringify({
+        mode: result.mode,
+        observed: result.observed,
+        outcome: result.summary?.outcome ?? null,
+        wouldCapture: result.summary?.wouldCapture ?? null,
+        wouldEvidence: result.summary?.wouldEvidence ?? null,
+        reason: result.summary?.reason ?? null,
+        note: result.note,
+      })
+    );
+  } catch {
+    // log 失敗も握りつぶし（observe が route を壊さない）
+  }
+}
+
+let captureObserveSink: CaptureObserveSink = defaultCaptureObserveSink;
+
+/** observation sink を差し替える（test/smoke が redacted result を捕捉するため）。 */
+export function setCaptureObserveSink(sink: CaptureObserveSink): void {
+  captureObserveSink = sink;
+}
+
+/** sink を既定（redacted log）に戻す。 */
+export function resetCaptureObserveSink(): void {
+  captureObserveSink = defaultCaptureObserveSink;
+}
+
+/** 現在の sink に redacted result を流す（**try/catch・never-throw**・sink error は route に波及させない）。 */
+export function emitCaptureObserve(result: CaptureRouteRunnerResult): void {
+  try {
+    captureObserveSink(result);
+  } catch {
+    // sink error 握りつぶし（route response 不変）
+  }
+}
+
 /** flags/env/userId → observe-mode gate input（**pure**）。liveEnabled=observe flag（write の live とは別）。 */
 export function resolveMorningObserveGate(opts: {
   readonly observeEnabled: boolean;
@@ -89,8 +139,9 @@ export function fireMorningCaptureObserve(utterance: string, userId: string): vo
       writeClient: createFakeCaptureWriteClient(), // dry-run・実 DB 0（observe-only）
     };
     void runMorningCaptureObserve(utterance, gate, deps)
-      .then(() => {
-        // observe result は redacted（WouldCaptureSummary）。監視 log 接続は別 slice。raw を出さない。
+      .then((result) => {
+        // redacted observation のみ（WouldCaptureSummary・raw なし）。route response には混ぜない。
+        emitCaptureObserve(result);
       })
       .catch(() => {
         // async error 握りつぶし（route response 不変）
