@@ -15271,3 +15271,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 承認: CEO(S6 batch2 GO)。ステータス: S6 batch2 完了。次=CEO 判断（postSelectionFlow/urgentLayerDismiss/S5/残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
 
 ---
+
+## [2026-06-07] tsc baseline cleanup S6 batch3 — test fixture 型ズレ 13件（厳格 audit・main 着地 live）
+
+- 決定: CEO「より厳格な audit」指示で S6 batch3。各 cluster を「test fixture が古いだけ」か「prod 型/仕様判断要」かを切り分け、無判断で安全なものだけ修正。
+- **厳格 audit 結論（CEO 5 観点）**: ①postSelectionFlow null→string=**STOP**（JSON schema は null 許容だが TS 型 string＝prod 型不整合）②urgentLayerDismiss reason=**SAFE**（型のみ required・未 assert）③Mock→fn=**SAFE**（cast でなく `Mock<()=>void>`+`vi.fn<()=>void>()` の typed generic で clean 化）④phaseC isWeekday/timeOfDay=**STOP 保守**（removed-old-spec dead field だが weekday 意図が元々未配線＝spec review 要）⑤misc=一部 SAFE。
+- **修正（13・test-only・cast 不使用）**: urgentLayerDismiss(12: makeDecision に reason placeholder + dismissMock を typed Mock<()=>void>/vi.fn<()=>void>())・journeyOriginDebugLog(1: c に unknown[] 注釈)。
+- before/after（main 計測）: 87→**74**（−13）/ source 31 不変 / **累計 1114→74（−1040・93%）**。
+- production 挙動変更**なし**。検証: coalter+alter-morning **432 files / 9171 PASS**・zero-loss（branch 396d8012 一致）・対象解消・scope外/temp/node_modules 混入 0。
+- ★ディスク 100% に遭遇→着地済 worktree 6 本削除（branch 全保持）+ Culcept/.next 削除で 15Gi 解放後に実施。
+- **残置（厳格 audit で judgment 要・無判断 safe ほぼ尽きた）**: postSelectionFlow(13・prod 型)・phaseC(5・spec)・mock multi-field stale(b3b/placeResolver/planHistory)・ceoScenario/planIntakeGate/presenceTelemetry/realityCandidate/domainRouter/sceneWeighting/planner(個別)・stargazer 7(S5)。
+- 状態: **main `8eeec516` 着地 live**（親 `08ff945d`）。closeout: `docs/tsc-baseline-cleanup-s6b3-closeout.md`。
+- 承認: CEO(S6 batch3 GO・厳格 audit)。ステータス: S6 batch3 完了。次=CEO 判断（mock multi-field 補正 / postSelectionFlow prod 型 / S5 / 据え置き別作業 のいずれか）。push/Vercel/DB/Google 不接触。
+
+---
