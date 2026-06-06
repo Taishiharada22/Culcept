@@ -37,7 +37,7 @@ describe("A1-5-4d-1 orchestrator — valid path（fake CaptureWriteClient・DB w
     const fake = createFakeCaptureWriteClient();
     const r = await runStructuredCapturePipeline(pipelineInput({ explicitDuration: { durationMin: 60, confidence: "high" } }), fake);
     expect(r.ok).toBe(true);
-    if (r.ok) {
+    if (r.ok && r.stage === "write") {
       expect(r.stage).toBe("write");
       expect(r.code).toBe("ok");
       expect(r.wroteEvidence).toBe(true);
