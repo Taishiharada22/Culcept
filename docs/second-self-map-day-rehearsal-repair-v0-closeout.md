@@ -5,8 +5,9 @@
 ---
 
 ## 0. 状態
-- code branch `claude/dr-repair-v0`（HEAD `eeca4fcc`）。**main 着地・UI 配線は CEO 判断待ち**（原典 step4 pure layer と同様 branch → CEO GO の段階）。
+- **ローカル main 着地済**（squash・main HEAD `9c220da2`・親 `8564f4de`）。code branch `claude/dr-repair-v0`（HEAD `eeca4fcc`）保持。**UI 配線は次 slice（mini design 先行・実装は CEO GO 後）**。
 - 予定変更 / repair 実行 / optimize / auto-reschedule / 保存 / DB / Google API / push / PR / Vercel / UI 配線 / PlanClient 変更 **一切なし**。
+- main 着地時 footprint 0（dayRepairCandidates 起因 0）。main baseline は 56 だが +1 は他セッション A1-5-11-4 drift で私の変更と無関係。
 
 ## 1. W-Repair-1 read-only audit（安全判定）
 | 確認項目 | 結果 |

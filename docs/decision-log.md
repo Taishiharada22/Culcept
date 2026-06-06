@@ -15336,3 +15336,14 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ステータス: **pure layer 完成・branch commit 済。main 着地・UI 配線は CEO 判断待ち**（原典 step4 同様 branch→CEO GO 段階）。closeout: `docs/second-self-map-day-rehearsal-repair-v0-closeout.md`。push/Vercel/DB/Google/予定変更/UI 不接触。
 
 ---
+
+## [2026-06-07] Day Rehearsal Repair Candidate v0 — pure layer main 着地 + UI placement mini design（実装は次 GO）
+
+- 決定: CEO GO で Repair v0 pure layer を main 固定（UI 未配線）。squash 着地。
+- 着地: main `9c220da2`（親 `8564f4de`=A1-5-11-4・別セッション）。changed = `lib/plan/dayRehearsal/dayRepairCandidates.ts` + test の 2 ファイルのみ。
+- 検証: zero-loss（branch eeca4fcc 一致）・**tsc footprint 0（dayRepairCandidates 起因 0）**・dayRehearsal dir 63 + plan suite 4986 PASS・additive・production 挙動不変（consumer=test のみ・UI 未配線）。
+  - ⚠ main full tsc = 56（前回 55 から +1）。+1 は**他セッション A1-5-11-4 の drift**（realityStructuredCaptureOrchestrator narrowing・該当 session が cleanup 予定）で**私の変更と無関係**。私の footprint は 0。
+- **UI placement mini design 作成**（実装なし）: `docs/second-self-map-day-rehearsal-repair-v0-ui-mini-design.md`。CEO 質問への回答=**案A（day-level「どうする?」native `<details>` disclosure・default 閉・最大 3 件・read-only suggestion 行のみ・実行 UI 一切なし・evidence raw 非表示）を推奨**。B(per-marker 展開内)は後回し（「なぜ?」の day→per-marker 進化と同順）。既存 banner/なぜ?/marker と非重複（why/what-is でなく「what could help」別レイヤー）。CEO 判断点 5 件。
+- 状態: pure layer main live。UI 実装は mini design GO 後。push/PR/Vercel/DB/Google/予定変更/UI 配線 不接触。次フェーズ未着手。
+
+---
