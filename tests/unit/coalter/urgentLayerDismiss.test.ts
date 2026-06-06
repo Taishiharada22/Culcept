@@ -18,7 +18,7 @@
  *   - 新規 dep ゼロ (@testing-library/react 不要)
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 import UrgentLayer from "@/app/components/chat/UrgentLayer";
 import UrgentRelease from "@/app/components/chat/UrgentRelease";
@@ -36,6 +36,7 @@ function makeDecision(form: UrgentForm): UrgentDecision {
     category: "rupture_detected",
     form,
     memoryFallback: "compact",
+    reason: "test", // 型必須（テストでは reason を assert しない placeholder）
   };
 }
 
@@ -76,10 +77,10 @@ function findButton(node: any): any {
 // ─────────────────────────────────────────────
 
 describe("B-2.4 #1 — dominant_card dismiss button (white 背景 visible)", () => {
-  let dismissMock: ReturnType<typeof vi.fn>;
+  let dismissMock: Mock<() => void>;
 
   beforeEach(() => {
-    dismissMock = vi.fn();
+    dismissMock = vi.fn<() => void>();
   });
 
   it("dominant_card render で button が tree 内に存在", () => {
@@ -120,10 +121,10 @@ describe("B-2.4 #1 — dominant_card dismiss button (white 背景 visible)", () 
 // ─────────────────────────────────────────────
 
 describe("B-2.4 #2 — overlay_banner dismiss button 維持", () => {
-  let dismissMock: ReturnType<typeof vi.fn>;
+  let dismissMock: Mock<() => void>;
 
   beforeEach(() => {
-    dismissMock = vi.fn();
+    dismissMock = vi.fn<() => void>();
   });
 
   it("overlay_banner render で button が tree 内に存在", () => {
@@ -163,10 +164,10 @@ describe("B-2.4 #2 — overlay_banner dismiss button 維持", () => {
 // ─────────────────────────────────────────────
 
 describe("B-2.4 #3 — inline_cue に dismiss button 追加", () => {
-  let dismissMock: ReturnType<typeof vi.fn>;
+  let dismissMock: Mock<() => void>;
 
   beforeEach(() => {
-    dismissMock = vi.fn();
+    dismissMock = vi.fn<() => void>();
   });
 
   it("inline_cue render で button が tree 内に存在 (新規追加)", () => {
@@ -218,10 +219,10 @@ describe("B-2.4 #3 — inline_cue に dismiss button 追加", () => {
 // ─────────────────────────────────────────────
 
 describe("B-2.4 #4 — 全 variant で aria-label「緊急表示を閉じる」統一", () => {
-  let dismissMock: ReturnType<typeof vi.fn>;
+  let dismissMock: Mock<() => void>;
 
   beforeEach(() => {
-    dismissMock = vi.fn();
+    dismissMock = vi.fn<() => void>();
   });
 
   const FORMS: UrgentForm[] = ["dominant_card", "overlay_banner", "inline_cue"];

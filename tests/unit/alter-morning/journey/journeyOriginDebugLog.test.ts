@@ -121,7 +121,7 @@ describe('[PII] ALTER_MORNING_DEBUG_RAW_LABELS = "true" (= debug preview)', () =
     logJourneyOriginResolved(origin, "test");
     // hashLabelForDebug は lazy await import なので microtask 待ち
     await new Promise((r) => setTimeout(r, 50));
-    const allLogs = infoSpy.mock.calls.map((c) => c[0] as string).join("\n");
+    const allLogs = infoSpy.mock.calls.map((c: unknown[]) => c[0] as string).join("\n");
     expect(allLogs).toContain("rawLabel=\"東京駅\"");
     expect(allLogs).toMatch(/labelHash=[a-f0-9]{8}/);
   });
