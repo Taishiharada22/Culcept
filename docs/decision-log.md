@@ -15134,6 +15134,7 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **main `d9354db4` 着地 live**（CalendarTab 選択日に outlook バナー READ-only）。closeout: `docs/second-self-map-day-rehearsal-wire-closeout.md`。実機 smoke は CEO 確認用 観点を closeout §6 に記載。
 
 関連 commit(branch day-rehearsal-wire): 44668763。main: d9354db4(squash 着地)。
-承認: CEO(GPT で W-1 停止判断 OK + Option D 配線 GO)×GPT。ステータス: Day Rehearsal day-level outlook バナー live。次=実機 smoke(CEO) / timeline point marker(別 slice) / raw feasibility・transport・InnerWeather 統合 / evidence「なぜ?」UI / 較正(データ後)。
+承認: CEO(GPT で W-1 停止判断 OK + Option D 配線 GO)×GPT。ステータス: Day Rehearsal day-level outlook バナー live。
+- **実機 smoke PASS（2026-06-06・CEO/GPT 判定）**: dev サーバー(main worktree・port 3012・flag 不要・READ-only)で確認 → PASS。次=timeline point marker(mini design 先行) / raw feasibility・transport・InnerWeather 統合 / evidence「なぜ?」UI / 較正(データ後)。
 
 ---

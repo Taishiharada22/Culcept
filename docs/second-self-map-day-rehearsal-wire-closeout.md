@@ -35,7 +35,8 @@
 - **tsc footprint 0**（total 1114 baseline）・zero-loss・**既存 hook/MapTab/DB/route 非改変**・temp 0・push なし。
 - plan suite 4917 PASS（1 失敗は `import(PlanClient)` の負荷起因 timeout flaky・単独 36 PASS で確認・本変更起因でない）。
 
-## 6. 実機 smoke 観点（CEO 確認用・要 live）
+## 6. 実機 smoke — ✅ PASS（2026-06-06・CEO/GPT 判定）
+dev サーバー（main worktree・port 3012・flag 不要）で CEO 実機確認 → **PASS**。下記観点で検証済：
 1. Plan → カレンダー → **anchor があり geocode 解決済の日**を選択 → outlook バナーが DayIndicatorBadge 直下に 1 行表示（holds/tight/breaks の仮説トーン）。
 2. **anchor なしの日** → DayGraph なし → バナー非表示。
 3. **geocode 未解決の日**（displayMap 空）→ viability unknown → バナー非表示（ノイズなし）。
