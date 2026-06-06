@@ -15163,3 +15163,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(WPM-2 audit GO)×GPT。ステータス: WPM-2 audit done・recovery 実装は停止（根拠不足）。次=CEO 判断（Option A 解禁 or recovery 保留）。push/Vercel 未実施。
 
 ---
+
+## [2026-06-06] Day Rehearsal WPM-2 — Option A 解禁: raw feasibility 公開 + recovery marker（main 着地 live・smoke PASS）
+
+- 決定: CEO が Option A 解禁。raw feasibility(真の slack) を additive 公開し recovery marker を sound に出す。2 段階ゲート（WPM-2a 公開→WPM-2b recovery）。
+- WPM-2a: `feasibilityDisplayPipeline` 戻りに `feasibilityRaw`(DayFeasibilityResult) を additive 追加（内部計算済の raw を返すだけ・display byte 不変）+ `_useCalendarTabFeasibilityDisplay` 戻りを {display, raw} に（overlay 再利用・新 async なし）+ CalendarTab destructure。
+- WPM-2b: `recoveryStepsFromFeasibilityRaw`(sufficient ∧ **真の slack=gap−travel ≥ 60min**・gapMin でない=honest) + `RecoveryMarkerLine`「ここは一息つけそうです」(slate・仮説トーン・convergence と排他=詰まり優先・sensitiveProximity redaction・成功色/生スコアなし)。
+- ★設計核: recovery は strain forward 積分と **decouple**（直接 slack 判定）→ WPM-1 convergence/banner/strain 不変。display byte 不変。
+- 検証: 実機 smoke PASS(CEO・余白165分=180−移動15 で一息 / 間隔14分<移動15 で詰まり)・71 + plan suite 4939 PASS・tsc footprint 0・zero-loss(WPM-2 7 ファイル)・banner/MapTab/DB 非改変・temp 0・push なし。
+- 状態: **main `59e97dc4` 着地 live**。closeout: `docs/second-self-map-day-rehearsal-wpm2-closeout.md`。
+
+関連 commit(branch dr-recovery-marker): 45a661fb。main: 59e97dc4(squash)。
+承認: CEO(Option A 解禁 GO + WPM-2a/b 実装 + smoke PASS + 着地)×GPT。ステータス: 詰まり+一息 marker live。次=Evidence「なぜ?」UI(mini design 先行・placement 監査)。
+
+---
