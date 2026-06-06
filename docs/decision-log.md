@@ -15123,3 +15123,17 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 承認: CEO(GPT で Day Rehearsal step 4 pure GO + main 着地 GO・配線は設計後判断)×GPT。ステータス: Day Rehearsal pure main 着地（未配線）+ 配線 mini design 済。次=配線実装可否(CEO 判断・別 GO) / belief・InnerWeather 統合拡張 / 較正(データ後)。
 
 ---
+
+## [2026-06-06] Day Rehearsal 配線 — CalendarTab 選択日 day-level outlook バナー（READ-only・main 着地）
+
+- 決定: Day Rehearsal 初回 UI 露出。day-level outlook バナーのみ（timeline point marker は後 slice）。READ-only・表示のみ・予定変更/repair/optimize なし。
+- W-1 監査（HARD GATE）: PlanClient 全日 feasibility/overlay は **unsafe**（async・freeze）→ 停止報告。CalendarTab 選択日の **displayMap status** を再利用する Option D に改訂。さらに displayMap は raw 分数を持たない（display 層）→ 停止報告 → Option D（status-only honest degrade）で GO。**3 度の shape gate を経て安全配線**。
+- 実装（既存 hook/pipeline 非改修）: `buildRehearsalInputFromDisplay`(displayMap status→input・分数 null=未確定・捏造しない) + viability refine(buffer signal あれば travel unknown でも outlook) + `DayOutlookBanner`(仮説トーン・slate・unknown 非表示・warning 色/断定語禁止) + CalendarTab additive 配線（dayGraphByDate + displayMap 再利用）。
+- copy: holds「ゆとりがありそう」/ tight「少し詰まりやすいかも」/ breaks「余白が少なめで重なりやすいかも」/ unknown 非表示。生数字・断定・警告色なし（render contract test で機械保証）。
+- 検証: 33 test（engine/adapter 26 + render 7）・tsc footprint 0・zero-loss・既存 hook/MapTab/DB/route 非改変・push なし。plan suite 4917 PASS（1 flaky timeout は本変更起因でない・単独 36 PASS）。
+- 状態: **main `d9354db4` 着地 live**（CalendarTab 選択日に outlook バナー READ-only）。closeout: `docs/second-self-map-day-rehearsal-wire-closeout.md`。実機 smoke は CEO 確認用 観点を closeout §6 に記載。
+
+関連 commit(branch day-rehearsal-wire): 44668763。main: d9354db4(squash 着地)。
+承認: CEO(GPT で W-1 停止判断 OK + Option D 配線 GO)×GPT。ステータス: Day Rehearsal day-level outlook バナー live。次=実機 smoke(CEO) / timeline point marker(別 slice) / raw feasibility・transport・InnerWeather 統合 / evidence「なぜ?」UI / 較正(データ後)。
+
+---
