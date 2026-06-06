@@ -229,4 +229,16 @@ export const PLAN_FLAGS = {
    *   route 接続は A1-5-5g-2 以降（別 GO）。
    */
   realityCaptureObserve: process.env.REALITY_CAPTURE_OBSERVE === "true",
+
+  /**
+   * A1-5-7-5: Reality capture candidate の **surface-mode**（route response に `data.captureCandidate?` を additive 表示）を有効化するか。
+   *   true  : alter-morning/plan route が **pending captured seed/evidence を read-only consumption** し、候補があれば `captureCandidate` を additive 追加。
+   *   false : surface しない（**本番デフォルト**・route response は既存と完全一致）。
+   * env: REALITY_CAPTURE_SURFACE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §8.45（A1-5-7-5）
+   * 制約: capture write（realityCaptureLive）/ observe（realityCaptureObserve）とは **別 flag**（surface は read-only・write しない・LLM await しない）。
+   *   kill（realityCaptureKill）最優先。gate（evaluateCaptureGate）の production/staging/canary block を適用（production では surface read 0）。
+   *   fail-open: flag off / no candidate / read error / gate block では `captureCandidate` を付けず response を壊さない。
+   */
+  realityCaptureSurface: process.env.REALITY_CAPTURE_SURFACE === "true",
 } as const;

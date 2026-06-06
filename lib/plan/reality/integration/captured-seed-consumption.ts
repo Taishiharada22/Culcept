@@ -29,7 +29,7 @@ import {
   ALLOWED_DURATION_EVIDENCE_COLUMNS,
   type ColumnRestrictedDurationEvidenceRow,
 } from "./duration-evidence-source";
-import { enrichSeedPlacementsFromEvidences } from "../seed-placement-enrich";
+import { enrichSeedPlacementsFromEvidences, type DurationEvidence } from "../seed-placement-enrich";
 import { generateComplete, type Interval } from "../complete-generator";
 import type { TimeBand, SeedPlacement } from "../seed-placement";
 import type { GovernedNode } from "../candidate-generator";
@@ -120,34 +120,46 @@ export function computeCapturedSeedConsumption(
   // 1. sanitize（allowlist 再構築・raw / source_ref drop）
   const seedRows = input.seedRows.map(pickAllowedSeedColumns);
   const evidenceRows = input.evidenceRows.map(pickAllowedDurationEvidenceColumns);
+  // 2. project（read seam・raw 非搬送）→ 3-5 は projected core 共有
+  return computeConsumptionFromProjected(
+    projectSeedRowsToPlacements(seedRows),
+    projectDurationEvidenceRowsToMap(evidenceRows),
+    input.context
+  );
+}
 
-  // 2. project（read seam・raw 非搬送）
-  const placements = projectSeedRowsToPlacements(seedRows);
-  const evidenceMap = projectDurationEvidenceRowsToMap(evidenceRows);
+/**
+ * A1-5-7-5: **projected data（placements + evidence map）からの consumption core**（pure・DI・no-run）。
+ *   canonical read source（seed-source / duration-evidence-source）が **read+project 済**（placements / map）を受け、
+ *   **enrich → generateComplete → summary** を行う（**reality tree の single-read-source 制約**ゆえ route は本経路を使う）。
+ *   row 経路（computeCapturedSeedConsumption）と **enrich/generateComplete/summary を共有**（drift 防止）。
+ *   placements は active のみ・map は adoptable(high) のみ前提（canonical source が保証）。
+ */
+export function computeConsumptionFromProjected(
+  placements: readonly SeedPlacement[],
+  evidenceMap: Readonly<Record<string, readonly DurationEvidence[]>>,
+  context?: SeedConsumptionContext
+): ConsumptionComputation {
   const adoptableEvidenceCount = Object.values(evidenceMap).reduce((n, arr) => n + arr.length, 0);
 
-  // 3. enrich（既存規則: high seed_explicit/correction→strong / prm_typical→weak / low→不採用）
+  // enrich（既存規則: high seed_explicit/correction→strong / prm_typical→weak）
   const enriched = enrichSeedPlacementsFromEvidences(placements, evidenceMap);
 
-  // 4. generateComplete（結合条件・grounding=strong のみ候補化）
-  const ctx = input.context;
+  // generateComplete（結合条件・grounding=strong のみ候補化）
   const candidate = generateComplete({
     placements: enriched,
-    existing: ctx?.existing ?? [],
-    activeWindow: ctx?.activeWindow,
-    date: ctx?.date,
-    bandBounds: ctx?.bandBounds,
+    existing: context?.existing ?? [],
+    activeWindow: context?.activeWindow,
+    date: context?.date,
+    bandBounds: context?.bandBounds,
   });
   const candidateCount = candidate ? 1 : 0;
-
-  // 5. redacted summary（counts + reason code のみ）
   const seedCount = placements.length;
   const reason: ConsumptionReason =
     candidateCount > 0 ? "candidate" : seedCount === 0 ? "no_seed" : "no_candidate";
 
   return {
     summary: { seedCount, adoptableEvidenceCount, candidateCount, wouldCandidate: candidateCount > 0, reason },
-    // 候補時のみ enriched を露出（全 placement が eligible=候補・all-or-nothing）。0 のとき []。seedRef は内部・surface 前に redact。
     enrichedCandidatePlacements: candidateCount > 0 ? enriched : [],
   };
 }

@@ -89,8 +89,14 @@ vi.mock("@/lib/plan/reality/integration/alter-morning-capture-observe", () => ({
   fireMorningCapture: vi.fn(),
 }));
 
+// A1-5-7-5: capture surface を mock（route が実 DB read しないことを保証 + 配線/後方互換検証）。既定 null=captureCandidate 無
+vi.mock("@/lib/plan/reality/integration/morning-capture-surface.server", () => ({
+  buildMorningCaptureSurface: vi.fn(async () => null),
+}));
+
 import { POST } from "@/app/api/alter-morning/plan/route";
 import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import { buildMorningCaptureSurface } from "@/lib/plan/reality/integration/morning-capture-surface.server";
 import { resetEventCounter } from "@/lib/alter-morning/comprehension/eventSchema";
 
 function mkRequest(body: unknown): Request {
@@ -105,6 +111,8 @@ beforeEach(() => {
   resetEventCounter();
   mockGetUser.mockReset();
   vi.mocked(fireMorningCapture).mockClear();
+  vi.mocked(buildMorningCaptureSurface).mockReset();
+  vi.mocked(buildMorningCaptureSurface).mockResolvedValue(null); // 既定 null=captureCandidate 無（後方互換）
 });
 
 describe("POST /api/alter-morning/plan (W3-PR-3)", () => {
@@ -211,6 +219,69 @@ describe("A1-5-5g-2 capture observe wiring（observe-only・fire-and-forget・re
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.data.status).toBe("ok");
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("A1-5-7-5 capture surface wiring（additive optional・後方互換・fail-open）", () => {
+  const SURFACE = { hasCandidate: true, candidateCount: 1, status: "has_candidate", items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: null, band: null, confidenceBand: "high" }] };
+
+  test("surface null（flag off / no candidate / read error）→ captureCandidate なし・既存 data 完全一致", async () => {
+    vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "true");
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    vi.mocked(buildMorningCaptureSurface).mockResolvedValue(null);
+    const res = await POST(mkRequest({ utterance: "9時にスタバでコーヒー" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect("captureCandidate" in body.data).toBe(false); // additive なし
+    expect(body.data.status).toBe("ok");
+    expect(body.data.comprehension.events).toHaveLength(1); // 既存 keys 維持
+    vi.unstubAllEnvs();
+  });
+
+  test("candidate present → data.captureCandidate が additive で入る・既存 keys 維持・envelope 不変", async () => {
+    vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "true");
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    vi.mocked(buildMorningCaptureSurface).mockResolvedValue(SURFACE as never);
+    const res = await POST(mkRequest({ utterance: "9時にスタバでコーヒー" }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true); // envelope 不変
+    expect(body.data.captureCandidate).toEqual(SURFACE); // additive
+    expect(body.data.status).toBe("ok"); // 既存 keys 維持
+    expect(body.data.narration.narration.text.length).toBeGreaterThan(0);
+    // raw / source_ref / UUID が response に出ない
+    const json = JSON.stringify(body);
+    for (const leak of ["source_ref", "seedRef"]) expect(json).not.toContain(leak);
+    vi.unstubAllEnvs();
+  });
+
+  test("buildMorningCaptureSurface throw → fail-open（200・captureCandidate なし）", async () => {
+    vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "true");
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    vi.mocked(buildMorningCaptureSurface).mockRejectedValue(new Error("surface boom"));
+    const res = await POST(mkRequest({ utterance: "9時にスタバでコーヒー" }));
+    expect(res.status).toBe(200); // fail-open
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect("captureCandidate" in body.data).toBe(false);
+    expect(body.data.status).toBe("ok");
+    vi.unstubAllEnvs();
+  });
+
+  test("error response（pipeline 不問）は不変: 404/401/400 では surface を呼ばない", async () => {
+    vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "false");
+    await POST(mkRequest({ utterance: "x" }));
+    expect(buildMorningCaptureSurface).not.toHaveBeenCalled(); // 404
+    vi.unstubAllEnvs();
+    vi.stubEnv("ALTER_MORNING_V2_ROUTE_ENABLED", "true");
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    await POST(mkRequest({ utterance: "x" }));
+    expect(buildMorningCaptureSurface).not.toHaveBeenCalled(); // 401
+    mockGetUser.mockResolvedValue({ data: { user: { id: "u1" } } });
+    await POST(mkRequest({ foo: "bar" }));
+    expect(buildMorningCaptureSurface).not.toHaveBeenCalled(); // 400
     vi.unstubAllEnvs();
   });
 });

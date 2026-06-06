@@ -24,6 +24,11 @@ import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehensio
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { fireMorningCapture } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
 import type { RpcCapableClient } from "@/lib/plan/reality/integration/capture-rpc-adapter";
+import {
+  buildMorningCaptureSurface,
+  type PendingCapturedRowsReadClient,
+} from "@/lib/plan/reality/integration/morning-capture-surface.server";
+import { appendCaptureCandidateToMorningResult } from "@/lib/plan/reality/integration/candidate-response-assembler";
 
 export const runtime = "nodejs";
 
@@ -139,7 +144,23 @@ export async function POST(request: Request) {
 
   try {
     const result = await runMorningPipeline(body, providers);
-    return NextResponse.json({ ok: true, data: result });
+
+    // A1-5-7-5: capture candidate surface（**read-only・fail-open・additive・gated・実 LLM await なし**）。
+    //   pending captured seed/evidence を read-only consumption し、候補があれば `data.captureCandidate?` を additive 追加。
+    //   flag off / kill / production / 非 staging / 非 canary / no candidate / read error → null → 既存 response 完全一致（後方互換）。
+    //   fire-and-forget capture write（上の fireMorningCapture）とは独立（surface は read 側）。response/error envelope は不変。
+    let data: typeof result | ReturnType<typeof appendCaptureCandidateToMorningResult<typeof result>> = result;
+    try {
+      const surface = await buildMorningCaptureSurface(
+        supabase as unknown as PendingCapturedRowsReadClient,
+        user.id,
+        result.comprehension?.targetDate,
+      );
+      data = appendCaptureCandidateToMorningResult(result, surface);
+    } catch {
+      // fail-open: surface 失敗は user response を壊さない（data = result）
+    }
+    return NextResponse.json({ ok: true, data });
   } catch (err) {
     console.error("[alter-morning/plan] pipeline error", err);
     return NextResponse.json(

@@ -18,10 +18,14 @@ import "server-only";
 
 import {
   computeCapturedSeedConsumption,
+  computeConsumptionFromProjected,
   type CapturedSeedConsumptionInput,
   type CapturedSeedConsumptionSummary,
+  type SeedConsumptionContext,
 } from "./captured-seed-consumption";
 import { presentCandidateSurface, type CandidateSurfaceDTO } from "./candidate-surface";
+import type { SeedPlacement } from "../seed-placement";
+import type { DurationEvidence } from "../seed-placement-enrich";
 
 /** bridge 出力（**redacted**）。summary（observability 用 counts）と surface（response/UI 用 DTO）を **同一 canonical 計算**から出す。 */
 export interface CapturedSeedConsumptionSurfaceResult {
@@ -41,8 +45,27 @@ export interface CapturedSeedConsumptionSurfaceResult {
 export function runCapturedSeedConsumptionWithSurface(
   input: CapturedSeedConsumptionInput
 ): CapturedSeedConsumptionSurfaceResult {
-  const computation = computeCapturedSeedConsumption(input);
-  // redaction 境界は presentCandidateSurface 1 箇所（enrichedCandidatePlacements の seedRef を drop）。
+  return surfaceFromComputation(computeCapturedSeedConsumption(input));
+}
+
+/**
+ * A1-5-7-5: **projected data（placements + evidence map）からの canonical bridge**（pure・redacted）。
+ *   route は **single-read-source 制約**ゆえ canonical read source（seed-source / duration-evidence-source）の projected 出力を本経路に流す。
+ *   `computeConsumptionFromProjected`（row 経路と enrich/generateComplete/summary を共有＝drift なし）→ `presentCandidateSurface`（seedRef drop）。
+ */
+export function runConsumptionSurfaceFromProjected(
+  placements: readonly SeedPlacement[],
+  evidenceMap: Readonly<Record<string, readonly DurationEvidence[]>>,
+  context?: SeedConsumptionContext
+): CapturedSeedConsumptionSurfaceResult {
+  return surfaceFromComputation(computeConsumptionFromProjected(placements, evidenceMap, context));
+}
+
+/** computation → {summary, surface}（redaction 境界は presentCandidateSurface 1 箇所・seedRef drop）。 */
+function surfaceFromComputation(computation: {
+  summary: CapturedSeedConsumptionSummary;
+  enrichedCandidatePlacements: readonly SeedPlacement[];
+}): CapturedSeedConsumptionSurfaceResult {
   const surface = presentCandidateSurface({
     summary: computation.summary,
     candidatePlacements: computation.enrichedCandidatePlacements,
