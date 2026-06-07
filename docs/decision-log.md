@@ -15605,3 +15605,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - HARD GATE 全 PASS(対象 step なし→不可分類/捏造なし/根拠なき数値改善なし/不可は不可分類/UI 前停止)。pure/READ/Date 不使用/実予定変更・apply・DB write・新 UI なし・生数値/level 名を summary に出さない・仮説トーン。
 - 検証: SIM1-14 + dayRehearsal suite 168 PASS・tsc footprint 0(total 55 不変)・zero-conflict(additive)・main worktree 14 PASS(zero-loss)。main `ad0c9ee7`・code branch `claude/dr-repair-sim`(`08bf0796`)。closeout/audit `…-repair-simulation-v0-(closeout|audit).md`。
 - 次: UI 配線(CEO 判断)。Batch 4 NO-GO の教訓=candidate.suggestion と重複しない出し方必須(本 sim は before/after の新情報を持つので重複回避の余地あり)。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] What-if v0 UI 配線 main 着地（最小・非冗長）[承認: CEO smoke PASS]
+- `previewRepairSimulation` を「どうするとよさそう？」候補文の下に**小さく 1 行**表示。`repairSimulationShortLine`(leave_earlier の eases のみ短文・他 null=非表示)・DayOutlookBanner `simulationLineByKind` prop(span・read-only)・CalendarTab `rehearsalInput` 独立 memo→sim 再実行→banner。
+- 記録(CEO 指定): ✅leave_earlier のみ表示 ✅protect/recovery/confirm/reduce 非表示 ✅read-only 維持 ✅apply/save/予定変更なし ✅UI 過多なし(1 行・既存 disclosure 内) ✅生数値/confidence/raw evidence なし ✅smoke PASS。
+- ★非冗長: 候補文=action(出発を早める)/sim 行=effect(試すとどうなるか)で register 異なる。Batch 4 NO-GO(candidate-only 言い替え)を、rehearsal 実データの before/after(新情報)で解消。HARD GATE 全 PASS(候補文重複→非表示/弱根拠→非表示・SIM18 機械保証)。
+- 検証 SIM15-19+WIF1-6+plan suite 5116 PASS・tsc footprint 0(total 55)・zero-conflict(178+/12-)・main worktree 46 PASS(zero-loss)。main `e7b45272`・code branch `claude/dr-repair-sim`(`4fff9170`)。closeout `…-repair-simulation-v0-ui-closeout.md`。
+- ★次: **Day Rehearsal 診断層 + What-if v0 完了**。全体マスタープラン提出(`second-self-map-master-roadmap.md`)→CEO 判断でフェーズ実装。push/Vercel/GitHub/DB/env/Reality 不接触。
