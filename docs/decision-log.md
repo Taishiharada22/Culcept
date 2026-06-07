@@ -15464,3 +15464,16 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **protect signal main 着地完了 + coordination checklist 提出で停止**。実注入は CEO GO + Reality coordination 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
 
 ---
+
+## [2026-06-07] [Build] Day Rehearsal Repair → Reality Bridge Contract Audit（read-only・実装なし・停止）[CEO 指示]
+- 目的: protect signal を Reality にどう渡すかの contract 確定（gap-vs-node を決める）。実注入しない。
+- ★**重大補正（前 mini design を覆す）**: 正しい対応先は node `recovery_core` でなく **gap-meaning `recovery`（INV-17）**。Reality は DayGraph に **GapNode（kind:"gap"）を明示モデル化**し gap-meaning（「空白は埋めない・意味づけ」）を持つ。use_recovery_window=回復 gap ⇒ gap-meaning `recovery` に 1:1。
+- ★**recovery_core(node) は目的不達**: evaluator `recoveryProtected` は node recovery_core の **remove/update のみ**弾き **`add は recovery を cut しない`（gap を add で埋めるのは無害扱い）**と明記。use_recovery_window の本質「gap を埋めるな」は add 抑止＝recovery_core で効かない。→ **landed protect signal の `protectionHint:"recovery_core"` は誤り（要補正）**。
+- ★**共有キー = GapNode id**（両システムが同一 DayGraph を読む・targetStepIndex i → event[i] の次の GapNode）。
+- gap-vs-node 推奨 = **A（gap-level・GapNode の gap-meaning `recovery`）**。B（recovery_core node）=誤機構+phantom・C（add-constraint bolt-on）=INV-17 重複。
+- ★ブロッカー: **gap-meaning は未 enforce**（classifyGap は contract・generator/evaluator/complete に未配線）→ contract 確定可だが実保護は Reality の INV-17 enforcement 配線が前提。現 Reality は trim-only+Complete のみ（move/optimize 未実装）。
+- contract: use_recovery_window → GapNode gap-meaning `recovery`（restrict-only/additive/reversible=fail-safe）。最初の pure adapter 案=`resolveProtectSignalsToGapMeaning(signals, dayGraph)→GapRecoveryAssertion[]`（dayGraph で GapNode 解決・Reality 非接続）+ hint 補正(recovery_core→recovery)。
+- GO=contract 確定（+任意 pure adapter）。NO-GO=実注入（enforcement 未配線）/recovery_core 経路/add-constraint/Reality couple。CEO 判断点 4。doc: `docs/second-self-map-day-rehearsal-repair-reality-bridge-contract-audit.md`。
+- 状態: **audit + contract 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/Reality couple 不接触。
+
+---
