@@ -15652,3 +15652,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - CEO smoke PASS(05:09 JST に map が今日=6/8 表示)。検証 jstTodayUtcMidnight 3 ケース + plan suite 5147 + helpers 58 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss。main `0630f306`・code branch `claude/fix-jst-today`。
 - ★A0-2 着地時の注意: A0-2 branch(`dacce503`)の MapTab は JST 前 base。A0-2 着地時は git checkout overwrite でなく **JST-main の MapTab に A0-2 変更を Edit で再適用**(reason chips/reflection は line 161 と別位置=非競合)し JST を保全すること。
 - 次: A0-2 reflection UI smoke 再開（CEO 指示）。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] A0-2 reason reflection UI main 着地（★JST 保全・cherry-pick）[承認: CEO smoke PASS]
+- 魂の可視化第一歩。established insight のみ穏やかな 1 行（reasonReflectionLine pure・emerging/「その他」/not_enough は沈黙・仮説トーン・強語/生数値/人格語なし・per-leg・trait でない）。MobilityLegCard inline 1 行(readOnly 非表示・modal でない・local dismiss)。MapTab established 計算(readOnly/sensitive 沈黙)。
+- ★**JST 保全**: A0-2 branch(`dacce503`)は JST 前 base ゆえ git checkout overwrite だと JST を revert する危険。**`git cherry-pick dacce503`** で JST-main に 3-way merge → MapTab auto-merge・**JST(`0630f306`)保持+ A0-2 共存**を確認(jstTodayUtcMidnight×3 + reasonReflection×5・smoke-force 混入 0)。
+- 検証 RR1-6+RUI1-6・main 98 PASS・tsc footprint 0(total 55)・zero-loss。main `dad0fd59`・code branch `claude/dr-a0-reflection-ui`(`dacce503`)。closeout `…-a0-2-reason-reflection-ui-closeout.md`。
+- ★CEO 指示「revert 禁止」遵守: smoke-force(dr-energy worktree の未 commit)は revert せず放置(main 非接触・cherry-pick は clean commit から取得ゆえ無害)。
+- 次: 次バッチ計画提示。Alter/Stargazer 合流(full 鏡)は gated。push/Vercel/GitHub/DB/env/Reality 不接触。
