@@ -15627,3 +15627,9 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ❌ 私の誤り: §4.2 belief 機構(mobility 軸/observationBridge→Stargazer belief/contradiction engine 二面性)を「漏れ/乖離」と過剰断罪 → 実際は **master-design §2(L56)/§4(L106,123) が localStorage `repertoireBelief`(Dirichlet)に意図的 supersede 済**＝設計判断。実装は正本に忠実。
 - ✅ 有効として残る指摘: ①energy curve overclaim(正本 §1/§D 未) ②魂(移動→自己理解)未実装(正本でも S6/L2=Wave1 次・M5 鏡=moonshot・§7 open論点) ③S3 未 ④S4 配線断絶。
 - 結論: 真の不正確は **energy curve overclaim と魂の過小評価の 2 点のみ**。§3.5 を「漏れ」→「supersede + 魂のみ未」に訂正・§0/§8.5-b 追記。推奨 **L2 理由捕捉=master-design Wave 1 の次の残**で正本整合。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] 全 plan .md 読了 + Reality Phase C 粒度漏れの保全（CEO「存在する計画 .md を全て読んだか」）[承認: CEO 指摘]
+- 正直回答: 当初は plan 系 68 本中 正本＋本セッション分(約14)のみ直読・残 54 は MEMORY 索引のみ(=全読でなかった)。→ 5 クラスタの read-only Explore agent で**残 54 本を全文読了し roadmap と cross-check**。
+- 結果: mobility belief/Day Rehearsal core/repair・what-if/MapTab redesign = **トップレベル plan 漏れなし**(defer/較正 backlog 既載・旧 what-if UI 形態 CEO 判断点は Batch4 NO-GO + leave_earlier UI で解決済)。
+- ★唯一の発掘: **Reality/介入層を Phase C に丸めすぎて具体未決を落としていた**(Reality coordination 未開始/gap-vs-node A/B/C 未決/recovery_core slack≥60min 未承認/canary 前チェック[banner runbook stale・seed・NODE_ENV block]/protectedGaps plumbing NO-GO/INV-17 owning 曖昧)。→ roadmap §4「★C 起動時に解く具体未決」に doc 参照付きで保全・§8.6 に全読記録。
+- → 68 本全読了・cross-check 済。漏れは Reality 粒度のみで保全済。push/Vercel/GitHub/DB/env/Reality 不接触。
