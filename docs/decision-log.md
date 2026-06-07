@@ -15557,3 +15557,11 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - **main 着地済（squash・main HEAD `6252825a`・親 `e0d66a8f`）**・zero-loss・diff surgical（1 file・17+/11-・runbook が base から無変化＝Reality 無競合）。code branch `claude/reality-runbook-fix` 保持。
 - ★**ownership**: Reality 所有 doc を CEO 指示で本系が doc-only 補正。**Reality セッション周知要**（client wiring A1-5-8-3 前提で runbook 更新した旨）。production exposure / env / Vercel は未実施（CEO 手動のまま）。
 - 状態: **runbook 補正で停止**。canary 実行は CEO/operator 手動（正本 runbook 準拠・user-facing read-only preview として）。push/PR/Vercel/env/予定変更 不接触。
+
+## [2026-06-07] [Build] Day Rehearsal 診断層 完遂 Batch 1 — full-path（実 transport + raw feasibility・flag-gated）main 着地 [CEO 判断: 原典 plan を全部高品質で完遂・local-only]
+- 文脈: CEO 指摘「production 不可（GitHub 不可）→ Reality/介入層 HOLD・local 診断層の原典 plan を全て高品質で完遂」。私の drift（Reality 介入層 = production）を是正し Day Rehearsal 診断層に復帰。
+- ★完遂の意義: 原典 mini-design §3 は入力を DayGraph+feasibility+**Transport（必須）**と定義。現 Option D（status-only・transport なし）は line 34 の既知 degrade stopgap → full-path 化は新規 scope でなく**原典の意図入力モデルの完遂**。
+- 実装: `buildRehearsalInputFull`（真の slack/shortfall + 実 travel）+ `RehearsalTravelView` + `DAY_REHEARSAL_FULL_PATH_ENABLED`(default false) + hook が discard していた overlay transport を additive surface（mode 写像・manual_user のみ known）+ CalendarTab flag 分岐。★flag OFF＝既存挙動不変。
+- full-path ON で friction 可変・convergence/recovery 正確・protect_buffer 到達（Option D で dead だった候補が生きる）。生数値は UI に出さず内部精度向上のみ（ethos 維持）。
+- **main 着地済（squash・main HEAD `bcfca834`・親 `dedaaf1d`）**。検証: FP1-FP6 + dayRehearsal 56 + **plan suite 5070 PASS**・**tsc footprint 0（total 55 不変）**・zero-loss。tsc で OverlayTransitionOutcome ネスト + TransportMode 2 種の型ズレを発見・修正。closeout: `…-fullpath-batch1-closeout.md`。code branch `claude/dr-fullpath`(HEAD `731a4574`)保持。
+- 次: activation（flag ON）は local smoke（/plan・到達可）検証後 → Batch 2（InnerWeather energy）→ Batch 3（marker 精緻化）→ Batch 4（What-if UI）。production/Reality 介入層は HOLD。push/PR/Vercel 不接触。
