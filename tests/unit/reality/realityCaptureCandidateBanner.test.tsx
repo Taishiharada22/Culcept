@@ -74,3 +74,28 @@ describe("A1-5-7-6 MorningPlanCard wiring（静的配線確認・heavy render �
     }
   });
 });
+
+describe("A1-6-11 banner — 「いつ」文脈 + action 確認文言（controlled formatter）", () => {
+  it("todayISO 注入 + 希望日 → 「明日」を表示", () => {
+    const html = renderToStaticMarkup(
+      <CaptureCandidateBanner candidate={dto({ items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: "2026-06-11", band: "afternoon", confidenceBand: "high" }] })} todayISO="2026-06-10" />
+    );
+    expect(html).toContain("明日");
+  });
+  it("todayISO 無 + date 無 → 「いつ」非表示（既存挙動・捏造しない）", () => {
+    const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={dto()} />);
+    expect(html).not.toMatch(/明日|今日|明後日/);
+  });
+  it("actionResultText / banner-level action-feedback を配線（controlled・LLM 不使用）", () => {
+    const SRC = fs.readFileSync(path.join(process.cwd(), "components/home/morning/CaptureCandidateBanner.tsx"), "utf8");
+    expect(SRC).toContain("actionResultText");
+    expect(SRC).toContain("action-feedback");
+  });
+  it("accept/dismiss で candidate 0 件化後も confirmation を短時間表示（display-null feedback 分岐 + auto-clear timer）", () => {
+    // CEO 指摘の product gap 対策: parent removal で candidate が消えても banner は MorningPlanCard が mount し続けるため、
+    //   display-null でも feedback があれば confirmation を返す（早期 null の前）+ setTimeout で transient に自動クリア。
+    const SRC = fs.readFileSync(path.join(process.cwd(), "components/home/morning/CaptureCandidateBanner.tsx"), "utf8");
+    expect(SRC).toContain("setTimeout"); // transient auto-clear
+    expect(SRC).toMatch(/!display[\s\S]{0,500}feedback \?/); // display-null でも feedback 分岐（早期 null の前）
+  });
+});

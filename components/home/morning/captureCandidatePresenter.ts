@@ -15,6 +15,7 @@
  */
 
 import type { CandidateSurfaceDTO, EvidenceSourceLabel, TimeBandLabel } from "@/lib/plan/reality/integration/candidate-surface";
+import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
 
 /** UI 表示用の 1 候補（**安全文字列のみ**・技術名/UUID/raw なし）。 */
 export interface CaptureCandidateDisplayItem {
@@ -24,6 +25,11 @@ export interface CaptureCandidateDisplayItem {
   readonly sourceLabel: string;
   /** 時間帯の友好ラベル（無ければ null）。 */
   readonly bandLabel: string | null;
+  /**
+   * A1-6-11: 希望日の friendly 表示（「今日」「明日」「6/15」等・無ければ null）。
+   *   **controlled formatter**（LLM 不使用・捏造なし・desiredDate という structured state の安全表示）。today 注入で deterministic。
+   */
+  readonly dateLabel: string | null;
   /**
    * A1-6-8: action 用 **opaque handle**（`"c1:"+sha256(seedRef)`・seedRef を含まない・無ければ null）。
    *   banner の accept/dismiss/later はこの handle を route に送る（seedRef は client に出ない）。
@@ -62,11 +68,45 @@ function durationText(durationMin: number): string {
 }
 
 /**
+ * A1-6-11: 希望日（YYYY-MM-DD）→ **friendly 表示**（**controlled formatter・LLM 不使用・deterministic**）。
+ *   今日/明日/明後日/昨日 は相対、それ以外は M/D。date / today 欠落 / parse 不能 → null（表示なし）。
+ *   **Date.now を使わない**（today を注入）。`new Date(string)` は与えられた値の parse のみ＝決定的。
+ */
+export function friendlyDateLabel(dateISO: string | null, todayISO: string | null | undefined): string | null {
+  if (!dateISO || !todayISO) return null;
+  const d = new Date(`${dateISO}T00:00:00Z`);
+  const t = new Date(`${todayISO}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || Number.isNaN(t.getTime())) return null;
+  const diff = Math.round((d.getTime() - t.getTime()) / 86400000);
+  if (diff === 0) return "今日";
+  if (diff === 1) return "明日";
+  if (diff === 2) return "明後日";
+  if (diff === -1) return "昨日";
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+}
+
+/**
+ * A1-6-11: action → **確認文言**（**controlled formatter・固定文・LLM 不使用・根拠捏造なし**）。
+ *   accept→「予定に入れました」/ dismiss→「今回は見送りました」/ later→「あとで確認できます」。
+ */
+export function actionResultText(action: CandidateActionKind): string {
+  switch (action) {
+    case "accept":
+      return "予定に入れました";
+    case "dismiss":
+      return "今回は見送りました";
+    case "later":
+      return "あとで確認できます";
+  }
+}
+
+/**
  * A1-5-7-6: `CandidateSurfaceDTO` → UI 表示モデル（**pure・redacted・控えめ**）。
  *   absent / hasCandidate=false → **null**（表示なし）。candidate 有 → 友好ラベル化した表示モデル。
  */
 export function presentCaptureCandidate(
-  dto: CandidateSurfaceDTO | null | undefined
+  dto: CandidateSurfaceDTO | null | undefined,
+  todayISO?: string | null // A1-6-11: 注入（無→ dateLabel null・後方互換）。banner が local today を渡す。
 ): CaptureCandidateDisplay | null {
   if (!dto || !dto.hasCandidate) return null; // 表示なし（既存 UI 不変）
   return {
@@ -77,6 +117,7 @@ export function presentCaptureCandidate(
       durationText: durationText(it.durationMin),
       sourceLabel: SOURCE_LABEL[it.evidenceSource] ?? "メモから", // 未知 → 中立（enum 名を出さない）
       bandLabel: it.band ? BAND_LABEL[it.band] ?? null : null,
+      dateLabel: friendlyDateLabel(it.date, todayISO), // A1-6-11: 「いつ」文脈（controlled formatter）
       handle: typeof it.handle === "string" ? it.handle : null, // A1-6-8: action 用 opaque handle（無ければ null）
     })),
   };
