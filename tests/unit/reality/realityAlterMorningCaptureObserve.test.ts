@@ -13,7 +13,7 @@ import type { CaptureRouteRunnerResult } from "@/lib/plan/reality/integration/ca
 import { createFakeCaptureWriteClient } from "@/lib/plan/reality/integration/capture-write-repository";
 import { createRpcCaptureWriteClient, createFakeRpcClient, CAPTURE_RPC_NAME } from "@/lib/plan/reality/integration/capture-rpc-adapter";
 import type { SeedExtractor, ExtractorResult } from "@/lib/plan/reality/seed-extractor-contract";
-import type { CaptureGateInput } from "@/lib/plan/reality/capture-gate";
+import { evaluateCaptureGate, type CaptureGateInput } from "@/lib/plan/reality/capture-gate";
 import type { CaptureServiceDeps } from "@/lib/plan/reality/integration/capture-service";
 
 const STAGING_URL = "https://hjcrvndumgiovyfdacwc.supabase.co";
@@ -40,12 +40,44 @@ const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.repla
 describe("A1-5-5g-2 resolveMorningObserveGate（pure）", () => {
   it("flagEnabled → liveEnabled / 他フィールド透過", () => {
     const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, userId: USER, canaryUserIds: [USER] });
-    expect(g).toEqual({ liveEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, requestedUserId: USER, canaryUserIds: [USER] });
+    expect(g).toEqual({ liveEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, requestedUserId: USER, canaryUserIds: [USER], productionCanaryEnabled: false, realityCanaryUserIds: [] });
   });
   it("flagEnabled false → liveEnabled false / killed 透過", () => {
     const g = resolveMorningObserveGate({ flagEnabled: false, killed: true, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [] });
     expect(g.liveEnabled).toBe(false);
     expect(g.killed).toBe(true);
+  });
+});
+
+const NON_CANARY = "99999999-9999-9999-9999-999999999999";
+describe("A1-5-14 production canary wiring（resolveMorningObserveGate → evaluateCaptureGate）", () => {
+  it("env 未設定（productionCanaryEnabled false / reality list 空）+ production ref → gate block（既存挙動・production 挙動変更0）", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [USER], productionCanaryEnabled: false, realityCanaryUserIds: [] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("production flag true + reality canary 該当 user + production ref → gate allow", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [], productionCanaryEnabled: true, realityCanaryUserIds: [USER] });
+    expect(evaluateCaptureGate(g).allow).toBe(true);
+  });
+  it("production flag true + non-canary user → gate block", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [USER], productionCanaryEnabled: true, realityCanaryUserIds: [NON_CANARY] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("shared canaryUserIds だけ（reality list 空）+ production flag true → block（production は reality list 必須・shared へ fallback しない）", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [USER], productionCanaryEnabled: true, realityCanaryUserIds: [] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("kill true → block（production lane でも最優先）", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: true, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER, canaryUserIds: [USER], productionCanaryEnabled: true, realityCanaryUserIds: [USER] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("staging ref + staging canary → 既存通り allow（production flag は staging に影響しない）", () => {
+    const g = resolveMorningObserveGate({ flagEnabled: true, killed: false, nodeEnv: "development", supabaseUrl: STAGING_URL, userId: USER, canaryUserIds: [USER], productionCanaryEnabled: true, realityCanaryUserIds: [] });
+    expect(evaluateCaptureGate(g).allow).toBe(true);
+  });
+  it("fireMorningCapture が PLAN_FLAGS の production canary scaffold を gate へ配線（static）", () => {
+    expect(CODE).toContain("realityCaptureProductionCanary");
+    expect(CODE).toContain("realityCanaryUserIds");
   });
 });
 

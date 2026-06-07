@@ -102,6 +102,9 @@ export function resolveSurfaceGate(opts: {
   readonly supabaseUrl: string | undefined;
   readonly userId: string;
   readonly canaryUserIds: readonly string[];
+  // A1-5-14: production canary scaffold（default-off・未指定→production block 維持）
+  readonly productionCanaryEnabled?: boolean;
+  readonly realityCanaryUserIds?: readonly string[];
 }): CaptureGateInput {
   return {
     liveEnabled: opts.surfaceEnabled,
@@ -110,6 +113,8 @@ export function resolveSurfaceGate(opts: {
     supabaseUrl: opts.supabaseUrl,
     requestedUserId: opts.userId,
     canaryUserIds: opts.canaryUserIds,
+    productionCanaryEnabled: opts.productionCanaryEnabled ?? false,
+    realityCanaryUserIds: opts.realityCanaryUserIds ?? [],
   };
 }
 
@@ -169,6 +174,9 @@ export async function buildMorningCaptureSurface(
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
         userId,
         canaryUserIds: PLAN_FLAGS.canaryUserIds,
+        // A1-5-14: production canary scaffold を gate へ配線（default-off・env 未設定→production block）
+        productionCanaryEnabled: PLAN_FLAGS.realityCaptureProductionCanary,
+        realityCanaryUserIds: PLAN_FLAGS.realityCanaryUserIds,
       })
     );
     const context: SeedConsumptionContext = {

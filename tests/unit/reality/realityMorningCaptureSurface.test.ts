@@ -10,6 +10,7 @@ import {
   type PendingCapturedRowsReadClient,
 } from "@/lib/plan/reality/integration/morning-capture-surface.server";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
+import { evaluateCaptureGate } from "@/lib/plan/reality/capture-gate";
 import type { ColumnRestrictedSeedRow } from "@/lib/plan/reality/integration/seed-column-restricted";
 import type { ColumnRestrictedDurationEvidenceRow } from "@/lib/plan/reality/integration/duration-evidence-source";
 import type { SeedPlacement } from "@/lib/plan/reality/seed-placement";
@@ -60,10 +61,38 @@ const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.repla
 describe("A1-5-7-5 resolveSurfaceGate（pure）", () => {
   it("surfaceEnabled → liveEnabled / 透過", () => {
     const g = resolveSurfaceGate({ surfaceEnabled: true, killed: false, nodeEnv: "test", supabaseUrl: STAGING_URL, userId: USER_ID, canaryUserIds: [USER_ID] });
-    expect(g).toEqual({ liveEnabled: true, killed: false, nodeEnv: "test", supabaseUrl: STAGING_URL, requestedUserId: USER_ID, canaryUserIds: [USER_ID] });
+    expect(g).toEqual({ liveEnabled: true, killed: false, nodeEnv: "test", supabaseUrl: STAGING_URL, requestedUserId: USER_ID, canaryUserIds: [USER_ID], productionCanaryEnabled: false, realityCanaryUserIds: [] });
   });
   it("surfaceEnabled false → liveEnabled false", () => {
     expect(resolveSurfaceGate({ surfaceEnabled: false, killed: false, nodeEnv: "test", supabaseUrl: undefined, userId: USER_ID, canaryUserIds: [] }).liveEnabled).toBe(false);
+  });
+});
+
+const PROD_URL = "https://aljavfujeqcwnqryjmhl.supabase.co";
+describe("A1-5-14 production canary wiring（resolveSurfaceGate → evaluateCaptureGate）", () => {
+  it("env 未設定 + production ref → gate block（既存挙動・production 挙動変更0）", () => {
+    const g = resolveSurfaceGate({ surfaceEnabled: true, killed: false, nodeEnv: "test", supabaseUrl: PROD_URL, userId: USER_ID, canaryUserIds: [USER_ID], productionCanaryEnabled: false, realityCanaryUserIds: [] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("production flag true + reality canary 該当 + production ref → allow", () => {
+    const g = resolveSurfaceGate({ surfaceEnabled: true, killed: false, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER_ID, canaryUserIds: [], productionCanaryEnabled: true, realityCanaryUserIds: [USER_ID] });
+    expect(evaluateCaptureGate(g).allow).toBe(true);
+  });
+  it("shared canaryUserIds だけ + production flag true → block（reality list 必須・fallback しない）", () => {
+    const g = resolveSurfaceGate({ surfaceEnabled: true, killed: false, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER_ID, canaryUserIds: [USER_ID], productionCanaryEnabled: true, realityCanaryUserIds: [] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("kill true → block（最優先）", () => {
+    const g = resolveSurfaceGate({ surfaceEnabled: true, killed: true, nodeEnv: "production", supabaseUrl: PROD_URL, userId: USER_ID, canaryUserIds: [USER_ID], productionCanaryEnabled: true, realityCanaryUserIds: [USER_ID] });
+    expect(evaluateCaptureGate(g).allow).toBe(false);
+  });
+  it("staging ref → 既存通り allow（production flag は staging に影響しない）", () => {
+    const g = resolveSurfaceGate({ surfaceEnabled: true, killed: false, nodeEnv: "test", supabaseUrl: STAGING_URL, userId: USER_ID, canaryUserIds: [USER_ID], productionCanaryEnabled: true, realityCanaryUserIds: [] });
+    expect(evaluateCaptureGate(g).allow).toBe(true);
+  });
+  it("buildMorningCaptureSurface が PLAN_FLAGS の production canary scaffold を gate へ配線（static）", () => {
+    expect(CODE).toContain("realityCaptureProductionCanary");
+    expect(CODE).toContain("realityCanaryUserIds");
   });
 });
 

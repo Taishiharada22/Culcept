@@ -94,6 +94,9 @@ export function resolveMorningObserveGate(opts: {
   readonly supabaseUrl: string | undefined;
   readonly userId: string;
   readonly canaryUserIds: readonly string[];
+  // A1-5-14: production canary scaffold（default-off・未指定→production block 維持）
+  readonly productionCanaryEnabled?: boolean;
+  readonly realityCanaryUserIds?: readonly string[];
 }): CaptureGateInput {
   return {
     liveEnabled: opts.flagEnabled,
@@ -102,6 +105,8 @@ export function resolveMorningObserveGate(opts: {
     supabaseUrl: opts.supabaseUrl,
     requestedUserId: opts.userId,
     canaryUserIds: opts.canaryUserIds,
+    productionCanaryEnabled: opts.productionCanaryEnabled ?? false,
+    realityCanaryUserIds: opts.realityCanaryUserIds ?? [],
   };
 }
 
@@ -171,6 +176,9 @@ export function fireMorningCapture(utterance: string, userId: string, client: Mo
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
       userId,
       canaryUserIds: PLAN_FLAGS.canaryUserIds,
+      // A1-5-14: production canary scaffold を gate へ配線（default-off・env 未設定→production block）
+      productionCanaryEnabled: PLAN_FLAGS.realityCaptureProductionCanary,
+      realityCanaryUserIds: PLAN_FLAGS.realityCanaryUserIds,
     });
     // A1-5-11-5: write-side policy（read-before-write dedup + TTL expires_at）を runtime write path に効かせる。
     //   client から read provider（loadActiveCandidateEntries）を構築。nowMs は server で 1 回注入（pure orchestrator/policy を決定的に保つ）。
