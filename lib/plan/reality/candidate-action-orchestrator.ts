@@ -7,20 +7,19 @@
  *   live route（別 GO・危険境界）は本 plan を読んで dispatch する薄い executor になる（DB-write 境界のロジックを最小化・事前に最大テスト）。
  *
  *   chain: handle 解決（A1-6-1 resolveAndDecideAction）→ action decision（A1-6-0 decideCandidateAction）→ **operation plan（本 module）**。
- *   - accept(active)  → [plan_reflection(external_anchor), status_transition(active→consumed)]・deferred=false
- *   - dismiss(active) → [status_transition(active→rejected)]・deferred=false（reflection なし）
+ *   - accept(active)  → [status_transition(active→consumed)]・reflectsToPlan=true・deferred=false
+ *   - dismiss(active) → [status_transition(active→rejected)]・reflectsToPlan=false・deferred=false
  *   - later(active)   → []・deferred=true（status 変更なし・active 維持で再 surface）
  *   - 非 active / unresolved / stale / expired → fail-closed（accepted=false・operations=[]）
  *
- *   **安全順序（accept）**: plan_reflection を先・status_transition を後（anchor 失敗時に consume しない＝seed は active のまま retryable・
- *     「consume したのに plan に何も無い」を構造的に防ぐ）。route は **fail-stop** で実行（先行 op 失敗→後続中止）。
- *     create_external_anchor_bundle（20260519100000）は external_anchor_sources/external_anchors のみ insert し
- *     **plan_seed を触らない**＝anchor write と consume は別 op（二重 consume なし・status_transition は route が別途実装する UPDATE）。
+ *   **A1-6-5a 修正（設計 §9.5/§9.6）**: 旧設計の plan_reflection(external_anchor) op は**誤り**で削除し **status-only** に修正。
+ *     accept = status→consumed のみ。reflection（accepted candidate が plan に反映されること）は **read/computation 側**（DraftPlan
+ *     computation が consumed seed を組み込む）の責務で、executor では anchor write も generateComplete も呼ばない。external_anchor は
+ *     外部スケジュール import 専用で candidate accept と無関係。reflectsToPlan は「consumed seed が plan に現れる」response 用フラグ（op ではない）。
  *
  * 厳守:
- *   - **output に seedRef / UUID / raw / source_ref を出さない**: status は enum(from/to)・reflection は KIND のみ。
- *     **CandidateDraft は plan に入れない**（その id="complete-{seedRef}" は seedRef を持つ）→ draft 生成は route が実行時に行う（plan は KIND="external_anchor" の intent のみ）。
- *   - **pure・no-DB・no-execution**: status update / anchor write / generateComplete 呼び出しは **しない**（route の live path）。DB write は operation plan に留める。
+ *   - **output に seedRef / UUID / raw / source_ref を出さない**: status は enum(from/to) のみ。
+ *   - **pure・no-DB・no-execution**: status update / generateComplete / anchor write は **しない**（route の live path）。DB write は operation plan に留める。
  *   - **fail-closed**: 非 active / unresolved → accepted=false・operations=[]（route は no-op）。
  *   - barrel 非 export・route.ts 非接続。seedRef は input(resolution)にあるが **読まず**・output には出さない（route が resolution.seedRef を保持し実行）。
  */
@@ -36,14 +35,11 @@ export interface StatusTransitionOperation {
   readonly to: PlanSeedStatus;
 }
 
-/** plan 反映 op（**KIND のみ・draft を持たない**＝seedRef を出さない）。route が generateComplete→create_external_anchor_bundle を実行。 */
-export interface PlanReflectionOperation {
-  readonly kind: "plan_reflection";
-  readonly reflection: "external_anchor";
-}
-
-/** server が実行すべき 1 op（status 遷移 / plan 反映）。**seedRef / raw / draft を持たない**。 */
-export type CandidateOperation = StatusTransitionOperation | PlanReflectionOperation;
+/**
+ * server が実行すべき 1 op。**A1-6-5a で status_transition のみ**（旧 plan_reflection op は誤設計で削除）。**seedRef / raw / draft を持たない**。
+ *   単一 type だが、将来 op 追加に備え alias で残す（executor の iteration は変えない）。
+ */
+export type CandidateOperation = StatusTransitionOperation;
 
 /** action に対する **server operation plan**（実行はしない・redacted・route が読んで dispatch）。 */
 export interface CandidateOperationPlan {
@@ -51,32 +47,30 @@ export interface CandidateOperationPlan {
   readonly accepted: boolean;
   /** redacted reason code（raw/seedRef を持たない）。 */
   readonly reason: string;
-  /** 実行すべき op 列（**順序付き・fail-stop**・accept は reflection→status の安全順）。fail-closed 時は []。 */
+  /** 実行すべき op 列（**順序付き・fail-stop**・現状 status_transition のみ）。fail-closed 時は []。 */
   readonly operations: readonly CandidateOperation[];
+  /** accepted candidate が plan に反映されるか（consumed seed → computation 側で DraftPlan 組込）。**response 用フラグ・op ではない**。 */
+  readonly reflectsToPlan: boolean;
   /** later（deferred・再 surface）か。 */
   readonly deferred: boolean;
 }
 
 /**
- * A1-6-3: action outcome（A1-6-0/1 の decision）→ **server operation plan**（pure・no-execution・redacted）。
+ * A1-6-3 / A1-6-5a: action outcome（A1-6-0/1 の decision）→ **server operation plan**（pure・no-execution・redacted・**status-only**）。
  *   valid outcome ⟹ from=active（decideCandidateAction は active のみ作用＝不変条件）。
- *   - reflectsToPlan → plan_reflection(external_anchor) を **先**に push（anchor 生成優先）。
- *   - nextStatus!=null → status_transition(active→nextStatus) を **後**に push（reflection 成功後に consume）。
+ *   - nextStatus!=null → status_transition(active→nextStatus) を push（accept→consumed / dismiss→rejected）。later は nextStatus=null で op なし。
+ *   - reflectsToPlan は outcome から伝播（accept=true / dismiss・later=false）＝「consumed seed が plan に現れる」response フラグ（**別 reflection op は持たない**）。
  *   invalid outcome（非 active・idempotency 防御）→ accepted=false・operations=[]（fail-closed）。
  */
 export function planCandidateActionOperations(outcome: CandidateActionOutcome): CandidateOperationPlan {
   if (!outcome.valid) {
-    return { accepted: false, reason: outcome.reason, operations: [], deferred: false };
+    return { accepted: false, reason: outcome.reason, operations: [], reflectsToPlan: false, deferred: false };
   }
   const operations: CandidateOperation[] = [];
-  // 安全順序: reflection（anchor）を先・status（consume）を後（anchor 失敗時に consume しない・route は fail-stop）。
-  if (outcome.reflectsToPlan) {
-    operations.push({ kind: "plan_reflection", reflection: "external_anchor" });
-  }
   if (outcome.nextStatus !== null) {
     operations.push({ kind: "status_transition", from: "active", to: outcome.nextStatus });
   }
-  return { accepted: true, reason: outcome.reason, operations, deferred: outcome.deferred };
+  return { accepted: true, reason: outcome.reason, operations, reflectsToPlan: outcome.reflectsToPlan, deferred: outcome.deferred };
 }
 
 /**
@@ -86,7 +80,7 @@ export function planCandidateActionOperations(outcome: CandidateActionOutcome): 
  */
 export function planCandidateActionFromResolution(resolution: CandidateActionResolution): CandidateOperationPlan {
   if (!resolution.resolved) {
-    return { accepted: false, reason: resolution.reason, operations: [], deferred: false };
+    return { accepted: false, reason: resolution.reason, operations: [], reflectsToPlan: false, deferred: false };
   }
   return planCandidateActionOperations(resolution.outcome);
 }

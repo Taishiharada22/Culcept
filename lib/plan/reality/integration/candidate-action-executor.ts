@@ -10,15 +10,15 @@ import "server-only";
  *   chain（route handler skeleton）: request {handle, action} → resolveAndDecideAction（A1-6-1）→ planCandidateActionFromResolution（A1-6-3）
  *     → **executeCandidateOperationPlan（本 module・executor 注入）** → RedactedActionResponse（seedRef なし）。
  *
- *   実行 semantics（accept = [plan_reflection, status_transition] の順）:
- *     1. applyPlanReflection（anchor 生成）→ ok=false（not_completable / write_failed）→ **停止**（reflection_failed・seed は active のまま retryable）。
- *     2. applyStatusTransition（active→consumed・**from=active guard**）→ ok=false（0 rows = 並行 consume / duplicate submit）→ **停止**（status_conflict）。
- *   dismiss = [status_transition(active→rejected)] のみ。later = []（executor 呼ばない・deferred）。非 active/unresolved = fail-closed（executor 呼ばない）。
+ *   **A1-6-5a 修正（設計 §9.5/§9.6）**: 旧 plan_reflection op は誤設計で削除し **status-only** に修正。executor は applyStatusTransition のみ。
+ *   実行 semantics（**status-only**）:
+ *     - accept = [status_transition(active→consumed)] / dismiss = [status_transition(active→rejected)] / later = []（executor 呼ばない・deferred）。
+ *     - applyStatusTransition（**from=active guard**）→ ok=false（0 rows = 並行 consume / duplicate submit）→ status_conflict。非 active/unresolved = fail-closed（executor 呼ばない）。
+ *     - reflection（accepted candidate が plan に反映）は **read/computation 側**（DraftPlan が consumed seed を組み込む）の責務で executor では扱わない。reflectsToPlan は plan から伝播する response フラグ。
  *
  * executor primitive **contract**（live executor が満たす・本 module は注入を呼ぶだけ）:
- *   - applyPlanReflection は **seedRef で冪等**（duplicate submit でも重複 anchor を作らない）。live: generateComplete(seed)→draft→create_external_anchor_bundle(p_user_id, p_source, p_anchors)。
  *   - applyStatusTransition は **atomic・from=active guard**（UPDATE ... WHERE id=seedRef AND status=from・0 rows→ok=false）。live: plan_seed status update（未実装＝live GO）。
- *   - 真の atomicity（重複 anchor / consume-without-anchor の完全排除）は live executor の transaction / 冪等 RPC で担保。本 skeleton は **順序 + fail-stop + conflict 検出 + redaction** を固める。
+ *   - generateComplete / anchor write / external_anchor は executor で **呼ばない**（A1-6-5a）。並行 duplicate は from=active guard で fail-closed。
  *
  * 厳守:
  *   - **no-write・no-execution**: 実 DB write / status update / generateComplete 呼び / anchor RPC は **しない**（executor 注入のみ）。
@@ -38,34 +38,29 @@ import {
 
 /** executor primitive の結果（**成否のみ**・raw/seedRef を返さない）。 */
 export interface ExecutorStepResult {
-  /** step が成立したか（reflection: anchor 生成成功 / status: from=active で 1 row 更新）。 */
+  /** step が成立したか（status: from=active で 1 row 更新）。 */
   readonly ok: boolean;
 }
 
 /**
- * candidate action の **DB primitive を注入**する executor（live=実 DB / test=fake）。
+ * candidate action の **DB primitive を注入**する executor（live=実 DB / test=fake）。**A1-6-5a で status-only**（applyPlanReflection は削除）。
  *   本 module（skeleton）は実装せず **呼ぶだけ**（no-write）。seedRef は **server-side のみ**（response には出ない）。
  */
 export interface CandidateActionExecutor {
   /**
-   * plan 反映（external_anchor 生成）。**seedRef で冪等**（duplicate→重複 anchor を作らない）。
-   *   live: generateComplete(seed)→draft→create_external_anchor_bundle。ok=false=not_completable / write_failed。
-   */
-  applyPlanReflection(seedRef: string): Promise<ExecutorStepResult>;
-  /**
    * seed status 遷移（**atomic・from=active guard**）。ok=false=0 rows（並行 consume / duplicate submit）。
    *   live: UPDATE plan_seed SET status=to WHERE id=seedRef AND status=from（owner-RLS・未実装＝live GO）。
+   *   accept→consumed / dismiss→rejected。**唯一の executor primitive**（reflection/anchor/generateComplete は呼ばない）。
    */
   applyStatusTransition(seedRef: string, from: PlanSeedStatus, to: PlanSeedStatus): Promise<ExecutorStepResult>;
 }
 
 /**
- * A1-6-4: operation plan（A1-6-3）を **executor 注入で実行**（順序・fail-stop・conflict 検出・redacted response）。
+ * A1-6-4 / A1-6-5a: operation plan（A1-6-3・**status-only**）を **executor 注入で実行**（fail-stop・conflict 検出・redacted response）。
  *   - plan.accepted=false（非 active/unresolved・防御）→ executor 呼ばず fail-closed response。
- *   - plan.operations を **順に実行**（accept は reflection→status）。各 step ok=false → **停止**（後続 op を実行しない）。
- *     reflection 失敗→reflection_failed（status しない）。status 失敗→status_conflict（from=active guard）。
- *   - 全 step 成功 → accepted=true・reflectsToPlan（reflection を実行したか）・deferred（later）。
- *   **response に seedRef を出さない**（seedRef は executor へのみ渡す）。
+ *   - plan.operations（**status_transition のみ**）を実行。ok=false → **status_conflict**（from=active guard・並行 consume / duplicate submit）。
+ *   - 成功 → accepted=true・**reflectsToPlan は plan から伝播**（accept=true / dismiss・later=false）・deferred（later）。
+ *   **response に seedRef を出さない**（seedRef は executor へのみ渡す）。reflection/anchor/generateComplete は executor で呼ばない（A1-6-5a）。
  */
 export async function executeCandidateOperationPlan(
   plan: CandidateOperationPlan,
@@ -75,23 +70,14 @@ export async function executeCandidateOperationPlan(
   if (!plan.accepted) {
     return { accepted: false, reason: plan.reason, reflectsToPlan: false, deferred: plan.deferred };
   }
-  let reflectsToPlan = false;
   for (const op of plan.operations) {
-    if (op.kind === "plan_reflection") {
-      const r = await executor.applyPlanReflection(seedRef);
-      if (!r.ok) {
-        return { accepted: false, reason: "reflection_failed", reflectsToPlan: false, deferred: false };
-      }
-      reflectsToPlan = true;
-    } else {
-      // status_transition（op は StatusTransitionOperation に narrow・from=active guard）
-      const r = await executor.applyStatusTransition(seedRef, op.from, op.to);
-      if (!r.ok) {
-        return { accepted: false, reason: "status_conflict", reflectsToPlan, deferred: false };
-      }
+    // status_transition（A1-6-5a で唯一の op・from=active guard）
+    const r = await executor.applyStatusTransition(seedRef, op.from, op.to);
+    if (!r.ok) {
+      return { accepted: false, reason: "status_conflict", reflectsToPlan: false, deferred: false };
     }
   }
-  return { accepted: true, reason: plan.reason, reflectsToPlan, deferred: plan.deferred };
+  return { accepted: true, reason: plan.reason, reflectsToPlan: plan.reflectsToPlan, deferred: plan.deferred };
 }
 
 /**

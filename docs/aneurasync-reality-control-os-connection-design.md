@@ -1301,6 +1301,8 @@ A1-6-2（A1-6-1 の opaque handle を **surface DTO → client request builder**
 
 ### 9.3 A1-6-3 実装（landed）— Candidate Action Server Orchestrator / No-write Plan（accept/dismiss/later の server 実行を pure に固める・no-DB・no-execution）
 
+> ⚠️ **§9.5/§9.6（A1-6-5a）で `plan_reflection` op は誤設計と判明し削除（status-only に修正）**。以下の plan_reflection / 安全順序の記述は旧設計（accept は status→consumed のみが正・reflection は read/computation 側）。
+
 A1-6-3（accept/dismiss/later を受けた時 server が何を実行すべきかを **operation plan** として pure に固める・**DB write も route 接続も UI 変更もしない**・実行は plan に留める）:
 
 **■ 独立評価（GPT 判断を鵜呑みにせず）**
@@ -1327,6 +1329,8 @@ A1-6-3（accept/dismiss/later を受けた時 server が何を実行すべきか
 **■ しない（A1-6-3 範囲外）**: DB write / RPC 実行 / status update 実行 / reflection 実行（generateComplete 呼び+anchor write）/ route 接続 / route.ts 変更 / UI / migration / production / service_role / remote。
 
 ### 9.4 A1-6-4 実装（landed）— Candidate Action Executor / Route Contract Skeleton（operation plan の実行を executor 注入で no-write 検証・request/response contract）
+
+> ⚠️ **§9.5/§9.6（A1-6-5a）で `applyPlanReflection` / reflection→status 順 / reflection_failed は削除（status-only に修正）**。以下の reflection 関連の記述は旧設計（executor は `applyStatusTransition` のみが正）。
 
 A1-6-4（A1-6-3 の operation plan を **将来 route がどう実行するか** を no-write で固める・**executor を注入**して実行 semantics を fake で検証・**実 DB write も route 接続も UI もしない**）:
 
@@ -1384,6 +1388,29 @@ A1-6-3/A1-6-4 は accept = status→consumed + **plan_reflection（generateCompl
 **■ 次**: product/privacy 判断 → reflection computation 設計（consumed seed → DraftPlan item）→ A1-6-3/A1-6-4 修正（plan_reflection 削除）→ A1-6-5 resume（**status-only** executor + staging smoke）。
 
 **■ しない（本設計スライス）**: code 変更 / DB write / real executor / migration / production。
+
+### 9.6 A1-6-5a 実装（landed）— Accept Reflection Correction（plan_reflection 削除・status-only）
+
+A1-6-5a（CEO 暫定方針に基づき A1-6-3/A1-6-4 の誤った `plan_reflection` op を削除し **status-only** に修正・DB write/route/UI 不変）:
+
+**■ CEO 暫定方針（status-only accept）**
+accept = status=consumed のみ / external_anchor・create_external_anchor_bundle は使わない / generateComplete は executor で呼ばない / consumed seed は read/computation 側で DraftPlan 反映 / 初期 label は privacy-safe generic / raw・source_ref 保存しない / richer label・user naming は後続。
+
+**■ 監査（外部消費者なし）**: PlanReflectionOperation / applyPlanReflection / plan_reflection / reflection_failed は本流 2 ファイル + その test のみ（外部 import なし）→ 安全に削除可能。
+
+**■ 修正（surgical・2 source + 2 test）**
+- `candidate-action-orchestrator.ts`（A1-6-3）: PlanReflectionOperation 削除・`CandidateOperation = StatusTransitionOperation`・CandidateOperationPlan に **reflectsToPlan** 追加（outcome から伝播・response フラグ）・planCandidateActionOperations は status_transition のみ push。→ accept→[status_transition(active→consumed)]+reflectsToPlan=true / dismiss→[status_transition(active→rejected)]+false / later→[]+deferred。
+- `candidate-action-executor.ts`（A1-6-4）: CandidateActionExecutor から **applyPlanReflection 削除**（applyStatusTransition のみ）・executeCandidateOperationPlan は reflection 分岐削除・reflectsToPlan は plan から伝播・reflection_failed reason 廃止。→ executor 大幅単純化（status UPDATE のみ・anchor write なし・generateComplete 不在）。
+
+**■ tests 修正**: A1-6-3 test（accept→status のみ・reflectsToPlan 検証・redaction に external_anchor/plan_reflection 非出追加）・A1-6-4 test（fakeExecutor から reflection 削除・fail-stop test 削除・status_conflict は status のみ call・reflectsToPlan plan 伝播）。reality **540 PASS**（541→-1=fail-stop test 削除・回帰 0）。自変更 tsc 新規 0・baseline 55（不変）。
+
+**■ 必須充足**: accept は consumed のみ✓ / dismiss は rejected のみ✓ / later は no-op✓ / reflection・anchor・generateComplete を executor から完全除去✓ / response に seedRef/UUID/raw/source_ref 非出✓ / existing tests を新設計に整合✓。
+
+**■ しない（A1-6-5a 範囲外）**: DB write / RPC / route / UI / migration / production / external_anchor / raw 保存 / remote。
+
+**■ 次**: consumed seed → DraftPlan computation の pure 設計（reflection の read 側）。
+
+> A1-5-0…§9.5 / **A1-6-5a Accept Reflection Correction（landed・§9.6・**A1-6-3/A1-6-4 の誤った plan_reflection op を削除し status-only に修正・DB write/route/UI 不変**・CEO 暫定方針 status-only accept）。CEO 暫定方針: accept=status consumed のみ/external_anchor 使わない/generateComplete を executor で呼ばない/consumed seed は read/computation 側で DraftPlan 反映/初期 label は privacy-safe generic/raw・source_ref 保存しない/richer label・user naming は後続。監査: PlanReflectionOperation/applyPlanReflection/plan_reflection/reflection_failed は本流 2 ファイル+test のみ(外部消費者なし)→安全削除。修正(surgical・2 source+2 test): candidate-action-orchestrator(PlanReflectionOperation 削除・CandidateOperation=StatusTransitionOperation・CandidateOperationPlan に reflectsToPlan 追加[outcome 伝播・response フラグ]・planCandidateActionOperations は status_transition のみ push→accept=[status(active→consumed)]+reflectsToPlan true/dismiss=[status(active→rejected)]/later=[])・candidate-action-executor(applyPlanReflection 削除[applyStatusTransition のみ]・executeCandidateOperationPlan は reflection 分岐削除・reflectsToPlan は plan 伝播・reflection_failed 廃止→status UPDATE のみ・anchor write なし)。tests 修正: A1-6-3(accept→status のみ・reflectsToPlan 検証・redaction に external_anchor/plan_reflection 非出)・A1-6-4(fakeExecutor から reflection 削除・fail-stop test 削除・status_conflict は status のみ call・reflectsToPlan plan 伝播)。reality 540(541→-1=fail-stop test 削除・回帰 0)・自変更 tsc 新規 0(baseline 55 不変)。必須充足: accept は consumed のみ✓/dismiss は rejected のみ✓/later は no-op✓/reflection·anchor·generateComplete を executor から完全除去✓/response に seedRef·UUID·raw·source_ref 非出✓/existing tests を新設計に整合✓。DB write 0/RPC 0/route 0/UI 0/migration 0/production 0/external_anchor 0/raw 保存 0/remote 0**。**誤設計の plan_reflection を除去し executor は status-only で大幅単純化・安全化。accept=status→consumed のみで reflection は read/computation 側の責務に分離**。次は **consumed seed → DraftPlan computation の pure 設計(reflection の read 側)**。**DB write/RPC/route/UI/migration/production/external_anchor/raw 保存/remote は別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
 > A1-5-0…§9.4 / **A1-6-5R Candidate→Plan Reflection 設計修正（no-write design・§9.5・accept reflection の正しい永続化を pure 設計・A1-6-5 real executor は CEO 判断で保留）。監査で A1-6-3/A1-6-4 が design から引き継いだ misdesign 判明: accept=status→consumed+plan_reflection(generateComplete→create_external_anchor_bundle)は成立しない[①型不一致: generateComplete=gap-fitting 可動 CandidateDraft vs create_external_anchor_bundle=固定 ExternalAnchor ②title 源なし: external_anchors title 必須・seed は column-restricted ③時刻なし: candidate は band のみ ④table 用途違い: external_anchors=確認済み外部 import(confirmed_at 不変条件)]。データモデル監査: plan は computed(draft_plan/plan_item table なし)・PlanSeedStatus consumed=「DraftPlan に組み込まれた」・既存 read は active のみ(consumed 組込 read 未実装)・status 遷移 write も未実装(capture-write-policy が future slice 明記)。正しい reflection モデル(修正案): accept に別 reflection write(anchor)は不要・reflection=status→consumed + DraftPlan computation が consumed seed を組み込む。executor(write)=status のみ(accept→consumed/dismiss→rejected/later→no-op・generateComplete も anchor write も executor で呼ばない)・reflection(read/computation)=DraftPlan computation が consumed seed を読み plan item render(generateComplete は computation 側 gap-fitting)・external_anchor は無関係(外部 import 専用)。A1-6-3/A1-6-4 修正(resume 時・本スライスでは code 不変): plan_reflection op 削除(accept=[status_transition(active→consumed)]のみ)・applyPlanReflection 削除(applyStatusTransition のみ)→executor 大幅単純化・安全化。未解決 product/privacy(CEO へ surface): consumed seed の label(column-restricted で raw 捨てた・generic/最小 label/accept 時命名)・plan computation を consumed 読みに拡張・band→time placement・accept UI 性質。code 変更 0/DB write 0/real executor 0/migration 0/production 0**。**accept reflection は anchor write でなく status→consumed + computed DraftPlan の consumed 組込が正・executor は status-only で大幅単純化。A1-6-3/A1-6-4 の plan_reflection は誤設計→resume 時削除**。次は **product/privacy 判断(label/consumed read 拡張/placement) → reflection computation 設計 → A1-6-3/A1-6-4 修正 → A1-6-5 resume(status-only executor + smoke)**。**code 変更/DB write/real executor/migration/production/remote は別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
