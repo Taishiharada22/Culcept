@@ -1740,7 +1740,31 @@ A1-7-0: accept / dismiss / later を単なる status 遷移（A1-6-0 `decideCand
 
 **■ しない（範囲外）**: PRM 永続化 / 集約 / DB write / persistence / route 接続 / Home 本線 / production / env / remote / migration / LLM / 性格·嗜好の断定。
 
-**■ 次段（学習に変える入口・別 GO）**: dry-run events を**集約**し文脈との相関で hypothesis を強化/弱化する **disambiguation 層**（still pure/dry-run）→ dev-report で観測 → PRM dry-run（§3）。
+**■ 次段（学習に変える入口・別 GO）**: dry-run events を**集約**し文脈との相関で hypothesis を強化/弱化する **disambiguation 層**（still pure/dry-run）→ dev-report で観測 → PRM dry-run（§3）。→ **§10.1 A1-7-1 で実装**。
+
+### 10.1 A1-7-1 実装（landed）— Dry-run Event Aggregation + Hypothesis Disambiguation（pure・no-persist）
+
+A1-7-1: A1-7-0 の dry-run events（個別・曖昧・非断定）を **in-memory で集約**し、**文脈との相関で hypothesis を disambiguate** して **tentative pattern report** を出す pure layer。「学習に変える入口」（reaction → tentative pattern）。**PRM 保存 / DB write しない**（dry-run・dev-report 観測用）。**pure / local / no-persist / no-DB / no-LLM / no-route / no-Home**。
+
+**■ aggregation schema（`lib/plan/reality/learning/dry-run-aggregation.ts`）**:
+- `aggregateDryRunEvents(events, opts?)` → `TentativePatternReport`（`kind="tentative_pattern_report"`＝未永続化 marker / `assertsPersonality=false`）。
+- 4 文脈次元（**univariate**）: `band` / `durationBucket`（short≤30 / medium≤90 / long / unknown）/ `confidence` / `source`。各次元で文脈値ごとに group 化、`minEvents`（既定 3）以上のみ pattern 化（少数では断定しない）。出力は value 昇順 sort で deterministic。
+- `TentativePattern`: dimension / value / dominantAction / signal / eventCount / dominantCount / **counterCount（counter-evidence）** / consistency（mixed/leaning/consistent）/ **favoredHypothesis** / **stillPossible（他の可能性を残す）** / **certainty（"low"|"tentative"・high なし）** / assertsPreference=false / note（controlled hypothesis-tone）。
+
+**■ disambiguation rule（核心・controlled）**: (dominantAction, dimension) → favored hypothesis。
+- timing 系次元（band / durationBucket）+ dismiss → `not_now`（活動の拒否でなく「いつ/どれだけ」の問題）/ + later → `timing_uncertain`。
+- framing 系次元（confidence / source）+ dismiss → `mismatch_unknown`（system は確信したのに不採用＝提示のズレ）/ + accept → `accepted_for_plan`。
+- favored は必ず該当 action の hypothesis 集合内。残りは `stillPossible` で保持（潰さない）＝**同じ dismiss でも band 次元なら not_now / confidence 次元なら mismatch_unknown に分岐**。
+
+**■ 非断定 / counter-evidence / bounded certainty**: 1 件では断定しない（minEvents）。counter-evidence（`counterCount`）を必ず保持し、一貫性 ratio≥0.75 のみ `tentative` に昇格（**最大 tentative・100% 一貫でも high にしない**）。性格・嗜好を断定しない（構造保証）。
+
+**■ 検証**: reality 705 PASS（696→+9）・自変更 tsc 新規 0・baseline 55。fake fixtures で disambiguation（band→not_now / confidence→mismatch_unknown）・counter-evidence（mixed→low/counterCount）・certainty 上限 tentative・duration bucket・非断定/未永続化・pure deterministic を証明。
+
+**■ しない（範囲外）**: PRM 永続化 / 集約結果 persist / DB write / route / Home 本線 / production / env / remote / migration / LLM / 多変量集約 / 性格·嗜好の断定。
+
+**■ 次段（dev-report・別 GO）**: tentative pattern report を **dev 限定 preview（三重ガード）** で可視化し、CEO/dev が学習品質を shadow 観測 → 検証 PASS 後に PRM dry-run（§3・別 GO・DB=CEO 承認）。
+
+> A1-5-0…§10.0 / **A1-7-1 Dry-run Event Aggregation + Hypothesis Disambiguation（landed・§10.1・**A1-7-0 dry-run events を in-memory 集約し文脈相関で hypothesis を disambiguate→tentative pattern report・「学習に変える入口」・PRM 保存/DB write なし・pure/local/no-persist/no-DB/no-LLM/no-route/no-Home**・A1-7-1 完了）。schema(lib/plan/reality/learning/dry-run-aggregation.ts): aggregateDryRunEvents(events,opts?)→TentativePatternReport(kind=tentative_pattern_report=未永続化 marker/assertsPersonality=false)・4 文脈次元 univariate(band/durationBucket[short≤30/medium≤90/long/unknown]/confidence/source)で文脈値 group 化・minEvents(既定3)以上のみ pattern 化(少数は断定しない)・value 昇順 sort で deterministic・TentativePattern(dimension/value/dominantAction/signal/eventCount/dominantCount/counterCount[counter-evidence]/consistency[mixed/leaning/consistent]/favoredHypothesis/stillPossible[潰さない]/certainty["low"|"tentative"・high なし]/assertsPreference=false/note[controlled tone])。disambiguation rule(controlled): timing 系(band/durationBucket)+dismiss→not_now/+later→timing_uncertain・framing 系(confidence/source)+dismiss→mismatch_unknown/+accept→accepted_for_plan・favored は該当 action の hypothesis 内・残りは stillPossible 保持=同じ dismiss でも band 次元 not_now/confidence 次元 mismatch_unknown に分岐。非断定/counter-evidence/bounded: 1 件で断定せず minEvents・counterCount 保持・ratio≥0.75 のみ tentative 昇格(100% でも high にしない)。検証: reality 705 PASS(696→+9)・自変更 tsc 新規 0(baseline 55)・fake fixtures で disambiguation/counter-evidence/certainty 上限/duration bucket/非断定/未永続化/pure deterministic 証明**。**reaction を tentative pattern に変える入口を非断定で実装・context が hypothesis を disambiguate・certainty 上限 tentative で構造的に過断定を防ぐ**。次は **dev-report(tentative pattern を dev 限定 preview で可視化し学習品質を shadow 観測・別 GO)→検証後 PRM dry-run(§3・DB=CEO 承認)**。**PRM 永続化/集約 persist/DB write/route/Home 本線/production/env/remote/migration/LLM/性格·嗜好断定は別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
 > A1-5-0…§9.19 / **A1-7-0 Candidate Action Outcome → PRM Dry-run Learning Event（landed・§10.0・**accept/dismiss/later を status 遷移で終わらせず非断定の structured learning event 候補に変換する pure transform・PRM 永続化でなく dry-run foundation・pure/local/no-DB/no-persist/no-LLM/no-route/no-Home**・A1-7-0 完了）。設計思想: 単一 action は弱く曖昧な証拠ゆえ単一の意味に潰さず複数 hypothesis を保持+文脈記録で将来 cross-event 相関 disambiguation(negative capability・observed>inferred)。実装(lib/plan/reality/learning/dry-run-learning-event.ts・pure): toDryRunLearningEvent(ctx,action,actedAtISO?)→DryRunLearningEvent(kind=dry_run_learning_event=未永続化 marker)・signal(中立) accept=adoption/dismiss=non_adoption(≠negative)/later=deferral・hypotheses(潰さない) accept=[accepted_for_plan,positive_signal]/dismiss=[not_selected,not_now,mismatch_unknown]/later=[postpone_signal,timing_uncertain]・非断定の構造的保証 certainty=low+assertsPreference=false(rejected≠嫌い/consumed≠選好確定/deferred≠拒否)・文脈 handle(opaque)/desiredDate/band/confidenceBand/durationMin/sourceKind/sourceLabel・actedAtISO 注入(Date.now 不使用)・hypothesisLabel controlled tone・toDryRunLearningEvents batch。検証: reality 696 PASS(683→+13)・自変更 tsc 新規 0(baseline 55)・fake fixtures で 3 action event 化/非断定/文脈記録/Date.now 不使用/pure deterministic 証明**。**reaction を「学習」に変える foundation を非断定で実装・PRM 永続化でなく dry-run 候補のみ**。次は **学習に変える入口(dry-run events 集約→文脈相関で hypothesis disambiguation→dev-report 観測・別 GO)**。**PRM 永続化/集約/DB write/route/Home 本線/production/env/remote/migration/LLM/性格·嗜好断定は別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
