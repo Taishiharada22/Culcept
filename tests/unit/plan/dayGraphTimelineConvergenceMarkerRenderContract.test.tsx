@@ -59,6 +59,65 @@ describe("DayGraphTimeline convergence marker — render", () => {
   });
 });
 
+// ── Batch 3 F1: convergence marker 見出しの factor 別出し分け ──
+describe("DayGraphTimeline convergence marker — Batch 3 F1 factor 別見出し", () => {
+  const factorsAt = (i: number, f: readonly ConvergenceFactor[]): ReadonlyMap<number, readonly ConvergenceFactor[]> =>
+    new Map([[i, f]]);
+  const countMarker = (h: string) => (h.match(/day-graph-convergence-marker/g) ?? []).length;
+
+  it("F1-a. buffer_short 含む → 既存「重なりやすい」（時間が重なりうる＝正しい）", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])}
+        convergenceFactorsByTransitionIndex={factorsAt(0, ["buffer_short", "strain_high"])} />,
+    );
+    expect(html).toContain("day-graph-convergence-marker");
+    expect(html).toContain("予定が重なりやすいかもしれません");
+  });
+
+  it("F1-b. ★buffer なし strain+friction → 「移動と予定が立て込みやすい」（重なりやすい を使わない＝mismatch 解消）", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])}
+        convergenceFactorsByTransitionIndex={factorsAt(0, ["strain_high", "friction_high"])} />,
+    );
+    expect(html).toContain("day-graph-convergence-marker");
+    expect(html).toContain("移動と予定が立て込みやすいかもしれません");
+    expect(html).not.toContain("重なりやすい");
+  });
+
+  it("F1-c. factors 不在 → 既存「重なりやすい」へ degrade（marker は非消失＝挙動不変）", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])} />,
+    );
+    expect(html).toContain("day-graph-convergence-marker");
+    expect(html).toContain("予定が重なりやすいかもしれません");
+  });
+
+  it("F1-d. ★HARD GATE: 見出し分岐で marker 数は不変（buffer/no-buffer どちらも 1 marker・増減なし）", () => {
+    const overlap = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])}
+        convergenceFactorsByTransitionIndex={factorsAt(0, ["buffer_short", "strain_high"])} />,
+    );
+    const packed = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])}
+        convergenceFactorsByTransitionIndex={factorsAt(0, ["strain_high", "friction_high"])} />,
+    );
+    expect(countMarker(overlap)).toBeGreaterThan(0);
+    expect(countMarker(overlap)).toBe(countMarker(packed)); // 挙動（marker 数）不変
+  });
+
+  it("F1-e. no-buffer 見出しも仮説トーン・警告色/断定語なし", () => {
+    const html = renderToStaticMarkup(
+      <DayGraphTimeline result={movement} view="user_self" convergenceSteps={new Set([0])}
+        convergenceFactorsByTransitionIndex={factorsAt(0, ["strain_high", "friction_high"])} />,
+    );
+    expect(html).toContain("かもしれません");
+    expect(html).not.toContain("amber");
+    expect(html).not.toContain("orange");
+    expect(html).not.toContain("危険");
+    expect(html).not.toContain("詰まり"); // やや警告的ゆえ回避（CEO 方針）
+  });
+});
+
 describe("DayGraphTimeline convergence marker — 構造 invariants", () => {
   const content = readFileSync("app/(culcept)/plan/components/DayGraphTimeline.tsx", "utf-8");
 
@@ -76,6 +135,17 @@ describe("DayGraphTimeline convergence marker — 構造 invariants", () => {
     const region = content.slice(idx, idx + 800);
     expect(region).not.toMatch(/amber|orange|bg-red|text-red/);
     expect(region).toContain("text-slate-400");
+  });
+
+  it("Batch 3 F1: ConvergenceMarkerLine は buildConvergenceMarkerHeadline で factor 別に出し分け", () => {
+    const idx = content.indexOf("function ConvergenceMarkerLine");
+    const region = content.slice(idx, idx + 800);
+    expect(region).toContain("buildConvergenceMarkerHeadline");
+    expect(region).toMatch(/factors/); // factor prop を受ける
+  });
+
+  it("Batch 3 F1: marker 描画は factors を渡す（call site）", () => {
+    expect(content).toMatch(/<ConvergenceMarkerLine[\s\S]{0,80}factors=\{convergenceFactors\}/);
   });
 });
 

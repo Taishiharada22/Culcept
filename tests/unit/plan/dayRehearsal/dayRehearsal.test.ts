@@ -3,7 +3,7 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy, type RehearsalTravelView } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker, buildConvergenceMarkerHeadline, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy, type RehearsalTravelView } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
@@ -498,6 +498,46 @@ describe("explainConvergenceMarker", () => {
     const s = explainConvergenceMarker(["buffer_short", "strain_high"] as const);
     expect(s).not.toContain("重なりやすさ");
     expect(s).not.toContain("詰まりやすさ");
+  });
+});
+
+// ───────────────────────── buildConvergenceMarkerHeadline（Batch 3 F1・factor 別見出し） ─────────────────────────
+
+describe("buildConvergenceMarkerHeadline（Batch 3 F1）", () => {
+  const OVERLAP = "この前後は予定が重なりやすいかもしれません";
+  const PACKED = "この前後は移動と予定が立て込みやすいかもしれません";
+
+  it("MH1. buffer_short + strain_high → 既存「重なりやすい」（時間が重なりうる＝正しい）", () => {
+    expect(buildConvergenceMarkerHeadline(["buffer_short", "strain_high"] as const)).toBe(OVERLAP);
+  });
+  it("MH2. buffer_short + friction_high → 「重なりやすい」（buffer 含むので overlap 語）", () => {
+    expect(buildConvergenceMarkerHeadline(["buffer_short", "friction_high"] as const)).toBe(OVERLAP);
+  });
+  it("MH3. buffer_short + strain_high + friction_high（3 factor）→ 「重なりやすい」", () => {
+    expect(buildConvergenceMarkerHeadline(["buffer_short", "strain_high", "friction_high"] as const)).toBe(OVERLAP);
+  });
+  it("MH4. ★strain_high + friction_high（buffer なし・余白145分の例）→ 「移動と予定が立て込みやすい」（重なりやすい を使わない）", () => {
+    const s = buildConvergenceMarkerHeadline(["strain_high", "friction_high"] as const);
+    expect(s).toBe(PACKED);
+    expect(s).not.toContain("重なりやすい"); // mismatch の中核を解消
+  });
+  it("MH5. 入力順不同でも buffer_short 含めば overlap（friction→strain→buffer）", () => {
+    expect(buildConvergenceMarkerHeadline(["friction_high", "strain_high", "buffer_short"] as const)).toBe(OVERLAP);
+  });
+  it("MH6. 空 factors → existing degrade（marker 非消失のため既存「重なりやすい」）", () => {
+    expect(buildConvergenceMarkerHeadline([])).toBe(OVERLAP);
+  });
+  it("MH7. 「詰まりやすい」は使わない（やや警告的ゆえ回避・CEO 方針）", () => {
+    expect(buildConvergenceMarkerHeadline(["strain_high", "friction_high"] as const)).not.toContain("詰まり");
+  });
+  it("MH8. 生スコア・数値・level 名・警告/診断/断定語を含まない（両見出し）", () => {
+    for (const f of [["buffer_short", "strain_high"], ["strain_high", "friction_high"]] as const) {
+      const s = buildConvergenceMarkerHeadline(f);
+      expect(s).not.toMatch(/\d/); // 生数字なし
+      expect(s).not.toMatch(/high|moderate|low|score|slack|shortfall/i); // level/内部名なし
+      expect(s).not.toMatch(/危険|警告|失敗|疲れ|壊れ|診断|最適化|予測|予想|推奨|必ず|絶対/); // 断定/警告/診断なし
+      expect(s.endsWith("かもしれません")).toBe(true); // 仮説トーン
+    }
   });
 });
 

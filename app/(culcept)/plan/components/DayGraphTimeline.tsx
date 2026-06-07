@@ -43,7 +43,7 @@ import type {
 } from "@/lib/plan/dayGraph/dayGraphTypes";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
-import { explainConvergenceMarker } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { explainConvergenceMarker, buildConvergenceMarkerHeadline } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -316,7 +316,7 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
              */}
             {(props.convergenceSteps?.has(transitionIndex) ?? false) &&
               !transitionView.sensitiveProximity && (
-                <ConvergenceMarkerLine transitionIndex={transitionIndex} />
+                <ConvergenceMarkerLine transitionIndex={transitionIndex} factors={convergenceFactors} />
               )}
             {/*
              * Day Rehearsal WPM-2b: 「一息つけそう」recovery marker（真の余白 slack≥閾値・read-only）。
@@ -648,24 +648,34 @@ function FeasibilityDisclosureLine({
 
 interface ConvergenceMarkerLineProps {
   readonly transitionIndex: number;
+  /**
+   * ★Batch 3 F1: convergence の factor 構成（見出し出し分け用）。
+   * buffer_short あり→「重なりやすい」/ なし→「移動と予定が立て込みやすい」。
+   * undefined（should-never-happen・構築上 convergenceSteps と同 key）は既存文に degrade（marker 非消失）。
+   */
+  readonly factors?: readonly ConvergenceFactor[];
 }
 
 /**
  * Day Rehearsal WPM-1: 「詰まりやすい」transition の read-only marker 行。
  * 仮説トーン・slate 中立・amber/orange 系の色/icon/生スコアなし（FeasibilityDisclosureLine と同階調・layout 非破壊）。
+ * ★Batch 3 F1: 見出しは factor 構成で出し分け（buffer_short の有無）。挙動（marker の有無）は不変。
  */
 function ConvergenceMarkerLine({
   transitionIndex,
+  factors,
 }: ConvergenceMarkerLineProps): ReactElement {
+  // factors 不在は既存文へ degrade（marker は非消失が原則）。
+  const headline = factors ? buildConvergenceMarkerHeadline(factors) : "この前後は予定が重なりやすいかもしれません";
   return (
     <li
       role="listitem"
       id={`day-rehearsal-convergence-${transitionIndex}`}
-      aria-label="この前後は予定が重なりやすいかもしれません"
+      aria-label={headline}
       className="text-xs italic text-slate-400 pl-8"
       data-testid="day-graph-convergence-marker"
     >
-      この前後は予定が重なりやすいかもしれません
+      {headline}
     </li>
   );
 }
