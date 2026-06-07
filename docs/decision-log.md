@@ -15400,12 +15400,15 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 
 ---
 
-## [2026-06-07] [Build] Day Rehearsal Repair Candidate — dedup mini design（設計のみ・実装なし・停止）[CEO 指示]
-- 目的: 同 kind 同一文の重複（busy 日に「この移動の前後は…」等が複数並ぶ）への設計検討。実装はしない。
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — dedup（案A 実装・main 着地完了）[承認: CEO GO]
+- 目的: 同 kind 同一文の重複（busy 日に「この移動の前後は…」等が複数並ぶ）の解消。**案A で実装 → main 着地。**
+- **main 着地済（squash・main HEAD `db70d018`・親 `94c413b7`）。** 実機 smoke PASS（CEO+自己監査・6/7 で 3 種併存/重複なし/最大3）。code branch `claude/dr-repair-dedup`（HEAD `9986befb`）保持。
+- 実装: `dedupeRepairCandidates(cands)` pure helper（同 kind は先頭のみ・copy/evidence/targetStepIndex 代表保持・無改変）+ CalendarTab `prioritize(dedupe(generate(...)))`。generation/prioritize(P1-P5)/型/preview/banner UI 不変。
+- 検証: dayRehearsal dir + render contract **115 PASS**（新規 D1-D9）・**plan suite 5024 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（明示パス commit・別セッション WIP 不接触）。production 挙動=重複行が減るのみ。
 - ★finding: 生成は step ごとに push → 同 kind は複数 step で発火 → kind 固定 COPY で**同一文が並ぶ**（production でも leave_earlier/confirm_uncertain/use_recovery_window で起こりうる）。候補文は移動を指さない（anchor 無し）→ 同一文 2 本は 1 本と同じ情報＝ノイズ。
 - 推奨 = **display 段で同 kind→代表1件に集約**（copy 無改変・read-only）。generation は full-fidelity 維持（将来 per-row anchoring 両立）。集約は **prioritize と別の composable `dedupeRepairCandidates`**（既存 prioritize/P3 契約不変）。CalendarTab で `prioritize(dedupe(generate(...)))`。
 - max-3 と矛盾せず**改善**（top-3 が「3 行」→「3 種の示唆」＝kind 多様性↑）。qualitative-plural（「いくつかの…」）は別オプション・数値出さない・v1.1 非推奨。
-- CEO 5 問（複数並ぶか/まとめるか/異 targetStepIndex 扱い/max-3 矛盾/copy 安全）に回答・判断点 5。doc: `docs/second-self-map-day-rehearsal-repair-dedup-mini-design.md`。
-- 状態: **mini design 提出で停止**。dedup 実装は CEO GO 後。push/PR/Vercel/DB/予定変更/実行 不接触。
+- CEO 5 問（複数並ぶか/まとめるか/異 targetStepIndex 扱い/max-3 矛盾/copy 安全）に回答・実装。doc+closeout: `docs/second-self-map-day-rehearsal-repair-dedup-mini-design.md`。
+- 状態: **main 着地完了・実機 smoke PASS**。次=Repair Candidate full-path audit（実装なし）。push/PR/Vercel/DB/予定変更/実行 不接触。
 
 ---

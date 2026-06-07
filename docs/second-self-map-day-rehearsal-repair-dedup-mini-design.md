@@ -1,6 +1,6 @@
-# Day Rehearsal Repair Candidate — dedup mini design（設計のみ・実装は次 GO）
+# Day Rehearsal Repair Candidate — dedup mini design + closeout（案A 実装・main 着地済）
 
-> 2026-06-07 / **設計のみ・実装しない** / 前提: Repair v1（target-aware copy）main live（`25337696`）。`generateDayRepairCandidates` は step ごとに候補を push・`prioritizeRepairCandidates`（kind 優先度 stable sort + cap 3）で表示整形 → DayOutlookBanner が `c.suggestion` を list 描画。
+> 2026-06-07 / **mini design（§1-5）→ 案A 実装 → main 着地完了（§6）** / 前提: Repair v1（target-aware copy）main live（`25337696`）。`generateDayRepairCandidates` は step ごとに候補を push・`prioritizeRepairCandidates`（kind 優先度 stable sort + cap 3）で表示整形 → DayOutlookBanner が `c.suggestion` を list 描画。
 
 ---
 
@@ -69,3 +69,16 @@
 3. dedup は **display 専用（generation full-fidelity 維持）** で良いか（将来 per-row anchoring 両立のため推奨）。
 4. 集約関数を **prioritize と別（composable）** にするか / prioritize に内蔵するか（後者は P3 契約変更）。
 5. 代表の evidence/targetStepIndex は **先頭保持（v0 単純）** で良いか / union するか。
+
+---
+
+## 6. 実装 closeout（案A・main 着地完了）
+- **CEO GO（案A）**: generation full-fidelity 維持 / display で同 kind→代表1件 / copy 無改変 / evidence 代表保持 / qualitative-plural なし / `prioritize(dedupe(generate(...)))`。
+- **main 着地済（squash・main HEAD `db70d018`・親 `94c413b7`）。** code branch `claude/dr-repair-dedup`（HEAD `9986befb`）保持。
+- 実装:
+  - `lib/plan/dayRehearsal/dayRepairCandidates.ts`: `dedupeRepairCandidates(cands)` 追加（同 kind は先頭=step 順の最初のみ採用・Set で重複除去・代表の suggestion/targetStepIndex/evidence をそのまま保持＝copy 無改変・pure・Date 不使用）。generation/prioritize/型/preview は不変。
+  - `app/(culcept)/plan/tabs/CalendarTab.tsx`: `prioritizeRepairCandidates(dedupeRepairCandidates(generateDayRepairCandidates(dayRehearsal, { recoverySteps })), 3)`（import 1 + 合成 1 行）。banner UI 不変。
+- 検証: dayRehearsal dir + render contract **115 PASS**（新規 **D1-D9**: 同 kind→1 / 異 kind 全残 / 順序保持 / 代表=先頭・copy 無改変 / reduce_density 不変 / 空 / pure（入力不破壊）/ **D8 統合 prioritize(dedupe)=同一文並ばず・3 種・≤3** / **D9 旧 3 件↔新 1 件**）・**plan suite 5024 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（main↔branch diff 空・明示パス commit で別セッション WIP 不接触）。
+- 実機 smoke PASS（CEO + 自己監査）: 6/7 banner「どうするとよさそう？」に leave_earlier + use_recovery_window + reduce_density の **3 種が重複なく併存**・最大3・read-only・既存「なぜ?」/outlook/marker 非破壊。
+- production 挙動 = **重複行が減るのみ**（候補の種類/優先度/evidence/copy 不変・予定変更/repair 実行なし）。
+- 次 = **Repair Candidate full-path audit**（実装なし・別 doc）: protect_buffer の Option D 不到達を許容するか / raw feasibility・full path 解放の是非。
