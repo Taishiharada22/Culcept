@@ -57,7 +57,7 @@ pure layer(`f1e87f39`) → 配線(`d9354db4`) → WPM-1 詰まり marker(`1414bf
 | S2-B | レパートリー学習（L1） | ✅ done | `3d3d24a8` |
 | L3 | 選択的忘却（regime-change） | ✅ done | L3-a/b-1 live・b-2 pure(配線 gated) |
 | L4 | cold-start partial-pooling | ✅ done | `93aa5653`+`44633d16` |
-| **S6-0** | ★**理由観測 UI**（推奨と違う選択時の 1-tap 理由: 疲れ/景色/安い/急ぎ/気分） | ❌ **未**（UI 不在・hypothesisFeedbackStore に reason field なし） | **★SOUL BLOCKER・Phase A 最優先**（M5/堀②の前提） |
+| **S6-0** | ★**理由観測 UI**（推奨と違う選択時の 1-tap 理由: 疲れ/景色/安い/急ぎ/気分/その他） | ✅ **done**（`759a983b`・local reason capture・explicitCorrection 時のみ・任意/可逆） | 魂の第一歩 done。次=reason→local insight（pure）→ gentle reflection（smoke gate）→ Alter/Stargazer（gated） |
 | **S6/L2** | 選択理由フック・Alter 接続（correction-via-explanation 完全形） | ⏳ **partial**（feedback の kind 記録のみ・**理由観測・Alter 接続ともに未**） | 残・Phase A（S6-0 依存） |
 | **S4/L5** | 天候バッジ WALK LESS・文脈条件付け | ⏳ **partial（model logic はあるが配線断絶 0/3）**: mobilityHypothesis に contextNote 生成あり・test PASS だが MapTab が weather を渡さない（空 context）・UI 非表示。要 ①JMA fetch ②buildMobilityHypothesis へ渡す ③UI surface | 残・Phase A |
 | S5 | 1日成立チェック | ✅ done | Day Rehearsal viability |

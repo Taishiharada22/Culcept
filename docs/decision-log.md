@@ -15633,3 +15633,9 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 結果: mobility belief/Day Rehearsal core/repair・what-if/MapTab redesign = **トップレベル plan 漏れなし**(defer/較正 backlog 既載・旧 what-if UI 形態 CEO 判断点は Batch4 NO-GO + leave_earlier UI で解決済)。
 - ★唯一の発掘: **Reality/介入層を Phase C に丸めすぎて具体未決を落としていた**(Reality coordination 未開始/gap-vs-node A/B/C 未決/recovery_core slack≥60min 未承認/canary 前チェック[banner runbook stale・seed・NODE_ENV block]/protectedGaps plumbing NO-GO/INV-17 owning 曖昧)。→ roadmap §4「★C 起動時に解く具体未決」に doc 参照付きで保全・§8.6 に全読記録。
 - → 68 本全読了・cross-check 済。漏れは Reality 粒度のみで保全済。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] A0 理由観測（local reason capture）main 着地 [承認: CEO smoke PASS]
+- 魂(自己理解ループ)の第一歩。推奨と違う選択の「なぜ」を local 捕捉。store に MobilityReason(疲れ/景色/安い/急ぎ/気分/その他・free text なし)+reason? additive(後方互換)+helper(setFeedbackReason は entry 不在 leg で no-op)。MobilityLegCard に explicitCorrection 時のみ inline chip(任意/可逆/dismissible/modal でない/readOnly 非表示)。MapTab 配線。
+- ★scope 厳守: Alter/Stargazer/DB/belief 学習反映なし・人格ラベルなし(per-leg 文脈)・捏造なし(1-tap)。HARD GATE 全 PASS(explicitCorrection のみ/sensitive 非表示/後方互換/人格診断化なし)。
+- 検証 R1-R8+A0-1〜7+plan suite 5131 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss(main 32 PASS)。main `759a983b`・code branch `claude/dr-a0-reason`(`c62c3a04`)。smoke-force(一時)は revert 済。closeout `…-a0-reason-capture-closeout.md`。
+- ★**CEO 方針更新(2026-06-08): 自律バッチ制**。small scope は内部で切る・低リスク同一目的同一層はまとめて進める・plan→実装→自己監査→test/tsc→closeout→次 plan を自律。停止境界=production/Vercel/deploy・GitHub push/PR/merge・DB/migration/RLS・env・外部API/Google/Calendar/Reality apply・予定変更・大 UI で smoke 要・仕様判断・test/tsc/lint 失敗・scope 拡張・設計矛盾・破壊的 git。各報告に 6 点(実装/未実装/test・tsc/不接触確認/次 plan/stop gate 該当)。
