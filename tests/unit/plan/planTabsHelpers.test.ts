@@ -33,6 +33,7 @@ import {
   suggestGapStartTime,
   minutesOf,
   utcMidnight,
+  jstTodayUtcMidnight,
   WEEKDAY_LABELS,
 } from "@/app/(culcept)/plan/tabs/_helpers";
 
@@ -87,6 +88,17 @@ describe("Date helpers", () => {
   it("utcMidnight strips time", () => {
     const d = new Date("2026-04-08T15:42:13.123Z");
     expect(utcMidnight(d).toISOString()).toBe("2026-04-08T00:00:00.000Z");
+  });
+
+  it("★jstTodayUtcMidnight: JST 早朝(00:00-09:00)は UTC 前日でも JST 暦日になる", () => {
+    // 2026-06-08 04:15 JST = 2026-06-07 19:15 UTC（旧 utcMidnight だと 06-07 にズレていた）
+    const earlyMorningJst = new Date("2026-06-07T19:15:00.000Z");
+    expect(jstTodayUtcMidnight(earlyMorningJst).toISOString()).toBe("2026-06-08T00:00:00.000Z");
+    expect(utcMidnight(earlyMorningJst).toISOString()).toBe("2026-06-07T00:00:00.000Z"); // 旧バグの確認
+  });
+  it("★jstTodayUtcMidnight: JST 深夜(直前)も同日・JST 日跨ぎで翌日", () => {
+    expect(jstTodayUtcMidnight(new Date("2026-06-08T14:30:00.000Z")).toISOString()).toBe("2026-06-08T00:00:00.000Z"); // 23:30 JST 6/8
+    expect(jstTodayUtcMidnight(new Date("2026-06-08T15:30:00.000Z")).toISOString()).toBe("2026-06-09T00:00:00.000Z"); // 00:30 JST 6/9
   });
 
   it("addDays positive", () => {
