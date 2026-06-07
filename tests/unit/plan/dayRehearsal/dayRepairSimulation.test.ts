@@ -3,7 +3,7 @@
  * 分類（eases/preserves/uncertain/ambiguous）/ 捏造なし / read-only / 仮説トーン を検証。
  */
 import { describe, it, expect } from "vitest";
-import { previewRepairSimulation, previewRepairSimulations } from "@/lib/plan/dayRehearsal/dayRepairSimulation";
+import { previewRepairSimulation, previewRepairSimulations, repairSimulationShortLine } from "@/lib/plan/dayRehearsal/dayRepairSimulation";
 import type { RehearsalInput, RehearsalStep, RehearsalTransitionInput } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayRepairCandidate, DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 
@@ -124,6 +124,61 @@ describe("previewRepairSimulation — 安全性（捏造なし・read-only・仮
     const a = previewRepairSimulation(singleInsufficient(), cand("leave_earlier", 0));
     const b = previewRepairSimulation(singleInsufficient(), cand("leave_earlier", 0));
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+});
+
+// 長距離移動の不足: strain も高くなり buffer 解消後も marker 残る（localEased false）
+const INSUFFICIENT_LONG = { bufferStatus: "insufficient" as const, slackMin: null, shortfallMin: 40, travelMin: 90 };
+const multiLong = (): RehearsalInput => ({
+  date: "2026-06-08", dayMood: "heavy", density: "packed", baseEnergyLevel: null,
+  steps: [
+    { event: ev("a"), transitionAfter: tr(INSUFFICIENT_LONG) },
+    { event: ev("b"), transitionAfter: tr(INSUFFICIENT_LONG) },
+    { event: ev("c"), transitionAfter: null },
+  ],
+});
+
+describe("repairSimulationShortLine — UI 用短文（leave_earlier のみ・非冗長）", () => {
+  const sim = (input: RehearsalInput, kind: Parameters<typeof cand>[0], i: number | null) =>
+    previewRepairSimulation(input, cand(kind, i));
+
+  it("SIM15. leave_earlier 単一解消（local+day 改善）→ 「移動が和らいで…その日全体も…ゆとり」", () => {
+    const line = repairSimulationShortLine(sim(singleInsufficient(), "leave_earlier", 0));
+    expect(line).not.toBeNull();
+    expect(line).toContain("その日全体");
+    expect(line).toContain("ゆとり");
+  });
+  it("SIM16. leave_earlier 複数（local のみ改善）→ 「和らぎそうですが、その日全体はまだ立て込みやすそう」", () => {
+    const line = repairSimulationShortLine(sim(multiInsufficient(), "leave_earlier", 0));
+    expect(line).not.toBeNull();
+    expect(line).toContain("立て込みやすそう"); // day は改善しないことを honest に（過剰主張しない）
+    expect(line).not.toContain("ゆとりが出そう"); // full-ease 文と混同しない
+  });
+  it("SIM17. ★非表示: protect/recovery/confirm/reduce は null（候補文重複 or 試算不可ゆえ出さない）", () => {
+    expect(repairSimulationShortLine(sim(anyInput(), "protect_buffer", 0))).toBeNull();
+    expect(repairSimulationShortLine(sim(anyInput(), "use_recovery_window", 0))).toBeNull();
+    expect(repairSimulationShortLine(sim(anyInput(), "confirm_uncertain", 0))).toBeNull();
+    expect(repairSimulationShortLine(sim(anyInput(), "reduce_density", null))).toBeNull();
+  });
+  it("SIM18. ★HARD GATE: leave_earlier でも local も day も動かない → null（根拠が弱いなら出さない）", () => {
+    const r = sim(multiLong(), "leave_earlier", 0);
+    expect(r.diff!.localEased).toBe(false); // 長距離=strain も高く buffer 解消後も marker 残る
+    expect(r.diff!.outlookEased).toBe(false); // 他に不足
+    expect(repairSimulationShortLine(r)).toBeNull(); // 弱根拠 → 非表示
+  });
+  it("SIM19. short line に生数値/level 名/禁止語なし・仮説トーン", () => {
+    const lines = [
+      repairSimulationShortLine(sim(singleInsufficient(), "leave_earlier", 0)),
+      repairSimulationShortLine(sim(multiInsufficient(), "leave_earlier", 0)),
+    ].filter((x): x is string => x !== null);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const s of lines) {
+      expect(s).not.toMatch(/\d/);
+      expect(s).not.toMatch(/low|moderate|high|holds|tight|breaks|score|slack|shortfall|buffer/i);
+      expect(s).not.toMatch(/改善します|解決します|最適化|適用|保存|危険|警告|必ず|絶対|診断/);
+      expect(s).toContain("試すと"); // CEO 指定の register
+      expect(s).toContain("そう"); // 仮説トーン
+    }
   });
 });
 
