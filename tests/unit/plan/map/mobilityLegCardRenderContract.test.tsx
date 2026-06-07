@@ -3,11 +3,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { MobilityLegCard } from "@/components/plan/map/MobilityLegCard";
 import type { RouteTransportMode } from "@/lib/plan/map/routeMode";
+import type { MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 
 const noop = (): void => undefined;
 
 function render(
-  opts: { selectedMode?: RouteTransportMode; recallMode?: RouteTransportMode; readOnly?: boolean } = {},
+  opts: {
+    selectedMode?: RouteTransportMode;
+    recallMode?: RouteTransportMode;
+    readOnly?: boolean;
+    reasonPromptVisible?: boolean;
+    selectedReason?: MobilityReason | null;
+  } = {},
 ): string {
   return renderToStaticMarkup(
     <MobilityLegCard
@@ -17,8 +24,12 @@ function render(
       selectedMode={opts.selectedMode ?? null}
       recallMode={opts.recallMode ?? null}
       readOnly={opts.readOnly ?? false}
+      reasonPromptVisible={opts.reasonPromptVisible ?? false}
+      selectedReason={opts.selectedReason ?? null}
       onSelect={noop}
       onClose={noop}
+      onReasonSelect={noop}
+      onReasonDismiss={noop}
     />,
   );
 }
@@ -62,5 +73,47 @@ describe("MobilityLegCard render-contract (A5-1)", () => {
   });
   it("squircle icon (svg data URI) が chip 背景に入る", () => {
     expect(render()).toContain("data:image/svg+xml");
+  });
+});
+
+describe("MobilityLegCard — A0 理由観測 chip", () => {
+  it("A0-1. reasonPromptVisible + 編集可 → なぜ変えた？ + 6 理由 label", () => {
+    const html = render({ reasonPromptVisible: true });
+    expect(html).toContain('data-testid="mobility-reason-prompt"');
+    expect(html).toContain("なぜ変えた？");
+    for (const label of ["疲れ", "景色", "安い", "急ぎ", "気分", "その他"]) expect(html).toContain(label);
+  });
+  it("A0-2. reasonPromptVisible=false → prompt を出さない", () => {
+    expect(render()).not.toContain("mobility-reason-prompt");
+    expect(render()).not.toContain("なぜ変えた？");
+  });
+  it("A0-3. ★HARD GATE: readOnly では reasonPromptVisible でも出さない", () => {
+    const html = render({ reasonPromptVisible: true, readOnly: true });
+    expect(html).not.toContain("mobility-reason-prompt");
+  });
+  it("A0-4. selectedReason → その chip が active（aria-pressed / 反転色）", () => {
+    const html = render({ reasonPromptVisible: true, selectedReason: "tired" });
+    const tiredBtn = html.match(/<button[^>]*data-reason="tired"[^>]*>/);
+    expect(tiredBtn).not.toBeNull();
+    expect(tiredBtn![0]).toContain('aria-pressed="true"'); // 該当 chip だけ active
+    expect(tiredBtn![0]).toContain("bg-slate-700"); // active 反転色
+    const sceneryBtn = html.match(/<button[^>]*data-reason="scenery"[^>]*>/);
+    expect(sceneryBtn![0]).toContain('aria-pressed="false"'); // 非選択は非 active
+  });
+  it("A0-5. ★HARD GATE: free text なし（input/textarea を置かない）", () => {
+    const html = render({ reasonPromptVisible: true });
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("<textarea");
+  });
+  it("A0-6. dismiss（閉じる）ボタンがある・modal でない（chips は button のみ）", () => {
+    const html = render({ reasonPromptVisible: true });
+    expect(html).toMatch(/mobility-reason-prompt[\s\S]*aria-label="閉じる"/);
+    expect(html).not.toContain("role=\"dialog\"");
+  });
+  it("A0-7. ★人格ラベルを含まない（trait 断定でなく per-leg 文脈）", () => {
+    const html = render({ reasonPromptVisible: true, selectedReason: "tired" });
+    for (const w of ["あなたはこういう人", "あなたは○", "タイプです", "性格", "傾向があります"]) {
+      expect(html).not.toContain(w);
+    }
   });
 });
