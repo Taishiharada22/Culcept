@@ -3,7 +3,7 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker, DAY_REHEARSAL_FULL_PATH_ENABLED, type RehearsalTravelView } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
@@ -498,5 +498,66 @@ describe("explainConvergenceMarker", () => {
     const s = explainConvergenceMarker(["buffer_short", "strain_high"] as const);
     expect(s).not.toContain("重なりやすさ");
     expect(s).not.toContain("詰まりやすさ");
+  });
+});
+
+describe("buildRehearsalInputFull adapter（Batch 1・実 transport + raw feasibility）", () => {
+  const raw = (views: Array<[number, FeasibilitySlackView]>) => new Map<number, FeasibilitySlackView>(views.map(([i, v]) => [i, v]));
+  const travel = (views: Array<[number, RehearsalTravelView]>) => new Map<number, RehearsalTravelView>(views);
+
+  it("FP1. raw slack + 実 travel を実値で埋める（Option D の degrade を解消）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    const input = buildRehearsalInputFull(
+      g,
+      raw([[0, { transitionIndex: 0, status: "sufficient", slackMin: 45 }]]),
+      travel([[0, { travelMin: 15, mode: "public_transit", travelKnown: true }]]),
+    );
+    const t = input.steps[0]!.transitionAfter!;
+    expect(t.bufferStatus).toBe("sufficient");
+    expect(t.slackMin).toBe(45); // ★実値（Option D は null）
+    expect(t.travelMin).toBe(15); // ★実 travel（Option D は null）
+    expect(t.mode).toBe("public_transit");
+    expect(t.travelKnown).toBe(true);
+    expect(t.gapMin).toBe(60);
+    expect(input.steps[1]!.transitionAfter).toBeNull();
+  });
+
+  it("FP2. raw 不在 → not_applicable + slack/shortfall null（捏造しない）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    const input = buildRehearsalInputFull(g, raw([]), travel([[0, { travelMin: 15, mode: "walk", travelKnown: false }]]));
+    const t = input.steps[0]!.transitionAfter!;
+    expect(t.bufferStatus).toBe("not_applicable");
+    expect(t.slackMin).toBeNull();
+    expect(t.shortfallMin).toBeNull();
+    expect(t.travelMin).toBe(15); // travel はある
+  });
+
+  it("FP3. travel 不在(unresolved) → mode unknown / travelMin null（捏造しない）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    const input = buildRehearsalInputFull(g, raw([[0, { transitionIndex: 0, status: "insufficient", shortfallMin: 30 }]]), travel([]));
+    const t = input.steps[0]!.transitionAfter!;
+    expect(t.mode).toBe("unknown");
+    expect(t.travelMin).toBeNull();
+    expect(t.bufferStatus).toBe("insufficient");
+    expect(t.shortfallMin).toBe(30); // ★実 shortfall（Option D は null）
+  });
+
+  it("FP4. insufficient + 実 shortfall → rehearseDay で friction が degrade より上がりうる（real numbers）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "10:30", "11:30")]);
+    const full = rehearseDay(buildRehearsalInputFull(g, raw([[0, { transitionIndex: 0, status: "insufficient", shortfallMin: 60 }]]), travel([[0, { travelMin: 50, mode: "car", travelKnown: true }]])));
+    // friction に実 travel + shortfall が反映され null でない estimate（degrade と違い情報あり）
+    expect(full.steps[0]!.friction).not.toBeNull();
+    expect(full.steps[0]!.bufferStatus).toBe("insufficient");
+    expect(full.steps[0]!.bufferMin).toBe(-60); // ★実 shortfall 由来（Option D は null）
+  });
+
+  it("FP5. 決定論（同入力 → 同出力）", () => {
+    const g = mkGraph([evNode("a", "09:00", "10:00"), evNode("b", "11:00", "12:00")]);
+    const mk = () => buildRehearsalInputFull(g, raw([[0, { transitionIndex: 0, status: "sufficient", slackMin: 45 }]]), travel([[0, { travelMin: 15, mode: "walk", travelKnown: false }]]));
+    expect(mk()).toEqual(mk());
+  });
+
+  it("FP6. DAY_REHEARSAL_FULL_PATH_ENABLED は既定 false（Option D 不変）", () => {
+    expect(DAY_REHEARSAL_FULL_PATH_ENABLED).toBe(false);
   });
 });

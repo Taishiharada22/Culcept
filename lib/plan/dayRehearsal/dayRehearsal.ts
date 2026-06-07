@@ -460,3 +460,74 @@ export function buildRehearsalInputFromDisplay(
     steps,
   };
 }
+
+/**
+ * ★full path（Batch 1）: hook が overlay（movement segment）から surface する transition 単位の実 travel。
+ * resolved → travelMin=estimatedDurationMin / mode=modeCandidate.mode / travelKnown=既知 provider。
+ * unresolved/不在 → travelMin null（捏造しない＝unknown）。
+ */
+export interface RehearsalTravelView {
+  readonly travelMin: number | null;
+  readonly mode: TransportMode;
+  readonly travelKnown: boolean;
+}
+
+/**
+ * ★full path（Batch 1・原典の意図した入力モデルの完遂）: DayGraph + **raw feasibility（真の slack/shortfall）** +
+ * **実 travel** から RehearsalInput を構築。Option D（buildRehearsalInputFromDisplay）の degrade を解消し、
+ * travelMin/mode/slackMin/shortfallMin を **実値**で埋める（friction が実移動で可変・convergence/recovery が正確・protect_buffer 到達可）。
+ * raw 不在 = not_applicable（feasibility 対象外）・travel 不在/unresolved = unknown（捏造しない）。pure・READ のみ・Date 不使用・honest degrade。
+ */
+export function buildRehearsalInputFull(
+  dayGraph: DayGraph,
+  rawByTransitionIndex: ReadonlyMap<number, FeasibilitySlackView>,
+  travelByTransitionIndex: ReadonlyMap<number, RehearsalTravelView>,
+  opts?: { readonly baseEnergyLevel?: number | null },
+): RehearsalInput {
+  const events = dayGraph.nodes.filter((n): n is EventNode => n.kind === "event");
+  const steps: RehearsalStep[] = events.map((ev, i) => {
+    const next = events[i + 1];
+    let transitionAfter: RehearsalTransitionInput | null = null;
+    if (next) {
+      const raw = rawByTransitionIndex.get(i); // 不在 = not_applicable
+      const travel = travelByTransitionIndex.get(i); // 不在/unresolved = unknown
+      const aEnd = hhmmToMin(ev.endTime);
+      const bStart = hhmmToMin(next.startTime);
+      const gapMin = aEnd != null && bStart != null ? Math.max(0, bStart - aEnd) : null;
+      transitionAfter = {
+        mode: travel?.mode ?? ("unknown" as TransportMode),
+        travelMin: travel?.travelMin ?? null, // 実 travel（unknown は null・捏造しない）
+        travelKnown: travel?.travelKnown ?? false,
+        bufferStatus: raw?.status ?? "not_applicable", // ★真の status（raw 由来）
+        slackMin: raw?.slackMin ?? null, // ★真の slack（display と違い実値）
+        shortfallMin: raw?.shortfallMin ?? null, // ★真の shortfall
+        gapMin,
+      };
+    }
+    return {
+      event: {
+        id: ev.id,
+        timeBucket: ev.timeBucket,
+        durationMin: ev.durationMin,
+        durationAssumed: ev.durationSource === "assumed_default",
+        sensitive: ev.sensitive,
+      },
+      transitionAfter,
+    };
+  });
+  return {
+    date: dayGraph.attributes.date,
+    dayMood: dayGraph.attributes.dayMood,
+    density: dayGraph.attributes.density,
+    baseEnergyLevel: opts?.baseEnergyLevel ?? null,
+    steps,
+  };
+}
+
+/**
+ * ★Day Rehearsal full-path 有効化フラグ（Batch 1・module const・default OFF＝Option D 不変）。
+ * client(CalendarTab) で評価するため PLAN_FLAGS（server-only）でなく module const。
+ * OFF: buildRehearsalInputFromDisplay（status-only degrade）。ON: buildRehearsalInputFull（実 transport + raw feasibility）。
+ * local smoke 時のみ true にして検証 → 検証後に既定 ON 化を CEO 判断。
+ */
+export const DAY_REHEARSAL_FULL_PATH_ENABLED = false;
