@@ -27,17 +27,13 @@ A1-6a（手動ログ）で pace pipeline は GPS なしで起動できる。A1-6
 - `detectMovement(samples, {from,to}, config)`（A1-2）: from geofence(150m) を出た時刻=出発 / to geofence に入り dwell(3min) した時刻=到着 / 所要=差（両端不在は null）。
 - anchor 座標は plan の baselineCoords/legCoordsByKey（A1-0 で確認済）。sample は **in-memory buffer**（raw 座標・**永続しない**）。
 
-## 5. false positive（誤検出）対策
-- ★**GPS 推定だけを真実にしない**: 検出は **confidence(high/medium/low)** 付き。medium 以上 かつ arrival 検出時のみ **確認 prompt** を出す（low/null は黙って捨てる）。
-- 通過（destination を経由しただけ）対策: dwell 確認（3min 滞留）。dwell 未確認は confidence 低下。
-- 精度フィルタ: `evaluateCurrentLocation`（accuracy≤1000m・age≤30min）を通った sample のみ buffer へ。
-- 短 leg は A1-4 が除外（geofence バイアス）。
+## 5. false positive / false negative（誤検出・見逃し）対策
+- **false positive（誤検出を真実にしない）**: 検出は **confidence(high/medium/low)** 付き。medium 以上 かつ arrival 検出時のみ **確認 prompt**（low/null は黙って捨てる）。通過（destination 経由のみ）対策= dwell 確認（3min 滞留・未確認は confidence 低下）。精度フィルタ= `evaluateCurrentLocation`(accuracy≤1000m・age≤30min) を通った sample のみ buffer へ。短 leg は A1-4 が除外（geofence バイアス）。★誤検出の最終防波堤は **user 確認**（自動記録しない）。
+- **false negative（見逃し）の扱い — 正直に「捕れないことがある」前提**: foreground 疎 sample では両端 bracket が取れず **多くの leg は検出されない**（出発のみ/到着のみ/null）。これは **bug でなく仕様**。対策= (a) 見逃した leg は **A1-6a 手動ログ**で user が後から記録できる（GPS と手動は同 pipeline）。(b) 片端のみ検出は所要 null で confidence=low→prompt せず（捏造しない）。(c) 見逃しは pace 蓄積を**遅らせるだけ**で誤った学習はしない（observed>inferred）。★「全部自動で捕る」を約束しない（過剰主張回避）。
 
-## 6. confirmation UI（確認・誤観測防止）
-- 検出（medium+・未記録 leg）→ 当該 leg に控えめ prompt:「この区間、到着していそうです。実際の所要を記録しますか？」［記録］［ちがう］。
-- ［記録］→ `buildMovementEventFromDetection(detected, now, {mode,odKey,estimateMin})` → `recordMovementEvent`（gate: opt-in∧非sensitive）。source="gps"。
-- ［ちがう］→ 記録しない（+ 任意で A1-6a 手動ログへ誘導）。
-- ★modal 連打にしない（1 leg 1 回・dismiss 可・A1-6a と同じ inline トーン）。
+## 6. confirmation UI / manual correction（確認・訂正）
+- **confirmation UI**: 検出（medium+・未記録 leg）→ 当該 leg に控えめ prompt:「この区間、到着していそうです。実際の所要を記録しますか？」［記録］［ちがう］。［記録］→ `buildMovementEventFromDetection(detected, now, {mode,odKey,estimateMin})`(source="gps") → `recordMovementEvent`（gate: opt-in∧非sensitive）。［ちがう］→ 記録しない。★modal 連打にしない（1 leg 1 回・dismiss 可・A1-6a と同 inline トーン）。
+- **manual correction（手動訂正）**: ★既に **A1-6a 手動ログ**が訂正経路。(a) GPS 推定値が違う→user が「実際に N 分」を上書き（同 legKey で setMovementEvent 上書き・source="manual" に置換）。(b) 誤記録→「取消」(deleteMovementEvent・可逆)。(c) GPS が捕れなかった leg→手動で記録。＝**GPS は下書き、user が正本**（誤観測を user が常に正せる）。
 
 ## 7. sensitive blackout（機微）
 - ★sensitive leg は **sampling 対象から除外・prompt も出さない・記録もしない**（store gate + UI 二重）。`MovementPrivacyClass`/anchor.sensitiveCategory で判定。
@@ -46,6 +42,12 @@ A1-6a（手動ログ）で pace pipeline は GPS なしで起動できる。A1-6
 ## 8. raw GPS 非保存（最重要・既に担保）
 - buffer は **in-memory のみ**（React state・unmount/refresh で消える）。localStorage/DB に座標を書かない。
 - store は derived（時刻+所要+confidence+source+meta）のみ（型で担保・A1-3 parse は既知 field のみ）。
+
+## 8.5 fail-safe / opt-in / kill switch（安全装置）
+- **opt-in（同意先行）**: `getEffectiveOptInState()==="granted"` かつ OS permission granted のときだけ sampling。未許可・拒否・snooze は **sampling しない**（A1-6a 手動ログのみで degrade）。同意は user がいつでも撤回可（既存 journey opt-in の revoke）。
+- **kill switch（即停止）**: A1-6b 用 flag（例 `PLAN_GPS_AUTO_CAPTURE_ENABLED`・**default OFF**）。OFF で sampling/detect/prompt を全て停止＝**手動ログのみに即 degrade**（A1-6a は GPS flag に依存しない）。env で即無効化可。
+- **fail-safe（失敗時は安全側）**: permission denied / position error / timeout / 精度不良 / SSR は全て **黙って no-op**（throw せず・手動ログは生きる）。検出不能は null（捏造しない）。記録は user 確認後のみ（自動書き込みなし）。sensitive は二重 gate。
+- **段階的有効化**: flag は本人(dogfood)→小数 canary→広域 の順。各段で誤検出率・電池・歩留まりを観測し、悪化時は flag OFF で即時撤退。
 
 ## 9. ★実装前に CEO 判断が要る点（停止ゲートの中身）
 1. sampling trigger（可視時 1 回 vs interval）と interval 値（電池 vs 歩留まり）。
