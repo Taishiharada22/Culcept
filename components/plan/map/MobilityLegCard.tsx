@@ -11,6 +11,7 @@ import {
 } from "@/lib/plan/map/routeMode";
 import type { LegDurState, LegInfo } from "@/lib/plan/map/directionsService";
 import type { ExplanationCopy } from "@/lib/plan/mobility/explanationCopy";
+import { MOBILITY_REASONS, MOBILITY_REASON_LABELS, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 
 export interface MobilityLegCardProps {
   legKey: string;
@@ -25,10 +26,20 @@ export interface MobilityLegCardProps {
   readOnly: boolean;
   onSelect: (legKey: string, mode: RouteTransportMode) => void;
   onClose: () => void;
+  /**
+   * ★A0 理由観測: explicitCorrection（仮説と違う選択）時だけ MapTab が true。
+   * inline chip 行を出す（任意・可逆・dismissible・modal でない）。readOnly では出さない。
+   */
+  reasonPromptVisible?: boolean;
+  /** 現在保存済の reason（chip の active 表示・collapse 兼用）。 */
+  selectedReason?: MobilityReason | null;
+  onReasonSelect?: (legKey: string, reason: MobilityReason) => void;
+  onReasonDismiss?: () => void;
 }
 
 export function MobilityLegCard({
   legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose, hypothesisCopy,
+  reasonPromptVisible = false, selectedReason = null, onReasonSelect, onReasonDismiss,
 }: MobilityLegCardProps) {
   const chipBg = (mode: RouteTransportMode) => ({
     backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
@@ -123,6 +134,38 @@ export function MobilityLegCard({
           <div className="grid grid-cols-5 gap-2">{MOBILITY_LIMITED_MODES.map((m) => modeButton(m, true))}</div>
           <p className="mt-2 text-[10px] text-slate-400">β＝経路は概念表示／地域により未対応の場合あり</p>
         </div>
+        {/*
+         * ★A0 理由観測（local reason capture）: explicitCorrection 時だけ inline で出す控えめな 1 行。
+         * 任意・可逆（別 chip で変更・✕ で閉じる）・modal でない・必須でない。人格ラベルにしない（この区間の文脈のみ）。
+         */}
+        {!readOnly && reasonPromptVisible && (
+          <div data-testid="mobility-reason-prompt" className="mt-3 flex flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+            <span className="mr-0.5 text-[11px] text-slate-500">なぜ変えた？</span>
+            {MOBILITY_REASONS.map((r) => {
+              const active = selectedReason === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  aria-pressed={active}
+                  data-reason={r}
+                  onClick={() => onReasonSelect?.(legKey, r)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] transition ${active ? "border-slate-700 bg-slate-700 font-semibold text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"}`}
+                >
+                  {MOBILITY_REASON_LABELS[r]}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              aria-label="閉じる"
+              onClick={() => onReasonDismiss?.()}
+              className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-300 hover:bg-slate-200 hover:text-slate-500"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <div className="mt-3 flex gap-4 border-t border-slate-100 pt-3 text-[11px] text-slate-400">
           <span>現在表示：<b className="text-slate-700">{selectedMode ? MOBILITY_MODE_META[selectedMode].label : "未設定"}</b></span>
           <span>実績：<b className="text-slate-700">未記録</b></span>

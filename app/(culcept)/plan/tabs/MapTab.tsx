@@ -89,7 +89,7 @@ import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcP
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { loadL3bPooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
-import { buildFeedbackEntry, saveHypothesisFeedback } from "@/lib/plan/mobility/hypothesisFeedbackStore";
+import { buildFeedbackEntry, saveHypothesisFeedback, saveHypothesisFeedbackReason, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -200,11 +200,24 @@ export function MapTab({
 
   // A5-2: leg tap で MobilityLegCard を開く。store/recall/durations は未接続(後 slice)。
   const [openLeg, setOpenLeg] = useState<{ legKey: string; fromTitle: string; toTitle: string } | null>(null);
+  // ★A0 理由観測: explicitCorrection した legKey だけ chip 行を出す（reasonChoice は表示用・可逆）。
+  const [reasonPromptLegKey, setReasonPromptLegKey] = useState<string | null>(null);
+  const [reasonChoice, setReasonChoice] = useState<MobilityReason | null>(null);
+  const clearReasonPrompt = useCallback(() => {
+    setReasonPromptLegKey(null);
+    setReasonChoice(null);
+  }, []);
   const handleLegTap = useCallback((legKey: string, fromTitle: string, toTitle: string) => {
     setSelectedPinId(null);
     setOpenLeg({ legKey, fromTitle, toTitle });
+    setReasonPromptLegKey(null); // 別 leg を開いたら前の prompt を消す（stale 再表示防止）
+    setReasonChoice(null);
   }, []);
-  const handleLegClose = useCallback(() => setOpenLeg(null), []);
+  const handleLegClose = useCallback(() => {
+    setOpenLeg(null);
+    setReasonPromptLegKey(null);
+    setReasonChoice(null);
+  }, []);
 
   // A5-3: selectedMode を localStorage 永続化(RouteTransportMode・9語)。store を mirror する state。
   const [selectedModeByLeg, setSelectedModeByLeg] = useState<Record<string, RouteTransportMode>>({});
@@ -369,15 +382,21 @@ export function MapTab({
     (legKey: string, mode: RouteTransportMode) => {
       handleLegSelect(legKey, mode); // 既存: selectedMode 永続化(不変)
       if (mobilityCardData && mobilityCardData.legKey === legKey) {
-        saveHypothesisFeedback(
-          dayKey,
-          legKey,
-          buildFeedbackEntry({
-            surfacedMode: mobilityCardData.surfacedMode,
-            chosenMode: mode,
-            readOnly: mobilityCardData.readOnly,
-          }),
-        );
+        const feedbackEntry = buildFeedbackEntry({
+          surfacedMode: mobilityCardData.surfacedMode,
+          chosenMode: mode,
+          readOnly: mobilityCardData.readOnly,
+        });
+        saveHypothesisFeedback(dayKey, legKey, feedbackEntry);
+        // ★A0 理由観測: explicitCorrection（仮説と違う選択）した時だけ reason chip を出す。
+        //   confirmation / 仮説非表示(null) / readOnly では出さない（buildFeedbackEntry の gate を継承）。
+        if (feedbackEntry?.kind === "explicitCorrection") {
+          setReasonPromptLegKey(legKey);
+          setReasonChoice(null);
+        } else {
+          setReasonPromptLegKey(null);
+          setReasonChoice(null);
+        }
         // L1-a: 全選択を観測ログへ前方記録（★仮説非依存・silent・別 store・readOnly/invalid は buildObservation が null→no-op）
         saveMobilityObservation(
           dayKey,
@@ -397,6 +416,16 @@ export function MapTab({
     },
     [handleLegSelect, mobilityCardData, dayKey],
   );
+
+  // ★A0 理由観測: chip 押下で既存 correction entry に reason を保存（local・可逆）。entry 不在 leg は store 側で no-op。
+  const handleReasonSelect = useCallback(
+    (legKey: string, reason: MobilityReason) => {
+      saveHypothesisFeedbackReason(dayKey, legKey, reason);
+      setReasonChoice(reason);
+    },
+    [dayKey],
+  );
+  const handleReasonDismiss = useCallback(() => clearReasonPrompt(), [clearReasonPrompt]);
 
   // A2: leg ごとの from/to 座標(時刻順・store/route と同一 legKey)。durations fetch 用。
   const legCoordsByKey = useMemo(() => {
@@ -507,6 +536,10 @@ export function MapTab({
           readOnly={mobilityCardData.readOnly}
           onSelect={handleLegSelectWithFeedback}
           onClose={handleLegClose}
+          reasonPromptVisible={reasonPromptLegKey === mobilityCardData.legKey}
+          selectedReason={reasonChoice}
+          onReasonSelect={handleReasonSelect}
+          onReasonDismiss={handleReasonDismiss}
         />
       )}
     </div>

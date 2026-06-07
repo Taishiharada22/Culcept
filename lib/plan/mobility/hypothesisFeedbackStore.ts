@@ -23,6 +23,30 @@ export type SelectionSignalKind = "selected" | "confirmation" | "explicitCorrect
 /** 記録対象の kind（selected=通常選択は記録しない＝store には confirmation/explicitCorrection のみ） */
 export type RecordedSignalKind = Exclude<SelectionSignalKind, "selected">;
 
+/**
+ * ★A0（理由観測・local reason capture）: 推奨と違う選択（explicitCorrection）をした「なぜ」。
+ * ★per-leg の文脈であって人格 trait ではない（「この時はこう」・「あなたはこういう人」と言わない）。
+ * ★user の 1-tap のみ（自動推論・捏造しない）・任意・可逆。free text は持たない（"other" も chip）。
+ */
+export type MobilityReason = "tired" | "scenery" | "cheap" | "hurry" | "mood" | "other";
+
+/** UI 表示順（疲れ/景色/安い/急ぎ/気分/その他）。 */
+export const MOBILITY_REASONS: readonly MobilityReason[] = ["tired", "scenery", "cheap", "hurry", "mood", "other"];
+
+/** 日本語ラベル（UI 用）。 */
+export const MOBILITY_REASON_LABELS: Readonly<Record<MobilityReason, string>> = {
+  tired: "疲れ",
+  scenery: "景色",
+  cheap: "安い",
+  hurry: "急ぎ",
+  mood: "気分",
+  other: "その他",
+};
+
+export function isMobilityReason(value: unknown): value is MobilityReason {
+  return typeof value === "string" && (MOBILITY_REASONS as readonly string[]).includes(value);
+}
+
 /** feedback entry: surfacedMode/chosenMode を保存し「何への訂正か」を後で再現可能に */
 export interface HypothesisFeedbackEntry {
   readonly kind: RecordedSignalKind;
@@ -30,6 +54,8 @@ export interface HypothesisFeedbackEntry {
   readonly surfacedMode: RouteTransportMode;
   /** ユーザーが実際に選んだ mode */
   readonly chosenMode: RouteTransportMode;
+  /** ★A0: 訂正の理由（任意・後付け・無効/不在は省略＝後方互換）。 */
+  readonly reason?: MobilityReason;
 }
 
 export interface HypothesisFeedbackStore {
@@ -107,7 +133,11 @@ export function parseFeedbackStore(raw: string | null): HypothesisFeedbackStore 
     for (const [legKey, entry] of Object.entries(legs as Record<string, unknown>)) {
       if (typeof legKey !== "string" || legKey.length === 0) continue;
       if (!isFeedbackEntry(entry)) continue;
-      clean[legKey] = { kind: entry.kind, surfacedMode: entry.surfacedMode, chosenMode: entry.chosenMode };
+      // ★A0: reason は valid なら保持・無効/不在は drop（entry は壊さない＝後方互換）。
+      const rawReason = (entry as { reason?: unknown }).reason;
+      clean[legKey] = isMobilityReason(rawReason)
+        ? { kind: entry.kind, surfacedMode: entry.surfacedMode, chosenMode: entry.chosenMode, reason: rawReason }
+        : { kind: entry.kind, surfacedMode: entry.surfacedMode, chosenMode: entry.chosenMode };
     }
     if (Object.keys(clean).length > 0) byDay[day] = clean;
   }
@@ -152,6 +182,29 @@ export function getFeedback(
   return store.byDay[dayISO]?.[legKey] ?? null;
 }
 
+/** ★A0: entry に reason を載せた新 entry を返す（純粋）。reason=null で解除（field 省略）。 */
+export function withReason(entry: HypothesisFeedbackEntry, reason: MobilityReason | null): HypothesisFeedbackEntry {
+  if (reason == null) {
+    return { kind: entry.kind, surfacedMode: entry.surfacedMode, chosenMode: entry.chosenMode };
+  }
+  return { kind: entry.kind, surfacedMode: entry.surfacedMode, chosenMode: entry.chosenMode, reason };
+}
+
+/**
+ * ★A0: 既存 entry の reason を更新（純粋）。entry が無い leg は no-op（correction が無い所に reason を付けない）。
+ * reason=null で解除（可逆）。
+ */
+export function setFeedbackReason(
+  store: HypothesisFeedbackStore,
+  dayISO: string,
+  legKey: string,
+  reason: MobilityReason | null,
+): HypothesisFeedbackStore {
+  const existing = getFeedback(store, dayISO, legKey);
+  if (existing == null) return store; // correction が記録されている leg だけに付く
+  return setFeedback(store, dayISO, legKey, withReason(existing, reason));
+}
+
 function getStorage(): Storage | null {
   try {
     return (globalThis as { localStorage?: Storage }).localStorage ?? null;
@@ -189,4 +242,18 @@ export function saveHypothesisFeedback(
 /** v0-F が読む用（client・fail-open）。 */
 export function loadHypothesisFeedback(dayISO: string, legKey: string): HypothesisFeedbackEntry | null {
   return getFeedback(readFeedbackStore(), dayISO, legKey);
+}
+
+/**
+ * ★A0: 既存 correction entry に reason を保存（client・fail-open）。reason=null で解除。
+ * entry が無い leg は no-op（setFeedbackReason が判定）。DB・network 不使用・既存 entry を壊さない。
+ */
+export function saveHypothesisFeedbackReason(dayISO: string, legKey: string, reason: MobilityReason | null): void {
+  const ls = getStorage();
+  if (!ls) return;
+  try {
+    ls.setItem(HYPOTHESIS_FEEDBACK_KEY, JSON.stringify(setFeedbackReason(readFeedbackStore(), dayISO, legKey, reason)));
+  } catch {
+    /* quota 等は fail-open */
+  }
 }
