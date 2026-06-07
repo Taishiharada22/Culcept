@@ -111,6 +111,8 @@ pure layer(`f1e87f39`) → 配線(`d9354db4`) → WPM-1 詰まり marker(`1414bf
 ### Phase B — 早期警告 / cross-day（LOCAL）
 1. **B1 cross-day パターン**: 単日でなく週次の傾向（「この曜日は立て込みやすい」「連続でこの動きをすると疲れやすい」）。Second Self Map の観測蓄積を時間軸へ。
 2. **B2 先回り（balanced・仮説のみ）**: research 天井 ~43% を踏まえ、断定せず「先に気づける」程度。notification fatigue 回避（沈黙デフォルト）。
+3. **B3 可視化「1日のエネルギー曲線」**（旧 overclaim の実体化）。
+4. **B4 ★warm day-briefing（backlog・CEO 2026-06-08 指示で A1 後に戻す）**: Day Rehearsal の 1 日を人間の秘書のように穏やかに一段落で語る UX。data-light・beyond-human だが**精度（A1 等）を上げてから「精度の上がった診断をどう語るか」として戻る**のが自然。pure compose 層 + UI（smoke gate）。
 
 ### Phase C — 介入層 / production（GitHub 復帰後・CEO 承認必須）
 1. **C1 Reality Control OS 配線**: 「余白を守る」「出発を早める」を**許可の上で**実適用（ChangeSet→apply）。draft preview（What-if）→ act-on の橋渡し。pure 構築済・INV-17 等のガード済。

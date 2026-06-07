@@ -15659,3 +15659,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 検証 RR1-6+RUI1-6・main 98 PASS・tsc footprint 0(total 55)・zero-loss。main `dad0fd59`・code branch `claude/dr-a0-reflection-ui`(`dacce503`)。closeout `…-a0-2-reason-reflection-ui-closeout.md`。
 - ★CEO 指示「revert 禁止」遵守: smoke-force(dr-energy worktree の未 commit)は revert せず放置(main 非接触・cherry-pick は clean commit から取得ゆえ無害)。
 - 次: 次バッチ計画提示。Alter/Stargazer 合流(full 鏡)は gated。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] A1「あなたのペース」(S3) audit — ★設計上の重要発見（measured pace は不可）[stop gate: 設計と矛盾する発見]
+- CEO 方向: roadmap v2.1 Phase A1「あなたのペース」(S3・原典 Wave 2 残)。warm briefing は backlog 化(roadmap Phase B4・A1 後に戻す)済。
+- ★**audit 核心発見**: 原典 S3「実移動から個人化した移動時間」の前提=**actual signal が存在しない**。実到着/完了 timestamp なし(completedAt/arrivedAt 等 grep 0)・GPS なし・mobilityObservation は gap/estimate を持たない。estimatedDurationMin は generic 見積。→ **距離→時間捏造禁止ゆえ measured pace(実速度)は出せない**。
+- 観測可能な唯一の honest signal = **time-budget tendency**(予定 gap vs route estimate・feasibility の slack/shortfall 由来)。ただし「予定の組み方の癖」であって実速度でない・outcome 無しで弱い・capture も未存在(別 slice 要)。
+- ★**CEO 判断点(設計の岐路)**: (A)honest「time-budget tendency」pure layer を作る(推奨・unknown gate・捏造なし) / (B)S3 を defer(actual signal 待ち) / (C)reframe。audit doc `…-a1-personal-pace-audit.md`。
+- 「設計と矛盾する発見」stop gate に該当 → pure 実装前に CEO の方向確認で停止。push/Vercel/GitHub/DB/env/Reality 不接触。
