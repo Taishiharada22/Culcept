@@ -15500,3 +15500,13 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **audit + 最小実装案 提出で停止**。実装は Reality セッション（coordination + CEO GO 後）。push/PR/Vercel/DB/予定変更/Reality kernel 変更 不接触。
 
 ---
+
+## [2026-06-07] [Build] Reality INV-17 enforcement v0（Complete protectedGaps・additive・main 着地完了）+ integration mini design [承認: CEO GO]
+- ★CEO 判断: INV-17 enforcement を **本セッション（Day Rehearsal 系）が Reality kernel に additive 実装**（私の audit 推奨「Reality 所有」を CEO が上書き）。in-flight 干渉は complete-generator が A1-4-2b 以降安定 + 純 additive + zero-conflict 確認で緩和。**Reality セッションへ周知要**。
+- 実装: `complete-generator.ts` の `CompleteInput.protectedGaps?: Interval[]`（additive optional）+ `generateComplete` で `busy = existing ∪ protectedGaps` → 既存 freeGaps が除外 → Complete(add) が recovery/free_time gap を埋めない。**default 空＝挙動完全不変**・restrict-only・fail-safe・pure。現 Reality は trim-only+Complete のみ＝add が唯一の脅威ゆえ十分。evaluator gate は move/optimize 時。
+- **main 着地済（squash・main HEAD `12727e43`・親 `4d61990b`）。** code branch `claude/reality-inv17-protectedgaps`（HEAD `030d6d50`）保持。
+- 検証: 新規 PG0-PG6 + realityCompleteGenerator 34 + reality 全 **563 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（complete-generator は base から無変化＝他セッション無競合）。closeout: `…-reality-inv17-enforcement-v0-closeout.md`。
+- **GapRecoveryAssertion → protectedGaps integration mini design 作成**（実装なし）: 配線チェーン= GapRecoveryAssertion →(map HH:MM→Interval 分)→ CompleteDispatchInput.protectedGaps →(generateCompleteFromContext pass-through)→ CompleteInput.protectedGaps →(busy 除外)。必要 plumbing= pure map + CompleteDispatchInput.protectedGaps + pass-through 1 行。★**最後の caller は Reality production 未配線ゆえ不在＝実注入 blocked**（map+plumbing は準備可・flag 裏 OFF）。CEO 判断点 4。doc: `…-gaprecovery-protectedgaps-integration-mini-design.md`。
+- 状態: **INV-17 enforcement v0 main 着地 + integration mini design 提出で停止**。実注入は Reality wiring + CEO GO 後。push/PR/Vercel/DB/予定変更/実注入 不接触。
+
+---
