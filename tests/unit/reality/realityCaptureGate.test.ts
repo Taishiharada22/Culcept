@@ -109,6 +109,75 @@ describe("A1-5-5a capture gate — block / allow", () => {
   });
 });
 
+const USER_B = "22222222-2222-2222-2222-222222222222";
+const prodUrl = `https://${PROD}.supabase.co`;
+
+describe("A1-5-13 capture gate — production canary lane（default-off scaffold・明示多重）", () => {
+  it("default env（productionCanaryEnabled 未指定）+ production ref → block PRODUCTION_PROJECT_REF（既存挙動・production 挙動変更0）", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl }));
+    expect(v.allow).toBe(false);
+    if (!v.allow) expect(v.reason).toBe("PRODUCTION_PROJECT_REF");
+  });
+  it("production ref + productionCanaryEnabled=false → block（明示 false でも production 不可・canary flag missing 相当）", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: false, realityCanaryUserIds: [USER] }));
+    expect(v.allow).toBe(false);
+    if (!v.allow) expect(v.reason).toBe("PRODUCTION_PROJECT_REF");
+  });
+  it("production ref + canary flag true + reality canary 該当 user → allow（明示 env 全揃い）", () => {
+    expect(evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: true, realityCanaryUserIds: [USER] })).allow).toBe(true);
+  });
+  it("production ref + canary flag true + non-canary user → block USER_NOT_CANARY", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: true, realityCanaryUserIds: [USER_B] }));
+    expect(v.allow).toBe(false);
+    if (!v.allow) expect(v.reason).toBe("USER_NOT_CANARY");
+  });
+  it("production ref + canary flag true + reality list 空 → block NO_CANARY_ALLOWLIST（production は reality list 必須・shared へ fallback しない）", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: true, realityCanaryUserIds: [], canaryUserIds: [USER] }));
+    expect(v.allow).toBe(false);
+    if (!v.allow) expect(v.reason).toBe("NO_CANARY_ALLOWLIST"); // shared canaryUserIds=[USER] へ fallback しない
+  });
+  it("production lane でも kill 最優先 → block KILLED", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: true, realityCanaryUserIds: [USER], killed: true }));
+    if (!v.allow) expect(v.reason).toBe("KILLED");
+  });
+  it("production lane でも liveEnabled false → block FLAG_OFF", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: true, realityCanaryUserIds: [USER], liveEnabled: false }));
+    if (!v.allow) expect(v.reason).toBe("FLAG_OFF");
+  });
+  it("productionCanaryEnabled=true でも staging ref なら staging lane（production lane に入らない）", () => {
+    // staging ref + production flag true → production lane(isProductionRef false) に入らず staging lane で従来通り
+    expect(evaluateCaptureGate(input({ productionCanaryEnabled: true, realityCanaryUserIds: [USER] })).allow).toBe(true);
+  });
+});
+
+describe("A1-5-13 capture gate — reality 専用 canary が PLAN_CANARY_USER_IDS より優先", () => {
+  it("staging: reality list 非空 → reality list を使用（該当 user allow）", () => {
+    expect(evaluateCaptureGate(input({ requestedUserId: USER, realityCanaryUserIds: [USER], canaryUserIds: [USER_B] })).allow).toBe(true);
+  });
+  it("staging: reality list 非空 → shared list のみの user は block（reality 優先＝依存を減らす）", () => {
+    const v = evaluateCaptureGate(input({ requestedUserId: USER_B, realityCanaryUserIds: [USER], canaryUserIds: [USER_B] }));
+    expect(v.allow).toBe(false); // shared[USER_B] にいても reality list 優先で block
+    if (!v.allow) expect(v.reason).toBe("USER_NOT_CANARY");
+  });
+  it("staging: reality list 空 → shared(PLAN_CANARY_USER_IDS) へ fallback（後方互換維持）", () => {
+    expect(evaluateCaptureGate(input({ requestedUserId: USER_B, realityCanaryUserIds: [], canaryUserIds: [USER_B] })).allow).toBe(true);
+  });
+});
+
+describe("A1-5-13 capture gate — production 挙動変更0 / secret 非出力", () => {
+  it("新 field default-off で既存挙動不変（staging→allow / aljav→PRODUCTION_PROJECT_REF）", () => {
+    expect(evaluateCaptureGate(input()).allow).toBe(true);
+    const prod = evaluateCaptureGate(input({ supabaseUrl: prodUrl }));
+    if (!prod.allow) expect(prod.reason).toBe("PRODUCTION_PROJECT_REF");
+  });
+  it("verdict は allow / reason(enum) のみ・canary UUID を出力しない", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: prodUrl, productionCanaryEnabled: true, realityCanaryUserIds: [USER] }));
+    const json = JSON.stringify(v);
+    expect(json).not.toContain(USER); // input UUID を verdict に出さない
+    expect(JSON.parse(json)).toEqual({ allow: true });
+  });
+});
+
 describe("A1-5-5a capture gate — 静的安全（Supabase/DB/runtime 0・pure）", () => {
   it("Supabase client / DB を持たない（createClient/@supabase/.from/.rpc/.insert 不在）", () => {
     for (const t of ["createClient", "@supabase", ".from(", ".rpc(", ".insert(", ".update(", ".delete(", ".upsert("]) {

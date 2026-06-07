@@ -252,4 +252,28 @@ export const PLAN_FLAGS = {
    * 制約: server surface flag（realityCaptureSurface）とは別（client 消費の dormant gate）。real network は本 slice では走らせない（caller の live fetch は別 GO）。
    */
   realityCaptureSurfaceClient: process.env.NEXT_PUBLIC_REALITY_CAPTURE_SURFACE_CLIENT === "true",
+
+  /**
+   * A1-5-13: Reality capture の **production canary 専用 enable flag**（production ref 許可の明示 gate・scaffold）。
+   *   true ∧ production ref(aljav) ∧ reality canary list 該当 ∧ live ∧ !kill のときのみ production capture を許可（evaluateCaptureGate の production lane）。
+   *   **false/missing（既定）→ production 不可**（gate が PRODUCTION_PROJECT_REF block・staging-only 維持）。
+   * env: REALITY_CAPTURE_PRODUCTION_CANARY=true（**server-side のみ・NEXT_PUBLIC なし**）。
+   * 注（A1-5-13 scaffold）: 本 flag は **gate capability + env contract** を default-off で用意する。runtime resolver
+   *   （resolveMorningObserveGate / resolveSurfaceGate）への配線は **別 slice（activation）**＝設定しても現時点では production capture は起きない（dead-safe scaffold）。
+   */
+  realityCaptureProductionCanary: process.env.REALITY_CAPTURE_PRODUCTION_CANARY === "true",
+
+  /**
+   * A1-5-13: Reality 専用 canary user allowlist（PLAN_CANARY_USER_IDS から分離・結合解消）。
+   *   非空なら gate が staging/production とも本 list を優先（PLAN_CANARY_USER_IDS への依存を減らす）。production lane は本 list 必須（shared へ fallback しない）。
+   *   空（既定）→ staging は PLAN_CANARY_USER_IDS へ fallback（後方互換）。
+   * env: REALITY_CAPTURE_CANARY_USER_IDS=uuid1,uuid2（**server-side のみ**・auth UUID・email でない）。
+   */
+  realityCanaryUserIds: (() => {
+    const raw = process.env.REALITY_CAPTURE_CANARY_USER_IDS ?? "";
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  })() as readonly string[],
 } as const;
