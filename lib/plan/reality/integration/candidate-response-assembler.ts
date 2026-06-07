@@ -35,15 +35,26 @@ export interface CaptureCandidateResponseSurface {
 /** 既存 result T に captureCandidate を additive 合成した型。 */
 export type WithCaptureCandidate<T> = T & CaptureCandidateResponseSurface;
 
-/** item を allowed field のみで再構築（**extra key drop**・raw/source_ref/UUID を写さない）。 */
+/**
+ * A1-6-2: opaque handle の形式（`c1:` + sha256 hex 64）。**candidate-action-handle.ts の `CANDIDATE_HANDLE_RE` と一致**させる。
+ *   本 module は **client-safe**（client redaction が delegate）ゆえ server-only な candidate-action-handle を import せず inline 複製する（defense-in-depth・drift は test で捕捉）。
+ *   一方向 hash のみ通すことで、万一 seedRef/UUID（ダッシュ有り）が handle field に紛れても **drop** される。
+ */
+const CANDIDATE_HANDLE_FORMAT = /^c1:[0-9a-f]{64}$/;
+
+/** item を allowed field のみで再構築（**extra key drop**・raw/source_ref/UUID を写さない）。A1-6-2: opaque handle は **形式一致時のみ**保持。 */
 function redactSurfaceItem(it: CandidateSurfaceItem): CandidateSurfaceItem {
-  return {
+  const base: CandidateSurfaceItem = {
     durationMin: it.durationMin,
     evidenceSource: it.evidenceSource,
     date: it.date,
     band: it.band,
     confidenceBand: it.confidenceBand,
   };
+  // handle は opaque な一方向 hash（安全な action 参照）。**形式一致時のみ保持**（seedRef/UUID が紛れても drop・defense-in-depth）。
+  return typeof it.handle === "string" && CANDIDATE_HANDLE_FORMAT.test(it.handle)
+    ? { ...base, handle: it.handle }
+    : base;
 }
 
 /**

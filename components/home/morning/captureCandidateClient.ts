@@ -16,6 +16,7 @@
 
 import { redactCaptureCandidateSurface } from "@/lib/plan/reality/integration/candidate-response-assembler";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
+import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
 
 /** V2 route path（fixed・**fetch は dormant**）。 */
 export const CAPTURE_CANDIDATE_V2_ROUTE = "/api/alter-morning/plan";
@@ -116,4 +117,24 @@ export async function submitForCaptureCandidate(
     body: buildCaptureCandidateRequestBody(submit),
     fetchImpl: opts.fetchImpl,
   });
+}
+
+// ── A1-6-2 candidate action request builder（pure・client→server contract・handle は opaque・seedRef を持たない） ──
+
+/** client→server の candidate action request body（**handle は opaque な一方向 hash**・seedRef を持たない）。 */
+export interface CandidateActionRequestBody {
+  readonly handle: string;
+  readonly action: CandidateActionKind;
+}
+
+/**
+ * A1-6-2: surface item の opaque `handle` + action（accept/dismiss/later）→ **action request body**（pure・最小）。
+ *   handle は一方向 hash ゆえ client は seedRef を持たない（偽造不能）。server 側で `validateActionRequest` により再 validate（fail-closed）。
+ *   **本 slice では live で呼ばれない**（action route 接続 / UI ボタンは別 GO・危険境界）。type は `CandidateActionKind`（client-safe・pure）。
+ */
+export function buildCandidateActionRequest(
+  handle: string,
+  action: CandidateActionKind
+): CandidateActionRequestBody {
+  return { handle, action };
 }

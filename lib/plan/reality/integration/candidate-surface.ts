@@ -33,7 +33,7 @@ export type ConfidenceBand = "high" | "medium" | "low";
 /** 時間帯ラベル（display-safe・既存 TimeBand）。 */
 export type TimeBandLabel = TimeBand; // "morning" | "afternoon" | "evening"
 
-/** 候補 1 件（add 提案）の **display-safe** 構造化詳細。**seedRef / source_ref / raw / UUID を持たない**。 */
+/** 候補 1 件（add 提案）の **display-safe** 構造化詳細。**seedRef / source_ref / raw / UUID を持たない**（handle は一方向 hash で seedRef ではない）。 */
 export interface CandidateSurfaceItem {
   /** 所要時間（分）。 */
   readonly durationMin: number;
@@ -45,6 +45,11 @@ export interface CandidateSurfaceItem {
   readonly band: TimeBandLabel | null;
   /** 確からしさ band（raw 0..1 を出さない）。 */
   readonly confidenceBand: ConfidenceBand;
+  /**
+   * A1-6-2: **opaque candidate handle**（一方向 hash `"c1:"+sha256(seedRef)`・**seedRef を出さない** action 用参照）。
+   *   `deriveHandle` 注入時のみ付与（未注入＝既存 surface と完全不変）。client はこれを action request に載せる（seedRef を持たない・偽造不能）。
+   */
+  readonly handle?: string;
 }
 
 /** captured seed consumption → **UI / route response に出してよい安全 DTO**（redacted）。 */
@@ -82,15 +87,23 @@ export function isSurfaceableCandidate(p: SeedPlacement): boolean {
   );
 }
 
-/** enriched placement → **safe surface item**（**seedRef を落とす**・safe field のみ）。surfaceable 前提。 */
-export function toCandidateSurfaceItem(p: SeedPlacement): CandidateSurfaceItem {
-  return {
+/**
+ * enriched placement → **safe surface item**（**seedRef を落とす**・safe field のみ）。surfaceable 前提。
+ *   `deriveHandle`（A1-6-2・server-side で注入）があれば **opaque handle**（一方向 hash）を付与する（seedRef は item に出さない）。
+ *   未注入なら handle 無（既存 surface と完全不変）。本関数自体は **crypto を import しない**（pure 維持・derive は注入）。
+ */
+export function toCandidateSurfaceItem(
+  p: SeedPlacement,
+  deriveHandle?: (seedRef: string) => string
+): CandidateSurfaceItem {
+  const item: CandidateSurfaceItem = {
     durationMin: p.durationMin as number, // surfaceable ゆえ non-null
     evidenceSource: p.durationSource as EvidenceSourceLabel, // seed_explicit | correction
     date: p.date ?? null,
     band: p.window?.band ?? null,
     confidenceBand: confidenceBand(p.confidence),
   };
+  return deriveHandle ? { ...item, handle: deriveHandle(p.seedRef) } : item;
 }
 
 /**
@@ -99,17 +112,22 @@ export function toCandidateSurfaceItem(p: SeedPlacement): CandidateSurfaceItem {
  *   - candidateCount>0 → items = candidatePlacements を `isSurfaceableCandidate` で filter（prm_typical/weak 除外）→ `toCandidateSurfaceItem`（seedRef drop）。
  *     placements 未提供なら items=[]（count-level surface・"候補があります" のみ）。
  *   **CandidateDraft は入力にしない**（UUID 源を境界に入れない）。route response / UI には接続しない。
+ *   A1-6-2: `deriveHandle`（server-side で注入・一方向 hash）があれば各 item に **opaque handle** を付与（seedRef は出さない）。
+ *     未注入なら handle 無（既存 surface 不変）。crypto は **注入**（本 module は pure 維持・server-only にしない）。
  */
-export function presentCandidateSurface(input: {
-  readonly summary: CapturedSeedConsumptionSummary;
-  readonly candidatePlacements?: readonly SeedPlacement[];
-}): CandidateSurfaceDTO {
+export function presentCandidateSurface(
+  input: {
+    readonly summary: CapturedSeedConsumptionSummary;
+    readonly candidatePlacements?: readonly SeedPlacement[];
+  },
+  deriveHandle?: (seedRef: string) => string
+): CandidateSurfaceDTO {
   if (input.summary.candidateCount <= 0) {
     return { hasCandidate: false, candidateCount: 0, status: "none", items: [] };
   }
   const items = (input.candidatePlacements ?? [])
     .filter(isSurfaceableCandidate)
-    .map(toCandidateSurfaceItem);
+    .map((p) => toCandidateSurfaceItem(p, deriveHandle));
   return {
     hasCandidate: true,
     candidateCount: input.summary.candidateCount,

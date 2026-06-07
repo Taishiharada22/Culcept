@@ -24,6 +24,8 @@ import {
   type SeedConsumptionContext,
 } from "./captured-seed-consumption";
 import { presentCandidateSurface, type CandidateSurfaceDTO } from "./candidate-surface";
+// A1-6-2: server-side で opaque candidate handle（一方向 sha256）を導出（本 bridge は server-only ゆえ node:crypto 可）。surface item に handle を載せ seedRef は drop。
+import { deriveCandidateHandle } from "./candidate-action-handle";
 import { selectSurfaceableCandidates, buildLifecycleEntryFromPlacement, type CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
 import type { SeedLifecycleMeta } from "./seed-column-restricted";
 import type { SeedPlacement } from "../seed-placement";
@@ -104,9 +106,12 @@ function surfaceFromComputation(computation: {
   summary: CapturedSeedConsumptionSummary;
   enrichedCandidatePlacements: readonly SeedPlacement[];
 }): CapturedSeedConsumptionSurfaceResult {
-  const surface = presentCandidateSurface({
-    summary: computation.summary,
-    candidatePlacements: computation.enrichedCandidatePlacements,
-  });
+  const surface = presentCandidateSurface(
+    {
+      summary: computation.summary,
+      candidatePlacements: computation.enrichedCandidatePlacements,
+    },
+    deriveCandidateHandle // A1-6-2: server-side 一方向 hash を注入（item に opaque handle・seedRef は出さない）
+  );
   return { summary: computation.summary, surface };
 }
