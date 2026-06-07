@@ -15538,3 +15538,6 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - HARD GATE 照合: staging ✅ / raw 漏れなし(DTO redacted=enum/number/date/null) ✅ / apply に見えない(banner read-only・button なし) ✅ / write off ✅。
 - ★未検証 2 点（私の制約）: ①**seed 存在**（候補は pending captured seed 由来・DB 確認不可・write off ゆえ既存 seed が無ければ banner は fail-open で非表示=正常）②**auth**（私はログイン不可＝視覚確認は CEO・従来の smoke と同様）。
 - dev server 起動済（main worktree `35dde74d`・staging・read-only surface・write off・port 3000）。**実機 smoke 観点を CEO に提示・視覚確認待ちで停止**。flag 前進/main 着地はしない。
+- ★**更新（CEO 指摘）**: capture banner は **home 専用**（`components/home/morning/` 配下・MorningPlanCard←AskHero・**/plan に参照なし**＝確認済）。**culcept-staging は home 到達不可**ゆえ staging で視覚 smoke 不可。/plan 参照を作るのは **新規 UI 配線＝本タスク scope 外**（非推奨）。
+- ★**code-level smoke で代替（GREEN）**: 既存 render-contract/presenter/client test（`realityCaptureCandidateBanner.test.tsx` / `…Presenter.test.ts` / `…Client.test.tsx`）= **3 files / 64 tests PASS**。検証観点が視覚 smoke と同一: absent→空 markup(null-safe・既存 UI 不変) / present→控えめ「候補があります」+約60分+友好ラベル / **技術名/raw/source_ref/UUID が DOM に出ない(redaction)** / MorningPlanCard additive wiring。
+- **判定（推奨）**: 視覚 smoke は staging home 不可 + /plan 参照 scope 外 → **code-level smoke（64 PASS）+ preflight GREEN（staging/write off/fail-open/redaction/read-only）をもって readiness PASS**。dev server 停止済。flag 前進/main 着地はしない。最終 PASS 判断は CEO。
