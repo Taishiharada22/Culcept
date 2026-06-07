@@ -289,3 +289,83 @@ describe("A1-4-2b 複数配置（multi-add・厳格 all-or-nothing）", () => {
     expect(generateComplete({ ...partitioned, placements })).toBeNull();
   });
 });
+
+describe("INV-17 protectedGaps — recovery gap を埋めない（additive・restrict-only・default 不変）", () => {
+  const win = { startMin: 540, endMin: 720 } as const; // 9:00-12:00 = 180min・空き全体
+
+  it("PG0. baseline: protectedGaps なし → 唯一 gap に配置（比較基準）", () => {
+    const draft = generateComplete({ placements: [placement({ seedRef: "p", durationMin: 120 })], existing: [], activeWindow: win });
+    expect(draft).not.toBeNull();
+    const op = draft!.changeSet.ops[0];
+    expect(op.kind === "add" && op.after.startMin).toBe(540);
+  });
+
+  it("PG1. protectedGap が唯一の gap を覆う → 配置しない（null）", () => {
+    const draft = generateComplete({
+      placements: [placement({ seedRef: "p", durationMin: 120 })],
+      existing: [],
+      activeWindow: win,
+      protectedGaps: [{ startMin: 540, endMin: 720 }], // 空き全体を保護
+    });
+    expect(draft).toBeNull();
+  });
+
+  it("PG2. protectedGaps: [] は undefined と同一（既存挙動完全不変）", () => {
+    const base = generateComplete({ placements: [placement({ seedRef: "p", durationMin: 120 })], existing: [], activeWindow: win });
+    const withEmpty = generateComplete({ placements: [placement({ seedRef: "p", durationMin: 120 })], existing: [], activeWindow: win, protectedGaps: [] });
+    expect(withEmpty).toEqual(base);
+  });
+
+  it("PG3. region 外の protectedGap → 無効果（従来どおり配置）", () => {
+    const draft = generateComplete({
+      placements: [placement({ seedRef: "p", durationMin: 120 })],
+      existing: [],
+      activeWindow: win,
+      protectedGaps: [{ startMin: 800, endMin: 900 }], // window [540,720] の外
+    });
+    expect(draft).not.toBeNull();
+    const op = draft!.changeSet.ops[0];
+    expect(op.kind === "add" && op.after.startMin).toBe(540);
+  });
+
+  it("PG4. 2 gap 曖昧 → protectedGap が片方を塞ぎ残り 1 gap に配置（曖昧解消）", () => {
+    const wide = { startMin: 480, endMin: 960 } as const; // 8:00-16:00
+    const existing = [govNode("a", 600, 660)]; // free: [480,600](120) と [660,960](300)
+    // protectedGap なしだと両 gap に 120 が入り曖昧 → null
+    expect(generateComplete({ placements: [placement({ seedRef: "p", durationMin: 120 })], existing, activeWindow: wide })).toBeNull();
+    // [480,600] を保護 → 残り [660,960] のみ → 一意配置
+    const draft = generateComplete({
+      placements: [placement({ seedRef: "p", durationMin: 120 })],
+      existing,
+      activeWindow: wide,
+      protectedGaps: [{ startMin: 480, endMin: 600 }],
+    });
+    expect(draft).not.toBeNull();
+    const op = draft!.changeSet.ops[0];
+    expect(op.kind === "add" && op.after.startMin).toBe(660);
+  });
+
+  it("PG5. protectedGap が唯一 gap を duration 未満に削る → 配置しない（null）", () => {
+    const draft = generateComplete({
+      placements: [placement({ seedRef: "p", durationMin: 120 })],
+      existing: [],
+      activeWindow: win, // [540,720] 180min
+      protectedGaps: [{ startMin: 620, endMin: 720 }], // 残り [540,620]=80min < 120
+    });
+    expect(draft).toBeNull();
+  });
+
+  it("PG6. existing ∪ protectedGaps の merge（両方が busy 扱い）", () => {
+    const wide = { startMin: 480, endMin: 960 } as const;
+    const existing = [govNode("a", 480, 540)]; // free 開始は 540 から
+    const draft = generateComplete({
+      placements: [placement({ seedRef: "p", durationMin: 120 })],
+      existing,
+      activeWindow: wide,
+      protectedGaps: [{ startMin: 660, endMin: 960 }], // 後半を保護 → 残り [540,660]=120 に一意配置
+    });
+    expect(draft).not.toBeNull();
+    const op = draft!.changeSet.ops[0];
+    expect(op.kind === "add" && op.after.startMin).toBe(540);
+  });
+});

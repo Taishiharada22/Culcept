@@ -54,6 +54,13 @@ export interface CompleteInput {
   readonly date?: string;
   /** band→clock 境界（caller 提供・active window/PRM 由来）。未提供なら banded placement は no candidate。 */
   readonly bandBounds?: Readonly<Partial<Record<TimeBand, Interval>>>;
+  /**
+   * ★INV-17（空白は埋めない・意味づけする）: add 禁止区間（recovery / free_time gap など・分単位）。
+   * busy に merge され freeGaps から除外される＝Complete(add) がこの区間を埋めない。
+   * additive・任意（**未指定/空なら既存挙動完全不変**）。restrict-only（add 候補を狭めるのみ・fail-safe）。
+   * 将来 Day Rehearsal の GapRecoveryAssertion を map して渡す想定（注入は別 slice・flag 裏）。
+   */
+  readonly protectedGaps?: readonly Interval[];
 }
 
 /** 生成提案ノードの governance（AI 生成・proposed・movable・tentative＝最弱・上書き自由）。 */
@@ -155,7 +162,12 @@ export function generateComplete(input: CompleteInput): CandidateDraft | null {
   const placements = input.placements;
   if (placements.length === 0) return null; // 配置するものがない
 
-  const busy: Interval[] = input.existing.map((n) => ({ startMin: n.startMin, endMin: n.endMin }));
+  // busy = 既存 node ∪ protectedGaps（INV-17: recovery/free_time gap を埋めない）。
+  // freeGaps が busy を除外するため、protectedGaps 区間は add 候補にならない。default 空＝挙動不変。
+  const busy: Interval[] = [
+    ...input.existing.map((n) => ({ startMin: n.startMin, endMin: n.endMin })),
+    ...(input.protectedGaps ?? []),
+  ];
 
   // 各 placement を一意 gap に割当（**all-or-nothing**: 1 つでも不適格/曖昧/不足なら null）
   const assignments: { readonly p: SeedPlacement; readonly gap: Interval; readonly duration: number }[] = [];
