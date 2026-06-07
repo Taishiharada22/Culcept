@@ -563,6 +563,16 @@ export const DAY_REHEARSAL_FULL_PATH_ENABLED = true;
 export const DAY_REHEARSAL_ENERGY_ENABLED = true; // ★Batch 2 activation（2026-06-08 CEO/GPT GO・実エンジン再現で energy が過悲観の原因でないこと実測・有界 −25%・null degrade・leak なし）
 
 /**
+ * ★A1-5 personal pace 反映 有効化フラグ（module const・**default OFF**）。
+ * OFF: rehearsalInput をそのまま rehearseDay（既存挙動完全不変＝同一参照）。
+ * ON: applyPersonalPaceToRehearsalInput で travelMin に personal pace を soft 反映
+ *   （ready(≥3観測)のみ・damping+clamp[0.85,1.25]・buffer 観測は不変・unknown は捏造しない）。
+ * ★現状 capture(A1-6) 未実装ゆえ resolver は観測 0 → ON でも実質 inert（null resolver と同等）。
+ *   activation は A1-6 で実データ経路が完成し実機 smoke を通してから CEO 判断（今は有効化しない）。
+ */
+export const DAY_REHEARSAL_PERSONAL_PACE_ENABLED = false;
+
+/**
  * ★Batch 2: InnerWeather.energyLevel（**-1〜1**・GET /api/stargazer/inner-weather 由来）→ baseEnergyLevel（**0-1**）に正規化。
  * 値域 sign 不一致を吸収（**省くと負値が clamp(0,1) で 0 に潰れ系統的 over-pessimism＝silent bug**）。
  * 式: (raw + 1) / 2 → clamp(0,1)。例: -1→0.0, 0→0.5, +1→1.0。null（未記録）は null のまま（degrade）。

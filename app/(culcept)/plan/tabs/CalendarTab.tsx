@@ -76,7 +76,8 @@ import {
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
-import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, DAY_REHEARSAL_PERSONAL_PACE_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { applyPersonalPaceToRehearsalInput } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 import { useInnerWeather } from "@/hooks/useInnerWeather";
 import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates, type DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import { previewRepairSimulation, repairSimulationShortLine } from "@/lib/plan/dayRehearsal/dayRepairSimulation";
@@ -267,7 +268,18 @@ export function CalendarTab({
     baseEnergyLevel,
   ]);
 
-  const dayRehearsal = useMemo(() => (rehearsalInput ? rehearseDay(rehearsalInput) : null), [rehearsalInput]);
+  // ★A1-5 personal pace 反映（flag **default OFF**＝既存挙動完全不変）。
+  //   OFF: rehearsalInput をそのまま rehearseDay。
+  //   ON: applyPersonalPaceToRehearsalInput で travelMin に soft 反映（buffer 観測は不変・ready のみ・clamp 済）。
+  //   ★resolver は A1-6 capture（leg に od/mode/estimate を付与）完成で稼働。現状 capture 未実装ゆえ常に null
+  //     ＝変更なし＝同一参照を返す（ON でも実質 inert）。activation/ON smoke は A1-6 後に CEO 判断。
+  const dayRehearsal = useMemo(() => {
+    if (!rehearsalInput) return null;
+    const input = DAY_REHEARSAL_PERSONAL_PACE_ENABLED
+      ? applyPersonalPaceToRehearsalInput(rehearsalInput, () => null)
+      : rehearsalInput;
+    return rehearseDay(input);
+  }, [rehearsalInput]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
   const convergenceSteps = useMemo(
