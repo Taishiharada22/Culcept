@@ -525,9 +525,11 @@ export function buildRehearsalInputFull(
 }
 
 /**
- * ★Day Rehearsal full-path 有効化フラグ（Batch 1・module const・default OFF＝Option D 不変）。
+ * ★Day Rehearsal full-path 有効化フラグ（Batch 1・module const）。
  * client(CalendarTab) で評価するため PLAN_FLAGS（server-only）でなく module const。
  * OFF: buildRehearsalInputFromDisplay（status-only degrade）。ON: buildRehearsalInputFull（実 transport + raw feasibility）。
- * local smoke 時のみ true にして検証 → 検証後に既定 ON 化を CEO 判断。
+ * ★**2026-06-07 activation（CEO smoke PASS・/plan 実機検証済）**: 既定 ON。
+ *   実機検証で friction が実移動で可変・convergence/recovery が実 slack 由来・protect_buffer 復活・異常なし・read-only/数値非表示 を確認。
+ *   緊急時は false に戻せば Option D（status-only degrade）へ即復帰（kill 相当）。
  */
-export const DAY_REHEARSAL_FULL_PATH_ENABLED = false;
+export const DAY_REHEARSAL_FULL_PATH_ENABLED = true;
