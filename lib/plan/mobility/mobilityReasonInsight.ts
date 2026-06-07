@@ -13,8 +13,8 @@
  *   - sensitive / hidden は呼び側が `excludeLegKeys` で対象外にできる（feedback store は元々 sensitive を記録しないが二重に安全側）。
  *   - pure / READ のみ / Date 不使用。
  */
-import type { RouteTransportMode } from "@/lib/plan/map/routeMode";
-import type { HypothesisFeedbackStore, MobilityReason } from "./hypothesisFeedbackStore";
+import { MOBILITY_MODE_META, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { MOBILITY_REASON_LABELS, type HypothesisFeedbackStore, type MobilityReason } from "./hypothesisFeedbackStore";
 
 export interface ReasonInsightConfig {
   /** これ未満の reason 観測は not_enough_signal（sparse 保護・★1-2 件で出さない）。 */
@@ -182,4 +182,20 @@ export function buildReasonInsightForLeg(
   const acc = byLeg.get(legKey);
   if (!acc) return null; // reason データなし
   return judge(legKey, acc.reasons, acc.modes, config);
+}
+
+/**
+ * ★A0-2: reason insight を user-facing な 1 行に（pure・保守的）。
+ * - **established のみ**表示（CEO 2026-06-08・emerging/not_enough/null は null=沈黙）。
+ * - dominantReason==="other" は意味ある反映にならないため沈黙（null）。
+ * - 仮説トーン・per-leg 文脈・**trait/人格にしない**・「しがち/よく/いつも/あなたは」等の強語を使わない・生数値なし。
+ */
+export function reasonReflectionLine(insight: ReasonInsightResult | null): string | null {
+  if (insight == null || insight.status !== "insight") return null;
+  if (insight.strength !== "established") return null; // ★保守的: established のみ
+  if (insight.dominantReason === "other") return null; // 「その他」は反映しない
+  const reason = MOBILITY_REASON_LABELS[insight.dominantReason];
+  const mode = MOBILITY_MODE_META[insight.dominantMode]?.label;
+  if (!reason || !mode) return null;
+  return `この区間では、${reason}を理由に ${mode}を選ぶことがあるようです`;
 }

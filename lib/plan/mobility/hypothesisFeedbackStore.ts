@@ -244,6 +244,11 @@ export function loadHypothesisFeedback(dayISO: string, legKey: string): Hypothes
   return getFeedback(readFeedbackStore(), dayISO, legKey);
 }
 
+/** ★A0-2: store 全体を読む（client・fail-open）。reason insight 集約用（pure 層に store を渡す）。 */
+export function loadHypothesisFeedbackStore(): HypothesisFeedbackStore {
+  return readFeedbackStore();
+}
+
 /**
  * ★A0: 既存 correction entry に reason を保存（client・fail-open）。reason=null で解除。
  * entry が無い leg は no-op（setFeedbackReason が判定）。DB・network 不使用・既存 entry を壊さない。

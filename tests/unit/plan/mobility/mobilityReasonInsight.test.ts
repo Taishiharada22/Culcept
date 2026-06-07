@@ -6,8 +6,11 @@ import { describe, it, expect } from "vitest";
 import {
   buildReasonInsights,
   buildReasonInsightForLeg,
+  reasonReflectionLine,
   DEFAULT_REASON_INSIGHT_CONFIG,
+  type ReasonInsight,
 } from "@/lib/plan/mobility/mobilityReasonInsight";
+import type { MobilityReason as _MR } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import {
   HYPOTHESIS_FEEDBACK_SCHEMA_VERSION,
   type HypothesisFeedbackStore,
@@ -145,5 +148,49 @@ describe("mobilityReasonInsight — A0-1 pure/readiness", () => {
 
   it("RI14. config 既定: minObservations=3（sparse 保護の閾値）", () => {
     expect(DEFAULT_REASON_INSIGHT_CONFIG.minObservations).toBe(3);
+  });
+});
+
+describe("reasonReflectionLine — A0-2 user-facing copy（established のみ・保守的）", () => {
+  const insight = (over: Partial<ReasonInsight> = {}): ReasonInsight => ({
+    legKey: "a__b",
+    status: "insight",
+    totalReasonObservations: 5,
+    dominantReason: "scenery",
+    dominantReasonCount: 4,
+    dominantMode: "walk",
+    dominantModeCount: 4,
+    strength: "established",
+    ...over,
+  });
+
+  it("RR1. established → 仮説トーンの 1 行（reason×mode・per-leg）", () => {
+    expect(reasonReflectionLine(insight())).toBe("この区間では、景色を理由に 徒歩を選ぶことがあるようです");
+  });
+  it("RR2. ★emerging → null（established のみ・保守的）", () => {
+    expect(reasonReflectionLine(insight({ strength: "emerging" }))).toBeNull();
+  });
+  it("RR3. not_enough_signal → null", () => {
+    expect(reasonReflectionLine({ legKey: "a__b", status: "not_enough_signal", observed: 2 })).toBeNull();
+  });
+  it("RR4. null → null", () => {
+    expect(reasonReflectionLine(null)).toBeNull();
+  });
+  it("RR5. ★dominantReason='other' → null（意味ある反映にならない＝沈黙）", () => {
+    expect(reasonReflectionLine(insight({ dominantReason: "other" }))).toBeNull();
+  });
+  it("RR6. ★禁止語を含まない（しがち/よく/いつも/あなたは/タイプ/性格）", () => {
+    const lines = (["scenery", "tired", "cheap", "hurry", "mood"] as _MR[]).map((r) =>
+      reasonReflectionLine(insight({ dominantReason: r })),
+    );
+    for (const s of lines) {
+      expect(s).not.toBeNull();
+      for (const w of ["しがち", "よく", "いつも", "あなたは", "タイプ", "性格", "傾向があります"]) {
+        expect(s!).not.toContain(w);
+      }
+      expect(s!).not.toMatch(/\d/); // 生数値なし
+      expect(s!).toContain("この区間では"); // per-leg
+      expect(s!.endsWith("あるようです")).toBe(true); // 仮説トーン
+    }
   });
 });
