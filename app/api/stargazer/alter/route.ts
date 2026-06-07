@@ -525,6 +525,8 @@ import type { CaptureCandidateFragment } from "@/lib/plan/reality/integration/ca
 // A1-5-9-0/1: Reality capture write（fire-and-forget・structured-only・flag gated・production hard block）
 //   今回の発話から structured-only seed/evidence を capture（次回/後続の surface read で候補化）。default 両 flag off → no-op。
 import { fireMorningCapture, type MorningCaptureClient } from "@/lib/plan/reality/integration/alter-morning-capture-observe";
+import { resolveConsumedReflectedMorningPlan } from "@/lib/plan/reality/integration/morning-consumed-reflection.server";
+import type { ConsumedSeedReadClient } from "@/lib/plan/reality/integration/consumed-seed-repository-supabase";
 import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -10365,6 +10367,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // A1-6-7: Consumed Seed → MorningPlan reflection（**serve-time のみ・flag gated・read-only・additive・fail-open**）
+    //   accept 済み（status='consumed'）seed を **response 用の plan にだけ** 反映（stored session=morningResponse.plan は不変）。
+    //   flag（realityConsumedReflection）off / no plan → **既存 plan を返す**（read 0・本番デフォルト・response 完全不変）。
+    //   user-RLS client 注入（auth user 以外の seed は読めない）・status-only（generateComplete/anchor 不使用）・例外は fail-open。
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const servedMorningPlan = await resolveConsumedReflectedMorningPlan(
+      morningResponse?.plan ?? null,
+      supabase as unknown as ConsumedSeedReadClient,
+      userId,
+    );
+
     return NextResponse.json({
       ok: true,
       sessionId,
@@ -10387,7 +10401,8 @@ export async function POST(req: NextRequest) {
           // 次ターンも v2 pipeline に吸い込む
           pipelineVersion: morningSession?.pipelineVersion ?? null,
           phase: morningResponse.phase,
-          plan: morningResponse.plan ?? null,
+          // A1-6-7: consumed seed reflection 適用済（flag off 時は morningResponse.plan と同一・serve-time のみ・session 不変）
+          plan: servedMorningPlan,
           clarifyQuestion: morningResponse.clarifyQuestion ?? null,
           personalizeHints: morningResponse.personalizeHints ?? [],
           // ── P0-1: セッション状態の完全保持 ──

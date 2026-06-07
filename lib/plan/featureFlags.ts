@@ -276,4 +276,19 @@ export const PLAN_FLAGS = {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   })() as readonly string[],
+
+  /**
+   * A1-6-7: Consumed seed → MorningPlan reflection（accept 済み候補を live `MorningPlan` の `PlanItem[]` に additive merge）を有効化するか。
+   *   true  : morning route が **status='consumed' の seed を read-only consumption** し、`reflectConsumedSeedsIntoMorningPlan` で
+   *           `MorningPlan.items` に additive 追加（同日・id 重複 skip・consumed seed だけが item 化）。
+   *   false : reflect しない（**本番デフォルト**・`MorningPlan` は既存と完全一致＝dormant・serve read 0）。
+   * env: REALITY_CONSUMED_REFLECTION=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §9.12（A1-6-7）
+   * 背景: reflection の target は live plan = `MorningPlan`（`DraftPlan` は Wave-4 stub・非 live。CEO 判断 2026-06-08 で pivot）。
+   * 制約: capture write（realityCaptureLive）/ surface（realityCaptureSurface）とは **別 flag**。reflection は **read-only**
+   *   （status-only accept の結果＝consumed seed を読むだけ・write しない・LLM await しない・generateComplete/anchor 不使用）。
+   *   fail-open: flag off / no consumed seed / read error では `MorningPlan` を **変えない**（additive・既存を壊さない）。
+   *   active / rejected / expired seed は混ざらない（reader が status='consumed' のみ・merge も guard）。
+   */
+  realityConsumedReflection: process.env.REALITY_CONSUMED_REFLECTION === "true",
 } as const;

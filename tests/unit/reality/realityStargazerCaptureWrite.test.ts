@@ -60,7 +60,10 @@ describe("A1-5-9-0/1 capture write wiring — gating / 配置 / 後方互換", (
   });
   it("既存 morningProtocol assembly を壊していない（setMorningPlan 相当の morningProtocol.plan 出力）", () => {
     expect(CODE).toContain("morningProtocol:");
-    expect(CODE).toContain("plan: morningResponse.plan");
+    // A1-6-7: serve は servedMorningPlan（= morningResponse.plan を flag-gated consumed reflection した結果）。
+    //   plan 出力は維持（servedMorningPlan の source は morningResponse?.plan ?? null・flag off 時は同一）。
+    expect(CODE).toContain("plan: servedMorningPlan");
+    expect(CODE).toContain("morningResponse?.plan ?? null");
   });
 });
 
