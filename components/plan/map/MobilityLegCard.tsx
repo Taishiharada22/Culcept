@@ -41,14 +41,26 @@ export interface MobilityLegCardProps {
    * 観測の穏やかな反映（仮説トーン・per-leg・trait でない）。reason chip とは別。readOnly では出さない。
    */
   reasonReflection?: string | null;
+  /**
+   * ★A1-6a 手動ログ: この区間の「実際の所要（分）」。記録済なら数値・未記録は null。
+   * onLogActual 不在 or readOnly では affordance を出さない（任意・GPS 不要・MapTab が sensitive 等を除外して渡す）。
+   */
+  loggedActualMin?: number | null;
+  onLogActual?: (legKey: string, actualDurationMin: number) => void;
+  onClearActual?: (legKey: string) => void;
 }
 
 export function MobilityLegCard({
   legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose, hypothesisCopy,
   reasonPromptVisible = false, selectedReason = null, onReasonSelect, onReasonDismiss, reasonReflection = null,
+  loggedActualMin = null, onLogActual, onClearActual,
 }: MobilityLegCardProps) {
   // ★A0-2: reflection の軽い dismiss（local state のみ・永続化しない・leg ごとに key で reset）。
   const [reflectionDismissed, setReflectionDismissed] = useState(false);
+  // ★A1-6a: 手動ログ入力の開閉 + 値（local state のみ・永続化は MapTab の store）。
+  const [logOpen, setLogOpen] = useState(false);
+  const [logValue, setLogValue] = useState("");
+  const logCaptureAvailable = !readOnly && !!onLogActual;
   const chipBg = (mode: RouteTransportMode) => ({
     backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
     backgroundSize: "contain",
@@ -191,10 +203,63 @@ export function MobilityLegCard({
             </button>
           </div>
         )}
-        <div className="mt-3 flex gap-4 border-t border-slate-100 pt-3 text-[11px] text-slate-400">
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-slate-100 pt-3 text-[11px] text-slate-400">
           <span>現在表示：<b className="text-slate-700">{selectedMode ? MOBILITY_MODE_META[selectedMode].label : "未設定"}</b></span>
-          <span>実績：<b className="text-slate-700">未記録</b></span>
+          {loggedActualMin != null ? (
+            <span className="flex items-center gap-1.5">
+              実績：<b className="text-slate-700">{loggedActualMin}分</b>
+              {logCaptureAvailable && onClearActual && (
+                <button type="button" onClick={() => onClearActual(legKey)} className="text-slate-300 underline hover:text-slate-500">取消</button>
+              )}
+            </span>
+          ) : logCaptureAvailable ? (
+            <button
+              type="button"
+              data-testid="mobility-log-actual-toggle"
+              onClick={() => { setLogOpen((v) => !v); setLogValue(""); }}
+              className="text-slate-500 underline hover:text-slate-700"
+            >
+              実際の所要を記録
+            </button>
+          ) : (
+            <span>実績：<b className="text-slate-700">未記録</b></span>
+          )}
         </div>
+        {/*
+         * ★A1-6a 手動ログ inline 入力（GPS 不要・modal でない・任意・可逆）。
+         * 「実際に N 分くらいかかった」= derived movement event(source=manual) を保存。
+         */}
+        {logCaptureAvailable && logOpen && loggedActualMin == null && (
+          <div data-testid="mobility-log-actual-input" className="mt-2 flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+            <span className="text-[11px] text-slate-500">実際に</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={logValue}
+              onChange={(e) => setLogValue(e.target.value)}
+              placeholder="分"
+              aria-label="実際の所要（分）"
+              className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-sm text-slate-800"
+            />
+            <span className="text-[11px] text-slate-500">分くらいかかった</span>
+            <button
+              type="button"
+              disabled={!(Number(logValue) > 0)}
+              onClick={() => {
+                const n = Math.round(Number(logValue));
+                if (n > 0) {
+                  onLogActual?.(legKey, n);
+                  setLogOpen(false);
+                  setLogValue("");
+                }
+              }}
+              className="ml-auto rounded-full bg-slate-800 px-3 py-1 text-[11px] font-bold text-white disabled:opacity-40"
+            >
+              記録
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

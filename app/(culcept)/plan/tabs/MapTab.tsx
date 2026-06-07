@@ -90,6 +90,7 @@ import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/l
 import { loadL3bPooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
 import { buildFeedbackEntry, saveHypothesisFeedback, saveHypothesisFeedbackReason, loadHypothesisFeedbackStore, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
+import { buildMovementEventManual, recordMovementEvent, loadMovementEvent, deleteMovementEvent } from "@/lib/plan/mobility/movementEventStore";
 import { buildReasonInsightForLeg, reasonReflectionLine } from "@/lib/plan/mobility/mobilityReasonInsight";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
@@ -374,6 +375,9 @@ export function MapTab({
       fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
       toTitle: maskedAnchorTitle(sorted[idx + 1]!.anchor),
       readOnly: isDone,
+      // ★A1-6a 手動ログ用: sensitive（記録抑止）と odKey（cross-day 蓄積単位）を公開。
+      sensitive,
+      odKey: repertoireQuery.odKey,
       recallMode: guidance.recallMode,
       hypothesisCopy: guidance.hypothesisCopy,
       surfacedMode: guidance.surfacedMode, // v0-E: feedback の kind 判定用(surface 時のみ非 null)
@@ -497,6 +501,52 @@ export function MapTab({
     };
   }, [openLeg, legCoordsByKey]);
 
+  // ★A1-6a 手動ログ: この区間の「実際の所要（分）」を local store(MovementEvent・source=manual) に記録/取消。
+  //   GPS 不要・任意・可逆。sensitive leg は記録しない（affordance も MapTab 側で出さない）。
+  const [movementTick, setMovementTick] = useState(0);
+  const loggedActualMin = useMemo(() => {
+    void movementTick; // ★save/delete 後の再読込トリガ（localStorage 読取は dep に現れないため明示参照）
+    return openLeg ? (loadMovementEvent(dayKey, openLeg.legKey)?.actualDurationMin ?? null) : null;
+  }, [openLeg, dayKey, movementTick]);
+  const handleLogActual = useCallback(
+    (legKey: string, actualDurationMin: number) => {
+      const data = mobilityCardData;
+      if (!data || data.legKey !== legKey || data.sensitive) return; // sensitive は記録しない（二重防御）
+      const mode = selectedModeByLeg[legKey] ?? null;
+      // 選択 mode の route estimate（目安）を ratio の分母として保存（取れなければ null）。
+      const info =
+        !legDur || !mode
+          ? null
+          : mode === "walk"
+            ? legDur.walk
+            : mode === "car" || mode === "taxi"
+              ? legDur.drive
+              : mode === "train" || mode === "bus"
+                ? legDur.transit
+                : null;
+      const event = buildMovementEventManual({
+        actualDurationMin,
+        completedAtMs: (now ?? new Date()).getTime(),
+        meta: {
+          ...(mode ? { mode } : {}),
+          ...(data.odKey ? { odKey: data.odKey } : {}),
+          estimateMin: info?.minutes ?? null,
+        },
+      });
+      if (!event) return;
+      recordMovementEvent(dayKey, legKey, event, { optInGranted: true, sensitive: data.sensitive });
+      setMovementTick((t) => t + 1);
+    },
+    [mobilityCardData, selectedModeByLeg, legDur, now, dayKey],
+  );
+  const handleClearActual = useCallback(
+    (legKey: string) => {
+      deleteMovementEvent(dayKey, legKey);
+      setMovementTick((t) => t + 1);
+    },
+    [dayKey],
+  );
+
   // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
   const dayItemsForPanel = useMemo<DayItem[]>(() => {
     return [...dayAnchors]
@@ -557,6 +607,9 @@ export function MapTab({
           onReasonSelect={handleReasonSelect}
           onReasonDismiss={handleReasonDismiss}
           reasonReflection={mobilityCardData.reasonReflection}
+          loggedActualMin={loggedActualMin}
+          onLogActual={mobilityCardData.sensitive ? undefined : handleLogActual}
+          onClearActual={mobilityCardData.sensitive ? undefined : handleClearActual}
         />
       )}
     </div>

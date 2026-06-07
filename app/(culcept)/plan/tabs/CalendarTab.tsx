@@ -78,6 +78,11 @@ import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, DAY_REHEARSAL_PERSONAL_PACE_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import { applyPersonalPaceToRehearsalInput } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
+import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
+import { buildPersonalPaceRatiosFromStore, resolvePersonalPaceForLeg } from "@/lib/plan/mobility/personalPaceResolver";
+import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
+import { loadSelectedModesForDay } from "@/lib/plan/map/selectedModeStore";
+import type { EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
 import { useInnerWeather } from "@/hooks/useInnerWeather";
 import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates, type DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import { previewRepairSimulation, repairSimulationShortLine } from "@/lib/plan/dayRehearsal/dayRepairSimulation";
@@ -268,18 +273,34 @@ export function CalendarTab({
     baseEnergyLevel,
   ]);
 
-  // ★A1-5 personal pace 反映（flag **default OFF**＝既存挙動完全不変）。
-  //   OFF: rehearsalInput をそのまま rehearseDay。
-  //   ON: applyPersonalPaceToRehearsalInput で travelMin に soft 反映（buffer 観測は不変・ready のみ・clamp 済）。
-  //   ★resolver は A1-6 capture（leg に od/mode/estimate を付与）完成で稼働。現状 capture 未実装ゆえ常に null
-  //     ＝変更なし＝同一参照を返す（ON でも実質 inert）。activation/ON smoke は A1-6 後に CEO 判断。
+  // ★A1-5/A1-6a personal pace 反映（flag **default OFF**＝既存挙動完全不変）。
+  //   OFF: rehearsalInput をそのまま rehearseDay（同一参照）。
+  //   ON: A1-6a capture(MovementEvent) を集約した ratios を、各 transition の odKey×mode で引き、
+  //       adapter が travelMin に soft 反映（ready のみ・buffer 観測は不変・clamp 済・無ければ fallback）。
+  //   ★join: legKey=anchorId ペア（selectedModeStore と同源で mode 取得）/ odKey=正規化 location ペア（cross-day 蓄積単位）。
+  //   ★activation/ON smoke は CEO 判断（現状 OFF・実データ無なら adapter が fallback で不変）。
   const dayRehearsal = useMemo(() => {
     if (!rehearsalInput) return null;
-    const input = DAY_REHEARSAL_PERSONAL_PACE_ENABLED
-      ? applyPersonalPaceToRehearsalInput(rehearsalInput, () => null)
-      : rehearsalInput;
-    return rehearseDay(input);
-  }, [rehearsalInput]);
+    if (!DAY_REHEARSAL_PERSONAL_PACE_ENABLED) return rehearseDay(rehearsalInput); // OFF: 完全不変
+    const ratios = buildPersonalPaceRatiosFromStore(loadMovementEventStore());
+    const graph = dayGraphByDate?.[selectedDate]?.graph;
+    const events = graph ? graph.nodes.filter((n): n is EventNode => n.kind === "event") : [];
+    const anchorById = new Map(selectedDayAnchors.map((a) => [a.id, a] as const));
+    const selectedModes = loadSelectedModesForDay(selectedDate);
+    const resolver = (stepIndex: number) => {
+      const from = events[stepIndex];
+      const to = events[stepIndex + 1];
+      if (!from || !to) return null;
+      const legKey = `${from.anchorId}__${to.anchorId}`;
+      const mode = selectedModes[legKey];
+      if (!mode) return null; // mode 未選択 → 引けない（fallback）
+      const oNorm = normalizeLocationText(anchorById.get(from.anchorId)?.locationText ?? null);
+      const dNorm = normalizeLocationText(anchorById.get(to.anchorId)?.locationText ?? null);
+      const odKey = oNorm && dNorm ? `${oNorm}__${dNorm}` : undefined;
+      return resolvePersonalPaceForLeg(ratios, { odKey, legKey, mode });
+    };
+    return rehearseDay(applyPersonalPaceToRehearsalInput(rehearsalInput, resolver));
+  }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
   const convergenceSteps = useMemo(

@@ -14,6 +14,7 @@
  * 命名: これは GPS 推定 + 手動の「実移動イベント」。hypothesisFeedbackStore（予定の癖）とは別 store。
  */
 import type { DetectedMovement, MovementConfidence } from "@/lib/plan/mobility/movementEventDetector";
+import { isRouteTransportMode, type RouteTransportMode } from "@/lib/plan/map/routeMode";
 
 export const MOVEMENT_EVENT_KEY = "aneurasync.plan.map.movementEvents.v1";
 export const MOVEMENT_EVENT_SCHEMA_VERSION = 1 as const;
@@ -37,6 +38,13 @@ export interface MovementEvent {
   readonly actualDurationMin: number | null; // derived（捏造しない・両端不在は null）
   readonly confidence: MovementConfidence;
   readonly source: MovementSource;
+  // ★A1-6 additive 拡張（後方互換・古い event は欠落＝undefined で動く）。A1-4 が store だけで ratio を出すための tag。
+  /** その leg の交通手段（pace 集約の単位）。 */
+  readonly mode?: RouteTransportMode;
+  /** 反復する OD クラス（home→office 等・cross-day 蓄積の単位）。sensitive 等で取れなければ省略。 */
+  readonly odKey?: string;
+  /** capture 時の route estimate（分・ratio の分母）。取れなければ null/省略。 */
+  readonly estimateMin?: number | null;
 }
 
 export interface MovementEventStore {
@@ -80,25 +88,41 @@ function isMovementEvent(value: unknown): value is MovementEvent {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   const durationOk = v.actualDurationMin === null || (typeof v.actualDurationMin === "number" && Number.isFinite(v.actualDurationMin) && v.actualDurationMin >= 0);
+  // ★additive 拡張は optional: undefined は OK・存在時のみ検証（後方互換）。
+  const modeOk = v.mode === undefined || isRouteTransportMode(v.mode);
+  const odKeyOk = v.odKey === undefined || (typeof v.odKey === "string" && v.odKey.length > 0);
+  const estimateOk =
+    v.estimateMin === undefined ||
+    v.estimateMin === null ||
+    (typeof v.estimateMin === "number" && Number.isFinite(v.estimateMin) && v.estimateMin >= 0);
   return (
     isIsoOrNull(v.actualDepartureAt) &&
     isIsoOrNull(v.actualArrivalAt) &&
     isIsoOrNull(v.completedAt) &&
     durationOk &&
     isConfidence(v.confidence) &&
-    isSource(v.source)
+    isSource(v.source) &&
+    modeOk &&
+    odKeyOk &&
+    estimateOk
   );
 }
 
-/** ★既知 field だけを読み出す＝raw 座標等の余計な field は store に入らない（誠実性担保）。 */
+/** ★既知 field だけを読み出す＝raw 座標等の余計な field は store に入らない（誠実性担保）。additive 拡張は存在時のみ。 */
 function pickEvent(v: MovementEvent): MovementEvent {
-  return {
+  const base: MovementEvent = {
     actualDepartureAt: v.actualDepartureAt,
     actualArrivalAt: v.actualArrivalAt,
     completedAt: v.completedAt,
     actualDurationMin: v.actualDurationMin,
     confidence: v.confidence,
     source: v.source,
+  };
+  return {
+    ...base,
+    ...(v.mode !== undefined ? { mode: v.mode } : {}),
+    ...(v.odKey !== undefined ? { odKey: v.odKey } : {}),
+    ...(v.estimateMin !== undefined ? { estimateMin: v.estimateMin } : {}),
   };
 }
 
@@ -172,21 +196,66 @@ export function getMovementEvent(
   return store.byDay[dayISO]?.[legKey] ?? null;
 }
 
+/** capture 時の文脈タグ（A1-4 集約用・additive）。 */
+export interface MovementEventMeta {
+  readonly mode?: RouteTransportMode;
+  readonly odKey?: string;
+  readonly estimateMin?: number | null;
+}
+
+function withMeta(base: MovementEvent, meta?: MovementEventMeta): MovementEvent {
+  if (!meta) return base;
+  return {
+    ...base,
+    ...(meta.mode !== undefined ? { mode: meta.mode } : {}),
+    ...(meta.odKey !== undefined ? { odKey: meta.odKey } : {}),
+    ...(meta.estimateMin !== undefined ? { estimateMin: meta.estimateMin } : {}),
+  };
+}
+
 /** detector 出力(epoch ms) を保存可能な MovementEvent(ISO・derived) に変換（純粋）。 */
 export function buildMovementEventFromDetection(
   detected: DetectedMovement,
   completedAtMs: number,
+  meta?: MovementEventMeta,
 ): MovementEvent {
-  return {
-    actualDepartureAt:
-      detected.actualDepartureAtMs != null ? new Date(detected.actualDepartureAtMs).toISOString() : null,
-    actualArrivalAt:
-      detected.actualArrivalAtMs != null ? new Date(detected.actualArrivalAtMs).toISOString() : null,
-    completedAt: new Date(completedAtMs).toISOString(),
-    actualDurationMin: detected.actualDurationMin,
-    confidence: detected.confidence,
-    source: detected.source,
-  };
+  return withMeta(
+    {
+      actualDepartureAt:
+        detected.actualDepartureAtMs != null ? new Date(detected.actualDepartureAtMs).toISOString() : null,
+      actualArrivalAt:
+        detected.actualArrivalAtMs != null ? new Date(detected.actualArrivalAtMs).toISOString() : null,
+      completedAt: new Date(completedAtMs).toISOString(),
+      actualDurationMin: detected.actualDurationMin,
+      confidence: detected.confidence,
+      source: detected.source,
+    },
+    meta,
+  );
+}
+
+/**
+ * ★A1-6a 手動ログ: user が入力した「実際の所要（分）」から MovementEvent を作る（純粋）。
+ * source="manual"・confidence="high"（user 自己申告）。出発/到着時刻は持たない（duration のみ）。
+ * actualDurationMin が無効（null/負/非有限）なら null を返す（捏造しない）。
+ */
+export function buildMovementEventManual(input: {
+  actualDurationMin: number;
+  completedAtMs: number;
+  meta?: MovementEventMeta;
+}): MovementEvent | null {
+  if (!Number.isFinite(input.actualDurationMin) || input.actualDurationMin < 0) return null;
+  return withMeta(
+    {
+      actualDepartureAt: null,
+      actualArrivalAt: null,
+      completedAt: new Date(input.completedAtMs).toISOString(),
+      actualDurationMin: Math.round(input.actualDurationMin),
+      confidence: "high",
+      source: "manual",
+    },
+    input.meta,
+  );
 }
 
 function getStorage(): Storage | null {
@@ -238,4 +307,31 @@ export function loadMovementEvent(dayISO: string, legKey: string): MovementEvent
 /** store 全体を読む（client・fail-open）。A1-4 personal pace ratio 集約用（pure 層に渡す）。 */
 export function loadMovementEventStore(): MovementEventStore {
   return readMovementEventStore();
+}
+
+/** 1 leg の実移動イベントを取り除いた store を返す（純粋・可逆 UX 用）。 */
+export function removeMovementEvent(
+  store: MovementEventStore,
+  dayISO: string,
+  legKey: string,
+): MovementEventStore {
+  const day = store.byDay[dayISO];
+  if (!day || !(legKey in day)) return store;
+  const nextDay: Record<string, MovementEvent> = {};
+  for (const [k, v] of Object.entries(day)) if (k !== legKey) nextDay[k] = v;
+  const byDay: Record<string, Record<string, MovementEvent>> = { ...store.byDay };
+  if (Object.keys(nextDay).length > 0) byDay[dayISO] = nextDay;
+  else delete byDay[dayISO];
+  return { version: MOVEMENT_EVENT_SCHEMA_VERSION, byDay };
+}
+
+/** ★A1-6a 取消: 1 leg の記録を削除（client・fail-open・可逆）。 */
+export function deleteMovementEvent(dayISO: string, legKey: string): void {
+  const ls = getStorage();
+  if (!ls) return;
+  try {
+    ls.setItem(MOVEMENT_EVENT_KEY, JSON.stringify(removeMovementEvent(readMovementEventStore(), dayISO, legKey)));
+  } catch {
+    /* fail-open */
+  }
 }
