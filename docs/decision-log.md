@@ -15520,3 +15520,14 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **audit 提出で停止**。次の bundle 方向（A/B/D）は CEO 判断。pure plumbing は保留。push/PR/Vercel/DB/予定変更/実注入 不接触。
 
 ---
+
+## [2026-06-07] [Build] Reality capture surface canary readiness audit（read-only・flag/env 変更なし・停止）[CEO 判断 A]
+- 目的: dormant な Reality capture surface（read-only preview）を安全前進できるか監査。flag ON / production exposure はしない。
+- ★**read-only preview pipeline は end-to-end 配線済**（server 生成→route 合成→client 読込→banner 描画）。**client は live 配線**（`useAlterChat` が response の `morningProtocol.captureCandidate` を読み `CaptureCandidateBanner` 描画）。**dormant の原因は server surface gate のみ**（`REALITY_CAPTURE_SURFACE` 既定 off + evaluateCaptureGate の staging/canary/user 条件）。
+- 安全: surface は **read-only**（write/RPC/.from/.insert/.delete なし）・gate は多層 fail-closed（kill→flag→ref→prod block→staging allowlist→canary user）・**production hard block**・fail-open（null→banner 出さない＝既存 UI 不変）。★**surface flag ON でも write は走らない**（write は別 flag `realityCaptureLive`）。
+- DTO: redacted（raw/source_ref/UUID/prose なし・enum/number/date/null のみ・「候補があります」止まり）。UI: MorningPlanCard 内の控えめ purple banner・null-safe・button/apply なし。
+- local canary smoke: 技術的に可能だが env/flag 変更要（staging supabase + REALITY_CAPTURE_SURFACE=true + canary user + **seed データ依存**＝seed 無ければ候補出ない）→ 本タスクは**設計のみ**（実行は別 GO）。
+- readiness=高。GO 候補（別タスク）: ①local canary smoke ②staging canary（Reality coordinate）。CEO 判断点 4。doc: `…-reality-capture-surface-canary-readiness-audit.md`。
+- 状態: **canary readiness audit 提出で停止**。flag ON/env 変更/実 smoke は別 GO。push/PR/Vercel/DB/予定変更/flag 変更 不接触。
+
+---
