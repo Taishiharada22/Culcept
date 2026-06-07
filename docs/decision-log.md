@@ -15549,3 +15549,11 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ★**重要な漏れ flag**: runbook line 116/121「user-facing banner は dormant・backend-only・user 不可視」は **stale**。`useAlterChat` line 819（A1-5-8-3）が client を **live 配線済** → surface ON = canary user に **banner が実際に見える（user-facing）**。canary 前に Reality と「user-facing にするか backend-only か」合意 + runbook 更新要。
 - flag/canary/seed/rollback/safety + 実行前チェックリスト C1-C7 + CEO 作業 + GO/NO-GO（CEO 判断点 4）整理。doc: `…-reality-capture-surface-canary-rollout-plan.md`。
 - 状態: **local smoke PASS 記録 + rollout plan 提出で staging canary 実行手前で停止**。Vercel/env/flag/seed/deploy は CEO/operator 手動（AI しない）。push/PR/Vercel 不接触。
+
+## [2026-06-07] [Build] Reality capture surface runbook 補正（doc-only・main 着地）[CEO 指示・canary=user-facing read-only preview]
+- 目的: `reality-production-canary-runbook.md`（Reality 所有・A1-5-15）の「client banner dormant / backend-only / user 不可視」前提が現コードと乖離 → canary 前に正本補正。
+- ★根拠: A1-5-8-3 が `useAlterChat` L819 で client を **live 配線済**（response の morningProtocol.captureCandidate → MorningPlanCard → CaptureCandidateBanner）→ surface ON で canary user に控えめ banner「候補があります」が**実際に表示**。
+- 補正内容（surgical・doc-only）: 前提 table / Phase 3 / 実行手順 step6 / 禁止 / 検証されないこと を **user-facing read-only preview 前提**に更新。**read-only・apply/save/write なし**（banner 表示限定・act-on は別 slice 未配線）明記。NEXT_PUBLIC client flag は不要（B案 useAlterChat は response から直接描画）と訂正。seed 依存（無→banner 非表示=fail-open 正常）・home 到達前提・production canary lane 条件を明記。旧 backend-only/禁止/検証されない は **stale・撤回**と明示。
+- **main 着地済（squash・main HEAD `6252825a`・親 `e0d66a8f`）**・zero-loss・diff surgical（1 file・17+/11-・runbook が base から無変化＝Reality 無競合）。code branch `claude/reality-runbook-fix` 保持。
+- ★**ownership**: Reality 所有 doc を CEO 指示で本系が doc-only 補正。**Reality セッション周知要**（client wiring A1-5-8-3 前提で runbook 更新した旨）。production exposure / env / Vercel は未実施（CEO 手動のまま）。
+- 状態: **runbook 補正で停止**。canary 実行は CEO/operator 手動（正本 runbook 準拠・user-facing read-only preview として）。push/PR/Vercel/env/予定変更 不接触。
