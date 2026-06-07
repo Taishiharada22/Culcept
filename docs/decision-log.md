@@ -15412,3 +15412,13 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **main 着地完了・実機 smoke PASS**。次=Repair Candidate full-path audit（実装なし）。push/PR/Vercel/DB/予定変更/実行 不接触。
 
 ---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — full-path audit + mini design（read-only・実装なし・停止）[CEO 指示]
+- 目的: protect_buffer の Option D 不到達の許容可否・raw feasibility/full path 解放の是非を read-only 監査。
+- ★証明: protect_buffer 解放 = **transport を含む full path が必須**（非 insufficient step で friction_high が要る → 実 travelMin が要る。raw feasibility だけでは不十分=shortfall friction は insufficient 時のみ）。
+- ★データ可用性: full path は **新規外部呼び出し不要で feasible**。raw feasibility は CalendarTab に既存（recoverySteps 用）。transport は hook（`_useCalendarTabFeasibilityDisplay`）内で `resolveMovementSegmentOverlay` が計算済だが **discard 中**（resolved=estimatedDurationMin/modeCandidate/source）→ additive surface で利用可。
+- 回答: ①protect_buffer 不到達は**許容**（dormant・明記が条件・他 4 kind+outlook で coverage 充足）②raw/full path 解放は**今は否**（rehearsal 出力 outlook/friction/convergence/recovery 全面変更=churn・消費者[定量 what-if]無し）③full path 化で bufferMin/可変 friction/engine recoveryWindows/protect_buffer 到達/精緻 convergence が増・コスト=全面再検証+再 smoke+transport surface ④**定量 what-if の前提になる** ⑤UI/挙動変更なしで audit 可（本書）。
+- 推奨: 現状維持（Option D）。full path は **定量 what-if slice で bundle**して flag 裏+canary 段階導入。CEO 判断点 4。doc: `docs/second-self-map-day-rehearsal-repair-fullpath-audit.md`。
+- 状態: **audit + mini design 提出で停止**。full path 実装は CEO GO 後。push/PR/Vercel/DB/予定変更/実行 不接触。
+
+---
