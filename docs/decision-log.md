@@ -15510,3 +15510,13 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **INV-17 enforcement v0 main 着地 + integration mini design 提出で停止**。実注入は Reality wiring + CEO GO 後。push/PR/Vercel/DB/予定変更/実注入 不接触。
 
 ---
+
+## [2026-06-07] [Build] Reality production wiring audit（read-only・実装なし・停止）+ protectedGaps plumbing 再判定=NO-GO [CEO 指示・GPT 2案を Claude が監査]
+- 経緯: GPT-A「pure plumbing 進行」vs GPT-B「停止して production wiring audit 先行」を CEO が「Claude が監査し正しい方へ」と指示。**Claude 独立判定=GPT-B 正しい**（自分の honest 評価「inert 在庫が課題」と整合・goal から逆算で「目的地未確認のまま配管しない」・Direction A は自身の HARD GATE「caller 必要なら停止」に抵触）。
+- ★**精度補正**: 以前の「Reality kernel 完全 unwired」は**不正確**。正しくは **「candidate SURFACE（read-only preview）は alter-morning/plan route に配線済だが `REALITY_CAPTURE_SURFACE`(server default off)+`realityCaptureSurfaceClient`(client default off)+prod block で二重 dormant・ゼロ露出」**。act-on（accept→apply）は no-write skeleton・未配線。
+- read-only preview 機構は既存（capture surface DTO「候補があります」・apply なし・flag dormant）。最短 live=**A: capture surface flag 前進（Reality セッション所有）**。Day Rehearsal-native（banner）は既に live=**B**。Repair→Reality bridge（protectedGaps）は **最遠**（flag ON + cross-context + refinement の 3 条件待ち）。
+- **protectedGaps plumbing 再判定=NO-GO（今やらない）**: 消費先（capture surface generateComplete）は存在するが二重 dormant + Day Rehearsal(client)→capture surface(server) の cross-context 接続が未設計 → 今積んでも inert 在庫増。capture surface canary 前進 + cross-context 設計後にまとめて。
+- 次 bundle 案: A(capture surface flag・Reality 所有) / B(Day Rehearsal-native 深化・本系) / C(protectedGaps=保留) / D(pivot)。CEO 判断点 4。doc: `…-reality-production-wiring-audit.md`。
+- 状態: **audit 提出で停止**。次の bundle 方向（A/B/D）は CEO 判断。pure plumbing は保留。push/PR/Vercel/DB/予定変更/実注入 不接触。
+
+---
