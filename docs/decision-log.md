@@ -15645,3 +15645,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - `lib/plan/mobility/mobilityReasonInsight.ts`: A0 reason を leg 単位で観測のみ集約 → ReasonInsight | NotEnoughReasonSignal。readiness=minObservations 3(★1-2 件は出さない)+reason/mode strict majority(2-2 tie 出さない)+established(≥5∧share≥0.67)。structured のみ(copy/強語なし)・生数値 internal・per-leg のみ(OD 扱わず境界明確)・trait なし・belief 非依存・excludeLegKeys で sensitive 除外。
 - HARD GATE 全 PASS(sparse 保護/trait なし/belief 上書きなし/per-leg 境界明確)。検証 RI1-RI14・mobility 255 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss(main 14 PASS)。main `856c5919`・code branch `claude/dr-a0-insight`。closeout `…-a0-1-reason-insight-closeout.md`。
 - ★次=A0-2 reason reflection UI（mini-design `…-a0-2-reason-reflection-ui-mini-design.md` 提出済）。**UI 実装は次の CEO 判断**（user-facing+copy=smoke+copy review gate）。stop gate 該当: A0-2 は大 UI/copy → 停止。
+
+## [2026-06-08] [Build] fix: map の「今日」を JST 暦日に（UTC ズレ修正）main 着地 [承認: CEO smoke PASS]
+- CEO 報告「map の時間感覚が UTC かも」→ 特定: MapTab `todayDate = utcMidnight(baseNow)`(UTC 暦日)が JST 00:00-09:00 で前日にズレ。plan は「UTC 内部」設計だが map の「今日」境界が UTC midnight(=09:00 JST)。
+- 最小修正: `jstTodayUtcMidnight(now)` を `_helpers.ts` 追加(JST 暦日を UTC-midnight Date で返す=anchorsForDay/dayKey の UTC モデルと互換)・MapTab `todayDate` を置換。MapTab specifically(Calendar/Flow の UTC は別 scope)。
+- CEO smoke PASS(05:09 JST に map が今日=6/8 表示)。検証 jstTodayUtcMidnight 3 ケース + plan suite 5147 + helpers 58 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss。main `0630f306`・code branch `claude/fix-jst-today`。
+- ★A0-2 着地時の注意: A0-2 branch(`dacce503`)の MapTab は JST 前 base。A0-2 着地時は git checkout overwrite でなく **JST-main の MapTab に A0-2 変更を Edit で再適用**(reason chips/reflection は line 161 と別位置=非競合)し JST を保全すること。
+- 次: A0-2 reflection UI smoke 再開（CEO 指示）。push/Vercel/GitHub/DB/env/Reality 不接触。
