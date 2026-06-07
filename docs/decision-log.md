@@ -15597,3 +15597,11 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ★気づき: **What-if の価値は v1 で実質達成済**(候補文に統合済)→別 UI は冗長。NO-GO は最小化でなく「達成済+追加冗長」の実証。preview v0 pure layer は資産保持。audit doc `…-batch4-whatif-audit.md`。
 - ★**診断層ロードマップ(原典 §2)実質完了**: Batch1 full-path✅ / Batch2 energy✅ / Batch3 F1 marker✅ / Batch4 別UI=NO-GO(value 達成済)。残=実データ後 calibration(backlog・gated) + HOLD Reality/介入層(production 不可)。
 - ★**新方針(CEO・2026-06-08)**: 別 UI でなく **本格 What-if / Draft Preview v0** に進む。「候補文を見せる」→「候補を仮採用したら 1 日の見通しがどう変わるか」を**予定変更なしで pure simulation**する土台。`previewRepairSimulation`(pure・input=DayGraph/rehearsal/candidate・output=before/after 定性差分)。full-path の raw feasibility/travel/slack/shortfall を使い予定変更なしで試算。禁止=実予定変更/apply/DB write/Google API/production/新 UI/Reality。HARD GATE=対象 step なし→停止/before-after 捏造→停止/根拠なき数値改善→停止/不可候補は不可と分類/UI 前で停止。pure layer→test→tsc footprint 0→closeout、UI 配線は次判断。
+
+## [2026-06-08] [Build] What-if/Draft Preview v0 — previewRepairSimulation pure layer main 着地（未配線）[承認: CEO audit-first GO]
+- audit-first → GO（捏造なし・保守的・実エンジン repro で検証）→ pure layer 実装。`lib/plan/dayRehearsal/dayRepairSimulation.ts`。「候補を仮採用したら 1 日の見通しがどう変わるか」を**予定変更なし** counterfactual re-simulation（rehearseDay 再実行）で試算。**未配線=production 不変**。
+- 候補分類(実コード根拠): leave_earlier=eases_conditionally(対象 transition を bufferStatus=sufficient + slackMin/shortfallMin=null=**数値を作らず**「解消できれば」に置換し再実行・before/after 質的比較) / protect_buffer・use_recovery_window=preserves(strain/friction 由来 or 既確保ゆえ delta なし・diff=null・改善を捏造しない) / confirm_uncertain=uncertain(未確定で不可) / reduce_density=ambiguous_target(対象 step null で不可)。
+- ★honest 設計: local(対象区間が和らぐ)と day(1日全体)を別々に報告→「この区間は和らぐが他に不足が残りその日全体はまだ…」と過剰主張しない。長距離移動で strain も高い区間は buffer 解消後も marker 残り localEased=false「大きく変わらないかも」と正直に。slack=null ゆえ recovery 0(恩恵盛らない)。
+- HARD GATE 全 PASS(対象 step なし→不可分類/捏造なし/根拠なき数値改善なし/不可は不可分類/UI 前停止)。pure/READ/Date 不使用/実予定変更・apply・DB write・新 UI なし・生数値/level 名を summary に出さない・仮説トーン。
+- 検証: SIM1-14 + dayRehearsal suite 168 PASS・tsc footprint 0(total 55 不変)・zero-conflict(additive)・main worktree 14 PASS(zero-loss)。main `ad0c9ee7`・code branch `claude/dr-repair-sim`(`08bf0796`)。closeout/audit `…-repair-simulation-v0-(closeout|audit).md`。
+- 次: UI 配線(CEO 判断)。Batch 4 NO-GO の教訓=candidate.suggestion と重複しない出し方必須(本 sim は before/after の新情報を持つので重複回避の余地あり)。push/Vercel/GitHub/DB/env/Reality 不接触。
