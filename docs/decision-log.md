@@ -15477,3 +15477,14 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **audit + contract 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/Reality couple 不接触。
 
 ---
+
+## [2026-06-07] [Build] Repair Protect Signal v1 + Gap Resolver（pure・main 着地完了）+ Reality INV-17 enforcement mini design [承認: CEO/GPT GO]
+- (1) hint 補正: `repairProtectSignal.ts` の `protectionHint` を **`recovery_core`(node) → `recovery`(gap-meaning/INV-17)**。理由=use_recovery_window は gap・node recovery_core は add 無害扱いで gap を埋めるのを止めない＝誤対応先（contract audit）。
+- (2) Gap Resolver 新設: `repairGapResolver.ts` の `resolveProtectSignalsToGapMeaning(signals, dayGraph) → GapRecoveryAssertion[]`。use_recovery_window のみ（protect_buffer defer）・targetStepIndex i → events[i]/events[i+1]（同一 dayGraph 前提）→ **厳密 double time-match で一意 GapNode 解決**・★fail-safe(0/2+ match・event 不在 → skip＝誤マップ皆無)・Reality enum 非 import。
+- HARD GATE 全 PASS: 厳密一致時のみ解決（不確実 skip）・DayGraph shape 検証済（GapNode は start/end 一意・min_gap=30<recovery 60）・Reality import なし・protect_buffer 非解決。
+- **main 着地済（squash・main HEAD `d5596e24`・親 `f91c7f44`）。** code branch `claude/dr-gap-adapter`（HEAD `928b5554`）保持。
+- 検証: 新規 GR1-GR12 + 補正 PS7 + dayRehearsal dir 134 + **plan suite 5064 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss。closeout: `…-protect-signal-v1-gap-resolver-closeout.md`。
+- **Reality INV-17 enforcement mini design 作成**（実装なし・Reality セッション向け coordination spec）: gap-meaning(classifyGap) は未 enforce → 最小 enforcement=**Complete(add) の freeGaps から recovery/free_time gap を除外**（現 Reality は trim-only+Complete のみ）・source=classifyGap ∪ GapRecoveryAssertion の union・additive/restrict-only/fail-safe。move/optimize gate は mode 実装時。★Reality セッション所有=Day Rehearsal は Reality コード非変更。CEO 判断点 4。doc: `…-reality-inv17-enforcement-mini-design.md`。
+- 状態: **protect signal v1 + gap resolver main 着地 + INV-17 mini design 提出で停止**。Reality enforcement 実装は Reality セッション（coordination + CEO GO 後）。push/PR/Vercel/DB/予定変更/Reality couple 不接触。
+
+---
