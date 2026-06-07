@@ -5,6 +5,7 @@
  * mode chips(squircle/active色) / recall「前回」/ readOnly(過去=実績) / 所要時間「目安」パネル(乗換数)。
  *   ★推薦しない・偽数字なし(取れなければ「—」)・距離→mode 推定なし。
  */
+import { useState } from "react";
 import {
   ROUTE_MODE_COLORS, MOBILITY_MAIN_MODES, MOBILITY_LIMITED_MODES, MOBILITY_MODE_META,
   mobilitySquircleDataUri, type RouteTransportMode,
@@ -35,12 +36,19 @@ export interface MobilityLegCardProps {
   selectedReason?: MobilityReason | null;
   onReasonSelect?: (legKey: string, reason: MobilityReason) => void;
   onReasonDismiss?: () => void;
+  /**
+   * ★A0-2 reason reflection: established insight の時だけ MapTab が 1 行 copy を渡す（null=沈黙）。
+   * 観測の穏やかな反映（仮説トーン・per-leg・trait でない）。reason chip とは別。readOnly では出さない。
+   */
+  reasonReflection?: string | null;
 }
 
 export function MobilityLegCard({
   legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose, hypothesisCopy,
-  reasonPromptVisible = false, selectedReason = null, onReasonSelect, onReasonDismiss,
+  reasonPromptVisible = false, selectedReason = null, onReasonSelect, onReasonDismiss, reasonReflection = null,
 }: MobilityLegCardProps) {
+  // ★A0-2: reflection の軽い dismiss（local state のみ・永続化しない・leg ごとに key で reset）。
+  const [reflectionDismissed, setReflectionDismissed] = useState(false);
   const chipBg = (mode: RouteTransportMode) => ({
     backgroundImage: `url("${mobilitySquircleDataUri(mode)}")`,
     backgroundSize: "contain",
@@ -91,6 +99,23 @@ export function MobilityLegCard({
           </p>
           <button type="button" onClick={onClose} aria-label="閉じる" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-slate-200">✕</button>
         </div>
+        {/*
+         * ★A0-2 reason reflection: established insight の穏やかな 1 行（observation の鏡）。
+         * readOnly では出さない・modal/toast でない・小さい inline・1 行・local dismiss。trait/断定でない（copy は pure helper 由来）。
+         */}
+        {!readOnly && reasonReflection && !reflectionDismissed && (
+          <div data-testid="mobility-reason-reflection" className="mt-2 flex items-start gap-2 text-[11px] italic text-slate-400">
+            <span className="min-w-0 flex-1">{reasonReflection}</span>
+            <button
+              type="button"
+              aria-label="閉じる"
+              onClick={() => setReflectionDismissed(true)}
+              className="shrink-0 text-slate-300 hover:text-slate-500"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {hypothesisCopy && hypothesisCopy.surface && (
           <div data-testid="mobility-hypothesis" className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">
             {hypothesisCopy.headline && <p className="text-sm font-bold text-slate-800">{hypothesisCopy.headline}</p>}

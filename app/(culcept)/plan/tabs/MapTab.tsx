@@ -89,7 +89,8 @@ import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcP
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { loadL3bPooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
-import { buildFeedbackEntry, saveHypothesisFeedback, saveHypothesisFeedbackReason, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
+import { buildFeedbackEntry, saveHypothesisFeedback, saveHypothesisFeedbackReason, loadHypothesisFeedbackStore, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
+import { buildReasonInsightForLeg, reasonReflectionLine } from "@/lib/plan/mobility/mobilityReasonInsight";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
@@ -355,6 +356,16 @@ export function MapTab({
       sensitive,
       recallMode: existingRecall,
     });
+    // ★A0-2 reason reflection: established insight のみ穏やかに 1 行（readOnly/sensitive は沈黙）。
+    //   pure helper が established 以外・「その他」reason・not_enough を null にする（保守的・沈黙デフォルト）。
+    const reasonReflection =
+      isDone || sensitive
+        ? null
+        : reasonReflectionLine(
+            buildReasonInsightForLeg(loadHypothesisFeedbackStore(), openLeg.legKey, {
+              excludeLegKeys: sensitive ? new Set([openLeg.legKey]) : undefined,
+            }),
+          );
     return {
       legKey: openLeg.legKey,
       fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
@@ -363,6 +374,7 @@ export function MapTab({
       recallMode: guidance.recallMode,
       hypothesisCopy: guidance.hypothesisCopy,
       surfacedMode: guidance.surfacedMode, // v0-E: feedback の kind 判定用(surface 時のみ非 null)
+      reasonReflection,
       // L1-a: 観測前方記録の context（place key/timeband の算出元・anchor 由来・capture は onSelect で）
       observationContext: {
         toStartTime: sorted[idx + 1]!.anchor.startTime,
@@ -526,6 +538,7 @@ export function MapTab({
       />
       {openLeg && mobilityCardData && (
         <MobilityLegCard
+          key={mobilityCardData.legKey}
           legKey={mobilityCardData.legKey}
           fromTitle={mobilityCardData.fromTitle}
           toTitle={mobilityCardData.toTitle}
@@ -540,6 +553,7 @@ export function MapTab({
           selectedReason={reasonChoice}
           onReasonSelect={handleReasonSelect}
           onReasonDismiss={handleReasonDismiss}
+          reasonReflection={mobilityCardData.reasonReflection}
         />
       )}
     </div>

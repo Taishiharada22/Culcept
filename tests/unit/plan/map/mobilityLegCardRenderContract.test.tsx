@@ -14,6 +14,7 @@ function render(
     readOnly?: boolean;
     reasonPromptVisible?: boolean;
     selectedReason?: MobilityReason | null;
+    reasonReflection?: string | null;
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -26,6 +27,7 @@ function render(
       readOnly={opts.readOnly ?? false}
       reasonPromptVisible={opts.reasonPromptVisible ?? false}
       selectedReason={opts.selectedReason ?? null}
+      reasonReflection={opts.reasonReflection ?? null}
       onSelect={noop}
       onClose={noop}
       onReasonSelect={noop}
@@ -113,6 +115,38 @@ describe("MobilityLegCard — A0 理由観測 chip", () => {
   it("A0-7. ★人格ラベルを含まない（trait 断定でなく per-leg 文脈）", () => {
     const html = render({ reasonPromptVisible: true, selectedReason: "tired" });
     for (const w of ["あなたはこういう人", "あなたは○", "タイプです", "性格", "傾向があります"]) {
+      expect(html).not.toContain(w);
+    }
+  });
+});
+
+// ── A0-2: reason reflection line（established insight の穏やかな 1 行） ──
+describe("MobilityLegCard — A0-2 reason reflection", () => {
+  const LINE = "この区間では、景色を理由に 徒歩を選ぶことがあるようです";
+
+  it("RUI1. reasonReflection 供給 + 編集可 → reflection 行が出る", () => {
+    const html = render({ reasonReflection: LINE });
+    expect(html).toContain('data-testid="mobility-reason-reflection"');
+    expect(html).toContain(LINE);
+  });
+  it("RUI2. reasonReflection なし(null) → 出ない（沈黙）", () => {
+    expect(render()).not.toContain("mobility-reason-reflection");
+  });
+  it("RUI3. ★readOnly では出さない", () => {
+    expect(render({ reasonReflection: LINE, readOnly: true })).not.toContain("mobility-reason-reflection");
+  });
+  it("RUI4. modal/toast でない・1 行 inline（dialog role なし・小さい slate）", () => {
+    const html = render({ reasonReflection: LINE });
+    expect(html).not.toContain('role="dialog"');
+    expect(html).toMatch(/mobility-reason-reflection[^>]*text-slate-400/);
+  });
+  it("RUI5. dismiss（閉じる）ボタンがある", () => {
+    const html = render({ reasonReflection: LINE });
+    expect(html).toMatch(/mobility-reason-reflection[\s\S]*aria-label="閉じる"/);
+  });
+  it("RUI6. ★禁止語/警告色なし（reflection は仮説トーン・per-leg）", () => {
+    const html = render({ reasonReflection: LINE });
+    for (const w of ["しがち", "よく", "いつも", "あなたは", "性格", "amber", "orange", "bg-red", "危険"]) {
       expect(html).not.toContain(w);
     }
   });
