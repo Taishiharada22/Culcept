@@ -38,6 +38,9 @@ import { formatMinutes } from "../timeline-geometry";
  *   - `id = handle`（opaque・seedRef-free）／`kind="todo"`（band-level の柔軟タスク・明示時刻でない）／`fixedStart=false`。
  *   - `text = generic 非断定 label`／`what=null`（活動内容は断定しない・raw 不使用）。
  *   - `startTime = band 既定`（`formatMinutes`）／`durationMin = 配置済 duration`（end−start・MAX_DAY_MIN clamp 済）。
+ *   - **A1-6-12（#3）**: `whenSharpness="vague"`／`whatSharpness="vague"` を**明示**（sharpness 未設定だと `normalizePlanItem` が "missing" に倒し、
+ *     live `MorningPlanCard` が時刻「[時間未確定]」・内容「[内容暫定]」で `text` を**描画しない**＝label 破棄。vague で label を出す + 精密時刻を出さない）。
+ *     さらに `confirmationState="confirmed"`（CEO B・consumed=accepted の contract 補正＝「予定として確定」・default "provisional" の「暫定」chip を外す。時間/内容の粗さは sharpness が担う）。
  */
 export function consumedSeedToMorningPlanItem(seed: ReflectableConsumedSeed): PlanItem | null {
   const placed = consumedSeedToPlanItem(seed);
@@ -51,6 +54,17 @@ export function consumedSeedToMorningPlanItem(seed: ReflectableConsumedSeed): Pl
     durationMin: placed.endMin - placed.startMin,
     durationSource: "inferred",
     fixedStart: false,
+    // A1-6-12（#3）: slot sharpness を**明示**し、live `MorningPlanCard`（slot モデル）が label を捨てず自然に描画する。
+    //   既定では sharpness 未設定→`normalizePlanItem` が "missing" に倒し、card は時刻「[時間未確定]」・内容「[内容暫定]」で
+    //   `text`（generic label）を**描画しない**（label 破棄）。これを防ぐため honest な vague を付与:
+    //   - `whenSharpness="vague"`: band 既定の `startTime` は精密でない（sort hint）→ card は「[時間未確定]」（**false precision を出さない**）。
+    //   - `whatSharpness="vague"`: generic label は暫定→ card は `text`（「午後の予定（60分）」）を表示 +「内容暫定」（**label を出す**・refine 余地を示す）。
+    whenSharpness: "vague",
+    whatSharpness: "vague",
+    // A1-6-12（#3・CEO B）: **contract 意味補正**。consumed = user が accept した候補ゆえ「予定としては確定」。
+    //   `confirmationState="confirmed"` で「入った/確定」を表現（未設定 default "provisional" の「暫定」chip を外す）。
+    //   時間・内容の**粗さ**は sharpness="vague"（[時間未確定]/内容暫定）が担う＝「確定したが時間・内容はまだ粗い」。
+    confirmationState: "confirmed",
     orderHint: 0,
     sourceTurnIndex: 0,
     completed: false,

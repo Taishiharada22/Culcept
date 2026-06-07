@@ -77,6 +77,13 @@ describe("A1-6-7 consumedSeedToMorningPlanItem — consumed→PlanItem mapper（
     expect(item!.durationMin).toBe(60);
     expect(item!.text).toContain("予定"); // generic 非断定 label
   });
+  it("A1-6-12（#3）: slot sharpness 明示 + confirmationState=confirmed → label を保ちつつ「確定（粗い）」を表現", () => {
+    const item = consumedSeedToMorningPlanItem(consumedSeed(HANDLE_A, DATE));
+    // 未設定だと normalizePlanItem が "missing" に倒し、card は時刻「[時間未確定]」・内容「[内容暫定]」で text を描画しない（label 破棄）。
+    expect(item!.whenSharpness).toBe("vague"); // band 既定時刻＝精密でない→「[時間未確定]」（false precision を出さない）
+    expect(item!.whatSharpness).toBe("vague"); // generic label＝暫定→ card は text（午後の予定（60分））を表示+「内容暫定」
+    expect(item!.confirmationState).toBe("confirmed"); // CEO B: consumed=accepted の contract 補正→「予定として確定」（「暫定」chip を外す）
+  });
   it("seedRef を一切含まない（id=handle・JSON 全体に UUID なし）", () => {
     const item = consumedSeedToMorningPlanItem(consumedSeed(HANDLE_A, DATE));
     expect(JSON.stringify(item)).not.toContain(SEED_A);
