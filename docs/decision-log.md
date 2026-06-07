@@ -15433,3 +15433,23 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **mini design 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
 
 ---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Draft Disposition v0 — pure 分類層（main 着地完了）[承認: CEO/GPT GO]
+- 実装: `lib/plan/dayRehearsal/repairDraftDisposition.ts`（`classifyRepairDisposition(candidate)`/`classifyRepairDispositions`）。candidate→disposition の **分類のみ**・新 RepairDraft/ChangeSet 作らず・Reality 非接続・予定変更/apply なし。
+- kind→disposition: leave_earlier=adjust / confirm_uncertain=confirm / use_recovery_window=protect / protect_buffer=protect / reduce_density=reduce。**v0 は全 draftable=false**（leave_earlier=magnitude 無+Reality move 未実装の二重ブロック・reduce_density 除外・confirm/protect は非 plan-change）。realityHint（doc 文字列・Reality enum 非 import）/blockers/evidence 保持・suggestion 無改変。
+- **main 着地済（squash・main HEAD `3d12d26e`・親 `ba4cc6ca`）。** code branch `claude/dr-repair-disposition`（HEAD `121c2951`）保持。
+- 検証: 新規 DD1-DD16 + dayRehearsal dir 110 + **plan suite 5040 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（明示パス commit・別セッション WIP 不接触）。pure/unwired/production 挙動不変。closeout: `docs/second-self-map-day-rehearsal-repair-draft-disposition-v0-closeout.md`。
+- 状態: **main 着地完了**。次=Reality bridge mini design（実装なし）。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair → Reality Control OS bridge mini design（設計のみ・実装なし・停止）[CEO 指示]
+- 目的: disposition → Reality（governance/protection/ChangeOp）の橋渡し設計 + coordination。実装しない。
+- ★Reality 境界 audit: governance は **RealityInput の入力**（per-node protectionReasons）。candidate-generator は recovery_core を「保全=決して触れない」に分類・evaluator は recovery_core を触る変更を reject。`recovery_core`=「移動余白等の回復核」→ use_recovery_window と概念一致。move/Optimize は別 slice（現状 trim-only）。
+- 結論: **最初に橋渡し可能なのは protect（use_recovery_window/protect_buffer）→ recovery_core 保護シグナルのみ**（governance 入力・変更でない・magnitude/move-mode 不要・最安全・哲学整合）。adjust(leave_earlier→move) は三重ブロック（magnitude/move-mode 未実装/which-node）・reduce(→Optimize) 未実装+vague・confirm は Reality 領域外（確認タスク）。
+- ★設計課題: protect は gap-vs-node mismatch（Reality governance は node 単位・use_recovery_window は gap）→ 解法 A=区間保護/B=余白 node 化/C=add 制約（coordination 要）。
+- ★Reality は in-flight（A1-x）→ **直接 couple しない**。bridge は disposition→Reality 概念の pure mapping spec + authority.ts 安定 enum の doc 参照に留め、実注入は coordination 後。
+- 推奨 first layer（GO 時）= **protect signal exporter（pure・unwired・Reality 非 import）** のみ / or mapping spec だけに留める。CEO 判断点 5。doc: `docs/second-self-map-day-rehearsal-repair-reality-bridge-mini-design.md`。
+- 状態: **mini design 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
