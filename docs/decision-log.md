@@ -15639,3 +15639,9 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ★scope 厳守: Alter/Stargazer/DB/belief 学習反映なし・人格ラベルなし(per-leg 文脈)・捏造なし(1-tap)。HARD GATE 全 PASS(explicitCorrection のみ/sensitive 非表示/後方互換/人格診断化なし)。
 - 検証 R1-R8+A0-1〜7+plan suite 5131 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss(main 32 PASS)。main `759a983b`・code branch `claude/dr-a0-reason`(`c62c3a04`)。smoke-force(一時)は revert 済。closeout `…-a0-reason-capture-closeout.md`。
 - ★**CEO 方針更新(2026-06-08): 自律バッチ制**。small scope は内部で切る・低リスク同一目的同一層はまとめて進める・plan→実装→自己監査→test/tsc→closeout→次 plan を自律。停止境界=production/Vercel/deploy・GitHub push/PR/merge・DB/migration/RLS・env・外部API/Google/Calendar/Reality apply・予定変更・大 UI で smoke 要・仕様判断・test/tsc/lint 失敗・scope 拡張・設計矛盾・破壊的 git。各報告に 6 点(実装/未実装/test・tsc/不接触確認/次 plan/stop gate 該当)。
+
+## [2026-06-08] [Build] A0-1 reason → local insight（pure / readiness layer）main 着地（未配線）[承認: CEO 方向確定=魂継続・自律バッチ]
+- CEO 方向「魂継続=reason→local insight」+ 補正「pure/readiness + tests + closeout + UI mini-design まで自律・UI 実装は次判断」に従い自律バッチ実行。
+- `lib/plan/mobility/mobilityReasonInsight.ts`: A0 reason を leg 単位で観測のみ集約 → ReasonInsight | NotEnoughReasonSignal。readiness=minObservations 3(★1-2 件は出さない)+reason/mode strict majority(2-2 tie 出さない)+established(≥5∧share≥0.67)。structured のみ(copy/強語なし)・生数値 internal・per-leg のみ(OD 扱わず境界明確)・trait なし・belief 非依存・excludeLegKeys で sensitive 除外。
+- HARD GATE 全 PASS(sparse 保護/trait なし/belief 上書きなし/per-leg 境界明確)。検証 RI1-RI14・mobility 255 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss(main 14 PASS)。main `856c5919`・code branch `claude/dr-a0-insight`。closeout `…-a0-1-reason-insight-closeout.md`。
+- ★次=A0-2 reason reflection UI（mini-design `…-a0-2-reason-reflection-ui-mini-design.md` 提出済）。**UI 実装は次の CEO 判断**（user-facing+copy=smoke+copy review gate）。stop gate 該当: A0-2 は大 UI/copy → 停止。
