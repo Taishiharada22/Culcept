@@ -26,6 +26,17 @@ export function utcMidnight(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
+/**
+ * ★JST「今日」: 与えられた instant の **Asia/Tokyo 暦日**を、UTC-midnight Date として返す。
+ * 内部は UTC モデル（utcMidnight/isoDate と互換）だが、「今日」の境界を JST(UTC+9・日本は DST なし)で取る。
+ * 旧: `utcMidnight(new Date())` は UTC 暦日 → JST 00:00-09:00 で前日にズレる（map の「時間感覚が UTC」の原因）。
+ * 例: 2026-06-08 04:15 JST(=06-07 19:15 UTC) → 2026-06-08（UTC midnight）。
+ */
+export function jstTodayUtcMidnight(now: Date): Date {
+  const jstWall = new Date(now.getTime() + 9 * 60 * 60 * 1000); // JST 壁時計を UTC 読みできる instant にずらす
+  return new Date(Date.UTC(jstWall.getUTCFullYear(), jstWall.getUTCMonth(), jstWall.getUTCDate()));
+}
+
 export function addDays(d: Date, n: number): Date {
   const r = new Date(d);
   r.setUTCDate(d.getUTCDate() + n);

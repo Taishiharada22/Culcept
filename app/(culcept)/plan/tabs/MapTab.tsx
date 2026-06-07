@@ -45,7 +45,7 @@ import {
   anchorsForDay,
   formatTime,
   maskedAnchorTitle,
-  utcMidnight,
+  jstTodayUtcMidnight,
 } from "./_helpers";
 import {
   useGoogleMapsScript,
@@ -158,12 +158,15 @@ export function MapTab({
   onAnchorClick?: (anchor: ExternalAnchor) => void;
 }) {
   const baseNow = now ?? new Date();
-  const todayDate = utcMidnight(baseNow);
+  // ★JST 修正(2026-06-08): 「今日」は JST(Asia/Tokyo) 暦日で取る。旧 utcMidnight は UTC 暦日で
+  //   JST 00:00-09:00 に前日へズレていた（map の「時間感覚が UTC」の原因）。jstTodayUtcMidnight は
+  //   JST 暦日を UTC-midnight Date として返す（anchorsForDay / dayKey の UTC モデルと互換）。
+  const todayDate = jstTodayUtcMidnight(baseNow);
 
   // 9 closeout: selectedDate は 「今日」 固定 (= DaySwitcher 削除済み)
   //   将来 day 切替再導入時は新設計で作り直す (= CEO Q3 判定)
   const selectedDate = todayDate;
-  // A5-3: store の永続化キー(YYYY-MM-DD・utcMidnight 由来で安定)
+  // A5-3: store の永続化キー(YYYY-MM-DD・JST 暦日由来で安定)
   const dayKey = selectedDate.toISOString().slice(0, 10);
 
   // ── selectedPinId state (= 旧 newSelectedPinId、 9 closeout で rename) ──
