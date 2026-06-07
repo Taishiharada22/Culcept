@@ -15582,3 +15582,11 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ethos: energy 数値/診断感を UI に leak しない(内部 budget のみ)・仮説トーン維持。検証: 62 tests PASS(EN1-EN6+FP1-FP6)・tsc footprint 0(total 55 不変)・zero-conflict/zero-loss。code branch `claude/dr-energy`(HEAD `b3b3c2b8`)保持。closeout: `…-energy-batch2-closeout.md`。
 - ★**Batch 3 へ引き継ぐ baseline 所見(energy 非依存・full-path 自体)**: (A)strain 飽和(全 step high で動的レンジ消失) (B)余白あるのに「重なりやすい」copy mismatch (C)marker 3/3 で警告過多 (D)convergence magnitude 不在。calibration backlog 追記済。
 - 次: **Batch 3 marker 精緻化 / convergence 較正**の計画起案(deep research)→CEO 提示→GO 後実装。HOLD: Reality/介入層(production 不可)。push/Vercel/GitHub/DB/env 不接触。
+
+## [2026-06-08] [Build] Day Rehearsal Batch 3 — F1 convergence marker 見出しの factor 別出し分け main 着地 [承認: CEO/GPT GO + smoke PASS]
+- ★**Batch 3 を F1 のみに絞り込み**（deep research 5視点 + adversarial + 独立検証）。理由は CEO ご自身の原則: strain 飽和/threshold/magnitude tier/marker 抑制は**実データ無しの magic number 弄り**＝calibration §0「固定値→実データ後較正」違反 + ethos(シグナル隠し)。**最小化でなく正しい順序付け**（full-path 後に出た一番明確な UX mismatch を直す）。
+- ★独立発見(workflow を鵜呑みにせず是正): (1)convergence marker は必ず factor≥2 ゆえ「friction 単独抑制」案は無意味。(2)「警告だらけ感」の正体は『3個』でなく『3個とも同一文』→ factor 別見出しで density 感の大半が解消・能動抑制は不要かつシグナル隠しリスク。(3)Repair v1 が preview value を suggestion に統合済＝candidate↔preview 重複は悪化(Batch 4 論点)。
+- 実装: `buildConvergenceMarkerHeadline(factors)`(pure)で buffer_short の有無で出し分け。あり→「予定が重なりやすい」(既存維持)・なし(strain+friction)→「移動と予定が立て込みやすい」(CEO/GPT 確定コピー・「重なりやすい」「詰まりやすい」回避)。ConvergenceMarkerLine に factors prop・既存 convergenceFactorsByTransitionIndex 再利用・不在は既存文 degrade。★診断ロジック(判定/level/marker の有無/色/layout)不変・text-only。
+- HARD GATE 全 PASS: factor 取得(構築上整合)/copy 警告語なし・仮説トーン/marker 数不変(F1-d)/layout 非破壊。検証: MH1-MH8 + F1-a〜e + 構造 invariant・plan suite 5091 PASS・tsc footprint 0(total 55 不変)。smoke PASS(6/8 で余白145分が「重なりやすい」→「立て込みやすい」・矛盾解消・不足10/40分は据置)。
+- main 着地 **`af6c30c3`**(親 `3c856dd4`・zero-conflict)。code branch `claude/dr-batch3-f1`(`dab4c58a`)保持。closeout `…-batch3-f1-closeout.md`。
+- 次: **Batch 4 What-if Preview UI(audit-first)**。HOLD: Reality/介入層。push/Vercel/GitHub/DB/env 不接触。
