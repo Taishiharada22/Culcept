@@ -533,3 +533,22 @@ export function buildRehearsalInputFull(
  *   緊急時は false に戻せば Option D（status-only degrade）へ即復帰（kill 相当）。
  */
 export const DAY_REHEARSAL_FULL_PATH_ENABLED = true;
+
+/**
+ * ★Day Rehearsal energy（状態次元）有効化フラグ（Batch 2・module const・default OFF）。
+ * OFF: baseEnergyLevel を渡さない＝null＝budget 不変（既存挙動完全不変）。
+ * ON: InnerWeather の energy（正規化 0-1）を baseEnergyLevel に供給＝§6 state evolution（energy 低→budget やや低→tight 寄り）。
+ * 過悲観回避は energyBudgetWeight=0.5（最大 −25%）+ null degrade（未記録日は baseBudget 不変=安全側）。
+ * local smoke 時のみ true → 検証後に既定 ON 化を CEO 判断。緊急時 false で即 degrade。
+ */
+export const DAY_REHEARSAL_ENERGY_ENABLED = false;
+
+/**
+ * ★Batch 2: InnerWeather.energyLevel（**-1〜1**・GET /api/stargazer/inner-weather 由来）→ baseEnergyLevel（**0-1**）に正規化。
+ * 値域 sign 不一致を吸収（**省くと負値が clamp(0,1) で 0 に潰れ系統的 over-pessimism＝silent bug**）。
+ * 式: (raw + 1) / 2 → clamp(0,1)。例: -1→0.0, 0→0.5, +1→1.0。null（未記録）は null のまま（degrade）。
+ */
+export function normalizeInnerWeatherEnergy(rawMinus1to1: number | null | undefined): number | null {
+  if (rawMinus1to1 == null || Number.isNaN(rawMinus1to1)) return null;
+  return clamp((rawMinus1to1 + 1) / 2, 0, 1);
+}
