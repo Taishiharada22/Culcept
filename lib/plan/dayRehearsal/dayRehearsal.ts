@@ -411,6 +411,25 @@ export function explainConvergenceMarker(factors: readonly ConvergenceFactor[]):
 }
 
 /**
+ * ★Batch 3 F1: convergence marker の **見出し**を factor 構成に応じて出し分ける（純粋）。
+ * 課題: 見出しが factor 非依存で一律「重なりやすい」だと、buffer 十分（余白あり）で strain+friction だけの
+ *   transition でも「重なりやすい」と出て**余白と矛盾**（full-path activation 後に露呈・余白145分の例）。
+ * 方針（CEO/GPT 確定 2026-06-08）:
+ *   - `buffer_short` を含む（= 実際に時間が重なりうる）→ 既存文「予定が重なりやすい」を維持（正しい）。
+ *   - `buffer_short` なし（strain_high + friction_high のみ）→「移動と予定が立て込みやすい」。
+ *     「重なりやすい」は使わない（時間の重なりでない）。「詰まりやすい」も避ける（やや警告的）。
+ * - ★生スコア / 数値 / level 名を出さない・仮説トーン（〜かもしれません）・警告/断定語なし。
+ * - 空 factors は existing degrade（marker は非消失が原則ゆえ既存文へ・呼び出し側で marker 自体は表示維持）。
+ */
+export function buildConvergenceMarkerHeadline(factors: readonly ConvergenceFactor[]): string {
+  // 防御的: factor が取れない（空）は既存文へ degrade（marker 非消失・挙動不変・実際は marker は factor≥2 でのみ出る）。
+  if (factors.length === 0) return "この前後は予定が重なりやすいかもしれません";
+  return factors.includes("buffer_short")
+    ? "この前後は予定が重なりやすいかもしれません"
+    : "この前後は移動と予定が立て込みやすいかもしれません";
+}
+
+/**
  * ★Option D（status-only・CalendarTab 配線用）: DayGraph + feasibility **display** map から RehearsalInput を構築。
  * 既存 `_useCalendarTabFeasibilityDisplay` の `Map<transitionIndex, FeasibilityDisplayView>` を消費。
  * raw slack/shortfall 分数は display 層に無い → **null=未確定（捏造しない・honest degrade）**。transport も未公開 → travel unknown。
