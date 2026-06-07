@@ -15590,3 +15590,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - HARD GATE 全 PASS: factor 取得(構築上整合)/copy 警告語なし・仮説トーン/marker 数不変(F1-d)/layout 非破壊。検証: MH1-MH8 + F1-a〜e + 構造 invariant・plan suite 5091 PASS・tsc footprint 0(total 55 不変)。smoke PASS(6/8 で余白145分が「重なりやすい」→「立て込みやすい」・矛盾解消・不足10/40分は据置)。
 - main 着地 **`af6c30c3`**(親 `3c856dd4`・zero-conflict)。code branch `claude/dr-batch3-f1`(`dab4c58a`)保持。closeout `…-batch3-f1-closeout.md`。
 - 次: **Batch 4 What-if Preview UI(audit-first)**。HOLD: Reality/介入層。push/Vercel/GitHub/DB/env 不接触。
+
+## [2026-06-08] [Build] Day Rehearsal Batch 4 — What-if Preview UI(別UI) NO-GO 確定 + 診断層ロードマップ完了 [承認: CEO]
+- ★**Batch 4「別 preview UI を candidate 下に出す」案は NO-GO 確定**(audit-first・4視点 workflow + adversarial + 独立検証・critique goJustified=false)。HARD GATE「preview が候補文とほぼ重複」に明確抵触。
+- 根拠(実コード): (1)候補文↔preview 重複が高い(confirm_uncertain >90%・protect_buffer/use_recovery_window >75%・平均 ~67-72%)・★Repair v1 が preview の distinct value(見通し/次に入りやすい)を candidate.suggestion に統合済(dayRepairCandidates L18-19)→preview.body は言い替え。(2)previewRepairEffect は candidate-only(rehearsal の定量データ未使用・dayRepairPreview L81)→full-path の恩恵ゼロ・cosmetic。(3)preview 層は production inert(UI 未配線)。(4)唯一非冗長な uncertainty[] も generic・3段 nesting 要・価値<UI コスト。
+- ★気づき: **What-if の価値は v1 で実質達成済**(候補文に統合済)→別 UI は冗長。NO-GO は最小化でなく「達成済+追加冗長」の実証。preview v0 pure layer は資産保持。audit doc `…-batch4-whatif-audit.md`。
+- ★**診断層ロードマップ(原典 §2)実質完了**: Batch1 full-path✅ / Batch2 energy✅ / Batch3 F1 marker✅ / Batch4 別UI=NO-GO(value 達成済)。残=実データ後 calibration(backlog・gated) + HOLD Reality/介入層(production 不可)。
+- ★**新方針(CEO・2026-06-08)**: 別 UI でなく **本格 What-if / Draft Preview v0** に進む。「候補文を見せる」→「候補を仮採用したら 1 日の見通しがどう変わるか」を**予定変更なしで pure simulation**する土台。`previewRepairSimulation`(pure・input=DayGraph/rehearsal/candidate・output=before/after 定性差分)。full-path の raw feasibility/travel/slack/shortfall を使い予定変更なしで試算。禁止=実予定変更/apply/DB write/Google API/production/新 UI/Reality。HARD GATE=対象 step なし→停止/before-after 捏造→停止/根拠なき数値改善→停止/不可候補は不可と分類/UI 前で停止。pure layer→test→tsc footprint 0→closeout、UI 配線は次判断。
