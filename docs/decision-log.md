@@ -15422,3 +15422,14 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **audit + mini design 提出で停止**。full path 実装は CEO GO 後。push/PR/Vercel/DB/予定変更/実行 不接触。
 
 ---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — Draft v0 mini design（設計のみ・実装なし・停止）[CEO 指示]
+- 目的: Repair Candidate を将来「予定変更の下書き」に変換するための設計。実装しない。
+- ★前提を覆す finding: 「予定変更の下書き」層は **既に存在**＝Reality Control OS（`lib/plan/reality/`・別セッション A1-x 進行中）が `ChangeOp`(add/remove/update=move/shorten)・`ChangeSet`(ops+reason+traces)・`applyChangeSet`(純粋 apply・persist なし)・`invertOp`(undo)・`authority.ts`(flexibility/protection 正本・INV-7「Repair は flexibility 順」)を持つ。→ **Repair Draft の新規 parallel 型は redundant（NO-GO）**。
+- ★Repair Candidate の大半は予定変更でない: leave_earlier のみ plan-change 寄り（かつ Option D で magnitude 無し＋Reality move mode 未実装＝二重ブロック）。confirm_uncertain=確認タスク・use_recovery_window/protect_buffer=Reality 保護シグナル(recovery_core/cascade_guard)・reduce_density=vague optimize(v0 除外)。
+- 回答（9 問）: kind 別 disposition（adjust/confirm/protect/reduce）・draft 必須情報(after 時刻)は Option D に欠落・leave_earlier は方向のみ(出発時刻不可)・confirm=タスク・recovery=保護・reduce 除外・境界=suggestion/disposition/ChangeSet の 3 層・UI は将来 applyChangeSet で試算(commit なし)・pure で閉じる=YES。
+- 推奨 v0 = **pure な disposition 分類器**（`repairDraftDisposition.ts`・candidate→{disposition,isPlanChange,realityHint,magnitudeMin=null,blockers}・unwired・Reality 非 couple・ChangeSet 作らない）。実 ChangeSet は full path(magnitude)+Reality coordination 後。
+- 戦略: 「Repair」が 2 系統（Day Rehearsal=診断 / Reality=governed 変更）→ feed するか独立か は architecture 決定。哲学整合（最適化に寄せない）を型(isPlanChange=false 大半)で強制。CEO 判断点 5。doc: `docs/second-self-map-day-rehearsal-repair-draft-v0-mini-design.md`。
+- 状態: **mini design 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
