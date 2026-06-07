@@ -15453,3 +15453,14 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **mini design 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
 
 ---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Protect Signal v0 — pure 橋渡し候補層（main 着地完了）+ Reality coordination checklist [承認: CEO/GPT GO]
+- 実装: `lib/plan/dayRehearsal/repairProtectSignal.ts`（`exportRepairProtectSignals(candidates)`）。protect disposition（use_recovery_window/protect_buffer）を将来 Reality `recovery_core` 保護に渡せる **橋渡し候補**に変換。★Reality 非接続・ChangeSet 作らず・apply なし・予定変更なし。
+- `RepairProtectSignal = { kind, targetStepIndex, protectionHint:"recovery_core", evidence }`。protect のみ（adjust/confirm/reduce 除外）・protect 判定は classifyRepairDisposition を single source of truth に・gap-vs-node 未解決(生 targetStepIndex 保持)・Reality enum 非 import。
+- ★独立判断: **candidate-based 入力**（着地済 RepairDraftDisposition は targetStepIndex を持たないため・着地済 disposition 層を不改変＝surgical）。注: protect_buffer は Option D dormant→本番は実質 use_recovery_window のみ emit。
+- **main 着地済（squash・main HEAD `a8fe73a7`・親 `3d12d26e`）。** code branch `claude/dr-protect-signal`（HEAD `a8f9e5a1`）保持。
+- 検証: 新規 PS1-PS12 + dayRehearsal dir 122 + **plan suite 5052 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss。closeout: `…-repair-protect-signal-v0-closeout.md`。
+- **Reality coordination checklist 作成**（実装なし）: 実注入前に Reality セッションと合意すべき項目（A 安定性 / B 注入経路+gap-vs-node / C recovery_core 適格性 / D 競合・fail-safe / E 安全検証 / F 段取り / G CEO 判断点 5）。doc: `…-repair-reality-coordination-checklist.md`。
+- 状態: **protect signal main 着地完了 + coordination checklist 提出で停止**。実注入は CEO GO + Reality coordination 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
