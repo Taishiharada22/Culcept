@@ -30,7 +30,7 @@ describe("A1-5-7-6 presentCaptureCandidate — present → 控えめ表示モデ
     expect(d?.heading).toBe("候補があります");
     expect(d?.note).toContain("候補");
     expect(d?.items).toHaveLength(1);
-    expect(d?.items[0]).toEqual({ durationText: "約60分", sourceLabel: "あなたが話した内容から", bandLabel: "朝", handle: null });
+    expect(d?.items[0]).toEqual({ durationText: "約60分", sourceLabel: "あなたが話した内容から", bandLabel: "午前", handle: null });
   });
   it("A1-6-8: item.handle を display に通す（opaque handle あり→保持・無→null）", () => {
     const H = "c1:" + "f".repeat(64);
@@ -43,6 +43,11 @@ describe("A1-5-7-6 presentCaptureCandidate — present → 控えめ表示モデ
   });
   it("band 無 → bandLabel null", () => {
     expect(presentCaptureCandidate(dto({ items: [{ durationMin: 45, evidenceSource: "seed_explicit", date: null, band: null, confidenceBand: "high" }] }))?.items[0].bandLabel).toBeNull();
+  });
+  it("A1-6-10: band label を reflection と一致（午後/夜）+ note に「なぜ」（やり取り由来）", () => {
+    expect(presentCaptureCandidate(dto())?.note).toContain("やり取り"); // なぜ出たかを一言で
+    expect(presentCaptureCandidate(dto({ items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: null, band: "afternoon", confidenceBand: "high" }] }))?.items[0].bandLabel).toBe("午後");
+    expect(presentCaptureCandidate(dto({ items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: null, band: "evening", confidenceBand: "high" }] }))?.items[0].bandLabel).toBe("夜");
   });
   it("durationMin 不正 → 「予定」", () => {
     expect(presentCaptureCandidate(dto({ items: [{ durationMin: 0, evidenceSource: "seed_explicit", date: null, band: null, confidenceBand: "low" }] }))?.items[0].durationText).toBe("予定");
@@ -65,7 +70,7 @@ describe("A1-5-7-6 presentCaptureCandidate — 技術名/raw/UUID 非露出", ()
     const json = JSON.stringify(presentCaptureCandidate(dto({ items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: "2026-06-07", band: "morning", confidenceBand: "high" }] })));
     expect(json).not.toContain("source_ref");
     expect(json).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
-    expect(json).not.toContain('"band":"morning"'); // 技術名でなく友好ラベル「朝」
-    expect(json).toContain("朝");
+    expect(json).not.toContain('"band":"morning"'); // 技術名でなく友好ラベル「午前」（A1-6-10: reflection と一致）
+    expect(json).toContain("午前");
   });
 });

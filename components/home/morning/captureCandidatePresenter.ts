@@ -46,11 +46,14 @@ const SOURCE_LABEL: Record<EvidenceSourceLabel, string> = {
   seed_explicit: "あなたが話した内容から",
   correction: "これまでの調整から",
 };
-/** band（技術名）→ 友好ラベル。 */
+/**
+ * band（技術名）→ 友好ラベル。**A1-6-10: reflection の plan item label（consumed-seed-reflection bandLabel）と一致**させる
+ *   （候補で「午後」、反映後の予定で「午後の予定」と同じ語にし、候補↔予定の違和感を消す）。
+ */
 const BAND_LABEL: Record<TimeBandLabel, string> = {
-  morning: "朝",
-  afternoon: "昼",
-  evening: "夕方",
+  morning: "午前",
+  afternoon: "午後",
+  evening: "夜",
 };
 
 /** durationMin → 控えめ表示（非数/非正は「予定」のみ）。 */
@@ -68,7 +71,8 @@ export function presentCaptureCandidate(
   if (!dto || !dto.hasCandidate) return null; // 表示なし（既存 UI 不変）
   return {
     heading: "候補があります",
-    note: "空いている時間に置けそうな予定の候補です",
+    // A1-6-10: 「なぜ出たか」を一言で（やり取り由来）+ 非断定（候補）。per-item の sourceLabel が具体的な根拠を補う。
+    note: "あなたとのやり取りから、空き時間に置けそうな予定の候補です",
     items: dto.items.map((it) => ({
       durationText: durationText(it.durationMin),
       sourceLabel: SOURCE_LABEL[it.evidenceSource] ?? "メモから", // 未知 → 中立（enum 名を出さない）

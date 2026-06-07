@@ -67,7 +67,8 @@ export function CaptureCandidateBanner({
             const handle = it.handle;
             const st = handle ? states[handle] ?? {} : {};
             return (
-              <li key={i} className="text-[11px] text-gray-600">
+              // A1-6-10: 複数候補時は薄い区切りで item を視覚分離（i>0 に border-top）。
+              <li key={i} className={`text-[11px] text-gray-600 ${i > 0 ? "mt-1 border-t border-purple-100 pt-1" : ""}`}>
                 <span>
                   {it.durationText}
                   <span className="text-gray-400"> · {it.sourceLabel}</span>
@@ -100,7 +101,9 @@ export function CaptureCandidateBanner({
                     >
                       あとで
                     </button>
-                    {st.error && <span className="text-[10px] text-red-400">うまくいきませんでした</span>}
+                    {/* A1-6-10: pending を明示（送信中…）+ 失敗時は再試行できることを伝える。 */}
+                    {st.pending && <span className="text-[10px] text-gray-400">送信中…</span>}
+                    {st.error && <span className="text-[10px] text-red-400">うまくいきませんでした。もう一度試せます</span>}
                   </div>
                 )}
                 {st.deferred && <span className="ml-1 text-[10px] text-gray-400">あとでにしました</span>}

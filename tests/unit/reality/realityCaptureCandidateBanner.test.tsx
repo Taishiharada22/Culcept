@@ -39,7 +39,7 @@ describe("A1-5-7-6 CaptureCandidateBanner — present → 控えめ表示", () =
     expect(html).toContain("（候補）");
     expect(html).toContain("約60分");
     expect(html).toContain("あなたが話した内容から");
-    expect(html).toContain("朝");
+    expect(html).toContain("午前"); // A1-6-10: band label を reflection と一致（朝→午前）
     expect(html).toContain("capture-candidate-banner");
   });
   it("correction → 「これまでの調整から」", () => {
