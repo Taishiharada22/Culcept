@@ -15565,3 +15565,11 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - full-path ON で friction 可変・convergence/recovery 正確・protect_buffer 到達（Option D で dead だった候補が生きる）。生数値は UI に出さず内部精度向上のみ（ethos 維持）。
 - **main 着地済（squash・main HEAD `bcfca834`・親 `dedaaf1d`）**。検証: FP1-FP6 + dayRehearsal 56 + **plan suite 5070 PASS**・**tsc footprint 0（total 55 不変）**・zero-loss。tsc で OverlayTransitionOutcome ネスト + TransportMode 2 種の型ズレを発見・修正。closeout: `…-fullpath-batch1-closeout.md`。code branch `claude/dr-fullpath`(HEAD `731a4574`)保持。
 - 次: activation（flag ON）は local smoke（/plan・到達可）検証後 → Batch 2（InnerWeather energy）→ Batch 3（marker 精緻化）→ Batch 4（What-if UI）。production/Reality 介入層は HOLD。push/PR/Vercel 不接触。
+
+## [2026-06-07] [Build] Day Rehearsal full-path activation（DAY_REHEARSAL_FULL_PATH_ENABLED=true・main 着地）[承認: CEO smoke PASS]
+- Batch 1 full-path を /plan 実機 smoke（CEO + 自己監査）→ PASS → **既定 ON に activation**。診断が real（実 transport + raw feasibility）になった。
+- ★smoke 実証（full-path の効果の動かぬ証拠）: ①**protect_buffer 候補が出現**（「この前後は余白を守ると…」・Option D で到達不能だった dead 候補が live）②per-marker why に **friction_high**（「移動に時間がかかりそう」・Option D で friction 一律 moderate ゆえ不可能だった）③一息/詰まり marker が実 slack/travel ベース。
+- ★ethos 維持: Day Rehearsal の marker/outlook は**数値非表示・仮説トーン**（「移動60分/余白90分」は既存 feasibility 表示=FeasibilityDisclosureLine であり Day Rehearsal でない）。異常なし（friction 爆発/UI 崩れ/apply・save なし）。
+- **main 着地済（squash・main HEAD `c60eb3ae`・親 `17826f16`）**・zero-loss（私の 2 ファイル無競合）。検証: dayRehearsal dir PASS（FP6 を true に更新）・tsc footprint 0（total 55 不変）。緊急時 false で Option D 即復帰。code branch `claude/dr-fullpath-smoke`(HEAD `d7f7f66b`)保持。
+- ★**calibration 候補（記録・実データ後）**: 余白30分+移動90分+夕方密度で convergence やや厳しめ（friction_high 閾値/strain 係数）。仮説トーンゆえ非 blocking。backlog 追記。
+- 次: Batch 2（InnerWeather energy）前の短い次工程案 → 提示後停止。production/Vercel/GitHub/DB/env 不接触。

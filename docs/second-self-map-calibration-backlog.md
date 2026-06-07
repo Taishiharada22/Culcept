@@ -36,3 +36,7 @@
 ## 4. 状態
 - 全 param は **§1 の固定値で main live / pure 着地**（L3-a/L3-b-1 live・L3-b-2 pure 未配線）。
 - 較正は **保留**（実データ蓄積 + CEO 明示 GO まで）。次主フェーズ = Wave 2 Day Rehearsal。
+
+## full-path activation 後の calibration 候補（2026-06-07・実データ後較正）
+- ★**convergence 過敏（やや厳しめ）**: full-path ON で `余白30分 + 移動90分 + 夕方 + 高密度` の transition が「重なりやすい（convergence）」判定。buffer は正（sufficient）だが friction_high(実移動90分) + strain_high で conv high。仮説トーンゆえ非 blocking だが、`friction.levelThresholds.highMin`(0.67) / strain 蓄積係数 / convergence の factors≥2 条件が **やや敏感**な可能性。実データ（FP/FN・ユーザー納得感）後に friction_high 閾値 or convergence 条件を較正候補。
+- 関連: full-path で friction が実 travel 由来になり、長距離移動が friction_high を立てやすい。徒歩短距離と車長距離の friction 差が適切かも実データで観測。

@@ -7,7 +7,8 @@
 
 ## 0. 状態
 - **main 着地済**（squash・main HEAD `bcfca834`・親 `dedaaf1d`）・zero-loss・diff surgical（4 files）。code branch `claude/dr-fullpath`（HEAD `731a4574`）保持。
-- ★**flag `DAY_REHEARSAL_FULL_PATH_ENABLED` = false（既定）→ 既存 Option D 挙動完全不変**。full-path は実装+logic 検証済だが **未 activate**（activation は local smoke 後の follow-up）。
+- ★**activation 済（2026-06-07・main `c60eb3ae`）**: CEO smoke PASS（/plan 実機 + 自己監査）→ `DAY_REHEARSAL_FULL_PATH_ENABLED = true`。**診断が real（実 transport + raw feasibility）になった**。緊急時は false で Option D 即復帰（kill 相当）。
+  - smoke 実証: friction が実移動で可変 / **protect_buffer 復活**（Option D dead 候補が出現）/ per-marker why に **friction_high**（「移動に時間がかかりそう」・Option D で不可能だった）/ 一息・詰まり が実 slack/travel ベース / 異常なし・read-only・**Day Rehearsal は数値非表示**（移動N分/余白N分 は既存 feasibility 表示）。
 - 予定変更/repair/optimize/Reality 接続 なし。read-only 診断層のまま。
 
 ## 1. 実装
