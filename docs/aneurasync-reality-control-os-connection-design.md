@@ -1762,7 +1762,28 @@ A1-7-1: A1-7-0 の dry-run events（個別・曖昧・非断定）を **in-memor
 
 **■ しない（範囲外）**: PRM 永続化 / 集約結果 persist / DB write / route / Home 本線 / production / env / remote / migration / LLM / 多変量集約 / 性格·嗜好の断定。
 
-**■ 次段（dev-report・別 GO）**: tentative pattern report を **dev 限定 preview（三重ガード）** で可視化し、CEO/dev が学習品質を shadow 観測 → 検証 PASS 後に PRM dry-run（§3・別 GO・DB=CEO 承認）。
+**■ 次段（dev-report・別 GO）**: tentative pattern report を **dev 限定 preview（三重ガード）** で可視化し、CEO/dev が学習品質を shadow 観測 → 検証 PASS 後に PRM dry-run（§3・別 GO・DB=CEO 承認）。→ **§10.2 A1-7-2 で実装**。
+
+### 10.2 A1-7-2 実装（landed）— Shadow Learning Preview（dev-report・render-only・no-persist）
+
+A1-7-2: A1-7-1 `aggregateDryRunEvents` の tentative pattern report を **fixture dry-run events** から **dev 限定 preview** で可視化し、PRM 永続化**前**に **学習品質・過断定防止・counter-evidence 表示** を目視検証する（shadow 観測ゲート）。**dev/staging 限定・render-only・実 event/DB/persistence/route なし**。
+
+**■ preview（`/plan/dev-learning-report`）**:
+- page（三重ガード `isCandidateActionsPreviewHostAllowed` 再利用→notFound）+ client（fixture events → `aggregateDryRunEvents` → pattern card 描画・"use client"・**no-persist/no-route/no-DB**）。
+- fixture（disambiguation/counter-evidence/certainty 上限を 1 画面で）: evening dismiss→not_now（timing）/ high-confidence dismiss→mismatch_unknown（framing）＝**同 dismiss が次元で分岐**/ morning accept→positive / afternoon mixed→counter-evidence。
+- card 表示: dimension「value」/ dominantAction+consistency / eventCount·dominantCount·**counterCount** / **certainty badge（low/tentative・high なし）** / **favoredHypothesis + stillPossible（他に残す）** / note。meta に totalEvents/patterns/**assertsPersonality:false**/kind。
+
+**■ 実機検証（実ブラウザ・STAGING_USER_A login・screenshot）**: 8 patterns 描画・disambiguation 対比（時間帯「夜」→タイミング / 確信度「高」→提示のズレ）・counterCount 可視・certainty は low/tentative のみ・stillPossible「他に残す」可視・assertsPersonality:false・console error 0。harness untracked+削除。
+
+**■ 検証**: reality 711 PASS（705→+6）・自変更 tsc 新規 0・baseline 55。render test（renderToStaticMarkup）で content・guard・no-persist を証明。
+
+**■ 観測（軽微）**: card header は context 値を raw enum（afternoon/high/medium…）で表示し note は friendly（午後/高/中）。dev 精度優先の意図的設計（CEO 判断で header も friendly 化可）。
+
+**■ しない（範囲外）**: 実 event / DB / persistence / route / Home / production / env / remote / migration / LLM / PRM 接続。
+
+**■ 次段（PRM dry-run・別 GO・§3）**: dev-report で学習品質を CEO/dev が検証 → PASS 後に **PRM dry-run 永続化設計（§3・設計のみ・migration 実行禁止）**（何を persist=events/patterns・dry-run observation model・schema 設計）→ CEO 承認で DB/migration。
+
+> A1-5-0…§10.1 / **A1-7-2 Shadow Learning Preview（landed・§10.2・**A1-7-1 aggregateDryRunEvents の tentative pattern report を fixture dry-run events から dev 限定 preview で可視化し PRM 永続化前に学習品質・過断定防止・counter-evidence 表示を目視検証（shadow 観測ゲート）・dev/staging 限定・render-only・実 event/DB/persistence/route なし**・A1-7-2 完了）。preview(/plan/dev-learning-report): page(三重ガード isCandidateActionsPreviewHostAllowed 再利用→notFound)+client(fixture events→aggregateDryRunEvents→pattern card・use client・no-persist/no-route/no-DB)・fixture(evening dismiss→not_now timing/high-confidence dismiss→mismatch_unknown framing=同 dismiss が次元で分岐/morning accept→positive/afternoon mixed→counter-evidence)・card(dimension「value」/dominantAction+consistency/counterCount/certainty badge[low/tentative・high なし]/favoredHypothesis+stillPossible[他に残す]/note・meta に assertsPersonality:false/kind)。実機検証(実ブラウザ・STAGING_USER_A login・screenshot): 8 patterns・disambiguation 対比(夜→タイミング/高→提示のズレ)・counterCount 可視・certainty low/tentative のみ・stillPossible 可視・assertsPersonality:false・console error 0・harness untracked 削除。検証: reality 711 PASS(705→+6)・自変更 tsc 新規 0(baseline 55)・render test で content/guard/no-persist 証明**。**学習品質を永続化前に目視検証する shadow ゲートを実装・過断定防止(certainty 上限)と counter-evidence/stillPossible を可視化**。次は **CEO の dev-report 学習品質検証→PASS 後 PRM dry-run 永続化設計(§3・設計のみ・migration 禁止)→CEO 承認で DB/migration**。**PRM 永続化/DB write/route/Home 本線/production/env/remote/migration/LLM/性格·嗜好断定は別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
 > A1-5-0…§10.0 / **A1-7-1 Dry-run Event Aggregation + Hypothesis Disambiguation（landed・§10.1・**A1-7-0 dry-run events を in-memory 集約し文脈相関で hypothesis を disambiguate→tentative pattern report・「学習に変える入口」・PRM 保存/DB write なし・pure/local/no-persist/no-DB/no-LLM/no-route/no-Home**・A1-7-1 完了）。schema(lib/plan/reality/learning/dry-run-aggregation.ts): aggregateDryRunEvents(events,opts?)→TentativePatternReport(kind=tentative_pattern_report=未永続化 marker/assertsPersonality=false)・4 文脈次元 univariate(band/durationBucket[short≤30/medium≤90/long/unknown]/confidence/source)で文脈値 group 化・minEvents(既定3)以上のみ pattern 化(少数は断定しない)・value 昇順 sort で deterministic・TentativePattern(dimension/value/dominantAction/signal/eventCount/dominantCount/counterCount[counter-evidence]/consistency[mixed/leaning/consistent]/favoredHypothesis/stillPossible[潰さない]/certainty["low"|"tentative"・high なし]/assertsPreference=false/note[controlled tone])。disambiguation rule(controlled): timing 系(band/durationBucket)+dismiss→not_now/+later→timing_uncertain・framing 系(confidence/source)+dismiss→mismatch_unknown/+accept→accepted_for_plan・favored は該当 action の hypothesis 内・残りは stillPossible 保持=同じ dismiss でも band 次元 not_now/confidence 次元 mismatch_unknown に分岐。非断定/counter-evidence/bounded: 1 件で断定せず minEvents・counterCount 保持・ratio≥0.75 のみ tentative 昇格(100% でも high にしない)。検証: reality 705 PASS(696→+9)・自変更 tsc 新規 0(baseline 55)・fake fixtures で disambiguation/counter-evidence/certainty 上限/duration bucket/非断定/未永続化/pure deterministic 証明**。**reaction を tentative pattern に変える入口を非断定で実装・context が hypothesis を disambiguate・certainty 上限 tentative で構造的に過断定を防ぐ**。次は **dev-report(tentative pattern を dev 限定 preview で可視化し学習品質を shadow 観測・別 GO)→検証後 PRM dry-run(§3・DB=CEO 承認)**。**PRM 永続化/集約 persist/DB write/route/Home 本線/production/env/remote/migration/LLM/性格·嗜好断定は別 GO で停止**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
