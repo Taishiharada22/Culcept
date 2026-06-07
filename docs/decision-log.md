@@ -15531,3 +15531,10 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **canary readiness audit 提出で停止**。flag ON/env 変更/実 smoke は別 GO。push/PR/Vercel/DB/予定変更/flag 変更 不接触。
 
 ---
+
+## [2026-06-07] [Build] Reality capture surface local smoke — preflight GREEN + 実機 smoke handoff（CEO 視覚確認待ち）[CEO 判断 A]
+- preflight（read-only・秘密非表示）: supabase=**STAGING(hjcr)** ✅ / NODE_ENV=dev ✅ / REALITY_CAPTURE_SURFACE=**true**(.env.local 既設) ✅ / **REALITY_CAPTURE_LIVE=off＝seed write なし** ✅ / PLAN_CANARY_USER_IDS 設定済(reality 専用 list 空→shared fallback) ✅ / port 3000 空き ✅。
+- client: useAlterChat が response の morningProtocol.captureCandidate を**無条件で読み** CaptureCandidateBanner 描画（client flag 不要・B案 live path）。
+- HARD GATE 照合: staging ✅ / raw 漏れなし(DTO redacted=enum/number/date/null) ✅ / apply に見えない(banner read-only・button なし) ✅ / write off ✅。
+- ★未検証 2 点（私の制約）: ①**seed 存在**（候補は pending captured seed 由来・DB 確認不可・write off ゆえ既存 seed が無ければ banner は fail-open で非表示=正常）②**auth**（私はログイン不可＝視覚確認は CEO・従来の smoke と同様）。
+- dev server 起動済（main worktree `35dde74d`・staging・read-only surface・write off・port 3000）。**実機 smoke 観点を CEO に提示・視覚確認待ちで停止**。flag 前進/main 着地はしない。
