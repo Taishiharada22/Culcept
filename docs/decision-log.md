@@ -15621,3 +15621,9 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ★★★**最重大=魂が BROKEN**: 「移動が自己理解になる」(堀②・鏡・「自分ってそういう人間だったのか」)が 5 段すべて未(理由観測→Stargazer 合流→軸検出→Alter 返答→自己理解)。FH が「競合が構造的に持てない堀」と明言した中核。subscription value(自己発見)は現状デリバー不可。
 - **FH 項目の取りこぼし(項目欠落)は無い**(S1-S6/M1-M5 全捕捉)。正確: S1-A/S2-A/S2-B/S5/L3/L4/counterfactual/S1-B gated/Phase 構造/read-only/仮説トーン。
 - ★**推奨変更**: 旧 A1=S3 pace → **A0=S6-0 理由観測 UI(魂の起動点・最優先)**。roadmap §0 CORE PROMISE / §3.5 / §7 / §8.5 を訂正。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] master-roadmap 二重訂正（CEO 指摘「master-design/impl-plan を無視してないか」）[承認: CEO 指摘]
+- CEO が「FH より master-design/implementation-plan が重要・無視してないか」と指摘 → 正本で再突合。**roadmap は両正本に anchor 済(無視せず)**だが、**honesty audit 第一版が FH §4.2 を binding 扱いした逆誤り**を確定：
+- ❌ 私の誤り: §4.2 belief 機構(mobility 軸/observationBridge→Stargazer belief/contradiction engine 二面性)を「漏れ/乖離」と過剰断罪 → 実際は **master-design §2(L56)/§4(L106,123) が localStorage `repertoireBelief`(Dirichlet)に意図的 supersede 済**＝設計判断。実装は正本に忠実。
+- ✅ 有効として残る指摘: ①energy curve overclaim(正本 §1/§D 未) ②魂(移動→自己理解)未実装(正本でも S6/L2=Wave1 次・M5 鏡=moonshot・§7 open論点) ③S3 未 ④S4 配線断絶。
+- 結論: 真の不正確は **energy curve overclaim と魂の過小評価の 2 点のみ**。§3.5 を「漏れ」→「supersede + 魂のみ未」に訂正・§0/§8.5-b 追記。推奨 **L2 理由捕捉=master-design Wave 1 の次の残**で正本整合。push/Vercel/GitHub/DB/env/Reality 不接触。
