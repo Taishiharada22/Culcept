@@ -147,7 +147,11 @@ export interface DayOutlookExplanation {
 export interface DayRehearsalConfig {
   /** strain budget の基準（level 判定の分母素材） */
   readonly baseBudget: number;
-  /** energyLevel(0-1) が低いほど budget を下げる重み */
+  /**
+   * energyLevel(0-1) が低いほど budget を下げる重み。
+   * ★Batch 2(energy・2026-06-08): 過悲観回避のため 0.5（budget = baseBudget×(1 − weight×(1−e)×0.5) が
+   *   weight=0.5 のとき e=0 でも 0.75×baseBudget までしか下がらない＝最大 −25%・自然下限）。較正は backlog。
+   */
   readonly energyBudgetWeight: number;
   readonly eventStrain: { readonly perHour: number; readonly eveningBump: number; readonly packedBump: number };
   readonly travelStrain: { readonly per30Min: number; readonly byMode: Readonly<Record<TransportMode, number>>; readonly unknownPenalty: number };
@@ -160,7 +164,8 @@ export interface DayRehearsalConfig {
 /** GPT 確定 2026-06-06: 固定初期値。較正は `second-self-map-calibration-backlog.md`（実データ後）。 */
 export const DEFAULT_REHEARSAL_CONFIG: DayRehearsalConfig = {
   baseBudget: 3,
-  energyBudgetWeight: 1,
+  energyBudgetWeight: 0.5, // ★Batch 2: 過悲観回避（e=0 でも budget≥0.75×baseBudget=−25%上限）。flag OFF(energy null)時は strainBudget が baseBudget 短絡で無影響
+
   eventStrain: { perHour: 0.3, eveningBump: 0.2, packedBump: 0.3 },
   travelStrain: {
     per30Min: 0.5,

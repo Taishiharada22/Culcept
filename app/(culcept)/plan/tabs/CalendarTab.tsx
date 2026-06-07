@@ -76,7 +76,8 @@ import {
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
-import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { useInnerWeather } from "@/hooks/useInnerWeather";
 import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
@@ -234,17 +235,27 @@ export function CalendarTab({
     selectedDayResolutions,
   );
 
+  // ★Batch 2 energy（状態次元・flag-gated）: InnerWeather の energy（-1〜1）を 0-1 正規化して baseEnergyLevel に供給。
+  //   read-only（GET・client cache・DB write なし）。flag OFF or 未記録（null）は baseEnergyLevel=null＝budget 不変（挙動不変）。
+  const innerWeather = useInnerWeather();
+  const baseEnergyLevel = useMemo(
+    () => (DAY_REHEARSAL_ENERGY_ENABLED ? normalizeInnerWeatherEnergy(innerWeather?.energyLevel) : null),
+    [innerWeather],
+  );
+
   // ★Wave 2 Day Rehearsal（選択日 day-level outlook・READ-only）。既存 dayGraph + feasibility を再利用。
   //   ★Batch 1 full-path（flag-gated）: DAY_REHEARSAL_FULL_PATH_ENABLED=ON なら raw feasibility(真の slack/shortfall)
   //   + 実 travel(overlay 由来) で buildRehearsalInputFull（friction が実移動で可変・convergence/recovery 正確・protect_buffer 到達）。
   //   OFF（既定）は従来 Option D status-only degrade（buildRehearsalInputFromDisplay）で挙動不変。
+  //   ★Batch 2 energy: opts.baseEnergyLevel（正規化 0-1 or null）を供給＝energy 低で budget やや低（過悲観回避 weight=0.5）。
   //   いずれも表示のみ・予定変更/repair/optimize なし。viability unknown は banner 側で非表示。
   const dayRehearsal = useMemo(() => {
     const graph = dayGraphByDate?.[selectedDate]?.graph;
     if (!graph) return null;
+    const opts = { baseEnergyLevel };
     const input = DAY_REHEARSAL_FULL_PATH_ENABLED
-      ? buildRehearsalInputFull(graph, calendarFeasibilityRawByTransitionIndex, calendarFeasibilityTravelByTransitionIndex)
-      : buildRehearsalInputFromDisplay(graph, calendarFeasibilityDisplayByTransitionIndex);
+      ? buildRehearsalInputFull(graph, calendarFeasibilityRawByTransitionIndex, calendarFeasibilityTravelByTransitionIndex, opts)
+      : buildRehearsalInputFromDisplay(graph, calendarFeasibilityDisplayByTransitionIndex, opts);
     return rehearseDay(input);
   }, [
     dayGraphByDate,
@@ -252,6 +263,7 @@ export function CalendarTab({
     calendarFeasibilityDisplayByTransitionIndex,
     calendarFeasibilityRawByTransitionIndex,
     calendarFeasibilityTravelByTransitionIndex,
+    baseEnergyLevel,
   ]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。

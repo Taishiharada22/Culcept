@@ -3,7 +3,7 @@
  * 仮説 estimate / evidence trace(known/unknown/inferred) / unknown 非捏造 / degrade / 決定論 を検証。
  */
 import { describe, it, expect } from "vitest";
-import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker, DAY_REHEARSAL_FULL_PATH_ENABLED, type RehearsalTravelView } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInput, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, explainDayOutlook, explainConvergenceMarker, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy, type RehearsalTravelView } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
   DEFAULT_REHEARSAL_CONFIG,
@@ -561,3 +561,49 @@ describe("buildRehearsalInputFull adapter（Batch 1・実 transport + raw feasib
     expect(DAY_REHEARSAL_FULL_PATH_ENABLED).toBe(true);
   });
 });
+
+describe("Batch 2 energy — normalizeInnerWeatherEnergy + 過悲観回避（weight 0.5）", () => {
+  it("EN1. normalize: -1→0 / 0→0.5 / +1→1（InnerWeather -1〜1 → baseEnergyLevel 0-1）", () => {
+    expect(normalizeInnerWeatherEnergy(-1)).toBeCloseTo(0);
+    expect(normalizeInnerWeatherEnergy(0)).toBeCloseTo(0.5);
+    expect(normalizeInnerWeatherEnergy(1)).toBeCloseTo(1);
+  });
+
+  it("EN2. normalize: null/undefined/NaN → null（degrade・未記録は budget 不変）", () => {
+    expect(normalizeInnerWeatherEnergy(null)).toBeNull();
+    expect(normalizeInnerWeatherEnergy(undefined)).toBeNull();
+    expect(normalizeInnerWeatherEnergy(NaN)).toBeNull();
+  });
+
+  it("EN3. normalize: 範囲外も clamp（-2→0 / 2→1）", () => {
+    expect(normalizeInnerWeatherEnergy(-2)).toBeCloseTo(0);
+    expect(normalizeInnerWeatherEnergy(2)).toBeCloseTo(1);
+  });
+
+  it("EN4. ★過悲観回避: energy 最低(e=0)でも strain budget は baseBudget×0.75 までしか下がらない（weight 0.5・最大 −25%）", () => {
+    // budget = baseBudget × (1 − weight×(1−clamp(e,0,1))×0.5)。weight=0.5・e=0 → 0.75。
+    // 同一の重い予定で e=1.0(=budget 満額) と e=0.0(=budget 0.75) を比較し、breaks まで崩れない（floor 効果）ことを確認。
+    const steps: RehearsalStep[] = [];
+    for (let i = 0; i < 3; i += 1) steps.push({ event: ev(`e${i}`, { durationMin: 90 }), transitionAfter: i < 2 ? trans({ bufferStatus: "sufficient", slackMin: 30 }) : null });
+    const high = rehearseDay(mkInput(steps, { baseEnergyLevel: 1.0 }));
+    const low = rehearseDay(mkInput(steps, { baseEnergyLevel: 0.0 }));
+    // score 同一・budget のみ差。low の budget は high の 0.75 倍（半減でない＝過悲観でない）
+    expect(low.peakStrain.score).toBeCloseTo(high.peakStrain.score);
+    // weight 0.5 では e=0 でも budget は 0.75×。strainRatio = score/budget が 1/0.75≒1.33 倍止まり（weight 1 なら 2 倍）
+    // → level の跳ね上がりが緩和（過悲観回避）。viability が both breaks にならない（少なくとも low が high より極端に悪化しない）
+    const order = { low: 0, moderate: 1, high: 2, unknown: -1 } as const;
+    expect(order[low.peakStrain.level] - order[high.peakStrain.level]).toBeLessThanOrEqual(1); // 最大 1 段階差（暴落しない）
+  });
+
+  it("EN5. DAY_REHEARSAL_ENERGY_ENABLED は既定 false（flag OFF＝energy 未供給＝budget 不変）", () => {
+    expect(DAY_REHEARSAL_ENERGY_ENABLED).toBe(false);
+  });
+
+  it("EN6. baseEnergyLevel null（flag OFF 相当）→ budget=baseBudget（既存挙動不変）", () => {
+    const steps: RehearsalStep[] = [{ event: ev("a", { durationMin: 60 }), transitionAfter: null }];
+    const nullE = rehearseDay(mkInput(steps, { baseEnergyLevel: null }));
+    const fullE = rehearseDay(mkInput(steps, { baseEnergyLevel: 1.0 }));
+    // e=null と e=1.0 は同じ budget(baseBudget) → 同一 level（energy 未記録を低 energy 扱いしない=安全側）
+    expect(nullE.peakStrain.level).toBe(fullE.peakStrain.level);
+  });
+})
