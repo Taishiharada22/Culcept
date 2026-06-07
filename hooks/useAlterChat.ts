@@ -7,8 +7,9 @@ import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, Pen
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 // A1-5-8-3: capture candidate surface（B案 step 2・client consumption）。response の morningProtocol.captureCandidate を
 //   client boundary で redacted DTO に抽出（source_ref/UUID/raw drop）。absent → undefined → banner 非表示（既存 UI 不変）。
-import { selectMorningProtocolCaptureCandidate } from "@/components/home/morning/captureCandidateClient";
+import { selectMorningProtocolCaptureCandidate, postCandidateAction, applyCandidateActionResult, type CandidateActionResult } from "@/components/home/morning/captureCandidateClient";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
+import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
 // CEO/GPT 2026-05-02 PR B-2d-b/d: location opt-in state machine + declined recovery
 import {
   readLocationOptIn,
@@ -1046,6 +1047,25 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     if (role === "alter") setLoading(false);
   }, []);
 
+  // ── A1-6-8: candidate action（accept/dismiss/later → /api/reality/candidate-action POST → client state 反映） ──
+  //   pure helper applyCandidateActionResult が next state を計算（失敗/later→不変・accept→optimistic plan add[A1-6-7 merge 再利用]+item 除去・dismiss→item 除去）。
+  //   request は {handle, action} のみ・seedRef/raw を持たない・fail-safe（postCandidateAction が network/parse error を握る）。
+  const submitCandidateAction = useCallback(
+    async (handle: string, action: CandidateActionKind): Promise<CandidateActionResult> => {
+      const result = await postCandidateAction(handle, action);
+      const next = applyCandidateActionResult(
+        { plan: morningPlan, candidate: morningCaptureCandidate },
+        handle,
+        action,
+        result
+      );
+      setMorningPlan(next.plan);
+      setMorningCaptureCandidate(next.candidate);
+      return result;
+    },
+    [morningPlan, morningCaptureCandidate]
+  );
+
   return {
     messages,
     loading,
@@ -1083,6 +1103,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     morningPhase,
     /** A1-5-8-3: capture candidate surface（redacted DTO・absent→undefined・banner 非表示／既存 UI 不変） */
     morningCaptureCandidate,
+    /** A1-6-8: candidate action（accept/dismiss/later → route POST → optimistic plan 反映 + item 除去） */
+    submitCandidateAction,
     /** Morning Protocol: プランを更新（UI操作後） */
     setMorningPlan,
     /** Morning Protocol: パーソナライズヒント（性格ベースの提案含む） */

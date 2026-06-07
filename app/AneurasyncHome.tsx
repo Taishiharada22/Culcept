@@ -16,6 +16,7 @@ import { C } from "./_home/constants";
 import { buildOrbitItems } from "./_home/orbitDockConfig";
 import { deriveAnswerData, deriveWhyData } from "./_home/deriveAnswerData";
 import { useAlterChat } from "@/hooks/useAlterChat";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { updatePredictionVerification, loadPredictions, calculateAccuracy } from "@/lib/stargazer/predictionEngine";
 import { updateLearningFromFeedback } from "@/lib/stargazer/predictionLearningLoop";
 import { safeSetItem, ensureStorageSpace } from "@/lib/stargazer/localStorageHelper";
@@ -864,6 +865,8 @@ export default function AneurasyncHome({
                 morningEvents={alterChat.morningPersistedEvents ?? undefined}
                 /* A1-5-8-3: capture candidate surface（redacted DTO・absent→undefined→banner 非表示／既存 UI 不変） */
                 morningCaptureCandidate={alterChat.morningCaptureCandidate}
+                /* A1-6-8: candidate action handler（flag on のみ＝ボタン表示・off→undefined→read-only banner=既存 UI 不変） */
+                onCandidateAction={PLAN_FLAGS.realityCandidateActions ? alterChat.submitCandidateAction : undefined}
                 visualFlowEnabled={visualFlowEnabled}
                 onMorningPlanConfirm={(plan) => {
                   alterChat.setMorningPlan(plan);

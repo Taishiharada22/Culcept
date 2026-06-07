@@ -6,10 +6,11 @@ import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as fs from "fs";
 import * as path from "path";
-import { selectCaptureCandidate, selectMorningProtocolCaptureCandidate, fetchCaptureCandidate, buildCaptureCandidateRequestBody, submitForCaptureCandidate, CAPTURE_CANDIDATE_V2_ROUTE } from "@/components/home/morning/captureCandidateClient";
+import { selectCaptureCandidate, selectMorningProtocolCaptureCandidate, fetchCaptureCandidate, buildCaptureCandidateRequestBody, submitForCaptureCandidate, CAPTURE_CANDIDATE_V2_ROUTE, postCandidateAction, applyAcceptedCandidateToPlan, removeCandidateItem, applyCandidateActionResult, REALITY_CANDIDATE_ACTION_ROUTE, type CandidateActionResult } from "@/components/home/morning/captureCandidateClient";
 import { appendCaptureCandidateToMorningResult } from "@/lib/plan/reality/integration/candidate-response-assembler";
 import { CaptureCandidateBanner } from "@/components/home/morning/CaptureCandidateBanner";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
+import type { MorningPlan } from "@/lib/alter-morning/types";
 
 const SEED_UUID = "11111111-1111-4111-8111-111111111111";
 const SURFACE: CandidateSurfaceDTO = {
@@ -289,5 +290,169 @@ describe("A1-5-8-3 wiring（静的配線確認・heavy render 回避）", () => 
   });
   it("useAlterChat の既存 setMorningPlan(data.morningProtocol.plan) を壊していない（壊さない最優先）", () => {
     expect(HOOK).toContain("setMorningPlan(data.morningProtocol.plan)");
+  });
+});
+
+// ── A1-6-8: Candidate Action UI Buttons + Client Wiring ──
+const HANDLE_A = "c1:" + "a".repeat(64); // 有効な opaque handle 形式（c1:[0-9a-f]{64}）
+const HANDLE_B = "c1:" + "b".repeat(64);
+const SURFACE_WITH_HANDLE: CandidateSurfaceDTO = {
+  hasCandidate: true,
+  candidateCount: 1,
+  status: "has_candidate",
+  items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: "2099-12-31", band: "afternoon", confidenceBand: "high", handle: HANDLE_A }],
+};
+const TEST_PLAN = {
+  date: "2099-12-31",
+  items: [{ id: "existing-1", kind: "fixed", text: "既存", what: null, durationMin: 30, fixedStart: true, orderHint: 0, sourceTurnIndex: 0, completed: false }],
+} as unknown as MorningPlan;
+function actionResponse(data: { accepted: boolean; reason?: string; reflectsToPlan?: boolean; deferred?: boolean }) {
+  return { ok: true, data: { reason: "ok", reflectsToPlan: false, deferred: false, ...data } };
+}
+const okResult: CandidateActionResult = { ok: true, accepted: true, reason: "ok", reflectsToPlan: true, deferred: false };
+
+describe("A1-6-8 postCandidateAction — {handle,action} POST → result（fail-safe・seedRef 非送）", () => {
+  it("accept ok → {ok,accepted,reflectsToPlan}・POST /api/reality/candidate-action・body は {handle,action} のみ", async () => {
+    const f = vi.fn(async () => ({ json: async () => actionResponse({ accepted: true, reflectsToPlan: true }) }));
+    const r = await postCandidateAction(HANDLE_A, "accept", f as unknown as typeof fetch);
+    expect(r).toEqual({ ok: true, accepted: true, reason: "ok", reflectsToPlan: true, deferred: false });
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(REALITY_CANDIDATE_ACTION_ROUTE);
+    expect(JSON.parse(init.body as string)).toEqual({ handle: HANDLE_A, action: "accept" }); // {handle,action} のみ
+  });
+  it("dismiss → accepted true・reflectsToPlan false", async () => {
+    const r = await postCandidateAction(HANDLE_A, "dismiss", fakeFetch(actionResponse({ accepted: true, reflectsToPlan: false })));
+    expect(r.accepted).toBe(true);
+    expect(r.reflectsToPlan).toBe(false);
+  });
+  it("later → deferred true", async () => {
+    const r = await postCandidateAction(HANDLE_A, "later", fakeFetch(actionResponse({ accepted: true, deferred: true })));
+    expect(r.deferred).toBe(true);
+  });
+  it("accepted=false（invalid handle 等）→ ok:true・accepted:false・reason 保持（安全に失敗表示）", async () => {
+    const r = await postCandidateAction("bad", "accept", fakeFetch(actionResponse({ accepted: false, reason: "invalid_handle" })));
+    expect(r.ok).toBe(true);
+    expect(r.accepted).toBe(false);
+    expect(r.reason).toBe("invalid_handle");
+  });
+  it("envelope ok:false → FAILED（ok:false・accepted:false）", async () => {
+    const r = await postCandidateAction(HANDLE_A, "accept", fakeFetch({ ok: false, error: "Unauthorized" }));
+    expect(r.ok).toBe(false);
+    expect(r.accepted).toBe(false);
+  });
+  it("fetch throw → FAILED（fail-safe・UI を壊さない）", async () => {
+    const f = (async () => { throw new Error("net"); }) as unknown as typeof fetch;
+    const r = await postCandidateAction(HANDLE_A, "accept", f);
+    expect(r).toEqual({ ok: false, accepted: false, reason: "failed", reflectsToPlan: false, deferred: false });
+  });
+});
+
+describe("A1-6-8 applyAcceptedCandidateToPlan — optimistic add（A1-6-7 merge 再利用・drift なし）", () => {
+  it("同日 item → plan に append（id=handle・existing 保持）", () => {
+    const out = applyAcceptedCandidateToPlan(TEST_PLAN, SURFACE_WITH_HANDLE.items[0]);
+    expect(out!.items).toHaveLength(2);
+    expect(out!.items[0].id).toBe("existing-1");
+    expect(out!.items[1].id).toBe(HANDLE_A);
+  });
+  it("plan null → null（不変）", () => {
+    expect(applyAcceptedCandidateToPlan(null, SURFACE_WITH_HANDLE.items[0])).toBeNull();
+  });
+  it("handle なし item → plan 不変（同一参照）", () => {
+    const noHandle = { ...SURFACE_WITH_HANDLE.items[0], handle: undefined };
+    expect(applyAcceptedCandidateToPlan(TEST_PLAN, noHandle)).toBe(TEST_PLAN);
+  });
+  it("別日 item → plan 不変（merge date filter・同一参照）", () => {
+    const otherDate = { ...SURFACE_WITH_HANDLE.items[0], date: "2099-12-30" };
+    expect(applyAcceptedCandidateToPlan(TEST_PLAN, otherDate)).toBe(TEST_PLAN);
+  });
+  it("optimistic 結果に UUID(seedRef) を含まない（id=opaque handle）", () => {
+    const out = applyAcceptedCandidateToPlan(TEST_PLAN, SURFACE_WITH_HANDLE.items[0]);
+    expect(JSON.stringify(out)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
+  });
+});
+
+describe("A1-6-8 removeCandidateItem — item 除去（hasCandidate/count 再計算）", () => {
+  it("handle 一致 → 除去・hasCandidate=false・count=0（banner null へ）", () => {
+    const out = removeCandidateItem(SURFACE_WITH_HANDLE, HANDLE_A);
+    expect(out!.items).toHaveLength(0);
+    expect(out!.hasCandidate).toBe(false);
+    expect(out!.candidateCount).toBe(0);
+  });
+  it("一致なし → 同一参照（no-op）", () => {
+    expect(removeCandidateItem(SURFACE_WITH_HANDLE, HANDLE_B)).toBe(SURFACE_WITH_HANDLE);
+  });
+  it("undefined → undefined", () => {
+    expect(removeCandidateItem(undefined, HANDLE_A)).toBeUndefined();
+  });
+});
+
+describe("A1-6-8 applyCandidateActionResult — action 後の client state（pure・testable）", () => {
+  it("accept 成立 → plan に add + candidate から除去", () => {
+    const next = applyCandidateActionResult({ plan: TEST_PLAN, candidate: SURFACE_WITH_HANDLE }, HANDLE_A, "accept", okResult);
+    expect(next.plan!.items.map((i) => i.id)).toContain(HANDLE_A);
+    expect(next.candidate!.items).toHaveLength(0);
+  });
+  it("dismiss 成立 → candidate 除去・plan 不変", () => {
+    const next = applyCandidateActionResult({ plan: TEST_PLAN, candidate: SURFACE_WITH_HANDLE }, HANDLE_A, "dismiss", { ...okResult, reflectsToPlan: false });
+    expect(next.plan).toBe(TEST_PLAN);
+    expect(next.candidate!.items).toHaveLength(0);
+  });
+  it("later → state 不変（no-op・同一参照）", () => {
+    const state = { plan: TEST_PLAN, candidate: SURFACE_WITH_HANDLE };
+    expect(applyCandidateActionResult(state, HANDLE_A, "later", { ...okResult, deferred: true })).toBe(state);
+  });
+  it("失敗（accepted=false）→ state 不変（同一参照）", () => {
+    const state = { plan: TEST_PLAN, candidate: SURFACE_WITH_HANDLE };
+    expect(applyCandidateActionResult(state, HANDLE_A, "accept", { ...okResult, accepted: false })).toBe(state);
+  });
+});
+
+describe("A1-6-8 banner buttons — onCandidateAction 提供時のみ表示（static render）", () => {
+  const noop = async () => okResult;
+  it("onCandidateAction + handle → accept/dismiss/later ボタン表示", () => {
+    const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={SURFACE_WITH_HANDLE} onCandidateAction={noop} />);
+    expect(html).toContain("candidate-action-buttons");
+    expect(html).toContain("予定に入れる");
+    expect(html).toContain("今はいい");
+    expect(html).toContain("あとで");
+  });
+  it("onCandidateAction 未提供 → ボタンなし（read-only banner・既存 UI 不変）", () => {
+    const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={SURFACE_WITH_HANDLE} />);
+    expect(html).toContain("候補があります");
+    expect(html).not.toContain("candidate-action-buttons");
+    expect(html).not.toContain("予定に入れる");
+  });
+  it("handle なし item + onCandidateAction → ボタンなし（handle 必須）", () => {
+    const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={SURFACE} onCandidateAction={noop} />);
+    expect(html).not.toContain("candidate-action-buttons");
+  });
+  it("candidate なし → 空 markup（onCandidateAction あっても既存 UI 不変）", () => {
+    expect(renderToStaticMarkup(<CaptureCandidateBanner candidate={undefined} onCandidateAction={noop} />)).toBe("");
+  });
+  it("ボタン markup に UUID(seedRef) を出さない（handle は onClick closure・static markup 非搬送）", () => {
+    const html = renderToStaticMarkup(<CaptureCandidateBanner candidate={SURFACE_WITH_HANDLE} onCandidateAction={noop} />);
+    expect(html).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
+  });
+});
+
+describe("A1-6-8 wiring（静的配線確認・heavy render 回避）", () => {
+  const HOME = fs.readFileSync(path.join(process.cwd(), "app/AneurasyncHome.tsx"), "utf8");
+  const HOOK = fs.readFileSync(path.join(process.cwd(), "hooks/useAlterChat.ts"), "utf8");
+  const ASK = fs.readFileSync(path.join(process.cwd(), "components/home/AskHero.tsx"), "utf8");
+  const CARD = fs.readFileSync(path.join(process.cwd(), "components/home/morning/MorningPlanCard.tsx"), "utf8");
+  it("AneurasyncHome が onCandidateAction を flag-gated で渡す（off→undefined＝read-only banner）", () => {
+    expect(HOME).toContain("onCandidateAction={PLAN_FLAGS.realityCandidateActions ? alterChat.submitCandidateAction : undefined}");
+  });
+  it("AskHero / MorningPlanCard が onCandidateAction を banner まで通す", () => {
+    expect(ASK).toContain("onCandidateAction={onCandidateAction}");
+    expect(CARD).toContain("onCandidateAction={onCandidateAction}");
+  });
+  it("useAlterChat が submitCandidateAction を実装し postCandidateAction + applyCandidateActionResult を使う", () => {
+    expect(HOOK).toContain("submitCandidateAction");
+    expect(HOOK).toContain("postCandidateAction(handle, action)");
+    expect(HOOK).toContain("applyCandidateActionResult");
+  });
+  it("useAlterChat が submitCandidateAction を return する", () => {
+    expect(HOOK).toMatch(/return \{[\s\S]*submitCandidateAction/);
   });
 });

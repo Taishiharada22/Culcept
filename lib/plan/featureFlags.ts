@@ -291,4 +291,17 @@ export const PLAN_FLAGS = {
    *   active / rejected / expired seed は混ざらない（reader が status='consumed' のみ・merge も guard）。
    */
   realityConsumedReflection: process.env.REALITY_CONSUMED_REFLECTION === "true",
+
+  /**
+   * A1-6-8: Candidate action **UI ボタン**（accept/dismiss/later）の client-side 有効化フラグ。
+   *   true  : CaptureCandidateBanner が accept/dismiss/later ボタンを表示し `/api/reality/candidate-action` に POST。
+   *           accept 後は client が `reflectConsumedSeedsIntoMorningPlan`（A1-6-7 再利用）で MorningPlan に **optimistic add**。
+   *   false : ボタン非表示（**本番デフォルト**・banner は read-only=A1-5-7-6 と同一・既存 UI 不変）。
+   * env: NEXT_PUBLIC_REALITY_CANDIDATE_ACTIONS=true で有効化（**client-side 評価可・NEXT_PUBLIC_**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §9.13（A1-6-8）
+   * 運用制約: **`realityConsumedReflection`（server reflect）と一緒に staging で on** にする（optimistic add と server reflect の整合）。
+   *   production は両者 off（banner は realityCaptureSurface server flag・production off ゆえ candidate 自体出ない）。
+   *   route(`/api/reality/candidate-action`)は user-RLS・status-only（A1-6-6 検証済）。ボタンは request {handle,action} のみ送る。
+   */
+  realityCandidateActions: process.env.NEXT_PUBLIC_REALITY_CANDIDATE_ACTIONS === "true",
 } as const;

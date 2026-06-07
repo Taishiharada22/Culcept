@@ -24,6 +24,11 @@ export interface CaptureCandidateDisplayItem {
   readonly sourceLabel: string;
   /** 時間帯の友好ラベル（無ければ null）。 */
   readonly bandLabel: string | null;
+  /**
+   * A1-6-8: action 用 **opaque handle**（`"c1:"+sha256(seedRef)`・seedRef を含まない・無ければ null）。
+   *   banner の accept/dismiss/later はこの handle を route に送る（seedRef は client に出ない）。
+   */
+  readonly handle: string | null;
 }
 
 /** UI 表示モデル（candidate 有時のみ・控えめ）。 */
@@ -68,6 +73,7 @@ export function presentCaptureCandidate(
       durationText: durationText(it.durationMin),
       sourceLabel: SOURCE_LABEL[it.evidenceSource] ?? "メモから", // 未知 → 中立（enum 名を出さない）
       bandLabel: it.band ? BAND_LABEL[it.band] ?? null : null,
+      handle: typeof it.handle === "string" ? it.handle : null, // A1-6-8: action 用 opaque handle（無ければ null）
     })),
   };
 }

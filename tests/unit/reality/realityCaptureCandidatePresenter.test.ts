@@ -30,7 +30,13 @@ describe("A1-5-7-6 presentCaptureCandidate — present → 控えめ表示モデ
     expect(d?.heading).toBe("候補があります");
     expect(d?.note).toContain("候補");
     expect(d?.items).toHaveLength(1);
-    expect(d?.items[0]).toEqual({ durationText: "約60分", sourceLabel: "あなたが話した内容から", bandLabel: "朝" });
+    expect(d?.items[0]).toEqual({ durationText: "約60分", sourceLabel: "あなたが話した内容から", bandLabel: "朝", handle: null });
+  });
+  it("A1-6-8: item.handle を display に通す（opaque handle あり→保持・無→null）", () => {
+    const H = "c1:" + "f".repeat(64);
+    expect(presentCaptureCandidate(dto())?.items[0].handle).toBeNull(); // dto item に handle なし → null
+    const withHandle = presentCaptureCandidate(dto({ items: [{ durationMin: 60, evidenceSource: "seed_explicit", date: null, band: "morning", confidenceBand: "high", handle: H }] }));
+    expect(withHandle?.items[0].handle).toBe(H);
   });
   it("correction → sourceLabel「これまでの調整から」", () => {
     expect(presentCaptureCandidate(dto({ items: [{ durationMin: 30, evidenceSource: "correction", date: null, band: null, confidenceBand: "medium" }] }))?.items[0].sourceLabel).toBe("これまでの調整から");

@@ -42,6 +42,8 @@ import {
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import { CaptureCandidateBanner } from "@/components/home/morning/CaptureCandidateBanner";
 import type { CandidateSurfaceDTO } from "@/lib/plan/reality/integration/candidate-surface";
+import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
+import type { CandidateActionResult } from "@/components/home/morning/captureCandidateClient";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // W3-PR-13 M3: MorningMapView を client-only lazy import。
@@ -87,6 +89,11 @@ interface MorningPlanCardProps {
    * 現状 parent(AskHero) は未提供（V2 route 未消費）。将来 V2 route 消費時に流し込む。
    */
   captureCandidate?: CandidateSurfaceDTO | null;
+  /**
+   * A1-6-8: candidate action handler（accept/dismiss/later → /api/reality/candidate-action）。
+   * **additive optional**: 未提供 → banner はボタン非表示（read-only＝既存 UI 不変）。
+   */
+  onCandidateAction?: (handle: string, action: CandidateActionKind) => Promise<CandidateActionResult>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -892,6 +899,7 @@ export default function MorningPlanCard({
   events,
   visualFlowEnabled = false,
   captureCandidate,
+  onCandidateAction,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
   // Place detail bottom sheet state（CEO方針 2026-04-17）
@@ -1142,7 +1150,7 @@ export default function MorningPlanCard({
         transition={{ duration: 0.3 }}
       >
         {/* A1-5-7-6: capture candidate surface（additive・captureCandidate 無 / hasCandidate=false なら null＝既存 UI 不変） */}
-        <CaptureCandidateBanner candidate={captureCandidate} />
+        <CaptureCandidateBanner candidate={captureCandidate} onCandidateAction={onCandidateAction} />
         {/* ヘッダー */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[14px] font-semibold text-gray-800 flex items-center gap-1.5">

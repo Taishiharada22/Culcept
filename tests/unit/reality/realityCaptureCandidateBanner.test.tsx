@@ -65,8 +65,8 @@ describe("A1-5-7-6 MorningPlanCard wiring（静的配線確認・heavy render �
   it("optional captureCandidate prop を持つ（additive）", () => {
     expect(SRC).toContain("captureCandidate?: CandidateSurfaceDTO");
   });
-  it("CaptureCandidateBanner を render する（candidate={captureCandidate}）", () => {
-    expect(SRC).toContain("<CaptureCandidateBanner candidate={captureCandidate} />");
+  it("CaptureCandidateBanner を render する（candidate + A1-6-8 onCandidateAction）", () => {
+    expect(SRC).toContain("<CaptureCandidateBanner candidate={captureCandidate} onCandidateAction={onCandidateAction} />");
   });
   it("既存 prop（plan / events / visualFlowEnabled）を消していない", () => {
     for (const k of ["plan: MorningPlan", "visualFlowEnabled?: boolean", "events?: ComprehensionEvent"]) {
