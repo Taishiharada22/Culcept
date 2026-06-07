@@ -595,8 +595,8 @@ describe("Batch 2 energy — normalizeInnerWeatherEnergy + 過悲観回避（wei
     expect(order[low.peakStrain.level] - order[high.peakStrain.level]).toBeLessThanOrEqual(1); // 最大 1 段階差（暴落しない）
   });
 
-  it("EN5. DAY_REHEARSAL_ENERGY_ENABLED は既定 false（flag OFF＝energy 未供給＝budget 不変）", () => {
-    expect(DAY_REHEARSAL_ENERGY_ENABLED).toBe(false);
+  it("EN5. DAY_REHEARSAL_ENERGY_ENABLED は activation 済 true（2026-06-08 CEO/GPT GO・energy 状態次元 ON）", () => {
+    expect(DAY_REHEARSAL_ENERGY_ENABLED).toBe(true);
   });
 
   it("EN6. baseEnergyLevel null（flag OFF 相当）→ budget=baseBudget（既存挙動不変）", () => {

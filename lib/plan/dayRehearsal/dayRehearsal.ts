@@ -541,7 +541,7 @@ export const DAY_REHEARSAL_FULL_PATH_ENABLED = true;
  * 過悲観回避は energyBudgetWeight=0.5（最大 −25%）+ null degrade（未記録日は baseBudget 不変=安全側）。
  * local smoke 時のみ true → 検証後に既定 ON 化を CEO 判断。緊急時 false で即 degrade。
  */
-export const DAY_REHEARSAL_ENERGY_ENABLED = false;
+export const DAY_REHEARSAL_ENERGY_ENABLED = true; // ★Batch 2 activation（2026-06-08 CEO/GPT GO・実エンジン再現で energy が過悲観の原因でないこと実測・有界 −25%・null degrade・leak なし）
 
 /**
  * ★Batch 2: InnerWeather.energyLevel（**-1〜1**・GET /api/stargazer/inner-weather 由来）→ baseEnergyLevel（**0-1**）に正規化。
