@@ -15612,3 +15612,12 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - ★非冗長: 候補文=action(出発を早める)/sim 行=effect(試すとどうなるか)で register 異なる。Batch 4 NO-GO(candidate-only 言い替え)を、rehearsal 実データの before/after(新情報)で解消。HARD GATE 全 PASS(候補文重複→非表示/弱根拠→非表示・SIM18 機械保証)。
 - 検証 SIM15-19+WIF1-6+plan suite 5116 PASS・tsc footprint 0(total 55)・zero-conflict(178+/12-)・main worktree 46 PASS(zero-loss)。main `e7b45272`・code branch `claude/dr-repair-sim`(`4fff9170`)。closeout `…-repair-simulation-v0-ui-closeout.md`。
 - ★次: **Day Rehearsal 診断層 + What-if v0 完了**。全体マスタープラン提出(`second-self-map-master-roadmap.md`)→CEO 判断でフェーズ実装。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] master-roadmap honesty audit + 訂正（CEO「嘘をついているか・FH 漏れなく含むか」への回答）[承認: CEO 検証指示]
+- CEO が roadmap の正直さ/網羅性を質問 → independent 検証(`wf_a7caa6b8-b9b`・6 agents・5 cluster を実コード/git で裏取り)を実施。防御せず確定：
+- ★**意図的な嘘は無いが 3 overclaim 確定**: ①energy curve「✅done」は誤り(内部 budget 調整のみ・可視化曲線は未) ②S6 partial は「理由観測 UI 皆無」を understate ③S4「weather bias partial」は配線断絶 0/3(MapTab→weather 未配線)を未記載。
+- ★**漏れ(旧版インベントリ欠落)**: FH §4.2/§4.4 派生＝新 mobility 軸・observationBridge→Stargazer pipeline・contradiction engine 二面性・Mobility→Stargazer bridge・理由観測フック。roadmap §3.5 に追加。
+- ★**乖離(未記載)**: FH §4.2「Stargazer 軸を足すだけ」計画→実装は standalone mobilityRepertoireBelief(localStorage)に divergent(機能達成・自己理解合流は未)。
+- ★★★**最重大=魂が BROKEN**: 「移動が自己理解になる」(堀②・鏡・「自分ってそういう人間だったのか」)が 5 段すべて未(理由観測→Stargazer 合流→軸検出→Alter 返答→自己理解)。FH が「競合が構造的に持てない堀」と明言した中核。subscription value(自己発見)は現状デリバー不可。
+- **FH 項目の取りこぼし(項目欠落)は無い**(S1-S6/M1-M5 全捕捉)。正確: S1-A/S2-A/S2-B/S5/L3/L4/counterfactual/S1-B gated/Phase 構造/read-only/仮説トーン。
+- ★**推奨変更**: 旧 A1=S3 pace → **A0=S6-0 理由観測 UI(魂の起動点・最優先)**。roadmap §0 CORE PROMISE / §3.5 / §7 / §8.5 を訂正。push/Vercel/GitHub/DB/env/Reality 不接触。
