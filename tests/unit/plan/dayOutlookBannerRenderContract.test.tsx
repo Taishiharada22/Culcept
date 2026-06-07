@@ -179,3 +179,63 @@ describe("DayOutlookBanner — Repair「どうするとよさそう？」disclos
     expect(html).toContain('data-testid="plan-day-outlook-repair"'); // どうする? 追加
   });
 });
+
+// ── What-if v0 UI: 候補文の下の「試すと…」simulation 1 行 ──
+describe("DayOutlookBanner — What-if v0 simulation line", () => {
+  const rc = (kind: DayRepairKind, suggestion: string): DayRepairCandidate => ({ kind, suggestion, targetStepIndex: 0, evidence: EV });
+  const LE = rc("leave_earlier", "この移動の前後は、出発を少し早める余地があるかもしれません");
+  const PB = rc("protect_buffer", "この前後は余白を守ると、予定が重なりにくそうです");
+  const SIM_LE = "試すと、この移動が和らいで、その日全体も少しゆとりが出そうです";
+
+  it("WIF1. leave_earlier に sim 行が供給 → 候補文の下に「試すと…」が出る", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[LE]} simulationLineByKind={new Map([["leave_earlier", SIM_LE]])} />,
+    );
+    expect(html).toContain('data-testid="plan-day-outlook-sim"');
+    expect(html).toContain(SIM_LE);
+  });
+
+  it("WIF2. simulationLineByKind なし → sim 行は出ない（既存挙動不変）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[LE]} />);
+    expect(html).not.toContain("plan-day-outlook-sim");
+  });
+
+  it("WIF3. map に該当 kind が無い候補には sim 行を出さない（leave_earlier のみ）", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[LE, PB]} simulationLineByKind={new Map([["leave_earlier", SIM_LE]])} />,
+    );
+    // sim 行は 1 つだけ（leave_earlier のみ）
+    expect((html.match(/plan-day-outlook-sim/g) ?? []).length).toBe(1);
+    expect(html).toContain('data-sim-kind="leave_earlier"');
+    expect(html).not.toContain('data-sim-kind="protect_buffer"');
+  });
+
+  it("WIF4. read-only: sim 行は span（button/input/適用/保存なし）", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[LE]} simulationLineByKind={new Map([["leave_earlier", SIM_LE]])} />,
+    );
+    expect(html).toContain('data-testid="plan-day-outlook-sim"');
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("適用");
+    expect(html).not.toContain("保存");
+  });
+
+  it("WIF5. sim 行は slate 中立・警告色/禁止語なし", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[LE]} simulationLineByKind={new Map([["leave_earlier", SIM_LE]])} />,
+    );
+    expect(html).toMatch(/plan-day-outlook-sim[\s\S]{0,160}text-slate-400/);
+    for (const w of ["amber", "orange", "bg-red", "危険", "警告", "改善します", "解決します", "最適化"]) {
+      expect(html).not.toContain(w);
+    }
+  });
+
+  it("WIF6. 候補 0 件 → repair disclosure ごと出ない（sim 行も当然なし）", () => {
+    const html = renderToStaticMarkup(
+      <DayOutlookBanner rehearsal={rehearsalWith("breaks")} repairCandidates={[]} simulationLineByKind={new Map([["leave_earlier", SIM_LE]])} />,
+    );
+    expect(html).not.toContain("plan-day-outlook-repair");
+    expect(html).not.toContain("plan-day-outlook-sim");
+  });
+});

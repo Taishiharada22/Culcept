@@ -13,7 +13,7 @@
  */
 import { explainDayOutlook } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import type { DayOutlookExplanation, DayRehearsal, ViabilityOutlook } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
-import type { DayRepairCandidate } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
+import type { DayRepairCandidate, DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 
 /** outlook → 仮説トーン copy（unknown は表示しないので除外）。 */
 const OUTLOOK_COPY: Record<Exclude<ViabilityOutlook, "unknown">, string> = {
@@ -35,11 +35,17 @@ export function DayOutlookBanner({
   rehearsal,
   recoveryStepCount = 0,
   repairCandidates = [],
+  simulationLineByKind,
 }: {
   rehearsal: DayRehearsal | null;
   recoveryStepCount?: number;
   /** Repair Candidate v0: read-only 対処候補（優先度順・最大3・表示のみ）。0 件なら disclosure を出さない。 */
   repairCandidates?: readonly DayRepairCandidate[];
+  /**
+   * ★What-if v0 UI（最小・非冗長）: kind→「試すと…」短文。**leave_earlier のみ**・新情報がある時だけ供給される。
+   * read-only 表示テキストのみ（apply/save/実行 UI なし）。不在 kind は非表示。生数値/confidence は含まない。
+   */
+  simulationLineByKind?: ReadonlyMap<DayRepairKind, string>;
 }) {
   if (!rehearsal) return null;
   const outlook = rehearsal.viability.outlook;
@@ -69,11 +75,24 @@ export function DayOutlookBanner({
           <summary className="cursor-pointer list-none text-[11px] text-slate-400 underline">どうするとよさそう？</summary>
           {/* ★read-only：示唆テキストのみ。ボタン/適用/保存/チェック等の実行 UI は置かない。 */}
           <ul className="mt-1 space-y-0.5 text-[11px] text-slate-500 list-none">
-            {repairCandidates.map((c, i) => (
-              <li key={i} data-repair-kind={c.kind}>
-                {c.suggestion}
-              </li>
-            ))}
+            {repairCandidates.map((c, i) => {
+              const simLine = simulationLineByKind?.get(c.kind);
+              return (
+                <li key={i} data-repair-kind={c.kind}>
+                  {c.suggestion}
+                  {/* ★What-if v0: 候補文の下に小さく 1 行（read-only・実行 UI なし・leave_earlier のみ供給される）。 */}
+                  {simLine && (
+                    <span
+                      data-testid="plan-day-outlook-sim"
+                      data-sim-kind={c.kind}
+                      className="mt-0.5 block text-[11px] text-slate-400"
+                    >
+                      {simLine}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </details>
       )}

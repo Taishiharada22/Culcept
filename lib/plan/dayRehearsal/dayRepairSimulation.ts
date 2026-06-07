@@ -204,6 +204,22 @@ function leaveEarlierSummary(localEased: boolean, outlookEased: boolean): string
   return "出発を少し早めて余白の不足が解消できれば、この前後の慌ただしさは和らぎそうです。ただ、ほかにも余白の不足があり、その日全体ではまだゆとりは出にくいかもしれません。";
 }
 
+/**
+ * ★UI 用の短い 1 行（読みやすさ優先・summary とは別の短文）。表示すべきでなければ null。
+ * 方針（CEO 2026-06-08）: **leave_earlier の eases_conditionally のみ**表示（他 kind は候補文と重複 or 試算不可ゆえ非表示）。
+ *   - 何が変わるか根拠が弱い（local も day も動かない）→ null（HARD GATE: 弱根拠は出さない）。
+ *   - 候補文（「出発を早める余地」＝action）と register が異なる（「試すと…どうなるか」＝effect）→ 非冗長。
+ * - 生数値・before/after 数値・confidence・level 名を出さない。「改善/解決/最適化/適用/保存」禁止。仮説トーン。
+ */
+export function repairSimulationShortLine(result: RepairSimulationResult): string | null {
+  if (result.kind !== "leave_earlier" || result.status !== "eases_conditionally" || !result.diff) return null;
+  const { localEased, outlookEased } = result.diff;
+  if (localEased && outlookEased) return "試すと、この移動が和らいで、その日全体も少しゆとりが出そうです";
+  if (localEased && !outlookEased) return "試すと、この移動は和らぎそうですが、その日全体はまだ立て込みやすそうです";
+  if (!localEased && outlookEased) return "試すと、その日全体に少しゆとりが出そうです";
+  return null; // local も day も動かない → 何が変わるか弱い → 出さない
+}
+
 /** 複数候補の一括試算（read-only・順序保持）。 */
 export function previewRepairSimulations(
   input: RehearsalInput,

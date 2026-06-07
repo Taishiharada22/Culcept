@@ -78,7 +78,8 @@ import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import { useInnerWeather } from "@/hooks/useInnerWeather";
-import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
+import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates, type DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
+import { previewRepairSimulation, repairSimulationShortLine } from "@/lib/plan/dayRehearsal/dayRepairSimulation";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
@@ -249,14 +250,14 @@ export function CalendarTab({
   //   OFF（既定）は従来 Option D status-only degrade（buildRehearsalInputFromDisplay）で挙動不変。
   //   ★Batch 2 energy: opts.baseEnergyLevel（正規化 0-1 or null）を供給＝energy 低で budget やや低（過悲観回避 weight=0.5）。
   //   いずれも表示のみ・予定変更/repair/optimize なし。viability unknown は banner 側で非表示。
-  const dayRehearsal = useMemo(() => {
+  //   ★What-if v0: simulation 再実行のため input を独立 memo 化（dayRehearsal はこれを消費）。
+  const rehearsalInput = useMemo(() => {
     const graph = dayGraphByDate?.[selectedDate]?.graph;
     if (!graph) return null;
     const opts = { baseEnergyLevel };
-    const input = DAY_REHEARSAL_FULL_PATH_ENABLED
+    return DAY_REHEARSAL_FULL_PATH_ENABLED
       ? buildRehearsalInputFull(graph, calendarFeasibilityRawByTransitionIndex, calendarFeasibilityTravelByTransitionIndex, opts)
       : buildRehearsalInputFromDisplay(graph, calendarFeasibilityDisplayByTransitionIndex, opts);
-    return rehearseDay(input);
   }, [
     dayGraphByDate,
     selectedDate,
@@ -265,6 +266,8 @@ export function CalendarTab({
     calendarFeasibilityTravelByTransitionIndex,
     baseEnergyLevel,
   ]);
+
+  const dayRehearsal = useMemo(() => (rehearsalInput ? rehearseDay(rehearsalInput) : null), [rehearsalInput]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
   const convergenceSteps = useMemo(
@@ -300,6 +303,19 @@ export function CalendarTab({
         : [],
     [dayRehearsal, recoverySteps],
   );
+
+  // ★What-if v0 UI（最小・非冗長）: 表示中の候補のうち **leave_earlier で新情報がある時だけ**「試すと…」短文を出す。
+  //   pure な previewRepairSimulation（予定変更なし counterfactual）→ repairSimulationShortLine（null=非表示）。
+  //   protect/recovery（候補文と重複）・confirm/reduce（試算不可）は null ゆえ非表示。read-only・表示のみ。
+  const repairSimulationLineByKind = useMemo(() => {
+    const m = new Map<DayRepairKind, string>();
+    if (!rehearsalInput) return m;
+    for (const c of repairCandidates) {
+      const line = repairSimulationShortLine(previewRepairSimulation(rehearsalInput, c));
+      if (line) m.set(c.kind, line);
+    }
+    return m;
+  }, [rehearsalInput, repairCandidates]);
 
   // M-3d disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
   //   React lazy initial state pattern (= 関数 ref を渡す)。
@@ -591,7 +607,7 @@ export function CalendarTab({
                   <DayIndicatorBadge indicator={selectedDayIndicator} />
                 </div>
               )}
-              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} />
+              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} />
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}
