@@ -55,9 +55,9 @@ describe("exportRepairProtectSignals（protect のみ・Reality 非接続・pure
     expect(out[0].evidence).toBe(EV);
   });
 
-  it("PS7. protectionHint は recovery_core", () => {
+  it("PS7. protectionHint は recovery（gap-meaning・v1 補正: recovery_core でない）", () => {
     for (const k of ["use_recovery_window", "protect_buffer"] as const) {
-      expect(exportRepairProtectSignals([cand(k)])[0].protectionHint).toBe("recovery_core");
+      expect(exportRepairProtectSignals([cand(k)])[0].protectionHint).toBe("recovery");
     }
   });
 
