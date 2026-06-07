@@ -15573,3 +15573,12 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - **main 着地済（squash・main HEAD `c60eb3ae`・親 `17826f16`）**・zero-loss（私の 2 ファイル無競合）。検証: dayRehearsal dir PASS（FP6 を true に更新）・tsc footprint 0（total 55 不変）。緊急時 false で Option D 即復帰。code branch `claude/dr-fullpath-smoke`(HEAD `d7f7f66b`)保持。
 - ★**calibration 候補（記録・実データ後）**: 余白30分+移動90分+夕方密度で convergence やや厳しめ（friction_high 閾値/strain 係数）。仮説トーンゆえ非 blocking。backlog 追記。
 - 次: Batch 2（InnerWeather energy）前の短い次工程案 → 提示後停止。production/Vercel/GitHub/DB/env 不接触。
+
+## [2026-06-08] [Build] Day Rehearsal Batch 2 — InnerWeather energy（状態次元）main 着地 + activation [承認: CEO/GPT GO]
+- Day Rehearsal に **状態次元（energy）** を導入。`InnerWeather.energyLevel`(-1〜1・useInnerWeather・read-only・DB write なし)→`normalizeInnerWeatherEnergy`((e+1)/2)→strain budget を仮説補正。★最適化/予定変更でなく診断。
+- **過悲観回避**: `energyBudgetWeight=0.5`(1→0.5)で e=0 でも budget≥0.75×baseBudget（最大 −25%・自然下限）。floor は冗長ゆえ不採用（監査の 3 層提案を 1 層に refine）。null degrade で未記録日は baseBudget 不変（既存挙動維持・安全側）。
+- **着地**: Batch2 OFF `d5e88970`(default false) → **activation `deef2b45`(親 `069c8ca7`・default true)**。EN5 を false→true assert。
+- ★**監査（実エンジン再現で energy 寄与を切り分け）**: CEO smoke スクショ(6/8 packed)の「重さ」は **energy 由来でない**ことを実測。energy=null(OFF)/1.0/0.5/0.0(最悪) で 6/8 packed は **完全同一**(outlook=breaks/conv=3/全 strain=high・peak score 7.34=high 閾値 2.01 の 3.6 倍に飽和)。moderate 日でも energy=0 で内部 step 1 つが moderate→high のみ・outlook/convergence/marker 不変。energy は有界かつ非常に保守的 → 過悲観ゲート決定的 PASS。
+- ethos: energy 数値/診断感を UI に leak しない(内部 budget のみ)・仮説トーン維持。検証: 62 tests PASS(EN1-EN6+FP1-FP6)・tsc footprint 0(total 55 不変)・zero-conflict/zero-loss。code branch `claude/dr-energy`(HEAD `b3b3c2b8`)保持。closeout: `…-energy-batch2-closeout.md`。
+- ★**Batch 3 へ引き継ぐ baseline 所見(energy 非依存・full-path 自体)**: (A)strain 飽和(全 step high で動的レンジ消失) (B)余白あるのに「重なりやすい」copy mismatch (C)marker 3/3 で警告過多 (D)convergence magnitude 不在。calibration backlog 追記済。
+- 次: **Batch 3 marker 精緻化 / convergence 較正**の計画起案(deep research)→CEO 提示→GO 後実装。HOLD: Reality/介入層(production 不可)。push/Vercel/GitHub/DB/env 不接触。

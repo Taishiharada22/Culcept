@@ -40,3 +40,16 @@
 ## full-path activation 後の calibration 候補（2026-06-07・実データ後較正）
 - ★**convergence 過敏（やや厳しめ）**: full-path ON で `余白30分 + 移動90分 + 夕方 + 高密度` の transition が「重なりやすい（convergence）」判定。buffer は正（sufficient）だが friction_high(実移動90分) + strain_high で conv high。仮説トーンゆえ非 blocking だが、`friction.levelThresholds.highMin`(0.67) / strain 蓄積係数 / convergence の factors≥2 条件が **やや敏感**な可能性。実データ（FP/FN・ユーザー納得感）後に friction_high 閾値 or convergence 条件を較正候補。
 - 関連: full-path で friction が実 travel 由来になり、長距離移動が friction_high を立てやすい。徒歩短距離と車長距離の friction 差が適切かも実データで観測。
+
+## Batch 2 energy activation 後の calibration 候補（2026-06-08）
+### energy 自体（実測で安全と確認・較正は後）
+- ★**energy は非常に保守的（過悲観でない）**: 実エンジン再現で energy=null(OFF)/1.0/0.5/0.0 を比較。packed 日は完全同一・moderate 日でも最悪 energy=0 で内部 step 1 つが moderate→high のみ（outlook/convergence/marker 不変）。`energyBudgetWeight=0.5`（最大 −25%）。
+- calibration 候補: 実データ（ユーザーの energy 記録分布 + 納得感）後に、energy の効きが**弱すぎないか**（状態次元として体感に出るか）を観測。出なすぎるなら weight を 0.5→0.6〜0.7 へ慎重に。★**実データ無しで weight magic number を弄らない**（過適合回避）。
+
+### ★Batch 3 で対応する baseline 所見（energy 非依存・full-path 自体の marker/copy/calibration 課題）
+スクショ（6/8 packed・実在の日）が露呈。energy ではなく full-path baseline の課題。Batch 3 の主対象:
+- **(A) strain 飽和**: 6/8 は peakStrain score=7.34 vs high 閾値 0.67×3=2.01（**3.6 倍**）→ 全 step が high。忙しい日に strain の**動的レンジが消失**し診断の情報量が落ちる。候補: score 倍率/budget/閾値の見直し、または strain に飽和カーブ（log 等）を入れて high の中の濃淡を取り戻す。★閾値の数値調整は実データ後（calibration_later）、構造（飽和カーブ）は code_now 候補。
+- **(B) copy mismatch**: 「余白 145 分（buffer sufficient）」でも strain_high+friction_high の 2 factor で convergence marker が出て、見出し「**この前後は予定が重なりやすいかもしれません**」が余白と矛盾して見える（why 行 = explainConvergenceMarker は正直）。「重なりやすい」は本来 buffer_short の語。**factor 組合せ別に見出しを出し分ける**のが構造的修正（code_now 候補）。
+- **(C) marker 密度**: 3/3 transition が全部フラグ → 「警告だらけ」の認知負荷。**情報を消すのでなく優先順位**（magnitude 最強のみ marker・他は控えめ／day-level に寄せる）。
+- **(D) convergence magnitude**: marker は有無のみで強度を出していない（CEO 当初狙い「magnitude + recovery per-marker なぜ」）。**生数値なし・仮説トーン**で段階表現。recovery marker「ここは一息つけそうです」の uniform（per-marker なぜ不在）も対象。
+- ★**red line**: いずれも生スコア非表示・仮説トーン・read-only 診断（最適化/予定変更しない）を維持。「重なりやすい」を別の嘘コピーに置換しない（factor に忠実な語へ）。
