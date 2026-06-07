@@ -77,7 +77,7 @@ import {
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
-import { generateDayRepairCandidates, prioritizeRepairCandidates } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
+import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
@@ -268,12 +268,13 @@ export function CalendarTab({
     [calendarFeasibilityRawByTransitionIndex],
   );
 
-  // Repair Candidate v0: read-only 対処候補（優先度順・最大3件）。recoverySteps を一息判定に渡す。
+  // Repair Candidate: read-only 対処候補（dedup→優先度順→最大3件）。recoverySteps を一息判定に渡す。
   // ★表示のみ・予定変更/repair 実行なし。0 件なら banner 側で disclosure を出さない。
+  // dedup（案A）: 同 kind の同一文重複を display 段で代表 1 件に集約（generation は full-fidelity）。
   const repairCandidates = useMemo(
     () =>
       dayRehearsal
-        ? prioritizeRepairCandidates(generateDayRepairCandidates(dayRehearsal, { recoverySteps }), 3)
+        ? prioritizeRepairCandidates(dedupeRepairCandidates(generateDayRepairCandidates(dayRehearsal, { recoverySteps })), 3)
         : [],
     [dayRehearsal, recoverySteps],
   );

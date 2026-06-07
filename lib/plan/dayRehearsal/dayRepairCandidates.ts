@@ -17,6 +17,8 @@
  *     use_recovery_window は **gap（一息）** にだけ出る → 「この一息つけそうな区間…」と言える。
  *   - What-if preview の distinct value（clarity=見通し / utilization=次に入りやすい）を **candidate 文へ統合**
  *     （preview UI を増やさず候補文を自己完結させる方針）。previewRepairEffect は保持（inert）。
+ *   - dedup（2026-06-07 GO・案A）: 同 kind の候補は kind 固定文で**同一文が並ぶ**ため、**display 段で代表 1 件に集約**
+ *     （`dedupeRepairCandidates`・generation は full-fidelity 維持・将来 per-row anchoring と両立）。
  *   - ★production（Option D=buildRehearsalInputFromDisplay）では bufferMin=null・friction 一律 moderate・
  *     recovery 一律 low（recoveryWindows 空・use_recovery_window は raw 由来 recoverySteps 経由で到達）。
  *     **protect_buffer は Option D 到達不能**（convergencePoint=高 conv は buffer_short 必須＝insufficient→leave_earlier 分岐）。
@@ -135,6 +137,28 @@ export function generateDayRepairCandidates(
   }
 
   return candidates;
+}
+
+/**
+ * 表示用 dedup（純粋・read-only・案A 2026-06-07 GO）: **同 kind を代表 1 件に集約**する。
+ * - 候補文は kind 固定（v1）で「どの移動か」を指さない（anchor 無し）→ 同一文の重複は区別不能なノイズ。
+ * - **先頭（入力順=step 順の最初）を代表として残す**。代表の suggestion/targetStepIndex/evidence をそのまま保持（copy 無改変）。
+ * - generation（generateDayRepairCandidates）は full-fidelity を維持（per-step 全件）。集約は **display 専用**
+ *   （将来 per-marker で候補を timeline 行に紐付ける拡張と両立させるため）。
+ * - 使い方は `prioritizeRepairCandidates(dedupeRepairCandidates(generateDayRepairCandidates(...)), 3)`。
+ *   dedup → prioritize の順（cap の前に dedup）で top-N が「N 行」でなく「N 種の示唆」になる。
+ */
+export function dedupeRepairCandidates(
+  candidates: readonly DayRepairCandidate[],
+): readonly DayRepairCandidate[] {
+  const seen = new Set<DayRepairKind>();
+  const out: DayRepairCandidate[] = [];
+  for (const c of candidates) {
+    if (seen.has(c.kind)) continue; // 同 kind は先頭のみ採用
+    seen.add(c.kind);
+    out.push(c);
+  }
+  return out;
 }
 
 /** 表示優先度（小さいほど上位）。leave_earlier > protect_buffer > confirm_uncertain > use_recovery_window > reduce_density。 */
