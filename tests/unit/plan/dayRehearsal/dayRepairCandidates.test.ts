@@ -3,7 +3,7 @@
  * read-only 候補生成 / evidence trace / 根拠が弱い時は出さない / suggestion トーン（禁止語なし）を検証。
  */
 import { describe, it, expect } from "vitest";
-import { generateDayRepairCandidates, prioritizeRepairCandidates, type DayRepairCandidate } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
+import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates, type DayRepairCandidate } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import type { DayRehearsal, Evidence, RehearsalStepResult, ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 
 const EV: Evidence = { basis: [], known: [], unknown: [], inferred: [] };
@@ -208,5 +208,77 @@ describe("v1 target-aware / evidence-aware copy（logic 不変・文のみ groun
   it("V6. deterministic（同入力 → 同 suggestion）", () => {
     const mk = () => generateDayRepairCandidates(reh({ steps: [step({ bufferStatus: "insufficient" })] }));
     expect(mk().map((c) => c.suggestion)).toEqual(mk().map((c) => c.suggestion));
+  });
+});
+
+describe("dedupeRepairCandidates（案A: 同 kind→代表1件・display 専用・copy 無改変）", () => {
+  const c = (kind: DayRepairCandidate["kind"], targetStepIndex: number | null = 0, suggestion = "s"): DayRepairCandidate => ({ kind, suggestion, targetStepIndex, evidence: EV });
+  const kinds = (cs: readonly DayRepairCandidate[]) => cs.map((x) => x.kind);
+
+  it("D1. 同 kind 複数 → 1 件に集約", () => {
+    const out = dedupeRepairCandidates([c("leave_earlier", 0), c("leave_earlier", 1), c("leave_earlier", 2)]);
+    expect(out).toHaveLength(1);
+    expect(out[0].kind).toBe("leave_earlier");
+  });
+
+  it("D2. 異なる kind は全て残る（消えない）", () => {
+    const out = dedupeRepairCandidates([c("leave_earlier"), c("confirm_uncertain"), c("use_recovery_window"), c("reduce_density", null)]);
+    expect(kinds(out)).toEqual(["leave_earlier", "confirm_uncertain", "use_recovery_window", "reduce_density"]);
+  });
+
+  it("D3. 順序保持（入力順=step 順）", () => {
+    const out = dedupeRepairCandidates([c("use_recovery_window"), c("leave_earlier"), c("use_recovery_window"), c("confirm_uncertain")]);
+    expect(kinds(out)).toEqual(["use_recovery_window", "leave_earlier", "confirm_uncertain"]);
+  });
+
+  it("D4. 代表は先頭（targetStepIndex/evidence/suggestion を保持・copy 無改変）", () => {
+    const ev2: Evidence = { basis: ["b2"], known: [], unknown: [], inferred: [] };
+    const out = dedupeRepairCandidates([
+      { kind: "leave_earlier", suggestion: "first", targetStepIndex: 5, evidence: EV },
+      { kind: "leave_earlier", suggestion: "second", targetStepIndex: 9, evidence: ev2 },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].targetStepIndex).toBe(5); // 先頭の step
+    expect(out[0].suggestion).toBe("first"); // copy 無改変（先頭そのまま）
+    expect(out[0].evidence).toBe(EV); // 代表の evidence 保持
+  });
+
+  it("D5. reduce_density は元々最大1 → 不変で残る", () => {
+    const out = dedupeRepairCandidates([c("leave_earlier"), c("reduce_density", null)]);
+    expect(kinds(out)).toContain("reduce_density");
+  });
+
+  it("D6. 空 → 空", () => {
+    expect(dedupeRepairCandidates([])).toEqual([]);
+  });
+
+  it("D7. pure（入力配列を破壊しない）", () => {
+    const input = [c("leave_earlier", 0), c("leave_earlier", 1)];
+    const snapshot = input.map((x) => x.targetStepIndex);
+    dedupeRepairCandidates(input);
+    expect(input).toHaveLength(2); // 入力不変
+    expect(input.map((x) => x.targetStepIndex)).toEqual(snapshot);
+  });
+
+  it("D8. prioritize(dedupe(...)) 統合: 同一文が並ばず・kind 多様・最大3", () => {
+    // leave_earlier ×3（同一文）+ use_recovery_window ×2 + reduce_density ×1
+    const raw = [
+      c("leave_earlier", 0, "出発"), c("leave_earlier", 2, "出発"), c("leave_earlier", 4, "出発"),
+      c("use_recovery_window", 1, "一息"), c("use_recovery_window", 3, "一息"),
+      c("reduce_density", null, "密度"),
+    ];
+    const out = prioritizeRepairCandidates(dedupeRepairCandidates(raw), 3);
+    // 同一文が並ばない（suggestion がユニーク）
+    const suggs = out.map((x) => x.suggestion);
+    expect(new Set(suggs).size).toBe(suggs.length);
+    // kind 多様（3 種）・最大3・優先度順
+    expect(kinds(out)).toEqual(["leave_earlier", "use_recovery_window", "reduce_density"]);
+    expect(out.length).toBeLessThanOrEqual(3);
+  });
+
+  it("D9. dedup なしの旧挙動との差（同一文重複が解消）", () => {
+    const raw = [c("leave_earlier", 0, "同"), c("leave_earlier", 1, "同"), c("leave_earlier", 2, "同")];
+    expect(prioritizeRepairCandidates(raw, 3)).toHaveLength(3); // 旧: 同一文 ×3
+    expect(prioritizeRepairCandidates(dedupeRepairCandidates(raw), 3)).toHaveLength(1); // 新: 1 件
   });
 });
