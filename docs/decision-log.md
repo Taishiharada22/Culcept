@@ -15488,3 +15488,15 @@ P1A-2b persona 取得源 audit（`0d2126c8`・read-only/docs-only）を受けた
 - 状態: **protect signal v1 + gap resolver main 着地 + INV-17 mini design 提出で停止**。Reality enforcement 実装は Reality セッション（coordination + CEO GO 後）。push/PR/Vercel/DB/予定変更/Reality couple 不接触。
 
 ---
+
+## [2026-06-07] [Build] Reality INV-17 enforcement audit + 最小実装案（read-only・実装なし・停止）[CEO 指示]
+- 目的: Reality 側で gap-meaning `recovery` を実際に守れるか read-only 監査 + 最小設計。main HEAD `a24de790`(A1-6-2)。
+- ★audit: INV-17 は **ゼロ enforce**（classifyGap は純粋分類器でどこからも呼ばれない・complete-generator busy=existing のみ・evaluator recoveryProtected は node の remove/update のみで add 無害扱い）。★**Reality kernel 全体が production route 未配線**（app/ から import なし・実反映は別 slice live path）→ enforcement 変更は pure kernel への additive＝**production 影響ゼロ**。Reality セッションは A1-6-x で gap-meaning 非接触＝無競合。
+- 最小実装案（実装なし）: `CompleteInput.protectedGaps?: Interval[]`（additive optional）+ `generateComplete` で `busy=[...existing, ...protectedGaps]`。既存 `freeGaps` が除外 → Complete(add) が recovery gap を埋めない。default 空=挙動完全不変。現 Reality は trim-only+Complete のみ＝add が唯一の脅威ゆえ十分。
+- 入力境界: GapRecoveryAssertion(startTime/endTime "HH:MM") → Interval(分) map（integration 層・将来）+ flag gate（注入側 OFF default）。
+- 触るファイル: complete-generator.ts(+test) のみ（最小・今）。evaluator `gapMeaningRespected` gate は move/optimize 実装時。
+- risk/rollback: 未配線 kernel + additive optional default 空 → ほぼゼロリスク・fail-safe（過剰保護でも add 減のみ）。rollback=flag OFF/field 除去。in-flight ゆえ実装時 再 audit。
+- ★**Reality セッション所有**（Day Rehearsal は Reality kernel 非変更・本系は map 提供のみ）。GO=設計確定。CEO 判断点 4。doc: `…-reality-inv17-enforcement-audit.md`。
+- 状態: **audit + 最小実装案 提出で停止**。実装は Reality セッション（coordination + CEO GO 後）。push/PR/Vercel/DB/予定変更/Reality kernel 変更 不接触。
+
+---
