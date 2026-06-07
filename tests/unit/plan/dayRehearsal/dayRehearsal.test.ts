@@ -557,7 +557,7 @@ describe("buildRehearsalInputFull adapter（Batch 1・実 transport + raw feasib
     expect(mk()).toEqual(mk());
   });
 
-  it("FP6. DAY_REHEARSAL_FULL_PATH_ENABLED は既定 false（Option D 不変）", () => {
-    expect(DAY_REHEARSAL_FULL_PATH_ENABLED).toBe(false);
+  it("FP6. DAY_REHEARSAL_FULL_PATH_ENABLED は activation 後 true（2026-06-07 smoke PASS・full-path 既定）", () => {
+    expect(DAY_REHEARSAL_FULL_PATH_ENABLED).toBe(true);
   });
 });
