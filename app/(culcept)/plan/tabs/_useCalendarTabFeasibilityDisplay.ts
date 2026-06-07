@@ -40,6 +40,7 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { runFeasibilityDisplayPipeline } from "@/lib/plan/feasibility/feasibilityDisplayPipeline";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import type { FeasibilitySlackView } from "@/lib/plan/feasibility/feasibilityTypes";
+import type { RehearsalTravelView } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import { buildCoordsByAnchorIdFromGeocodeResults } from "@/lib/plan/transport/mapTabCoordsBridge";
 import { resolveMovementSegmentOverlay } from "@/lib/plan/transport/movementSegmentOverlay";
 import { createHeuristicDistanceProvider } from "@/lib/plan/transport/heuristicDistanceProvider";
@@ -53,14 +54,36 @@ import type { AnchorResolution } from "./_usePlanGeocode";
 
 const EMPTY_DISPLAY_MAP: ReadonlyMap<number, FeasibilityDisplayView> = new Map();
 const EMPTY_RAW_MAP: ReadonlyMap<number, FeasibilitySlackView> = new Map();
+const EMPTY_TRAVEL_MAP: ReadonlyMap<number, RehearsalTravelView> = new Map();
+
+/**
+ * ★full-path（Batch 1）: overlay の TransportMode（transportTypes: walking/driving/transit/flight/unknown）→
+ * rehearsal の TransportMode（alter-morning: walk/car/public_transit/bicycle/taxi/unknown）に写像。
+ * flight は rehearsal に無いため unknown（捏造しない・friction は unknown neutral）。
+ */
+function overlayModeToRehearsalMode(m: string): RehearsalTravelView["mode"] {
+  switch (m) {
+    case "walking":
+      return "walk";
+    case "driving":
+      return "car";
+    case "transit":
+      return "public_transit";
+    default:
+      return "unknown"; // flight / unknown / 未知
+  }
+}
 
 /**
  * ★WPM-2a additive: hook 戻り。display は従来どおり（byte 不変）+ raw（真の slack/shortfall）を additive 追加。
  * raw は Day Rehearsal recovery marker（真の余白 slack）用。既存 caller は displayByTransitionIndex を読む。
+ * ★full-path（Batch 1）additive: travel（overlay 由来の実 travelMin/mode/known）を追加。Day Rehearsal full-path 用。
+ *   既存 caller（display/raw）は不変。travel は resolved segment のみ・unresolved は不在（捏造しない）。
  */
 export interface CalendarTabFeasibility {
   readonly displayByTransitionIndex: ReadonlyMap<number, FeasibilityDisplayView>;
   readonly rawByTransitionIndex: ReadonlyMap<number, FeasibilitySlackView>;
+  readonly travelByTransitionIndex: ReadonlyMap<number, RehearsalTravelView>;
 }
 
 /**
@@ -118,6 +141,8 @@ export function useCalendarTabFeasibilityDisplay(
     EMPTY_DISPLAY_MAP,
   );
   const [rawMap, setRawMap] = useState<ReadonlyMap<number, FeasibilitySlackView>>(EMPTY_RAW_MAP);
+  // ★full-path（Batch 1）: overlay 由来の実 travel（transitionIndex → travelMin/mode/known）
+  const [travelMap, setTravelMap] = useState<ReadonlyMap<number, RehearsalTravelView>>(EMPTY_TRAVEL_MAP);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,15 +177,29 @@ export function useCalendarTabFeasibilityDisplay(
         for (const view of pipelineResult.feasibilityRaw.feasibilityByTransitionKey.values()) {
           rawIndexed.set(view.transitionIndex, view);
         }
+        // ★full-path（Batch 1）: overlay の resolved segment から実 travel を index（ok=false/unresolved は不在=捏造しない）
+        const travelIndexed = new Map<number, RehearsalTravelView>();
+        for (const outcome of overlay.segmentsByTransitionKey.values()) {
+          if (outcome.ok && outcome.segment.timingStatus === "resolved") {
+            const seg = outcome.segment;
+            travelIndexed.set(seg.transitionIndex, {
+              travelMin: seg.estimatedDurationMin,
+              mode: overlayModeToRehearsalMode(seg.modeCandidate.mode), // overlay mode → rehearsal mode 写像
+              travelKnown: seg.source === "manual_user", // explicit のみ known・heuristic は inferred(false)
+            });
+          }
+        }
 
         if (cancelled) return;
         setDisplayMap(indexed);
         setRawMap(rawIndexed);
+        setTravelMap(travelIndexed);
       } catch {
         if (cancelled) return;
-        // fail-safe: 空 map (= 「詳細」 hint 0 / 補助行 0 / recovery 0)
+        // fail-safe: 空 map (= 「詳細」 hint 0 / 補助行 0 / recovery 0 / travel 0)
         setDisplayMap(EMPTY_DISPLAY_MAP);
         setRawMap(EMPTY_RAW_MAP);
+        setTravelMap(EMPTY_TRAVEL_MAP);
       }
     })();
 
@@ -169,5 +208,5 @@ export function useCalendarTabFeasibilityDisplay(
     };
   }, [anchors, date, coords, providers]);
 
-  return { displayByTransitionIndex: displayMap, rawByTransitionIndex: rawMap };
+  return { displayByTransitionIndex: displayMap, rawByTransitionIndex: rawMap, travelByTransitionIndex: travelMap };
 }

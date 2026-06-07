@@ -76,7 +76,7 @@ import {
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
-import { rehearseDay, buildRehearsalInputFromDisplay, recoveryStepsFromFeasibilityRaw } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
@@ -227,22 +227,32 @@ export function CalendarTab({
   const {
     displayByTransitionIndex: calendarFeasibilityDisplayByTransitionIndex,
     rawByTransitionIndex: calendarFeasibilityRawByTransitionIndex,
+    travelByTransitionIndex: calendarFeasibilityTravelByTransitionIndex,
   } = useCalendarTabFeasibilityDisplay(
     selectedDayAnchors,
     selectedDate,
     selectedDayResolutions,
   );
 
-  // ★Wave 2 Day Rehearsal（選択日 day-level outlook・READ-only）。既存 dayGraph + feasibility display を再利用。
-  //   raw 分数/transport は display 層に無い → status-only honest degrade（buildRehearsalInputFromDisplay）。
-  //   表示のみ・予定変更/repair/optimize なし。viability unknown は banner 側で非表示。
+  // ★Wave 2 Day Rehearsal（選択日 day-level outlook・READ-only）。既存 dayGraph + feasibility を再利用。
+  //   ★Batch 1 full-path（flag-gated）: DAY_REHEARSAL_FULL_PATH_ENABLED=ON なら raw feasibility(真の slack/shortfall)
+  //   + 実 travel(overlay 由来) で buildRehearsalInputFull（friction が実移動で可変・convergence/recovery 正確・protect_buffer 到達）。
+  //   OFF（既定）は従来 Option D status-only degrade（buildRehearsalInputFromDisplay）で挙動不変。
+  //   いずれも表示のみ・予定変更/repair/optimize なし。viability unknown は banner 側で非表示。
   const dayRehearsal = useMemo(() => {
     const graph = dayGraphByDate?.[selectedDate]?.graph;
     if (!graph) return null;
-    return rehearseDay(
-      buildRehearsalInputFromDisplay(graph, calendarFeasibilityDisplayByTransitionIndex),
-    );
-  }, [dayGraphByDate, selectedDate, calendarFeasibilityDisplayByTransitionIndex]);
+    const input = DAY_REHEARSAL_FULL_PATH_ENABLED
+      ? buildRehearsalInputFull(graph, calendarFeasibilityRawByTransitionIndex, calendarFeasibilityTravelByTransitionIndex)
+      : buildRehearsalInputFromDisplay(graph, calendarFeasibilityDisplayByTransitionIndex);
+    return rehearseDay(input);
+  }, [
+    dayGraphByDate,
+    selectedDate,
+    calendarFeasibilityDisplayByTransitionIndex,
+    calendarFeasibilityRawByTransitionIndex,
+    calendarFeasibilityTravelByTransitionIndex,
+  ]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
   const convergenceSteps = useMemo(
