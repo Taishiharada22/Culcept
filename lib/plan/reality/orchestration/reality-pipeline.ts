@@ -58,8 +58,6 @@ export interface RealityPipelineEnvelope {
   readonly stopReasons: readonly string[];
 }
 
-const FIT = (f: string): string => f;
-
 /**
  * R1–R5 を 1 本の pure pipeline で走らせ、redacted envelope を返す。**apply しない**。
  */
@@ -103,7 +101,7 @@ export function runRealityPipeline(input: RealityPipelineInput): RealityPipeline
     worldReadiness: readiness.overall,
     recommended: recProposal ? { tier: recProposal.tier, activeMinutes: recProposal.activeMinutes, restMinutes: recProposal.restMinutes, strain: recProposal.strain } : null,
     reasoning: recReasoning
-      ? { fits: { time: FIT(recReasoning.fits.time), energy: FIT(recReasoning.fits.energy), weather: FIT(recReasoning.fits.weather), mobility: FIT(recReasoning.fits.mobility) }, confidence: recReasoning.confidence, readiness: recReasoning.readiness }
+      ? { fits: { time: recReasoning.fits.time, energy: recReasoning.fits.energy, weather: recReasoning.fits.weather, mobility: recReasoning.fits.mobility }, confidence: recReasoning.confidence, readiness: recReasoning.readiness }
       : null,
     surfacedTrigger,
     silencedTriggerCount: surface.silencedCount,
