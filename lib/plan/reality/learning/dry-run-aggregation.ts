@@ -24,6 +24,7 @@
 import type { CandidateActionKind } from "../candidate-action";
 import type { DryRunLearningEvent, LearningSignal, LearningHypothesisCode } from "./dry-run-learning-event";
 import { hypothesisLabel } from "./dry-run-learning-event";
+import { learningEventDedupKey } from "./learning-event-write-policy";
 
 /** 集約する文脈次元（**univariate**・各次元を独立に見る・多変量は将来）。 */
 export type ContextDimension = "band" | "durationBucket" | "confidence" | "source";
@@ -120,9 +121,31 @@ export interface TentativePatternReport {
   readonly assertsPersonality: false;
 }
 
-/** 集約オプション（最小 event 数の上書き＝test 用）。 */
+/** 集約オプション。 */
 export interface AggregationOptions {
+  /** 最小 event 数の上書き（test 用）。 */
   readonly minEvents?: number;
+  /**
+   * A1-7-19: **同日 dedup**（handle+action+acted_date）を集約前に適用するか（default false）。
+   *   true: 同一候補・同一 action・同日（UTC）反復（特に later 連打）を **1 signal に collapse**（非断定・過大計上防止）。
+   *         異日反復は別 event として残る（慢性 deferral 蓄積）。**live signal 集約は true 推奨**。
+   *   false（既定）: dedup なし（既存挙動・dev-report fixture は定数 handle ゆえ既定 false で regress なし）。
+   */
+  readonly dedupeSameDay?: boolean;
+}
+
+/**
+ * A1-7-19: **signal 整合のための同日 dedup**（pure）。同一 `handle+action+acted_date`（UTC 日）の event を
+ *   **最初の 1 件に collapse**（順序保持）。同日 later 連打→1 / 異日→別 / accept・dismiss は distinct handle ゆえ衝突せず安全。
+ *   raw event 列は append-only の源泉のまま（本 helper は集約入力の signal 用 view）。
+ */
+export function dedupeEventsForSignal(events: readonly DryRunLearningEvent[]): readonly DryRunLearningEvent[] {
+  const seen = new Map<string, DryRunLearningEvent>();
+  for (const e of events) {
+    const key = learningEventDedupKey(e.handle, e.action, e.actedAtISO);
+    if (!seen.has(key)) seen.set(key, e); // 同日同 action 同 handle は最初の 1 件のみ
+  }
+  return Array.from(seen.values());
 }
 
 /** event → 指定次元の文脈値（null band は "none"）。 */
@@ -189,11 +212,13 @@ export function aggregateDryRunEvents(
   opts?: AggregationOptions
 ): TentativePatternReport {
   const minEvents = opts?.minEvents ?? DEFAULT_MIN_EVENTS;
+  // A1-7-19: 同日 dedup（opt-in・signal 整合）。default false=既存挙動不変。
+  const effective = opts?.dedupeSameDay ? dedupeEventsForSignal(events) : events;
   const dimensions: readonly ContextDimension[] = ["band", "durationBucket", "confidence", "source"];
   const patterns: TentativePattern[] = [];
   for (const dim of dimensions) {
     const groups = new Map<string, DryRunLearningEvent[]>();
-    for (const e of events) {
+    for (const e of effective) {
       const v = dimensionValue(e, dim);
       const arr = groups.get(v);
       if (arr) arr.push(e);
@@ -208,7 +233,7 @@ export function aggregateDryRunEvents(
   }
   return {
     kind: "tentative_pattern_report",
-    totalEvents: events.length,
+    totalEvents: effective.length,
     patterns,
     assertsPersonality: false,
   };

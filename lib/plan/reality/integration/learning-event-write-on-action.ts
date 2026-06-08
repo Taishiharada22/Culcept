@@ -10,8 +10,8 @@ import "server-only";
  *
  * 厳守:
  *   - **flag default OFF**: `flagEnabled=false` で即 return（insert 0・既存挙動完全不変）。
- *   - **status transition 成功時のみ**: `response.accepted ∧ !deferred`（accept→consumed / dismiss→rejected）。
- *     later（deferred）/ 失敗（accepted=false）/ 解決不能 → 書かない。
+ *   - **accepted（validly processed）なら write**（A1-7-19・`decideLearningWrite`）: accept→adoption / dismiss→non_adoption /
+ *     **later→deferral も対象**（later は status 遷移を持たないが accepted=true）。失敗（accepted=false）/ 解決不能 → 書かない。
  *   - **await-and-swallow（best-effort）**: insert を await するが、結果/例外は **user action response を壊さない**
  *     （status update が主責務・learning write は付随）。fail-open。
  *   - **時刻は route 境界注入**（`nowMs`）: pure helper 内で Date.now を直呼びしない（`new Date(nowMs)` は注入値由来＝決定的）。
@@ -27,6 +27,7 @@ import { confidenceBand, type TimeBandLabel, type EvidenceSourceLabel } from "./
 import type { CandidateLifecycleEntry } from "./candidate-lifecycle-guard";
 import { toDryRunLearningEvent, type CandidateActionContext } from "../learning/dry-run-learning-event";
 import { toPrmLearningEventInsertRow, type PrmLearningEventRepository } from "../learning/prm-learning-event-insert";
+import { decideLearningWrite } from "../learning/learning-event-write-policy";
 
 /** retention（A1-7-5 / A1-7-10 整合・expires_at window）。 */
 export const LEARNING_EVENT_TTL_DAYS = 180;
@@ -50,7 +51,7 @@ export interface WriteLearningEventOnActionInput {
   readonly flagEnabled: boolean;
   /** action request raw（handle/action を再 parse・既存 contract）。 */
   readonly rawBody: unknown;
-  /** action route の redacted response（accepted/deferred を判定）。 */
+  /** action route の redacted response（accepted を判定・decideLearningWrite に渡す）。 */
   readonly response: RedactedActionResponse;
   /** surfaceable な enriched entries（context 源・seedRef は server-side）。 */
   readonly entries: readonly CandidateLifecycleEntry[];
@@ -61,18 +62,21 @@ export interface WriteLearningEventOnActionInput {
 }
 
 /**
- * A1-7-17: action route の status 成功後に learning event を 1 件 insert する **glue**（flag-gated・await-and-swallow）。
- *   flag OFF / 非 accepted / deferred(later) / parse 不能 / entry 解決不能 → **何もしない**（insert 0）。
+ * A1-7-17/19: action route 後に learning event を 1 件 insert する **glue**（flag-gated・await-and-swallow）。
+ *   flag OFF / parse 不能 / !decideLearningWrite().write（=!accepted）/ entry 解決不能 → **何もしない**（insert 0）。
+ *   accept/dismiss/**later**（accepted=true）→ event 構築 → insert（A1-7-19 で later も対象）。
  *   それ以外 → context 構築 → toDryRunLearningEvent(action, nowISO) → toPrmLearningEventInsertRow（capturedAt=now, expiresAt=now+180d）
  *     → repository.insert（**await-and-swallow**: 失敗/例外は握り user action を壊さない）。
  */
 export async function writeLearningEventOnAction(input: WriteLearningEventOnActionInput): Promise<void> {
   if (!input.flagEnabled) return; // flag OFF → insert 0・既存不変
-  const { response } = input;
-  if (!response.accepted || response.deferred) return; // status transition 成功時のみ（later/失敗を除外）
 
   const parsed = validateActionRequest(input.rawBody);
-  if (!parsed.ok) return; // defensive（accepted=true は通常 parse 成功を含意）
+  if (!parsed.ok) return; // defensive（malformed は executor も通らない）
+
+  // A1-7-19: accept/dismiss/**later** すべて accepted（validly processed）なら write（later=deferral も対象）。
+  //   !accepted（失敗/conflict/unresolved）→ skip。「status transition 成功 only」を是正（later は遷移を持たないが accepted=true）。
+  if (!decideLearningWrite(parsed.action, input.response).write) return;
 
   const entry = input.entries.find((e) => deriveCandidateHandle(e.seedRef) === parsed.handle);
   if (!entry) return; // 解決不能 → skip（fail-open）

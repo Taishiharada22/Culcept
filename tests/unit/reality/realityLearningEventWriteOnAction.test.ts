@@ -90,15 +90,18 @@ describe("A1-7-17 writeLearningEventOnAction — flag / status gating", () => {
     expect(inserted[0]!.signal).toBe("non_adoption");
   });
 
-  it("flag ON + later(deferred) → insert 0（status transition なし）", async () => {
+  it("flag ON + later → insert 1（deferral・A1-7-19 で later を是正して対象化）", async () => {
     const { repo, inserted } = mockRepo();
     await run({ flagEnabled: true, action: "later", response: RESP.laterDeferred }, repo);
-    expect(inserted).toHaveLength(0);
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]!.action).toBe("later");
+    expect(inserted[0]!.signal).toBe("deferral");
   });
 
-  it("status failure（accepted=false）→ insert 0", async () => {
+  it("status failure（accepted=false）→ insert 0（accept でも later でも）", async () => {
     const { repo, inserted } = mockRepo();
     await run({ flagEnabled: true, action: "accept", response: RESP.failed }, repo);
+    await run({ flagEnabled: true, action: "later", response: RESP.failed }, repo);
     expect(inserted).toHaveLength(0);
   });
 

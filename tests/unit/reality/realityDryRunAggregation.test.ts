@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { toDryRunLearningEvent, type CandidateActionContext } from "@/lib/plan/reality/learning/dry-run-learning-event";
-import { aggregateDryRunEvents } from "@/lib/plan/reality/learning/dry-run-aggregation";
+import { aggregateDryRunEvents, dedupeEventsForSignal } from "@/lib/plan/reality/learning/dry-run-aggregation";
 import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
 
 const HANDLE = "c1:" + "a".repeat(64);
@@ -81,5 +81,66 @@ describe("A1-7-1 非断定 + 未永続化 の構造的保証", () => {
   it("pure・deterministic（同入力→同出力・sort 済）", () => {
     const evs = [ev("dismiss", { band: "evening" }), ev("accept", { band: "morning" }), ev("dismiss", { band: "evening" }), ev("dismiss", { band: "evening" })];
     expect(aggregateDryRunEvents(evs)).toEqual(aggregateDryRunEvents(evs));
+  });
+});
+
+describe("A1-7-19 dedupeEventsForSignal / dedupeSameDay — 同日反復 collapse・異日蓄積・distinct candidate 安全", () => {
+  const H = (c: string) => "c1:" + c.repeat(64);
+  function evAt(action: CandidateActionKind, actedAtISO: string, handle = HANDLE, over: Partial<CandidateActionContext> = {}) {
+    return toDryRunLearningEvent({ handle, date: "2026-06-15", band: "afternoon", confidenceBand: "high", durationMin: 60, evidenceSource: "seed_explicit", ...over }, action, actedAtISO);
+  }
+
+  it("同 handle+later+同日（時刻違い 3 件）→ 1（連打 collapse）", () => {
+    const r = dedupeEventsForSignal([
+      evAt("later", "2026-06-15T08:00:00.000Z"),
+      evAt("later", "2026-06-15T12:00:00.000Z"),
+      evAt("later", "2026-06-15T20:30:00.000Z"),
+    ]);
+    expect(r).toHaveLength(1);
+  });
+
+  it("同 handle+later+異日 2 件 → 2（慢性 deferral 蓄積）", () => {
+    const r = dedupeEventsForSignal([evAt("later", "2026-06-15T08:00:00.000Z"), evAt("later", "2026-06-16T08:00:00.000Z")]);
+    expect(r).toHaveLength(2);
+  });
+
+  it("distinct handle（別候補）同日 later 3 件 → 3（collapse しない）", () => {
+    const r = dedupeEventsForSignal([
+      evAt("later", "2026-06-15T08:00:00.000Z", H("a")),
+      evAt("later", "2026-06-15T08:00:00.000Z", H("b")),
+      evAt("later", "2026-06-15T08:00:00.000Z", H("c")),
+    ]);
+    expect(r).toHaveLength(3);
+  });
+
+  it("accept/dismiss は distinct handle ゆえ collapse しない（dedup contract で安全）", () => {
+    const r = dedupeEventsForSignal([
+      evAt("accept", "2026-06-15T08:00:00.000Z", H("a")),
+      evAt("dismiss", "2026-06-15T08:00:00.000Z", H("b")),
+    ]);
+    expect(r).toHaveLength(2);
+  });
+
+  it("aggregate dedupeSameDay: 同日 later 連打 → signal 1（off なら 3）", () => {
+    const sameDay = [
+      evAt("later", "2026-06-15T08:00:00.000Z"),
+      evAt("later", "2026-06-15T12:00:00.000Z"),
+      evAt("later", "2026-06-15T20:30:00.000Z"),
+    ];
+    expect(aggregateDryRunEvents(sameDay, { dedupeSameDay: true }).totalEvents).toBe(1);
+    expect(aggregateDryRunEvents(sameDay).totalEvents).toBe(3); // dedup off=既存挙動
+  });
+
+  it("aggregate dedupeSameDay: 異日 later → signal 2", () => {
+    const diffDay = [evAt("later", "2026-06-15T08:00:00.000Z"), evAt("later", "2026-06-16T08:00:00.000Z")];
+    expect(aggregateDryRunEvents(diffDay, { dedupeSameDay: true }).totalEvents).toBe(2);
+  });
+
+  it("accept は distinct handle なら dedupeSameDay on/off で同結果（regress なし）", () => {
+    const accepts = Array.from({ length: 4 }, (_, i) => evAt("accept", "2026-06-15T08:00:00.000Z", H(String.fromCharCode(97 + i)), { band: "morning" }));
+    const withDedup = aggregateDryRunEvents(accepts, { dedupeSameDay: true, minEvents: 3 });
+    const without = aggregateDryRunEvents(accepts, { minEvents: 3 });
+    expect(withDedup.totalEvents).toBe(4); // distinct handle ゆえ collapse なし
+    expect(withDedup).toEqual(without); // regress なし
   });
 });
