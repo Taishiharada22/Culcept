@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildContextModifier,
   contextReasonLine,
@@ -130,8 +130,11 @@ describe("純粋性 / flag", () => {
     const s = snap({ density: { value: "packed", source: OBS }, energy: { value: 0.2, source: "derived" } });
     expect(buildContextModifier(s)).toStrictEqual(buildContextModifier(s));
   });
-  it("★flag default OFF・反映無効（production hard block）", () => {
-    expect(DAY_REHEARSAL_CONTEXT_MODIFIER_ENABLED).toBe(false);
-    expect(isContextModifierEnabled()).toBe(false);
+  it("★flag dogfood 有効（true）・production は hard block で OFF（dev/dogfood のみ ON）", () => {
+    expect(DAY_REHEARSAL_CONTEXT_MODIFIER_ENABLED).toBe(true); // ★2026-06-09 CEO dogfood 有効化
+    expect(isContextModifierEnabled()).toBe(true); // 非 production（test 環境）→ ON
+    vi.stubEnv("NODE_ENV", "production"); // ★readonly NODE_ENV を安全に上書き（直接代入は TS2540）
+    expect(isContextModifierEnabled()).toBe(false); // ★production → hard block で OFF
+    vi.unstubAllEnvs();
   });
 });
