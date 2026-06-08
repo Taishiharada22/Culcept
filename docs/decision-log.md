@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity 本人固有 pure 層（P2 readiness + P3 条件付き）着地（未配線・新規データなし）[承認: CEO 判断「Place Affinity へ」]
+
+- **方針（CEO）**: PRG 次軸＝場所の好み・相性「この人なら今日はどこが合うか」。audit→mini-design→safe pure layer。UI/新規データ/DB/external/production は stop gate・pure/readiness/local-only は自律続行。
+- **audit（2 並列 Explore）**: 既存 `placeAffinity.ts`(P1A scorer・pure・**完全未配線**・一般則 history/distance/type+persona ±0.05・fact-gate reason・人格語 guard)。既存 place データ＝**MobilityObservation.destKey(正規化 place key)が目的地訪問を既に捕捉**(timeband/weekday/weatherKind 付き・60日・sensitive 両端 null redact)。coords/GPS/placeId/place reason/place category は非保存。P2 behavioral=ゼロ実装。
+- **P2 readiness（`3004de41`・pure・未配線）**: `placeAffinityReadiness.ts`=`buildPlaceAffinityReadiness`(目的地訪問集計→not_enough/ready+profiles{placeKey/visitCount/strength}・redacted 除外・薄い<8/単発<2 除外)+`placeAffinityReasonLine`(観測トーン「よく行く/ときどき行く場所のようです」・occasional 沈黙・人格診断/数字/place名なし)。9 tests。
+- **P3 条件付き（`6e81b5aa`・pure・未配線）**: `placeConditionAffinity.ts`=`buildPlaceConditionAffinity`(place × weekday/timeband/weather の skew→underConditionCount + skewsToCondition[under/total≥0.6]・redacted 除外・薄い<3 除外)+`placeConditionReasonLine`(「雨の日に行くことが多い場所のようです」観測トーン・人格診断/数字/place名なし・normal/occasional 沈黙)。10 tests。
+- **★安全**: 一般則(scorer)と本人固有(観測由来)を分離・**新規データ保存なし**(既存観測 read)・sensitive 除外・raw GPS/座標/住所なし・人格ラベルなし・偽数値なし・sufficient gate・belief 非汚染・**未配線**(scorer/UI/決定に繋がない)。compose 19 PASS・tsc footprint 0・eslint clean・node_modules 0。
+- **★stop**: 安全な pure personal 層（P2+P3）完成。以降＝P1A scorer の UI 配線 / P2-P3 を scorer に反映 / persona prior(P1A-3) / place category(Google types=external+新規データ) / DB(P4) / UI 表示＝すべて **UI/新規データ/external/DB stop gate**。自律 pure 層はここで完了。
+
+---
+
 ## 2026-06-09 [Build] A2-10 weatherKind capture 着地 + A2-11 weather reaction readiness engine 着地（未配線・実 personal 反映なし）= A2 weather 完了（実データ依存除く）[承認: CEO 判断「weatherKind capture」+ privacy 方針採用]
 
 - **A2-10（`0258bac4`）weatherKind capture**: 本人 weather reaction を将来学べるよう `MobilityObservation` に optional `weatherKind?: WeatherKind` を additive。`buildObservation` は **redacted でない∧valid のときだけ**付与（invalid/undefined/sensitive は付けない）。`isObservation` は任意 weatherKind 検証（旧 obs valid・invalid は drop）。`isWeatherKind` guard・`clearMobilityObservations`（opt-out/clear 導線）追加。MapTab capture=`weatherKind: todayWeather?.value`。★**privacy 方針厳守**: on-device only・category のみ・raw weather/location/GPS/officeCode 非保存・60日 retention 継承・belief 非汚染・**dev/dogfood のみ capture（todayWeather が prod で null＝production 非保存）**。store 29 PASS・mobility 452 PASS・tsc footprint 0・smoke /plan 307。
