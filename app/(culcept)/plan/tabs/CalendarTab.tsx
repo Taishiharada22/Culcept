@@ -80,7 +80,8 @@ import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, r
 import { applyPersonalPaceToRehearsalInput } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
 import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
-import { runPaceShadowActivation, isPaceShadowActivationEnabled } from "@/lib/plan/mobility/paceShadowActivation";
+import { runPaceShadowActivation, isPaceShadowActivationEnabled, type PaceShadowActivationReport } from "@/lib/plan/mobility/paceShadowActivation";
+import { PaceShadowReportPanel } from "@/components/plan/PaceShadowReportPanel";
 import { loadSelectedModesForDay } from "@/lib/plan/map/selectedModeStore";
 import type { EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
 import { useInnerWeather } from "@/hooks/useInnerWeather";
@@ -292,11 +293,15 @@ export function CalendarTab({
     return rehearseDay(applyPersonalPaceToRehearsalInput(rehearsalInput, resolver));
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
 
-  // ★A1-8 dogfood shadow activation（dev/dogfood・flag DAY_REHEARSAL_PACE_SHADOW_ENABLED **default OFF**・production hard block）。
+  // ★A1-8/A1-9 dogfood shadow activation + report（dev/dogfood・flag DAY_REHEARSAL_PACE_SHADOW_ENABLED **default OFF**・production hard block）。
   //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
-  //   ready のとき shadow 比較（OFF/ON）を走らせ structured 差分（過悲観/marker 爆発/診断悪化/過剰変化）を console に出す（UI なし）。
+  //   ready のとき shadow 比較（OFF/ON）を走らせ structured 差分を **A1-9 dogfood debug panel** に保持（flag ON のみ描画）。
+  const [shadowReport, setShadowReport] = useState<PaceShadowActivationReport | null>(null);
   useEffect(() => {
-    if (!isPaceShadowActivationEnabled() || !rehearsalInput) return;
+    if (!isPaceShadowActivationEnabled() || !rehearsalInput) {
+      setShadowReport(null); // OFF/非 dev: パネルも出さない
+      return;
+    }
     const ratios = buildPersonalPaceRatiosFromStore(loadMovementEventStore());
     const events = dayGraphByDate?.[selectedDate]?.graph?.nodes.filter((n): n is EventNode => n.kind === "event") ?? [];
     const resolvePace = buildRehearsalPaceResolver({
@@ -305,8 +310,7 @@ export function CalendarTab({
       selectedModes: loadSelectedModesForDay(selectedDate),
       ratios,
     });
-    const report = runPaceShadowActivation({ rehearsalInput, ratios, resolvePace });
-    if (report.ran) console.debug("[pace-shadow]", report); // dev-only structured 出力（UI 非表示）
+    setShadowReport(runPaceShadowActivation({ rehearsalInput, ratios, resolvePace }));
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
@@ -648,6 +652,8 @@ export function CalendarTab({
                 </div>
               )}
               <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} />
+              {/* ★A1-9 dogfood/dev 限定 shadow report（isPaceShadowActivationEnabled=flag∧非 production のときだけ・一般ユーザー非表示・raw 数値なし）。 */}
+              {isPaceShadowActivationEnabled() && shadowReport && <PaceShadowReportPanel report={shadowReport} />}
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}
