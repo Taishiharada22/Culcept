@@ -17,6 +17,7 @@
  *   Date.now・argless new Date() 不使用（timeband は anchor 時刻、weekday は plan 日付から決定論算出）。
  */
 import { isRouteTransportMode, type RouteTransportMode } from "@/lib/plan/map/routeMode";
+import { isWeatherKind, type WeatherKind } from "@/lib/plan/context/contextModifier"; // ★A2-10: weatherKind capture（derived category のみ）
 
 export const MOBILITY_OBSERVATION_KEY = "aneurasync.plan.map.mobilityObservation.v1";
 /** schemaVersion（root で管理。entry ごとには持たない） */
@@ -44,6 +45,11 @@ export interface MobilityObservation {
   /** 到着地 place key（同上） */
   readonly destKey: string | null;
   readonly privacyClass: PrivacyClass;
+  /**
+   * ★A2-10: 観測日の天気 category（derived のみ・任意）。raw weather/気温/降水/座標/場所は **持たない**。
+   * privacyClass="redacted"（sensitive）には付けない（personal 化対象外）。未取得/source 不明は欠落（undefined）。
+   */
+  readonly weatherKind?: WeatherKind;
 }
 
 export interface MobilityObservationStore {
@@ -142,11 +148,13 @@ export function buildObservation(input: {
   originSensitive: boolean;
   destSensitive: boolean;
   readOnly: boolean;
+  /** ★A2-10: 観測日の天気 category（任意）。invalid/undefined/redacted は付けない。 */
+  weatherKind?: unknown;
 }): MobilityObservation | null {
   if (input.readOnly) return null;
   if (!isRouteTransportMode(input.mode)) return null;
   const redacted = input.originSensitive || input.destSensitive;
-  return {
+  const base: MobilityObservation = {
     mode: input.mode,
     timeband: toTimeband(input.toStartTime),
     weekday: toWeekdayBucket(input.dayISO),
@@ -154,6 +162,11 @@ export function buildObservation(input: {
     destKey: redacted ? null : normalizeLocationText(input.destText),
     privacyClass: redacted ? "redacted" : "normal",
   };
+  // ★A2-10: weatherKind は **redacted でなく** valid category のときだけ付ける（personal 化用・derived のみ）。
+  if (!redacted && isWeatherKind(input.weatherKind)) {
+    return { ...base, weatherKind: input.weatherKind };
+  }
+  return base;
 }
 
 // ───────────────────────── store (parse/cap/set/get) ─────────────────────────
@@ -179,6 +192,7 @@ function isObservation(value: unknown): value is MobilityObservation {
     originKey?: unknown;
     destKey?: unknown;
     privacyClass?: unknown;
+    weatherKind?: unknown;
   };
   return (
     isRouteTransportMode(v.mode) &&
@@ -186,12 +200,13 @@ function isObservation(value: unknown): value is MobilityObservation {
     isWeekdayBucket(v.weekday) &&
     (v.originKey === null || typeof v.originKey === "string") &&
     (v.destKey === null || typeof v.destKey === "string") &&
-    isPrivacyClass(v.privacyClass)
+    isPrivacyClass(v.privacyClass) &&
+    (v.weatherKind === undefined || isWeatherKind(v.weatherKind)) // ★A2-10: 任意・present は valid のみ（後方互換）
   );
 }
 
 function cloneObservation(o: MobilityObservation): MobilityObservation {
-  return {
+  const base: MobilityObservation = {
     mode: o.mode,
     timeband: o.timeband,
     weekday: o.weekday,
@@ -199,6 +214,7 @@ function cloneObservation(o: MobilityObservation): MobilityObservation {
     destKey: o.destKey,
     privacyClass: o.privacyClass,
   };
+  return o.weatherKind !== undefined ? { ...base, weatherKind: o.weatherKind } : base; // ★A2-10
 }
 
 export function parseObservationStore(raw: string | null): MobilityObservationStore {
@@ -313,4 +329,18 @@ export function saveMobilityObservation(
 /** L1-b が読む用（client・fail-open）。 */
 export function loadMobilityObservation(dayISO: string, legKey: string): MobilityObservation | null {
   return getObservation(readObservationStore(), dayISO, legKey);
+}
+
+/**
+ * ★A2-10: 観測ログを全消去（opt-out / clear 導線のデータ層・client・fail-open）。
+ * UI からの呼び出し（明示の「データを消す」）用。DB/network なし。
+ */
+export function clearMobilityObservations(): void {
+  const ls = getStorage();
+  if (!ls) return;
+  try {
+    ls.removeItem(MOBILITY_OBSERVATION_KEY);
+  } catch {
+    /* fail-open */
+  }
 }

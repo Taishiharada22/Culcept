@@ -445,11 +445,13 @@ export function MapTab({
             originSensitive: mobilityCardData.observationContext.originSensitive,
             destSensitive: mobilityCardData.observationContext.destSensitive,
             readOnly: mobilityCardData.readOnly,
+            // ★A2-10: 今日の天気 category（dev/flag ON のみ非 null=local capture・redacted は store 側で除外）。
+            weatherKind: todayWeather?.value,
           }),
         );
       }
     },
-    [handleLegSelect, mobilityCardData, dayKey],
+    [handleLegSelect, mobilityCardData, dayKey, todayWeather],
   );
 
   // ★A0 理由観測: chip 押下で既存 correction entry に reason を保存（local・可逆）。entry 不在 leg は store 側で no-op。

@@ -52,6 +52,12 @@ export type ContextSource = "observed" | "user" | "derived" | "unknown";
 
 export type WeatherKind = "rain" | "snow" | "storm" | "heat" | "cold" | "normal";
 
+const WEATHER_KINDS: ReadonlySet<string> = new Set<WeatherKind>(["rain", "snow", "storm", "heat", "cold", "normal"]);
+/** WeatherKind の runtime guard（A2-10 capture / parse 用）。 */
+export function isWeatherKind(v: unknown): v is WeatherKind {
+  return typeof v === "string" && WEATHER_KINDS.has(v);
+}
+
 /**
  * ★A2-8: 移動負担を持つ天候 → 一般則 basis（仮説トーン）。雨/雪/荒天/暑さは tightens(slight・保守的)。
  * cold/normal は本 map に無い＝tilt なし（寒さ単独は移動を強く妨げない＝descriptive）。
