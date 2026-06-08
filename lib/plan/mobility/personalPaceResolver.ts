@@ -21,6 +21,7 @@ import {
 import type { RouteTransportMode } from "@/lib/plan/map/routeMode";
 import type { EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
 import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
+import { DEFAULT_PACE_READINESS_CONFIG } from "@/lib/plan/mobility/paceActivationReadiness";
 
 /** store の MovementEvent 群を PaceObservation[] に平坦化（mode tag 無しは除外）。 */
 export function movementEventStoreToPaceObservations(store: MovementEventStore): PaceObservation[] {
@@ -66,13 +67,20 @@ export function resolvePersonalPaceForLeg(
  * rehearsal の transition(stepIndex) → ready pace を引く resolver を組む（pure・A1-5 反映 / A1-8 shadow 共用）。
  * join: legKey=anchorId ペア（selectedModeStore と同源）/ odKey=正規化 location ペア（cross-day 蓄積）。
  * mode 未選択 / 不一致 / not-ready は null（adapter は fallback＝既存挙動）。
+ * ★A1-10 per-group activation gating: activationReadyOnly=true のとき **ready_for_activation(n≥minForActivation)** の
+ *   group だけ pace を返す（ready_for_shadow=A1-4 ready の 3-7 は null＝反映しない）。観測と実反映の閾値を分離。
  */
 export function buildRehearsalPaceResolver(input: {
   readonly events: readonly EventNode[];
   readonly anchorById: ReadonlyMap<string, { readonly locationText?: string | null }>;
   readonly selectedModes: Readonly<Record<string, RouteTransportMode>>;
   readonly ratios: readonly PersonalPaceRatioResult[];
+  /** ★A1-10: true なら ready_for_activation(n≥minForActivation) の group のみ反映（実 activation 用）。 */
+  readonly activationReadyOnly?: boolean;
+  /** activationReadyOnly 時の閾値（既定 DEFAULT_PACE_READINESS_CONFIG.minForActivation=8）。 */
+  readonly minForActivation?: number;
 }): (stepIndex: number) => PersonalPaceRatioResult | null {
+  const minForActivation = input.minForActivation ?? DEFAULT_PACE_READINESS_CONFIG.minForActivation;
   return (stepIndex: number) => {
     const from = input.events[stepIndex];
     const to = input.events[stepIndex + 1];
@@ -83,6 +91,10 @@ export function buildRehearsalPaceResolver(input: {
     const oNorm = normalizeLocationText(input.anchorById.get(from.anchorId)?.locationText ?? null);
     const dNorm = normalizeLocationText(input.anchorById.get(to.anchorId)?.locationText ?? null);
     const odKey = oNorm && dNorm ? `${oNorm}__${dNorm}` : undefined;
-    return resolvePersonalPaceForLeg(input.ratios, { odKey, legKey, mode });
+    const hit = resolvePersonalPaceForLeg(input.ratios, { odKey, legKey, mode });
+    if (!hit) return null;
+    // ★A1-10: 実 activation は ready_for_activation の od×mode だけ（ready_for_shadow は反映しない）。
+    if (input.activationReadyOnly && (hit.n ?? 0) < minForActivation) return null;
+    return hit;
   };
 }

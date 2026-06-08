@@ -16,6 +16,16 @@
  */
 import type { RehearsalInput, RehearsalTransitionInput } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
 import type { PersonalPaceRatioResult } from "@/lib/plan/mobility/personalPaceRatio";
+import { DAY_REHEARSAL_PERSONAL_PACE_ENABLED } from "@/lib/plan/dayRehearsal/dayRehearsal";
+
+/**
+ * ★A1-10: 実 reflection（pace を実診断へ反映）を有効化してよいか。
+ * flag DAY_REHEARSAL_PERSONAL_PACE_ENABLED ∧ **非 production**（production hard block・dogfood/dev のみ）。default OFF。
+ * これは「いつ反映するか」の gate。「どの group を反映するか」は resolver の activationReadyOnly（ready_for_activation のみ）。
+ */
+export function isPersonalPaceReflectionEnabled(): boolean {
+  return DAY_REHEARSAL_PERSONAL_PACE_ENABLED && process.env.NODE_ENV !== "production";
+}
 
 export interface PersonalPaceAdapterConfig {
   /** established(≥5 観測) の damping（deviation の何割を効かせるか）。 */
