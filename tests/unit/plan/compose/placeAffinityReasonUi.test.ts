@@ -67,6 +67,10 @@ describe("placeCandidateBestReason — P5.1 条件付き / 優先 / fallback", (
     const line = placeCandidateBestReason("店", emptyP2, [p3("店", "timeband", "morning"), p3("店", "weekday", "weekend")]);
     expect(line).toBe("この時間帯に選ばれやすい場所のようです。"); // timeband 優先
   });
+  it("★P5.2: weather を先頭に置くと timeband より優先（weather>timeband>weekday）", () => {
+    const line = placeCandidateBestReason("店", emptyP2, [p3("店", "weather", "rain"), p3("店", "timeband", "morning")]);
+    expect(line).toContain("雨の日に選ばれやすい"); // weather 最優先
+  });
   it("★条件一致なし → 無条件 P2 に fallback", () => {
     const line = placeCandidateBestReason("スタバ", p2([{ text: "スタバ", strength: "habitual" }]), [p3("別の店", "timeband", "evening")]);
     expect(line).toContain("よく行く");
