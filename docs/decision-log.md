@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-06-09 [Build] A2-4/A2-5 Personal Baseline Relativization（本人の普段基準）main 着地（flag OFF）= A2 安全側 pure/UI 層の天井 [承認: 自律（pure/flag 裏・flag OFF）]
+
+- **前提を疑った（①）**: A2-1〜3 の「普段より」は **絶対閾値**で、一般則であって**この人の普段ではない**。packed が常態の人に packed は tightening でない（Fleeson: today の意味は分布のどこか）。
+- **A2-4 pure core（`694a9239`）**: `contextBaseline.ts`=`buildDensityBaseline`→本人の典型 density（厳密最頻・tie/薄い<5日 は sufficient=false で personalize しない＝断定回避）。`buildContextModifier` に optional baseline 引数を **additive** 追加（不在=一般則=既存挙動完全不変・33 tests 維持）。`deriveDensityFactor`=ordinal delta で today を typical と比較（同値→沈黙・denser→tightens/lighter→eases・grounding="personal"・「あなたにしては多め/少なめ」）。14 tests。
+- **A2-5 配線（`22320612`）**: `CalendarTab` の contextReason useMemo 内で `dayGraphByDate` 各日 density→baseline→buildContextModifier。**既存 flag 裏**（gate 内計算・OFF→null→計算もなし＝main 完全不変）。eslint clean・tsc footprint 0。
+- **★安全**: belief 非接触（read-only 計算・非保存）・偽数値なし（定性+実カウント）・sufficient gate で薄いデータ退避・sensitive/DB/API なし・全4 flag OFF。node_modules 混入 0（explicit-path add）。
+- **★A2 天井到達**: A2 全層（core+bridge+UI+本人 baseline+配線）完成・全 flag OFF 休眠。残る前進＝①A2 有効化（dogfood flag ON・CEO）②weather 配線（external API）③energy/travel・完全履歴 baseline（履歴が local 外＝DB）④personal grounding 拡張（条件×行動捕捉＝sensitive/外部）。**いずれも CEO 判断 or 新規データ基盤。AI が安全に先行実装できる A2 pure/UI 層は出尽くした。**
+
+---
+
 ## 2026-06-09 [Build] A2-3 Context reason 実 UI 表示 main 着地（CEO smoke PASS・flag OFF）[承認: CEO smoke PASS]
 
 - **A2-3（`04286503`）**: `DayOutlookBanner` に optional `contextReason` 行（outlook 直下・slate・read-only）。`CalendarTab` で `rehearsalInput`→`buildDayContextSnapshot`→`buildContextModifier`→`buildContextOutlook().reasonLine` を `isContextModifierEnabled()` gate で計算・供給。
