@@ -19,6 +19,8 @@ import {
   type PersonalPaceRatioResult,
 } from "@/lib/plan/mobility/personalPaceRatio";
 import type { RouteTransportMode } from "@/lib/plan/map/routeMode";
+import type { EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
+import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
 
 /** store の MovementEvent 群を PaceObservation[] に平坦化（mode tag 無しは除外）。 */
 export function movementEventStoreToPaceObservations(store: MovementEventStore): PaceObservation[] {
@@ -58,4 +60,29 @@ export function resolvePersonalPaceForLeg(
 ): PersonalPaceRatioResult | null {
   const hit = findPersonalPaceRatio(ratios, query);
   return hit && hit.status === "ready" ? hit : null;
+}
+
+/**
+ * rehearsal の transition(stepIndex) → ready pace を引く resolver を組む（pure・A1-5 反映 / A1-8 shadow 共用）。
+ * join: legKey=anchorId ペア（selectedModeStore と同源）/ odKey=正規化 location ペア（cross-day 蓄積）。
+ * mode 未選択 / 不一致 / not-ready は null（adapter は fallback＝既存挙動）。
+ */
+export function buildRehearsalPaceResolver(input: {
+  readonly events: readonly EventNode[];
+  readonly anchorById: ReadonlyMap<string, { readonly locationText?: string | null }>;
+  readonly selectedModes: Readonly<Record<string, RouteTransportMode>>;
+  readonly ratios: readonly PersonalPaceRatioResult[];
+}): (stepIndex: number) => PersonalPaceRatioResult | null {
+  return (stepIndex: number) => {
+    const from = input.events[stepIndex];
+    const to = input.events[stepIndex + 1];
+    if (!from || !to) return null;
+    const legKey = `${from.anchorId}__${to.anchorId}`;
+    const mode = input.selectedModes[legKey];
+    if (!mode) return null;
+    const oNorm = normalizeLocationText(input.anchorById.get(from.anchorId)?.locationText ?? null);
+    const dNorm = normalizeLocationText(input.anchorById.get(to.anchorId)?.locationText ?? null);
+    const odKey = oNorm && dNorm ? `${oNorm}__${dNorm}` : undefined;
+    return resolvePersonalPaceForLeg(input.ratios, { odKey, legKey, mode });
+  };
 }
