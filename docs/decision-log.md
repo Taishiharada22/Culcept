@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-06-09 [Build] Phase A2 Context Modifier / 文脈条件付け pure 基盤 着地（A2-3 UI 表示=stop gate）[承認: 自律（pure・flag OFF）／A2-3 は CEO]
+
+- **方針（CEO）**: Personal Reality Graph（検索AIでなく、条件を言われる前から個人を理解する存在）。「今日のあなたなら」を天候/時間帯/曜日/予定密度/energy/移動負荷で補正。★**prior/belief を汚さず決定時だけの modifier**。stop gate: belief 上書き/偽数値/source 不明断定/UI 表示/DB・production・external API/sensitive。
+- **A2 audit（3 並列 Explore）**: 既存 context 信号（energy=innerWeather・density=dayGraph・travelLoad・weather=jma 未配線・mobilityHypothesis の DecisionContext が既に "context=posterior modifier・prior 汚さない" を体現）/ 汚染禁止 belief 群（SelectedMode・HypothesisFeedback・MovementEvent・MobilityObservation store）/ 決定点 seam（rehearseDay・buildMobilityHypothesis・personalPaceAdapter がテンプレ）を確定。★監査の「energy<0.3 で提案減」「rain で travelMin 係数」推奨は **belief 汚染/DB 依存/偽数値の stop gate 違反**と判定し不採用。
+- **A2-1 pure core（`contextModifier.ts`・commit b992fc2e）**: `ContextSnapshot`（source タグ付き・抽象条件のみ=sensitive-free を型で担保）→ `buildContextModifier`（定性 tilt eases/tightens×slight/notable + overallTilt + **widenUncertainty**=捏造でなく不確実性を広げる + ignoredUnknown=source 不明は断定しない）→ `contextReasonLine`（仮説トーン・数字フリー・沈黙原則）。flag `DAY_REHEARSAL_CONTEXT_MODIFIER_ENABLED` default OFF。★energy/density は rehearseDay 既存入力ゆえ**再注入しない**（二重適用なし）。学術根拠: Fleeson density-distribution（belief=分布不変/modifier=今日の位置）・Mischel-Shoda CAPS・situational strength・test-time conditioning。22 tests。
+- **A2-2 pure connection layer（`contextBridge.ts`・commit 5697513a）**: `buildDayContextSnapshot`（一次情報→day-level snapshot・既知 travel のみ・weather 非載=external API 回避）+ `contextToDecisionContext`（weather を mobilityHypothesis へ投影・todayLikelyMode 不変）+ `buildContextOutlook`（UI view-model・softenConfidence は copy 控えめのみ・数値不変）。11 tests・context dir 33 PASS・tsc footprint 0・全4 flag OFF。
+- **★A2-3 = UI 表示 = stop gate**: DayOutlookBanner に reasonLine を実 render ＝「UI 表示が必要」stop gate + user-facing branch+smoke。自律で進めない。weather 配線（jma→snapshot）= external API gate。personal grounding（一般則→本人観測）= 条件別データ捕捉が要る。いずれも CEO 判断 or 新規データ。**A2 安全側 pure 基盤は出尽くし全 flag OFF で休眠。自律バッチは A2-3 で停止し CEO 方針を仰ぐ。**
+
+---
+
 ## 2026-06-09 [Build] A1-14 dogfood smoke=gate safety PASS + A1-15 canary readiness 着地（A1-16=完全 stop case）[承認: 自律（pure・flag OFF）／A1-16 は CEO]
 
 - **A1-14 Dogfood Activation Smoke = ★gate safety PASS（actual activation でない）**: local/dev で `DAY_REHEARSAL_PACE_SHADOW_ENABLED=true`（worktree 限定 uncommitted）にして smoke。条件未充足（dogfood 実データ無し）→ readiness=not_enough / dogfood=not_ready / stability=insufficient で **gate が正しく ON を弾く**ことを確認。CEO 指示通り `DAY_REHEARSAL_PERSONAL_PACE_ENABLED=true` には進めず、override は **戻し済（全 flag OFF）**。main には flag OFF のまま closeout のみ着地。
