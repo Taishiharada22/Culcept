@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-06-09 [Build] A2-7 mobility leg weather note 着地（今日の天気→区間仮説 contextNote・mode 不変・dev のみ）[承認: 自律（weather 配線の継続・dev-gated）]
+
+- **A2-7（`931ec48c`）**: A2-6 で取得した今日の天気を MapTab の Mobility Hypothesis Surface に接続。`buildMobilityHypothesis` の既存 contextNote ロジック（屋外露出 mode[walk/bicycle]×rain/heat の「負担かも」注意）に weather を渡すだけ。
+- **配線**: `mobilityGuidance` の `MobilityGuidanceInput` に optional `weather` を additive（不在→`{}`＝後方互換）。`MapTab` で `useTodayWeather`→`contextToDecisionContext`(A2-2 再利用・cold→normal)→`resolveMobilityGuidance` に供給。
+- **★安全**: mode を変えない（contextNote は注意のみ・todayLikelyMode は belief 由来）。**自動 dev-gating**＝`useTodayWeather` が production/flag OFF で null→contextNote なし→mobility 仮説 完全不変。weather の production 露出なし。新規 fetch なし（A2-6 route 再利用）。
+- mobilityGuidance +4 tests（計 12）・mobility 443 PASS・tsc footprint 0・eslint clean・node_modules 0。smoke: /plan 307・/api/plan/today-weather 200・compile error なし。
+- **★A2 weather 完了**: day-level reason（A2-6）+ leg-level 注意（A2-7）まで dogfood 稼働。残 A2 前進＝天気 personal 化（条件×行動捕捉=新規データ）/ 履歴 baseline（DB）/ production 露出＝CEO 判断 or 新規データ基盤。自律で安全に進める A2 weather 層は出尽くした。
+
+---
+
 ## 2026-06-09 [Build] A2-6 weather 配線（JMA→context modifier）main 着地（隔離 route・全段 fail-open・dev/dogfood のみ）[承認: CEO 判断「weather 配線」]
 
 - **CEO 判断**: A2-6 weather 配線（audit→design→精査→実装）。
