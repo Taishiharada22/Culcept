@@ -4,8 +4,9 @@
  *   **correction write しない**（「直す」は導線 copy + disabled button のみ・実 write は次 gate）。Alter/Home/Stargazer 本線なし。
  */
 import type { SecondSelfCard, SecondSelfView } from "@/lib/plan/reality/learning/second-self-presenter";
+import { TendencyFeedbackButtons } from "./TendencyFeedbackButtons";
 
-function Card({ c }: { c: SecondSelfCard }) {
+function Card({ c, feedbackEnabled }: { c: SecondSelfCard; feedbackEnabled: boolean }) {
   return (
     <li className="rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3" data-testid="second-self-card">
       <div className="text-[13px] text-gray-800">{c.observation}</div>
@@ -14,18 +15,21 @@ function Card({ c }: { c: SecondSelfCard }) {
       {c.stillPossibleNote && <div className="mt-0.5 text-[11px] text-gray-500">{c.stillPossibleNote}</div>}
       <div className="mt-1 text-[10px] text-gray-400">{c.provenanceNote}</div>
       {c.correctionState && <div className="mt-1 text-[10px] text-violet-600">{c.correctionState}</div>}
-      <div className="mt-2 flex items-center gap-2">
-        <span className="text-[11px] text-gray-500">{c.correctable}</span>
-        {/* v1: 導線のみ・実 write しない（次 gate）。disabled で意図を明示。 */}
-        <button type="button" disabled className="rounded-md border border-gray-300 px-2 py-0.5 text-[10px] text-gray-400" data-testid="correct-button-disabled">
+      <div className="mt-2 text-[11px] text-gray-500">{c.correctable}</div>
+      {feedbackEnabled ? (
+        // A1-7-35: flag ON のとき confirm/correct/reject の実 write 操作（operator-only・可逆）。
+        <TendencyFeedbackButtons tendencyKey={c.tendencyKey} />
+      ) : (
+        // flag OFF: 導線 copy + disabled button のみ（write しない）。
+        <button type="button" disabled className="mt-2 rounded-md border border-gray-300 px-2 py-0.5 text-[10px] text-gray-400" data-testid="correct-button-disabled">
           直す（準備中）
         </button>
-      </div>
+      )}
     </li>
   );
 }
 
-export function SecondSelfPreviewClient({ view, enabled }: { view: SecondSelfView; enabled: boolean }) {
+export function SecondSelfPreviewClient({ view, enabled, feedbackEnabled = false }: { view: SecondSelfView; enabled: boolean; feedbackEnabled?: boolean }) {
   return (
     <div className="mx-auto max-w-md px-4 py-6 text-gray-800" data-testid="second-self">
       <h1 className="text-lg font-bold">第二の自己（観測・dev preview）</h1>
@@ -41,7 +45,7 @@ export function SecondSelfPreviewClient({ view, enabled }: { view: SecondSelfVie
       ) : (
         <ul className="mt-4 space-y-3" data-testid="second-self-list">
           {view.cards.map((c, i) => (
-            <Card key={i} c={c} />
+            <Card key={i} c={c} feedbackEnabled={feedbackEnabled} />
           ))}
         </ul>
       )}

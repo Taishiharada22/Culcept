@@ -13,7 +13,7 @@
  *   - **correctable**: 「違っていたら直せます（あなたの観測です）」を見せる（**v1 は導線 copy のみ・write しない**）。pure・LLM 不使用。
  */
 
-import type { SecondSelfTendency } from "./prm-model-entry-read";
+import { tendencyKey, type SecondSelfTendency } from "./prm-model-entry-read";
 
 /** context_dimension+value → 人間が読める文脈句（"...では"）。 */
 const CONTEXT_PHRASE: Record<string, Record<string, string>> = {
@@ -46,6 +46,8 @@ const CORRECTION_NOTE: Record<string, string> = {
 
 /** 第二の自己 1 件の表示 card（**全文 非断定・観察**）。 */
 export interface SecondSelfCard {
+  /** feedback 対象キー（context_dimension:context_value:tendency_direction）。A1-7-35 confirm/correct/reject の宛先。 */
+  readonly tendencyKey: string;
   /** 観測の主文（断定しない）。 */
   readonly observation: string;
   /** 確からしさ（≤tentative）。 */
@@ -67,6 +69,7 @@ export function presentTendency(t: SecondSelfTendency): SecondSelfCard {
   const ctx = contextPhrase(t.contextDimension, t.contextValue);
   const verb = TENDENCY_VERB[t.tendencyDirection] ?? "動きが出やすい";
   return {
+    tendencyKey: tendencyKey(t),
     observation: `${ctx}では、${verb}傾向が見えています`,
     certaintyNote: CERTAINTY_NOTE[t.certainty] ?? "ゆるやかな見えかたです",
     counterNote: t.counterCount > 0 ? `ただし ${t.counterCount} 件は違う動きでした（決めつけてはいません）` : null,

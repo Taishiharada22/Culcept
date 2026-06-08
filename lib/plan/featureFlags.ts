@@ -347,4 +347,18 @@ export const PLAN_FLAGS = {
    *   certainty no high（≤tentative 表示）・tendency-not-trait・counter/stillPossible 併記・production hard block。
    */
   realitySecondSelfSurface: process.env.REALITY_SECOND_SELF_SURFACE === "true",
+
+  /**
+   * A1-7-35: 第二の自己 **confirm/correct/reject feedback write**（POST /api/reality/tendency-feedback）の有効化。
+   *   true  : flag ON で operator が tendency に confirm(user M2+新 M3 version)/correct(M3 user_correction)/reject(M3 retracted) を可逆に書く。
+   *   false : route は no-op（**本番デフォルト**・write 0・既存挙動不変）。
+   * env: REALITY_TENDENCY_FEEDBACK_WRITE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/prm-confirm-correct-loop-design.md（A1-7-35）
+   * 制約: **default OFF・operator-only / dev-preview**（broader user-facing 公開・Alter 連結・Home/Stargazer 本線は別 stop gate）。
+   *   server 再読込（client snapshot 不信）・破壊削除なし（retracted_at/supersedes で可逆）・certainty no high・raw/personality 保存なし。
+   */
+  realityTendencyFeedbackWrite: process.env.REALITY_TENDENCY_FEEDBACK_WRITE === "true",
+
+  /** A1-7-35: dev-second-self の confirm/correct/reject ボタン UI（client・default OFF・dev 限定）。 */
+  realityTendencyFeedbackUi: process.env.NEXT_PUBLIC_REALITY_TENDENCY_FEEDBACK_UI === "true",
 } as const;

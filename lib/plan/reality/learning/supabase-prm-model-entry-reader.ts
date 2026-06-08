@@ -12,8 +12,12 @@ import "server-only";
 
 import {
   PRM_MODEL_ENTRY_READ_COLUMNS,
+  PRM_MODEL_ENTRY_FEEDBACK_COLUMNS,
   prmModelEntryRowsToTendencies,
+  prmModelEntryRowsToFeedbackEntries,
   type PrmModelEntryReadRow,
+  type PrmModelEntryFeedbackRow,
+  type PrmModelEntryFeedbackEntry,
   type SecondSelfTendency,
 } from "./prm-model-entry-read";
 
@@ -40,6 +44,11 @@ export interface PrmModelEntryReadClient {
 export interface PrmModelEntryReader {
   /** owner の review 済 tendency（user_visible ∧ 非 retracted）を SecondSelfTendency[] として読む（fail-open []）。 */
   readSecondSelfTendencies(): Promise<readonly SecondSelfTendency[]>;
+  /**
+   * A1-7-35: feedback 解決用に owner の M3（非 retracted）を **id 付き** で読む（confirm/correct/reject の対象特定）。
+   * client snapshot を信頼しないための **server 再読込パス**。fail-open []。
+   */
+  readModelEntriesForFeedback(): Promise<readonly PrmModelEntryFeedbackEntry[]>;
 }
 
 /**
@@ -58,6 +67,18 @@ export function createSupabasePrmModelEntryReader(client: PrmModelEntryReadClien
         .limit(READ_LIMIT);
       if (res.error || !res.data) return []; // fail-open
       return prmModelEntryRowsToTendencies(res.data as unknown as readonly PrmModelEntryReadRow[]);
+    },
+    async readModelEntriesForFeedback() {
+      const res = await client
+        .from("prm_model_entries")
+        .select(PRM_MODEL_ENTRY_FEEDBACK_COLUMNS) // id + context 列のみ（raw/user_id/decay なし）
+        .eq("user_id", userId) // RLS + 明示
+        .eq("user_visible", true)
+        .is("retracted_at", null) // 既に retract 済は feedback 対象外
+        .order("created_at", { ascending: false })
+        .limit(READ_LIMIT);
+      if (res.error || !res.data) return []; // fail-open
+      return prmModelEntryRowsToFeedbackEntries(res.data as unknown as readonly PrmModelEntryFeedbackRow[]);
     },
   };
 }

@@ -72,3 +72,53 @@ export function prmModelEntryRowToTendency(row: PrmModelEntryReadRow): SecondSel
 export function prmModelEntryRowsToTendencies(rows: readonly PrmModelEntryReadRow[]): readonly SecondSelfTendency[] {
   return rows.map(prmModelEntryRowToTendency).filter((t): t is SecondSelfTendency => t !== null);
 }
+
+// ── A1-7-35 feedback 用（**server-only パス**・id 付き・client に出さない）──
+
+/** feedback 解決用の M3 entry（**id 付き**・confirm/correct/reject の対象特定 + user M2 構築）。 */
+export interface PrmModelEntryFeedbackEntry {
+  readonly id: string;
+  readonly contextDimension: string;
+  readonly contextValue: string;
+  readonly tendencyDirection: "adoption" | "non_adoption" | "deferral";
+  readonly favoredHypothesis: string;
+  readonly stillPossible: readonly string[];
+  readonly evidenceCount: number;
+  readonly counterCount: number;
+  readonly certainty: "low" | "tentative";
+}
+
+/** feedback read 列（id 含む・raw/personality なし・**server-only**）。 */
+export const PRM_MODEL_ENTRY_FEEDBACK_COLUMNS =
+  "id, context_dimension, context_value, tendency_direction, favored_hypothesis, still_possible, evidence_count, counter_count, certainty";
+
+/** feedback read row（id 付き）。 */
+export interface PrmModelEntryFeedbackRow extends PrmModelEntryReadRow {
+  readonly id: string;
+}
+
+/** feedback row → entry（不正 direction/certainty/id なしは null）。 */
+export function prmModelEntryRowToFeedbackEntry(row: PrmModelEntryFeedbackRow): PrmModelEntryFeedbackEntry | null {
+  if (typeof row.id !== "string" || row.id.length === 0) return null;
+  if (!TENDENCY.has(row.tendency_direction) || !CERTAINTY.has(row.certainty)) return null;
+  return {
+    id: row.id,
+    contextDimension: row.context_dimension,
+    contextValue: row.context_value,
+    tendencyDirection: row.tendency_direction as "adoption" | "non_adoption" | "deferral",
+    favoredHypothesis: row.favored_hypothesis,
+    stillPossible: row.still_possible ?? [],
+    evidenceCount: row.evidence_count,
+    counterCount: row.counter_count,
+    certainty: row.certainty as "low" | "tentative",
+  };
+}
+
+export function prmModelEntryRowsToFeedbackEntries(rows: readonly PrmModelEntryFeedbackRow[]): readonly PrmModelEntryFeedbackEntry[] {
+  return rows.map(prmModelEntryRowToFeedbackEntry).filter((e): e is PrmModelEntryFeedbackEntry => e !== null);
+}
+
+/** tendency key（context_dimension:context_value:tendency_direction・feedback 対象特定）。 */
+export function tendencyKey(e: { readonly contextDimension: string; readonly contextValue: string; readonly tendencyDirection: string }): string {
+  return `${e.contextDimension}:${e.contextValue}:${e.tendencyDirection}`;
+}

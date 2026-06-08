@@ -46,5 +46,7 @@ export default async function DevSecondSelfPage() {
   }
 
   const view = presentSecondSelf(tendencies);
-  return <SecondSelfPreviewClient view={view} enabled={PLAN_FLAGS.realitySecondSelfSurface} />;
+  // A1-7-35: confirm/correct/reject の実 write UI は別 flag（UI flag ∧ surface flag が両方 ON のときだけ操作可）。
+  const feedbackEnabled = PLAN_FLAGS.realityTendencyFeedbackUi && PLAN_FLAGS.realitySecondSelfSurface;
+  return <SecondSelfPreviewClient view={view} enabled={PLAN_FLAGS.realitySecondSelfSurface} feedbackEnabled={feedbackEnabled} />;
 }
