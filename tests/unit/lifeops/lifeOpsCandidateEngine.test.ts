@@ -7,6 +7,7 @@ import {
   generateLifeOpsCandidates,
   type CadenceObservation,
 } from "@/lib/lifeops/candidate-engine";
+import { dueReasonPhase } from "@/lib/lifeops/candidate-types";
 
 const NOW = "2026-06-12T00:00:00Z";
 
@@ -57,10 +58,13 @@ describe("L-3 candidate 内容（L-1 から写す・§4 契約）", () => {
     expect(cut.placeQuery).toBe("美容室");
     expect(cut.permissionLevelHint).toBe("L3");
     expect(cut.riskFlags).toEqual(expect.arrayContaining(["appearance_change", "nomination", "personal_info"]));
-    expect(cut.dueReason.kind).toBe("cycle");
-    expect(cut.dueReason.elapsedDays).toBe(72);
-    expect(cut.dueReason.typicalIntervalDays).toBe(42);
-    expect(cut.dueReason.phase).toBe("well_beyond");
+    const dr = cut.dueReason;
+    expect(dr.kind).toBe("cycle");
+    if (dr.kind === "cycle") {
+      expect(dr.elapsedDays).toBe(72);
+      expect(dr.typicalIntervalDays).toBe(42);
+      expect(dr.phase).toBe("well_beyond");
+    }
     expect(cut.suggestedWindow).toBeNull(); // L-3 は窓を決めない（横 R2）
   });
 });
@@ -68,14 +72,14 @@ describe("L-3 candidate 内容（L-1 から写す・§4 契約）", () => {
 describe("L-3 逼迫順ソート（決定的）", () => {
   it("well_beyond が beyond_typical より先", () => {
     const out = generateLifeOpsCandidates([obsEyebrowBeyond, obsCutWellBeyond], NOW); // 入力は beyond, well_beyond の順
-    expect(out[0].dueReason.phase).toBe("well_beyond"); // 並べ替えで well_beyond 先頭
-    expect(out[1].dueReason.phase).toBe("beyond_typical");
+    expect(dueReasonPhase(out[0].dueReason)).toBe("well_beyond"); // 並べ替えで well_beyond 先頭
+    expect(dueReasonPhase(out[1].dueReason)).toBe("beyond_typical");
   });
   it("同 phase は経過比 降順", () => {
     // どちらも beyond_typical だが eyebrow(33/28=1.18) > color相当を作る: cut 2026-04-25→48日/42=1.14
     const a: CadenceObservation = { categoryId: "beauty_salon", menu: "cut", lastCompletedAtISO: "2026-04-25" }; // 48日 ratio1.14 beyond
     const out = generateLifeOpsCandidates([a, obsEyebrowBeyond], NOW);
-    expect(out.every((c) => c.dueReason.phase === "beyond_typical")).toBe(true);
+    expect(out.every((c) => dueReasonPhase(c.dueReason) === "beyond_typical")).toBe(true);
     expect(out[0].category).toBe("eyebrow"); // 1.18 > 1.14
   });
 });
