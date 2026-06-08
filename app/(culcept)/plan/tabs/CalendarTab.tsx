@@ -76,8 +76,8 @@ import {
 } from "./_helpers";
 import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
-import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, DAY_REHEARSAL_PERSONAL_PACE_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
-import { applyPersonalPaceToRehearsalInput } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
+import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
+import { applyPersonalPaceToRehearsalInput, isPersonalPaceReflectionEnabled } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
 import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
 import { runPaceShadowActivation, isPaceShadowActivationEnabled, type PaceShadowActivationReport } from "@/lib/plan/mobility/paceShadowActivation";
@@ -282,13 +282,14 @@ export function CalendarTab({
   //   ★activation/ON smoke は CEO 判断（現状 OFF・実データ無なら adapter が fallback で不変）。
   const dayRehearsal = useMemo(() => {
     if (!rehearsalInput) return null;
-    if (!DAY_REHEARSAL_PERSONAL_PACE_ENABLED) return rehearseDay(rehearsalInput); // OFF: 完全不変
+    if (!isPersonalPaceReflectionEnabled()) return rehearseDay(rehearsalInput); // ★A1-10: OFF/production: 完全不変
     const events = dayGraphByDate?.[selectedDate]?.graph?.nodes.filter((n): n is EventNode => n.kind === "event") ?? [];
     const resolver = buildRehearsalPaceResolver({
       events,
       anchorById: new Map(selectedDayAnchors.map((a) => [a.id, a] as const)),
       selectedModes: loadSelectedModesForDay(selectedDate),
       ratios: buildPersonalPaceRatiosFromStore(loadMovementEventStore()),
+      activationReadyOnly: true, // ★A1-10: 実反映は ready_for_activation の od×mode だけ
     });
     return rehearseDay(applyPersonalPaceToRehearsalInput(rehearsalInput, resolver));
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
@@ -309,6 +310,7 @@ export function CalendarTab({
       anchorById: new Map(selectedDayAnchors.map((a) => [a.id, a] as const)),
       selectedModes: loadSelectedModesForDay(selectedDate),
       ratios,
+      activationReadyOnly: true, // ★A1-10: shadow も実 activation(ready_for_activation のみ)を正確に preview
     });
     setShadowReport(runPaceShadowActivation({ rehearsalInput, ratios, resolvePace }));
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
