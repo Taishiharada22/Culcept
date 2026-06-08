@@ -21,6 +21,7 @@
  * house style 踏襲: level-not-score、evidence(basis)、断定でなく仮説トーン。
  */
 import type { TimeBucket } from "@/lib/plan/dayGraph/dayGraphTypes";
+import type { DensityBaseline } from "@/lib/plan/context/contextBaseline"; // ★A2-4: 本人 baseline（type-only・循環なし）
 
 // ───────────────────────── flag（default OFF） ─────────────────────────
 
@@ -148,6 +149,39 @@ function strengthWeight(strength: TiltStrength): number {
   return strength === "notable" ? 2 : 1;
 }
 
+const DENSITY_RANK: Record<DensityLevel, number> = { sparse: 0, balanced: 1, packed: 2 };
+
+/**
+ * ★A2-4: density factor を導出（pure）。baseline sufficient のとき **本人相対**化:
+ *   today を本人の typical と比べた ordinal deviation で傾ける（typical と同じ → factor なし＝普段通り）。
+ *   |delta|=2(sparse↔packed)→notable / =1→slight。denser→tightens / lighter→eases。grounding="personal"。
+ * baseline 不在/insufficient → 一般則（packed→tightens/notable・sparse→eases/slight・grounding="general"）。
+ */
+function deriveDensityFactor(
+  lvl: DensityLevel,
+  source: ContextSource,
+  baseline: DensityBaseline | undefined,
+): ContextFactor | null {
+  // 本人相対（baseline が本人の普段を十分示すとき）
+  if (baseline && baseline.sufficient && baseline.typical) {
+    const delta = DENSITY_RANK[lvl] - DENSITY_RANK[baseline.typical];
+    if (delta === 0) return null; // あなたの普段通り → deviation でない＝語らない
+    const strength: TiltStrength = Math.abs(delta) >= 2 ? "notable" : "slight";
+    if (delta > 0) {
+      return { signal: "density", source, direction: "tightens", strength, basis: "あなたにしては予定が多めの日です", grounding: "personal" };
+    }
+    return { signal: "density", source, direction: "eases", strength, basis: "あなたにしては予定が少なめの日です", grounding: "personal" };
+  }
+  // 一般則（baseline 不在/insufficient）
+  if (lvl === "packed") {
+    return { signal: "density", source, direction: "tightens", strength: "notable", basis: "予定が詰まった日は重なりやすい", grounding: "general" };
+  }
+  if (lvl === "sparse") {
+    return { signal: "density", source, direction: "eases", strength: "slight", basis: "予定が少ない日は余白が出やすい", grounding: "general" };
+  }
+  return null;
+}
+
 // ───────────────────────── core: snapshot → modifier ─────────────────────────
 
 /**
@@ -167,6 +201,11 @@ function strengthWeight(strength: TiltStrength): number {
 export function buildContextModifier(
   snapshot: ContextSnapshot,
   config: ContextModifierConfig = DEFAULT_CONTEXT_MODIFIER_CONFIG,
+  /**
+   * ★A2-4: 本人 baseline（任意）。density を **この人の普段**基準で相対化する。
+   * 不在/insufficient → 一般則（後方互換・既存挙動完全不変）。
+   */
+  baseline?: { readonly density?: DensityBaseline },
 ): ContextModifier {
   const factors: ContextFactor[] = [];
   const ignoredUnknown: string[] = [];
@@ -201,17 +240,8 @@ export function buildContextModifier(
     return null;
   });
 
-  // density（packed=notable tightens / sparse=slight eases / balanced=なし）
-  note("density", snapshot.density, (source) => {
-    const lvl = snapshot.density!.value;
-    if (lvl === "packed") {
-      return { signal: "density", source, direction: "tightens", strength: "notable", basis: "予定が詰まった日は重なりやすい", grounding: "general" };
-    }
-    if (lvl === "sparse") {
-      return { signal: "density", source, direction: "eases", strength: "slight", basis: "予定が少ない日は余白が出やすい", grounding: "general" };
-    }
-    return null;
-  });
+  // density（A2-4: baseline sufficient なら本人相対・不在/insufficient なら一般則）
+  note("density", snapshot.density, (source) => deriveDensityFactor(snapshot.density!.value, source, baseline?.density));
 
   // position_in_day（late=slight tightens のみ）
   note("position_in_day", snapshot.positionInDay, (source) => {
@@ -291,6 +321,8 @@ function factorPhrase(f: ContextFactor): string {
     case "weather":
       return f.basis.startsWith("雨") ? "雨" : "暑さ";
     case "density":
+      // ★A2-4: personal grounding は本人相対のニュアンス（いつもより多め/少なめ）。
+      if (f.grounding === "personal") return f.direction === "tightens" ? "いつもより多めの予定" : "いつもより少なめの予定";
       return f.direction === "tightens" ? "予定の詰まり" : "予定の少なさ";
     case "position_in_day":
       return "後半の時間帯";
