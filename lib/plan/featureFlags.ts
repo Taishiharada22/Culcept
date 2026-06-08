@@ -336,4 +336,15 @@ export const PLAN_FLAGS = {
    * env: NEXT_PUBLIC_REALITY_REVIEW_UI=true で有効化（**client 評価可・NEXT_PUBLIC_**）。dev 限定（triple-guard host 配下）。
    */
   realityReviewUi: process.env.NEXT_PUBLIC_REALITY_REVIEW_UI === "true",
+
+  /**
+   * A1-7-34: **第二の自己 read-only surface**（M3 prm_model_entries の review 済 tendency を operator が dev-preview で見る）の有効化。
+   *   true  : flag ON で dev-second-self preview が owner の M3 tendency を **非断定・観察トーン**で表示（read-only・correction write なし）。
+   *   false : 表示しない（**本番デフォルト**・read 0）。
+   * env: REALITY_SECOND_SELF_SURFACE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/prm-second-self-surfacing-design.md（A1-7-34）
+   * 制約: **default OFF**・**operator-only / dev-preview / read-only**（本格 user-facing 公開・Alter 連結・correction write は別 stop gate）。
+   *   certainty no high（≤tentative 表示）・tendency-not-trait・counter/stillPossible 併記・production hard block。
+   */
+  realitySecondSelfSurface: process.env.REALITY_SECOND_SELF_SURFACE === "true",
 } as const;
