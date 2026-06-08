@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity reason-only を dogfood 有効化（reason=true・ranking OFF・production hard block）[承認: CEO 判断「dogfood 有効化（データ貯め）」]
+
+- **実施（`0a26d33b`）**: `PLACE_AFFINITY_REASON_UI_ENABLED = true`（reason-only の dogfood 有効化）。★`PLACE_AFFINITY_RANKING_ENABLED` は **OFF 維持**（順位は変えない）。
+- **★production 安全**: gate `isPlaceAffinityReasonEnabled() = flag && process.env.NODE_ENV !== "production"` 不変 → **dev/dogfood のみ ON・production は hard block で OFF**（flag=true commit でも prod 挙動不変）。production 露出は別途 CEO 判断。
+- **dev/dogfood で出るもの**: 場所候補に reason（よく行く/この時間帯・週末/雨雪荒天暑い の日に選ばれやすい・観測一致時・薄ければ沈黙）+ shadow 観測 + **safety journal 蓄積**（派生サマリーのみ・raw なし）。★**順位は変えない**（ranking OFF）。
+- flag test を vi.stubEnv で更新（reason=true∧非prod→ON∧prod→hard block OFF・ranking OFF 維持）。reasonUi 15 PASS・compose 249 PASS・tsc footprint 0・node_modules 0・有効化 smoke PASS。
+- **次**: dogfood で観測蓄積 → `assessPlaceAffinitySafety` が **stable_safe**（≥10 ∧ excessiveShift ゼロ）→ ranking flag 有効化を CEO 判断。rollback=`=false` 1 行。
+- **★Place Affinity= dogfood 稼働（reason-only・順位不変・安全観測姿勢）**。A2 context modifier と並んで PRG の「場所の相性」軸が dogfood 観測フェーズに入った。
+
+---
+
 ## 2026-06-09 [Build] Place Affinity 検証基盤（dogfood safety journal）main 着地（自律）= Place Affinity code 完全完了 [承認: CEO「蓄積データの検証基盤を追加」]
 
 - **検証基盤（`62beddb0`）**: A1-13 dogfood safety journal 型を Place Affinity に適用。データが出る前に検証枠を用意。`placeAffinitySafetyJournal.ts`=`summarizePlaceAffinityShadow`(派生 counts/boolean のみ・★`excessiveShift`=maxRankShift>許容2＝clamp が効いていれば起きない安全不変条件)+record/load(local・fail-open・上限200・raw 排除)+`assessPlaceAffinitySafety`(insufficient/unstable/stable_safe)+rollback 条件。`PlaceCandidatesPanel` の shadow useEffect で dogfood(reason flag ON∧dev)のみ journal 記録。
