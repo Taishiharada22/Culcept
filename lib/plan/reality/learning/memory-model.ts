@@ -37,6 +37,23 @@ export interface MemoryContext {
 /** ユーザーの訂正状態（correction の中身・null=未訂正）。 */
 export type MemoryCorrection = "rejected" | "direction_adjusted" | "context_refined" | null;
 
+/** 行動の寄り（**semantic/preference/procedural のみ持つ**・episodic/correction は null）。synthesis の net leaning 計算に使う。 */
+export type MemoryLeaning = "toward_adopting" | "toward_declining" | "toward_deferring";
+
+/** tendency_direction → 寄り（null=非該当）。adapter 共通。 */
+export function leaningFromDirection(direction: string): MemoryLeaning | null {
+  switch (direction) {
+    case "adoption":
+      return "toward_adopting";
+    case "non_adoption":
+      return "toward_declining";
+    case "deferral":
+      return "toward_deferring";
+    default:
+      return null;
+  }
+}
+
 /**
  * 全 kind 共通の記憶正規形（**非断定・provenance 付き・raw なし**）。
  *   UI/Alter は表示前に presenter（非断定 copy）を通す。observation は内部表現で断定 UI ではない。
@@ -54,6 +71,8 @@ export interface MemoryItem {
   readonly userConfirmed: boolean;
   /** 本人の訂正（最強 signal・null=未訂正）。 */
   readonly userCorrection: MemoryCorrection;
+  /** 行動の寄り（semantic/preference/procedural のみ・他 null）。synthesis が net leaning を集約する。 */
+  readonly leaning: MemoryLeaning | null;
   /** 出来事の発生時刻（**episodic のみ**・他 kind は null）。recency 並べ替えは下流（synthesis）が nowMs で行う。 */
   readonly occurredAtISO: string | null;
   readonly source: MemorySource;
@@ -141,6 +160,7 @@ export function buildMemoryItem(input: {
   readonly certainty?: unknown;
   readonly userConfirmed?: boolean;
   readonly userCorrection?: MemoryCorrection;
+  readonly leaning?: MemoryLeaning | null;
   readonly occurredAtISO?: string | null;
   readonly source: MemorySource;
 }): MemoryItem {
@@ -153,6 +173,7 @@ export function buildMemoryItem(input: {
     certainty: capCertainty(input.certainty),
     userConfirmed: input.userConfirmed ?? false,
     userCorrection: input.userCorrection ?? null,
+    leaning: input.leaning ?? null,
     occurredAtISO: input.occurredAtISO ?? null,
     source: input.source,
   };

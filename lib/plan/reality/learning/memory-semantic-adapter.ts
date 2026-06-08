@@ -11,7 +11,7 @@
  */
 
 import type { SecondSelfTendency } from "./prm-model-entry-read";
-import { buildMemoryItem, memoryContextPhrase, type MemoryItem } from "./memory-model";
+import { buildMemoryItem, memoryContextPhrase, leaningFromDirection, type MemoryItem } from "./memory-model";
 
 const VERB: Record<string, string> = { adoption: "取り入れ", non_adoption: "見送り", deferral: "後回しにし" };
 
@@ -29,6 +29,7 @@ export function tendencyToSemanticMemory(t: SecondSelfTendency): MemoryItem {
     certainty: t.certainty, // 既に low|tentative（cap は防御）
     userConfirmed: false, // semantic は「一般傾向」。本人確認は correction memory が担う
     userCorrection: t.userCorrection,
+    leaning: leaningFromDirection(t.tendencyDirection),
     source: "prm_model_entry",
   });
 }

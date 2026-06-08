@@ -64,6 +64,7 @@ export function tendencyToPreferenceMemory(t: SecondSelfTendency, opts: { confir
     certainty: strength === "leaning" ? t.certainty : "low", // 保守的・≤tentative
     userConfirmed: opts.confirmed ?? false,
     userCorrection: t.userCorrection,
+    leaning, // PreferenceLeaning ⊆ MemoryLeaning（同一 union）
     source: "prm_model_entry",
   });
 }

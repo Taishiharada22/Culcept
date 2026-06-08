@@ -15,7 +15,7 @@
  */
 
 import type { SecondSelfTendency } from "./prm-model-entry-read";
-import { buildMemoryItem, memoryContextPhrase, type MemoryItem } from "./memory-model";
+import { buildMemoryItem, memoryContextPhrase, leaningFromDirection, type MemoryItem } from "./memory-model";
 
 /** 採用された“進め方”（adoption→adopt / deferral→defer。non_adoption は手順でない）。 */
 export type ProceduralApproach = "adopt" | "defer";
@@ -68,6 +68,7 @@ export function tendencyToProceduralMemory(t: SecondSelfTendency, opts: { confir
     certainty: signals.stable ? t.certainty : "low", // stable のみ tendency certainty 継承（≤tentative）
     userConfirmed: signals.confirmed,
     userCorrection: t.userCorrection,
+    leaning: leaningFromDirection(t.tendencyDirection), // adopt→toward_adopting / defer→toward_deferring
     source: "prm_learning_event", // 採用イベントの蓄積由来（M1）
   });
 }
