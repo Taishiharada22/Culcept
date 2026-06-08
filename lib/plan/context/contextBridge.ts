@@ -49,10 +49,13 @@ export interface DayContextPrimitives {
 /**
  * /plan の一次情報から **day-level** ContextSnapshot を組む（pure）。
  * ★source タグは事実に即して付ける（density/travelLoad=observed・energy=derived）。
- * ★weather は /plan 未配線ゆえ載せない（null・external API gate を踏まない）。
  * ★既知 travel が 0 件なら travelLoad を載せない（捏造しない）。
+ * ★A2-6: weather は任意（source 既知の WeatherKind・A2-6b の useTodayWeather から供給）。不在→載せない。
  */
-export function buildDayContextSnapshot(input: DayContextPrimitives): ContextSnapshot {
+export function buildDayContextSnapshot(
+  input: DayContextPrimitives,
+  weather?: ContextSnapshot["weather"],
+): ContextSnapshot {
   const observed: ContextSource = "observed";
 
   const snapshot: {
@@ -70,6 +73,8 @@ export function buildDayContextSnapshot(input: DayContextPrimitives): ContextSna
     const total = knownTravel.reduce((a, b) => a + b, 0);
     snapshot.travelLoad = { value: classifyTravelLoad(total), source: observed };
   }
+
+  if (weather) snapshot.weather = weather; // ★A2-6: 今日の天気（あれば）
 
   return snapshot;
 }

@@ -56,7 +56,7 @@ export type DensityLevel = "sparse" | "balanced" | "packed";
 export type PositionInDay = "early" | "mid" | "late";
 export type TravelLoadLevel = "light" | "moderate" | "heavy";
 
-interface Sourced<T> {
+export interface Sourced<T> {
   readonly value: T;
   readonly source: ContextSource;
 }
