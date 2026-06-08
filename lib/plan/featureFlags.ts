@@ -304,4 +304,17 @@ export const PLAN_FLAGS = {
    *   route(`/api/reality/candidate-action`)は user-RLS・status-only（A1-6-6 検証済）。ボタンは request {handle,action} のみ送る。
    */
   realityCandidateActions: process.env.NEXT_PUBLIC_REALITY_CANDIDATE_ACTIONS === "true",
+
+  /**
+   * A1-7-17: Candidate action の **status transition 成功後に PRM learning event を永続化**するか（slice ④ route connection）。
+   *   true  : `/api/reality/candidate-action` が accept→consumed / dismiss→rejected 成功後に `writeLearningEventOnAction`
+   *           （toDryRunLearningEvent→toPrmLearningEventInsertRow→Supabase repository.insert）を **await-and-swallow** で実行。
+   *   false : learning write を呼ばない（**本番デフォルト**・insert 0・既存挙動完全不変・banner/route response 不変）。
+   * env: REALITY_LEARNING_EVENT_WRITE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/aneurasync-reality-control-os-connection-design.md §10.13/§10.17（A1-7-17）
+   * 制約: **default OFF**（local/staging only・production OFF + hard block）。learning write は best-effort=insert 失敗は
+   *   user action response を壊さない（fail-open）。M1 `prm_learning_events` table 未 apply 環境では flag ON でも insert は
+   *   error→fail-open（action 不破壊）。**実 staging/production apply + flag ON は別 CEO gate（slice ⑤）**。
+   */
+  realityLearningEventWrite: process.env.REALITY_LEARNING_EVENT_WRITE === "true",
 } as const;

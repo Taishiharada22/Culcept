@@ -2,7 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { loadSurfaceableForAction, runCandidateActionRoute } from "@/lib/plan/reality/integration/candidate-action-route-support";
 import { createStatusOnlyExecutor, type PlanSeedStatusUpdateClient } from "@/lib/plan/reality/integration/plan-seed-status-executor";
-import type { PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
+import { loadActiveCandidateEntries, type PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
+import { writeLearningEventOnAction } from "@/lib/plan/reality/integration/learning-event-write-on-action";
+import {
+  createSupabasePrmLearningEventRepository,
+  type PrmLearningEventWriteClient,
+} from "@/lib/plan/reality/learning/supabase-prm-learning-event-repository";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
 /**
  * A1-6-6 Candidate Action Route — POST `{ handle, action }` → `{ ok, data }`（**status-only・user-RLS・no UI・no production**）
@@ -37,5 +43,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const surfaceable = await loadSurfaceableForAction(supabase as unknown as PendingCapturedRowsReadClient, user.id, nowMs);
   const executor = createStatusOnlyExecutor(supabase as unknown as PlanSeedStatusUpdateClient);
   const result = await runCandidateActionRoute(body, surfaceable, executor);
+
+  // A1-7-17: status transition 成功後の PRM learning event write（**flag default OFF**・await-and-swallow・fail-open）。
+  //   flag OFF → 本 block を一切実行しない（entry 再 read も repository 生成もせず insert 0・既存挙動完全不変）。
+  if (PLAN_FLAGS.realityLearningEventWrite) {
+    const entries = await loadActiveCandidateEntries(supabase as unknown as PendingCapturedRowsReadClient, user.id, nowMs);
+    await writeLearningEventOnAction({
+      flagEnabled: true,
+      rawBody: body,
+      response: result.data,
+      entries,
+      repository: createSupabasePrmLearningEventRepository(supabase as unknown as PrmLearningEventWriteClient, user.id),
+      nowMs,
+    });
+  }
+
   return NextResponse.json(result);
 }
