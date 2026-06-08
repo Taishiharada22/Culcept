@@ -14,6 +14,7 @@
  */
 import type { PaceShadowActivationReport } from "@/lib/plan/mobility/paceShadowActivation";
 import type { PersonalPaceDogfoodReadiness } from "@/lib/plan/mobility/personalPaceDogfoodReadiness";
+import type { DogfoodStabilityAssessment } from "@/lib/plan/mobility/dogfoodSafetyJournal";
 
 function ConcernBadge({ label, on }: { label: string; on: boolean }) {
   return (
@@ -29,10 +30,13 @@ function ConcernBadge({ label, on }: { label: string; on: boolean }) {
 export function PaceShadowReportPanel({
   report,
   dogfoodReadiness,
+  stability,
 }: {
   report: PaceShadowActivationReport;
   /** ★A1-11: dogfood activation の前チェック集約（任意・dev のみ）。 */
   dogfoodReadiness?: PersonalPaceDogfoodReadiness | null;
+  /** ★A1-13: safety journal の複数日 stability（任意・dev のみ）。 */
+  stability?: DogfoodStabilityAssessment | null;
 }) {
   return (
     <div data-testid="pace-shadow-report" className="mt-3 rounded-xl border border-slate-300 border-dashed bg-slate-50/70 px-3 py-2.5 text-slate-600">
@@ -97,6 +101,27 @@ export function PaceShadowReportPanel({
           {dogfoodReadiness.blockers.length > 0 && (
             <div className="mt-1 text-slate-400">未充足: {dogfoodReadiness.blockers.join(" / ")}</div>
           )}
+        </div>
+      )}
+
+      {/* ★A1-13: 複数日 safety journal の stability（derived summary 由来・raw 値なし）。 */}
+      {stability && (
+        <div data-testid="dogfood-stability" className="mt-1.5 text-[11px]">
+          <span className="text-slate-400">複数日:</span>{" "}
+          <b
+            className={
+              stability.stability === "stable_safe"
+                ? "text-emerald-600"
+                : stability.stability === "unstable"
+                  ? "text-rose-600"
+                  : "text-slate-500"
+            }
+          >
+            {stability.stability}
+          </b>
+          <span className="text-slate-400">
+            （{stability.daysObserved}日観測・懸念{stability.daysWithConcern}日）
+          </span>
         </div>
       )}
     </div>

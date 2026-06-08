@@ -82,6 +82,7 @@ import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
 import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
 import { buildPaceActivationReadiness } from "@/lib/plan/mobility/paceActivationReadiness";
 import { buildPersonalPaceDogfoodReadiness, summarizeCaptureQuality, type PersonalPaceDogfoodReadiness } from "@/lib/plan/mobility/personalPaceDogfoodReadiness";
+import { recordDogfoodObservation, summarizeShadowToObservation, assessDogfoodStability, loadDogfoodJournal, type DogfoodStabilityAssessment } from "@/lib/plan/mobility/dogfoodSafetyJournal";
 import { loadPaceCaptureOptInState } from "@/lib/plan/mobility/paceCaptureOptIn";
 import { runPaceShadowActivation, isPaceShadowActivationEnabled, type PaceShadowActivationReport } from "@/lib/plan/mobility/paceShadowActivation";
 import { PaceShadowReportPanel } from "@/components/plan/PaceShadowReportPanel";
@@ -301,12 +302,14 @@ export function CalendarTab({
   //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
   //   ready のとき shadow 比較（OFF/ON）を走らせ structured 差分を **A1-9 dogfood debug panel** に保持（flag ON のみ描画）。
   const [shadowReport, setShadowReport] = useState<PaceShadowActivationReport | null>(null);
-  // ★A1-11: dogfood activation 前チェック集約（dev のみ・report に表示）。
+  // ★A1-11: dogfood activation 前チェック集約 / A1-13: safety journal 記録 + 複数日 stability（dev のみ）。
   const [dogfoodReadiness, setDogfoodReadiness] = useState<PersonalPaceDogfoodReadiness | null>(null);
+  const [dogfoodStability, setDogfoodStability] = useState<DogfoodStabilityAssessment | null>(null);
   useEffect(() => {
     if (!isPaceShadowActivationEnabled() || !rehearsalInput) {
       setShadowReport(null); // OFF/非 dev: パネルも出さない
       setDogfoodReadiness(null);
+      setDogfoodStability(null);
       return;
     }
     const store = loadMovementEventStore();
@@ -321,14 +324,26 @@ export function CalendarTab({
     });
     const report = runPaceShadowActivation({ rehearsalInput, ratios, resolvePace });
     setShadowReport(report);
-    setDogfoodReadiness(
-      buildPersonalPaceDogfoodReadiness({
-        readiness: buildPaceActivationReadiness(ratios),
-        shadowReport: report,
-        optInState: loadPaceCaptureOptInState(),
-        captureQuality: summarizeCaptureQuality(store),
-      }),
-    );
+    const readiness = buildPaceActivationReadiness(ratios);
+    const dogfood = buildPersonalPaceDogfoodReadiness({
+      readiness,
+      shadowReport: report,
+      optInState: loadPaceCaptureOptInState(),
+      captureQuality: summarizeCaptureQuality(store),
+    });
+    setDogfoodReadiness(dogfood);
+    // ★A1-13: shadow が走った日だけ derived summary を safety journal に記録（raw 値なし・冪等）+ 複数日 stability 判定。
+    if (report.ran) {
+      recordDogfoodObservation(
+        summarizeShadowToObservation({
+          date: selectedDate,
+          shadowReport: report,
+          dogfoodReadiness: dogfood,
+          activationCandidatePresent: readiness.readyForActivationCount > 0,
+        }),
+      );
+    }
+    setDogfoodStability(assessDogfoodStability(loadDogfoodJournal()));
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
@@ -672,7 +687,7 @@ export function CalendarTab({
               <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} />
               {/* ★A1-9 dogfood/dev 限定 shadow report（isPaceShadowActivationEnabled=flag∧非 production のときだけ・一般ユーザー非表示・raw 数値なし）。 */}
               {isPaceShadowActivationEnabled() && shadowReport && (
-                <PaceShadowReportPanel report={shadowReport} dogfoodReadiness={dogfoodReadiness} />
+                <PaceShadowReportPanel report={shadowReport} dogfoodReadiness={dogfoodReadiness} stability={dogfoodStability} />
               )}
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
