@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildShadowRanking } from "@/lib/plan/compose/placeAffinityShadowRanking";
+import { buildShadowRanking, shadowInputsFromDisplayOrder } from "@/lib/plan/compose/placeAffinityShadowRanking";
 import type { CombinerInput } from "@/lib/plan/compose/placeAffinityCombiner";
 import type { PlaceAffinityReadiness, PlaceVisitStrength } from "@/lib/plan/compose/placeAffinityReadiness";
 
@@ -42,5 +42,22 @@ describe("buildShadowRanking — 適用しない検証", () => {
   it("★出力に座標/住所/raw 値を含まない（placeKey と count のみ）", () => {
     const joined = JSON.stringify(buildShadowRanking([inp("x", 1.0)], { p2: p2([{ placeKey: "x", strength: "habitual" }]) }));
     expect(joined).not.toMatch(/lat|lng|coord|address|住所/);
+  });
+});
+
+describe("shadowInputsFromDisplayOrder — P6-0", () => {
+  it("★表示順 → generalScore は上位ほど高い（n-index）", () => {
+    const r = shadowInputsFromDisplayOrder(["a", "b", "c"]);
+    expect(r).toEqual([
+      { placeKey: "a", generalScore: 3 },
+      { placeKey: "b", generalScore: 2 },
+      { placeKey: "c", generalScore: 1 },
+    ]);
+  });
+  it("★round-trip: 表示順をそのまま shadow にかけても personal なしなら順序不変", () => {
+    const inputs = shadowInputsFromDisplayOrder(["a", "b"]);
+    const r = buildShadowRanking(inputs, { p2: p2([], "not_enough") });
+    expect(r.combinedOrder).toEqual(["a", "b"]);
+    expect(r.orderChanged).toBe(false);
   });
 });

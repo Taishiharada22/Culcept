@@ -73,3 +73,12 @@ export function buildShadowRanking(
     personalAppliedCount: combined.filter((c) => c.personalApplied).length,
   };
 }
+
+/**
+ * ★P6-0: 現在の表示順（placeKey 列）→ shadow 用 CombinerInput[]（generalScore = 表示順の逆＝上位ほど高い）。pure。
+ *   「今の候補順を personal がどう並べ替えるか」を shadow するための baseline。
+ */
+export function shadowInputsFromDisplayOrder(orderedKeys: readonly string[]): CombinerInput[] {
+  const n = orderedKeys.length;
+  return orderedKeys.map((placeKey, i) => ({ placeKey, generalScore: n - i }));
+}
