@@ -98,7 +98,10 @@ import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 import { useGpsAutoCapture } from "@/lib/plan/mobility/useGpsAutoCapture";
 import { DAY_REHEARSAL_GPS_CAPTURE_ENABLED, type CaptureLegContext } from "@/lib/plan/mobility/gpsAutoCaptureCore";
 import { GpsArrivalPrompt } from "@/components/plan/map/GpsArrivalPrompt";
-import { getEffectiveOptInState, readLocationOptIn, type LocationOptInState } from "@/lib/alter-morning/journey/locationOptIn";
+import { PaceCaptureOptInBanner } from "@/components/plan/map/PaceCaptureOptInBanner";
+// ★A1-7: pace capture 専用の明示 opt-in（汎用 location opt-in と分離・informed consent）
+import { loadPaceCaptureOptInState, markPaceCaptureGranted, markPaceCaptureDeclined } from "@/lib/plan/mobility/paceCaptureOptIn";
+import type { LocationOptInState } from "@/lib/alter-morning/journey/locationOptIn";
 import { subscribeGeolocationPermissionState, type GeolocationPermissionState } from "@/lib/alter-morning/journey/permissionState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
@@ -553,14 +556,24 @@ export function MapTab({
     [dayKey],
   );
 
-  // ★A1-6b GPS 自動捕捉（安全版・flag DAY_REHEARSAL_GPS_CAPTURE_ENABLED **default OFF**）。
-  //   OFF: subscribe もせず hook も sampling しない＝完全 no-op（既存挙動不変）。ON は dev smoke 用のみ。
+  // ★A1-6b/A1-7 GPS 自動捕捉（安全版・flag DAY_REHEARSAL_GPS_CAPTURE_ENABLED **default OFF**）。
+  //   OFF: subscribe もせず hook も sampling もしない＝完全 no-op（既存挙動不変）。ON は dev smoke/activation 用。
+  //   ★A1-7: gate の opt-in は **pace capture 専用**（汎用 location opt-in でなく・informed consent）。
   const [gpsPermission, setGpsPermission] = useState<GeolocationPermissionState>("prompt");
   const [gpsOptIn, setGpsOptIn] = useState<LocationOptInState>("not_asked");
   useEffect(() => {
     if (!DAY_REHEARSAL_GPS_CAPTURE_ENABLED) return; // ★flag OFF: 何も購読しない
-    setGpsOptIn(getEffectiveOptInState(readLocationOptIn()));
+    setGpsOptIn(loadPaceCaptureOptInState());
     return subscribeGeolocationPermissionState(setGpsPermission);
+  }, []);
+  // ★A1-7 opt-in 導線: 明示同意/取り消し（pace capture 専用 store・即 gpsOptIn 反映）。
+  const handlePaceCaptureGrant = useCallback(() => {
+    markPaceCaptureGranted();
+    setGpsOptIn("granted");
+  }, []);
+  const handlePaceCaptureDecline = useCallback(() => {
+    markPaceCaptureDeclined();
+    setGpsOptIn("declined");
   }, []);
   // day の各 leg を pure core 用 CaptureLegContext 化（sensitive/readOnly/coords/odKey/mode/estimate[best-effort]）。
   const { captureLegs, captureTitles } = useMemo(() => {
@@ -687,6 +700,13 @@ export function MapTab({
           onDismiss={gpsCapture.dismiss}
         />
       )}
+      {/* ★A1-7 opt-in 導線: flag ON ∧ 未回答 ∧ 記録対象 leg が今日ある ときだけ控えめに表示。
+          sensitive/readOnly のみの日では出さない（capturable leg 判定）。flag OFF では非表示＝既存不変。 */}
+      {DAY_REHEARSAL_GPS_CAPTURE_ENABLED &&
+        gpsOptIn === "not_asked" &&
+        captureLegs.some((l) => !l.sensitive && !l.readOnly && l.fromCoord && l.toCoord) && (
+          <PaceCaptureOptInBanner onGrant={handlePaceCaptureGrant} onDecline={handlePaceCaptureDecline} />
+        )}
     </div>
   );
 }
