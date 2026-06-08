@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity P5.2 weather 条件付き reason-only main 着地（最優先・順位不変・flag OFF・自律）[承認: GPT 自律方針]
+
+- **P5.2（`0dc0ad4c`）**: P5.1 の条件に **weather を最優先**で追加。場所候補に「雨/雪/荒天/暑い/寒い の日に選ばれやすい場所のようです」を控えめに（無ければ timeband>weekday>P2 へ fallback）。
+- 実装: `PlaceCandidatesPanel` で `useTodayWeather`(A2-6 既存・**新規 API/DB なし**)→ weather condition を conditions **先頭** push（label 付き rain/snow/storm/heat/cold のみ・normal/null 沈黙）。文言/helper は P5.1 で weather 対応済。優先順 **weather>timeband>weekday>revealed(P2)**。
+- **★安全**: ranking 変更なし・flag OFF→null＝完全不変・既存 A2 weather 再利用(新規 API/DB/data なし)・raw weather/temp/precip/officeCode/score/内部値 非表示・人格診断なし・sensitive 除外・sparse 沈黙。reasonUi 14 tests・tsc footprint 0・node_modules 0・server-health smoke PASS(flag ON→Ready 4.6s/307)。
+- **★自律進行(GPT 方針)**: P5.2 は CEO 確認なしで audit→実装→tests/tsc→server-health→flag OFF 着地→docs を自律完遂。次は P5.3 候補(reason 安定化/shadow ranking 検証 pure 等)を自律精査。ranking 実反映/production/DB/external/予約/通知/Reality apply は stop gate。
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P5.1 条件付き reason-only main 着地（順位不変・flag OFF・条件付き smoke PASS）[承認: CEO/GPT 条件付き smoke PASS]
 
 - **P5.1（`1de98aff`）**: P5 案A を P3 条件付きに拡張。場所候補に「**この時間帯に選ばれやすい場所のようです**」「平日/週末に選ばれやすい場所のようです」を控えめに添える（無ければ無条件「よく行く」に fallback）。
