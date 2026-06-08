@@ -49,8 +49,18 @@ export type DailyUpkeepCategoryId =
   | "groceries" // 食料品の買い物
   | "daily_necessities"; // 日用品の補充
 
+/** お金・契約・事務群（A.6 群 4・期限もの）。期日からの逆算（deadline model）。recurring(家賃/クレカ/サブスク)は後続。 */
+export type MoneyAdminCategoryId =
+  | "license_renewal" // 免許の更新
+  | "passport_renewal" // パスポートの更新
+  | "tax_filing"; // 確定申告
+
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
-export type LifeOpsCategoryId = BodyAppearanceCategoryId | PreEventPrepCategoryId | DailyUpkeepCategoryId;
+export type LifeOpsCategoryId =
+  | BodyAppearanceCategoryId
+  | PreEventPrepCategoryId
+  | DailyUpkeepCategoryId
+  | MoneyAdminCategoryId;
 
 /**
  * 既定実行レベル上限の **ヒント**（A.5 L0–L5 の段階）。**正本ではない**:
@@ -122,8 +132,18 @@ const DAILY_UPKEEP: readonly LifeOpsCategorySpec[] = [
   { id: "daily_necessities", group: "daily_upkeep", label: "日用品の補充", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "ドラッグストア", mvp: false },
 ];
 
+/**
+ * お金・契約・事務群（A.6 群 4・A.8）。**期限もの**（期日からの逆算＝deadline model・cyclic=false）。
+ *   L1（通知中心・A.8「家賃/税金=通知確認のみ」）。recurring（家賃/クレカ/サブスク）は後続。
+ */
+const MONEY_ADMIN: readonly LifeOpsCategorySpec[] = [
+  { id: "license_renewal", group: "money_admin", label: "免許の更新", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "passport_renewal", group: "money_admin", label: "パスポートの更新", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "tax_filing", group: "money_admin", label: "確定申告", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+];
+
 /** 全カテゴリ（群横断・定義順）。 */
-const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP];
+const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN];
 
 /** カテゴリ id → spec（正本辞書）。 */
 export const LIFE_OPS_CATEGORY_MODEL: Record<LifeOpsCategoryId, LifeOpsCategorySpec> = Object.fromEntries(

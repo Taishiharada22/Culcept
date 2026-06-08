@@ -45,8 +45,16 @@ export interface EventPrepDueReason {
   readonly recommendedLeadDays: number; // イベントの何日前が自然か（馴染み等）
 }
 
-/** due 根拠の union（周期 or イベント前）。 */
-export type DueReason = CycleDueReason | EventPrepDueReason;
+/** 事務の期限もの due 根拠（**事実のみ**・期日からの逆算）。 */
+export interface DeadlineDueReason {
+  readonly kind: "deadline";
+  readonly daysUntilDeadline: number;
+  readonly leadDays: number;
+  readonly overdue: boolean; // 期日超過（事実・断定でない）
+}
+
+/** due 根拠の union（周期 / イベント前 / 期限）。 */
+export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason;
 
 /** §4 candidate（縦⇄横 seam・横が配置/trigger/場所解決する入力）。 */
 export interface LifeOpsCandidate {
@@ -59,7 +67,9 @@ export interface LifeOpsCandidate {
   readonly riskFlags: readonly LifeOpsRiskFlag[];
 }
 
-/** dueReason 横断で経過段階を取り出す（cycle.phase / event_prep.cyclePhase）。one-shot 準備は周期なし→undefined。 */
+/** dueReason 横断で経過段階を取り出す（cycle.phase / event_prep.cyclePhase）。one-shot 準備/期限は周期なし→undefined。 */
 export function dueReasonPhase(d: DueReason): CadencePhase | undefined {
-  return d.kind === "cycle" ? d.phase : d.cyclePhase;
+  if (d.kind === "cycle") return d.phase;
+  if (d.kind === "event_prep") return d.cyclePhase;
+  return undefined; // deadline は経過段階の概念なし
 }

@@ -20,17 +20,17 @@ const COSMETIC = ["beauty_salon", "eyebrow", "nail", "eyelash", "hair_removal", 
 
 describe("L-1 カテゴリ模型 — 構造", () => {
   it("各 spec は label 非空・id は辞書 key と一致・group は既定群", () => {
-    const GROUPS = new Set(["body_appearance", "pre_event_prep", "daily_upkeep"]); // L-1 で spec 定義済の群
+    const GROUPS = new Set(["body_appearance", "pre_event_prep", "daily_upkeep", "money_admin"]); // L-1 で spec 定義済の群
     for (const s of listCategories()) {
       expect(GROUPS.has(s.group)).toBe(true);
       expect(s.label.length).toBeGreaterThan(0);
       expect(LIFE_OPS_CATEGORY_MODEL[s.id]).toBe(s);
     }
   });
-  it("辞書と一覧は同数（17 = 身体外見10 + 予定前準備5 + 生活維持2・重複なし）", () => {
+  it("辞書と一覧は同数（20 = 身体外見10 + 予定前準備5 + 生活維持2 + 事務3・重複なし）", () => {
     const ids = listCategories().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(17);
+    expect(ids).toHaveLength(20);
     expect(Object.keys(LIFE_OPS_CATEGORY_MODEL)).toHaveLength(ids.length);
   });
   it("defaultMaxLevelHint は L0–L5 のいずれか", () => {
@@ -92,16 +92,18 @@ describe("L-1 helper — runtime 防御", () => {
     expect(getCategorySpec("")).toBeUndefined();
     expect(isHealthSensitive("unknown_xyz")).toBe(false);
   });
-  it("listByGroup: body_appearance=10 / pre_event_prep=5 / daily_upkeep=2 / 未定義群は空", () => {
+  it("listByGroup: body_appearance=10 / pre_event_prep=5 / daily_upkeep=2 / money_admin=3 / 未定義群は空", () => {
     expect(listByGroup("body_appearance")).toHaveLength(10);
     expect(listByGroup("pre_event_prep")).toHaveLength(5);
     expect(listByGroup("daily_upkeep")).toHaveLength(2);
-    expect(listByGroup("money_admin")).toEqual([]);
+    expect(listByGroup("money_admin")).toHaveLength(3);
+    expect(listByGroup("relationship")).toEqual([]); // 未定義群
   });
-  it("cyclic: 身体外見メンテ/生活維持=true（周期）/ 予定前準備=false（one-shot）", () => {
+  it("cyclic: 身体外見メンテ/生活維持=true（周期）/ 予定前準備/事務=false（one-shot/期限）", () => {
     for (const s of listByGroup("body_appearance")) expect(s.cyclic).toBe(true);
     for (const s of listByGroup("daily_upkeep")) expect(s.cyclic).toBe(true);
     for (const s of listByGroup("pre_event_prep")) expect(s.cyclic).toBe(false);
+    for (const s of listByGroup("money_admin")) expect(s.cyclic).toBe(false);
   });
   it("daily_upkeep（買い物/日用品）は L2・placeQuery あり・risk なし", () => {
     const groceries = getCategorySpec("groceries")!;
