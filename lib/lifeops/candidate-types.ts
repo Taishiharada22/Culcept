@@ -40,7 +40,8 @@ export interface EventPrepDueReason {
   readonly kind: "event_prep";
   readonly eventKind: EventKind;
   readonly daysUntilEvent: number;
-  readonly cyclePhase: CadencePhase; // 美容: nearing 前倒し対象
+  /** 周期行動の前倒し（L-4(a)）のみ nearing をセット。one-shot 準備（L-4(b)）は周期がなく **省略**。 */
+  readonly cyclePhase?: CadencePhase;
   readonly recommendedLeadDays: number; // イベントの何日前が自然か（馴染み等）
 }
 
@@ -58,7 +59,7 @@ export interface LifeOpsCandidate {
   readonly riskFlags: readonly LifeOpsRiskFlag[];
 }
 
-/** dueReason 横断で経過段階を取り出す（cycle.phase / event_prep.cyclePhase）。 */
-export function dueReasonPhase(d: DueReason): CadencePhase {
+/** dueReason 横断で経過段階を取り出す（cycle.phase / event_prep.cyclePhase）。one-shot 準備は周期なし→undefined。 */
+export function dueReasonPhase(d: DueReason): CadencePhase | undefined {
   return d.kind === "cycle" ? d.phase : d.cyclePhase;
 }

@@ -14,7 +14,7 @@
  *   - **横エンジン（lib/plan/reality/*）非 import**。横 R2/R4・Morning Briefing・Moment Trigger・UI・通知・外部・予約 非接触。
  */
 
-import { getCategorySpec, type LifeOpsCategoryId } from "./category-model";
+import { getCategorySpec, type LifeOpsCategoryId, type PreEventPrepCategoryId } from "./category-model";
 import { getCadenceSpec, computeCadenceStatus, daysBetween, cadenceKey, type BeautyMenu } from "./cadence-model";
 import type { CadenceObservation, EventKind, LifeOpsCandidate } from "./candidate-types";
 
@@ -110,6 +110,77 @@ export function generateEventPrepCandidates(
     });
   }
   // 差し迫った順（daysUntil 昇順・決定的・安定）
+  return out
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => {
+      const da = a.c.dueReason.kind === "event_prep" ? a.c.dueReason.daysUntilEvent : 0;
+      const db = b.c.dueReason.kind === "event_prep" ? b.c.dueReason.daysUntilEvent : 0;
+      return da !== db ? da - db : a.i - b.i;
+    })
+    .map((x) => x.c);
+}
+
+// ── L-4(b) イベント固有 one-shot 準備（cadence 無関係・周期なし・外見フィルタなし）──
+
+/** イベント種 → one-shot 準備カテゴリ（MVP マップ）。全 EventKind を網羅。 */
+const EVENT_PREP_MAP: Record<EventKind, readonly PreEventPrepCategoryId[]> = {
+  interview: ["outfit_prep", "document_prep"],
+  trip: ["packing", "ticket_hotel_check"],
+  business_trip: ["packing", "ticket_hotel_check", "document_prep"],
+  ceremony: ["outfit_prep", "belongings_check"],
+  shoot: ["outfit_prep"],
+  important_event: ["outfit_prep"],
+  meeting_someone: [], // 手土産は文脈依存・MVP 除外（gift は birthday イベント種と共に後続）
+};
+
+/** one-shot 準備の自然なリード日（MVP・固定・イベント直前ほど短い）。 */
+const ONESHOT_LEAD_DAYS: Record<PreEventPrepCategoryId, number> = {
+  ticket_hotel_check: 5,
+  packing: 2,
+  outfit_prep: 2,
+  document_prep: 2,
+  belongings_check: 1,
+};
+
+/**
+ * L-4(b): 注入イベント → one-shot 準備候補（pure・nowISO 注入）。
+ *   イベント種→準備マップ。**cadence 無関係**（cyclePhase なし）。**外見フィルタなし**（business_trip も対象）。
+ *   同 category は **daysUntil 最小**の event を採用（dedupe）。出力は daysUntil 昇順（安定）。
+ */
+export function generateOneshotPrepCandidates(
+  events: readonly UpcomingEvent[],
+  nowISO: string
+): readonly LifeOpsCandidate[] {
+  // category → 最も近い適格イベント（近接 0..HORIZON・過去/不正除外）
+  const nearestByCategory = new Map<PreEventPrepCategoryId, { kind: EventKind; daysUntil: number }>();
+  for (const e of events) {
+    const d = daysBetween(nowISO, e.startISO);
+    if (d === null || d < 0 || d > EVENT_HORIZON_DAYS) continue;
+    for (const catId of EVENT_PREP_MAP[e.kind]) {
+      const prev = nearestByCategory.get(catId);
+      if (!prev || d < prev.daysUntil) nearestByCategory.set(catId, { kind: e.kind, daysUntil: d });
+    }
+  }
+  const out: LifeOpsCandidate[] = [];
+  for (const [catId, ev] of nearestByCategory) {
+    const cat = getCategorySpec(catId);
+    if (!cat) continue; // 防御（L-1 未定義）
+    out.push({
+      category: cat.id,
+      menu: null,
+      dueReason: {
+        kind: "event_prep",
+        eventKind: ev.kind,
+        daysUntilEvent: ev.daysUntil,
+        recommendedLeadDays: ONESHOT_LEAD_DAYS[catId],
+        // cyclePhase は省略（one-shot は周期なし）
+      },
+      suggestedWindow: null,
+      placeQuery: cat.placeQueryHint,
+      permissionLevelHint: cat.defaultMaxLevelHint,
+      riskFlags: cat.typicalRiskFlags,
+    });
+  }
   return out
     .map((c, i) => ({ c, i }))
     .sort((a, b) => {

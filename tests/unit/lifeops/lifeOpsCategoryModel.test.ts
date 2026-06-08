@@ -1,6 +1,6 @@
 /**
  * Life Ops L-1 — 生活行動カテゴリ模型（pure 辞書）。
- *   body_appearance 群・MVP=美容院/眉のみ・level は L0–L5・health_sensitive は医療4つだけ・runtime 防御。
+ *   body_appearance 10 + pre_event_prep 5・MVP=美容院/眉のみ・level は L0–L5・health_sensitive は医療4つだけ・runtime 防御。
  */
 import { describe, it, expect } from "vitest";
 import {
@@ -19,16 +19,18 @@ const MEDICAL = ["dental", "health_check", "eye_care", "medication"];
 const COSMETIC = ["beauty_salon", "eyebrow", "nail", "eyelash", "hair_removal", "bodywork"];
 
 describe("L-1 カテゴリ模型 — 構造", () => {
-  it("全 spec が body_appearance 群・label 日本語非空・id は辞書 key と一致", () => {
+  it("各 spec は label 非空・id は辞書 key と一致・group は既定群", () => {
+    const GROUPS = new Set(["body_appearance", "pre_event_prep"]); // L-1 で spec 定義済の群
     for (const s of listCategories()) {
-      expect(s.group).toBe("body_appearance");
+      expect(GROUPS.has(s.group)).toBe(true);
       expect(s.label.length).toBeGreaterThan(0);
       expect(LIFE_OPS_CATEGORY_MODEL[s.id]).toBe(s);
     }
   });
-  it("辞書と一覧は同数（10 カテゴリ・重複なし）", () => {
+  it("辞書と一覧は同数（15 = 身体外見10 + 予定前準備5・重複なし）", () => {
     const ids = listCategories().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toHaveLength(15);
     expect(Object.keys(LIFE_OPS_CATEGORY_MODEL)).toHaveLength(ids.length);
   });
   it("defaultMaxLevelHint は L0–L5 のいずれか", () => {
@@ -90,12 +92,14 @@ describe("L-1 helper — runtime 防御", () => {
     expect(getCategorySpec("")).toBeUndefined();
     expect(isHealthSensitive("unknown_xyz")).toBe(false);
   });
-  it("listByGroup(body_appearance) は全件・他群は空", () => {
-    expect(listByGroup("body_appearance")).toHaveLength(listCategories().length);
+  it("listByGroup: body_appearance=10 / pre_event_prep=5 / 未定義群は空", () => {
+    expect(listByGroup("body_appearance")).toHaveLength(10);
+    expect(listByGroup("pre_event_prep")).toHaveLength(5);
     expect(listByGroup("money_admin")).toEqual([]);
   });
-  it("cyclic は身体外見メンテ群で全て true（周期管理し得る・cadence は L-2）", () => {
-    for (const s of listCategories()) expect(s.cyclic).toBe(true);
+  it("cyclic: 身体外見メンテ=true（周期管理し得る）/ 予定前準備=false（one-shot）", () => {
+    for (const s of listByGroup("body_appearance")) expect(s.cyclic).toBe(true);
+    for (const s of listByGroup("pre_event_prep")) expect(s.cyclic).toBe(false);
   });
 });
 

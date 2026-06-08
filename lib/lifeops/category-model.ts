@@ -36,8 +36,16 @@ export type BodyAppearanceCategoryId =
   | "eye_care"
   | "medication";
 
+/** 予定前準備群（A.6 群 3・L-4(b)）。周期のない one-shot 準備。 */
+export type PreEventPrepCategoryId =
+  | "outfit_prep" // 服の準備
+  | "document_prep" // 資料の準備
+  | "packing" // 荷造り
+  | "ticket_hotel_check" // チケット・宿の確認
+  | "belongings_check"; // 持ち物の確認
+
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
-export type LifeOpsCategoryId = BodyAppearanceCategoryId;
+export type LifeOpsCategoryId = BodyAppearanceCategoryId | PreEventPrepCategoryId;
 
 /**
  * 既定実行レベル上限の **ヒント**（A.5 L0–L5 の段階）。**正本ではない**:
@@ -88,29 +96,44 @@ const BODY_APPEARANCE: readonly LifeOpsCategorySpec[] = [
   { id: "medication", group: "body_appearance", label: "薬・サプリ補充", cyclic: true, defaultMaxLevelHint: "L1", typicalRiskFlags: ["health_sensitive"], placeQueryHint: null, mvp: false },
 ];
 
+/**
+ * 予定前準備群（A.6 群 3・L-4(b)）。**one-shot 準備**（周期なし・cyclic=false）。
+ *   全て L1（リマインド中心）・購入/店舗検索なし（placeQueryHint=null）。「買う」導線は L-6（CEO ゲート）。
+ */
+const PRE_EVENT_PREP: readonly LifeOpsCategorySpec[] = [
+  { id: "outfit_prep", group: "pre_event_prep", label: "服の準備", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "document_prep", group: "pre_event_prep", label: "資料の準備", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "packing", group: "pre_event_prep", label: "荷造り", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "ticket_hotel_check", group: "pre_event_prep", label: "チケット・宿の確認", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "belongings_check", group: "pre_event_prep", label: "持ち物の確認", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+];
+
+/** 全カテゴリ（群横断・定義順）。 */
+const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP];
+
 /** カテゴリ id → spec（正本辞書）。 */
 export const LIFE_OPS_CATEGORY_MODEL: Record<LifeOpsCategoryId, LifeOpsCategorySpec> = Object.fromEntries(
-  BODY_APPEARANCE.map((s) => [s.id, s])
+  ALL_CATEGORIES.map((s) => [s.id, s])
 ) as Record<LifeOpsCategoryId, LifeOpsCategorySpec>;
 
 /** id → spec（runtime 防御: 未知 id は undefined）。 */
 export function getCategorySpec(id: string): LifeOpsCategorySpec | undefined {
-  return BODY_APPEARANCE.find((s) => s.id === id);
+  return ALL_CATEGORIES.find((s) => s.id === id);
 }
 
 /** 全カテゴリ（定義順）。 */
 export function listCategories(): readonly LifeOpsCategorySpec[] {
-  return BODY_APPEARANCE;
+  return ALL_CATEGORIES;
 }
 
 /** MVP 対象のみ（A.9: 美容院・眉）。 */
 export function listMvpCategories(): readonly LifeOpsCategorySpec[] {
-  return BODY_APPEARANCE.filter((s) => s.mvp);
+  return ALL_CATEGORIES.filter((s) => s.mvp);
 }
 
-/** group で絞り込む（将来の群拡張に備えた汎用 helper）。 */
+/** group で絞り込む（群拡張に備えた汎用 helper）。 */
 export function listByGroup(group: LifeOpsCategoryGroup): readonly LifeOpsCategorySpec[] {
-  return BODY_APPEARANCE.filter((s) => s.group === group);
+  return ALL_CATEGORIES.filter((s) => s.group === group);
 }
 
 /** 医療/健康センシティブか（後続の医学的助言/自動提案抑止の判定用）。未知 id は false。 */

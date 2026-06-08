@@ -73,7 +73,7 @@ export function generateLifeOpsCandidates(
   return out
     .map((c, i) => ({ c, i }))
     .sort((a, b) => {
-      const r = (PHASE_RANK[dueReasonPhase(b.c.dueReason)] ?? 0) - (PHASE_RANK[dueReasonPhase(a.c.dueReason)] ?? 0);
+      const r = (PHASE_RANK[dueReasonPhase(b.c.dueReason) ?? ""] ?? 0) - (PHASE_RANK[dueReasonPhase(a.c.dueReason) ?? ""] ?? 0);
       if (r !== 0) return r;
       const u = urgencyRatio(b.c) - urgencyRatio(a.c);
       return u !== 0 ? u : a.i - b.i; // 同点は元順（安定）

@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   generateEventPrepCandidates,
+  generateOneshotPrepCandidates,
   type UpcomingEvent,
 } from "@/lib/lifeops/event-preparation";
 import type { CadenceObservation } from "@/lib/lifeops/candidate-types";
@@ -79,5 +80,71 @@ describe("L-4 dedupe / ソート", () => {
     const e = [meetingIn5];
     const o = [obsCutNearing];
     expect(generateEventPrepCandidates(e, o, NOW)).toEqual(generateEventPrepCandidates(e, o, NOW));
+  });
+});
+
+// ── L-4(b) one-shot 準備（cadence 無関係・イベント種→準備マップ）──
+describe("L-4(b) generateOneshotPrepCandidates — イベント種→準備マップ", () => {
+  it("interview → 服 + 資料", () => {
+    const out = generateOneshotPrepCandidates([{ kind: "interview", startISO: "2026-06-16" }], NOW);
+    expect(out.map((c) => c.category).sort()).toEqual(["document_prep", "outfit_prep"]);
+  });
+  it("trip → 荷造り + チケット宿確認", () => {
+    const out = generateOneshotPrepCandidates([{ kind: "trip", startISO: "2026-06-15" }], NOW);
+    expect(out.map((c) => c.category).sort()).toEqual(["packing", "ticket_hotel_check"]);
+  });
+  it("ceremony → 服 + 持ち物確認", () => {
+    const out = generateOneshotPrepCandidates([{ kind: "ceremony", startISO: "2026-06-19" }], NOW);
+    expect(out.map((c) => c.category).sort()).toEqual(["belongings_check", "outfit_prep"]);
+  });
+  it("business_trip も対象（外見フィルタなし）→ 荷造り/宿確認/資料", () => {
+    const out = generateOneshotPrepCandidates([{ kind: "business_trip", startISO: "2026-06-17" }], NOW);
+    expect(out.map((c) => c.category).sort()).toEqual(["document_prep", "packing", "ticket_hotel_check"]);
+  });
+  it("meeting_someone → 空（手土産は MVP 除外）", () => {
+    expect(generateOneshotPrepCandidates([{ kind: "meeting_someone", startISO: "2026-06-16" }], NOW)).toEqual([]);
+  });
+});
+
+describe("L-4(b) candidate 内容 / 近接フィルタ", () => {
+  it("dueReason=event_prep・cyclePhase なし・L1・placeQuery null・menu null", () => {
+    const out = generateOneshotPrepCandidates([{ kind: "interview", startISO: "2026-06-16" }], NOW);
+    const outfit = out.find((c) => c.category === "outfit_prep")!;
+    expect(outfit.menu).toBeNull();
+    expect(outfit.placeQuery).toBeNull();
+    expect(outfit.permissionLevelHint).toBe("L1");
+    expect(outfit.riskFlags).toEqual([]);
+    expect(outfit.dueReason.kind).toBe("event_prep");
+    if (outfit.dueReason.kind === "event_prep") {
+      expect(outfit.dueReason.eventKind).toBe("interview");
+      expect(outfit.dueReason.daysUntilEvent).toBe(4);
+      expect(outfit.dueReason.cyclePhase).toBeUndefined(); // one-shot は周期なし
+      expect(outfit.dueReason.recommendedLeadDays).toBe(2);
+    }
+  });
+  it("HORIZON超（15日先）/ 過去 → 出さない", () => {
+    expect(generateOneshotPrepCandidates([{ kind: "trip", startISO: "2026-06-27" }], NOW)).toEqual([]);
+    expect(generateOneshotPrepCandidates([{ kind: "trip", startISO: "2026-06-01" }], NOW)).toEqual([]);
+  });
+  it("空イベント → 空", () => {
+    expect(generateOneshotPrepCandidates([], NOW)).toEqual([]);
+  });
+});
+
+describe("L-4(b) dedupe / ソート", () => {
+  it("同 category 複数イベント → daysUntil 最小・出力は昇順", () => {
+    const out = generateOneshotPrepCandidates(
+      [
+        { kind: "trip", startISO: "2026-06-15" }, // 3日 → packing, ticket_hotel_check
+        { kind: "business_trip", startISO: "2026-06-17" }, // 5日 → packing, ticket_hotel_check, document_prep
+      ],
+      NOW,
+    );
+    expect(out.map((c) => c.category)).toEqual(["packing", "ticket_hotel_check", "document_prep"]); // 3,3,5
+    const packing = out.find((c) => c.category === "packing")!;
+    if (packing.dueReason.kind === "event_prep") {
+      expect(packing.dueReason.daysUntilEvent).toBe(3); // nearest
+      expect(packing.dueReason.eventKind).toBe("trip");
+    }
   });
 });
