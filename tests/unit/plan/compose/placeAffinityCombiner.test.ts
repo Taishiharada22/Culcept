@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   combinePlaceAffinity,
+  scorePlaceCandidates,
   combinedPersonalReasonLine,
   DEFAULT_COMBINER_CONFIG,
   type CombinerInput,
@@ -86,5 +87,23 @@ describe("combinePlaceAffinity — 安定 / privacy", () => {
   it("★出力に座標/住所を含まない（placeKey と内部 score のみ）", () => {
     const joined = JSON.stringify(combinePlaceAffinity([inp("x", 1.0)], { p2: p2([{ placeKey: "x", strength: "habitual" }]) }));
     expect(joined).not.toMatch(/lat|lng|coord|address|住所/);
+  });
+});
+
+describe("scorePlaceCandidates — P6-1 入力順 score（未ソート）", () => {
+  it("★入力順を保つ（ソートしない）・combinedScore=general+nudge", () => {
+    const r = scorePlaceCandidates([inp("a", 0.9), inp("b", 0.8)], { p2: p2([{ placeKey: "b", strength: "habitual" }]) });
+    expect(r.map((x) => x.placeKey)).toEqual(["a", "b"]); // 入力順（ソートしない）
+    expect(r[0].combinedScore).toBe(0.9); // a: nudge 0
+    expect(r[1].combinedScore).toBeCloseTo(0.95); // b: +0.15
+  });
+  it("★未訪問は nudge 0（罰しない）・not_enough は全 0", () => {
+    expect(scorePlaceCandidates([inp("new", 1.0)], { p2: p2([{ placeKey: "known", strength: "habitual" }]) })[0].personalNudge).toBe(0);
+    expect(scorePlaceCandidates([inp("b", 0.8)], { p2: p2([{ placeKey: "b", strength: "habitual" }], "not_enough") })[0].personalNudge).toBe(0);
+  });
+  it("★combinePlaceAffinity と整合（scorePlaceCandidates を sort したもの）", () => {
+    const inputs = [inp("a", 0.9), inp("b", 0.8)];
+    const personal = { p2: p2([{ placeKey: "b", strength: "habitual" }]) };
+    expect(combinePlaceAffinity(inputs, personal).map((x) => x.placeKey)).toEqual(["b", "a"]); // sort 後
   });
 });

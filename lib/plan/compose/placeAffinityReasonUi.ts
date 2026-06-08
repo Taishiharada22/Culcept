@@ -28,6 +28,18 @@ export function isPlaceAffinityReasonEnabled(): boolean {
 }
 
 /**
+ * ★P6-1 ranking 実反映 flag（**default OFF**・reason-only とは独立）。
+ * ON で場所候補の **実順序** を combiner で穏やかに調整（familiar/condition-fit を上位へ・bounded）。
+ * 候補挙動が変わる user-facing なので dev-only + 別 flag。
+ */
+export const PLACE_AFFINITY_RANKING_ENABLED = false;
+
+/** 場所候補の順位を personal で調整してよいか（flag ON ∧ 非 production・default OFF）。 */
+export function isPlaceAffinityRankingEnabled(): boolean {
+  return PLACE_AFFINITY_RANKING_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+}
+
+/**
  * 候補の canonical text を P2 profiles と照合し、frequent/habitual なら観測 reason を返す（pure）。
  * ★順位に影響しない（reason のみ）。not_enough / 未訪問 / occasional → null（沈黙）。
  */

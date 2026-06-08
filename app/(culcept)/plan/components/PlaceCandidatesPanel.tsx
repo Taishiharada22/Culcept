@@ -41,7 +41,8 @@ import { rerankGoogleCandidatesByActivity } from "@/lib/plan/compose/placeCandid
 import { buildPlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
 import { buildPlaceConditionAffinity, placeConditionLabel, type PlaceCondition } from "@/lib/plan/compose/placeConditionAffinity";
 import { useTodayWeather } from "@/lib/plan/context/useTodayWeather";
-import { isPlaceAffinityReasonEnabled, placeCandidateBestReason } from "@/lib/plan/compose/placeAffinityReasonUi";
+import { isPlaceAffinityReasonEnabled, isPlaceAffinityRankingEnabled, placeCandidateBestReason } from "@/lib/plan/compose/placeAffinityReasonUi";
+import { scorePlaceCandidates } from "@/lib/plan/compose/placeAffinityCombiner";
 import { loadAllObservations, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { buildShadowRanking, shadowInputsFromDisplayOrder } from "@/lib/plan/compose/placeAffinityShadowRanking";
 
@@ -375,6 +376,28 @@ export function PlaceCandidatesPanel({
     });
   }, [displayListWithReason, placeAffinitySignals]);
 
+  // ── P6-1: ranking 実反映（別 flag・default OFF・dev-only）。familiar/condition-fit を **穏やかに** 上位へ。──
+  //   ★shadow(P6-0)と同じ signal(p2 + p3List[0])・bounded nudge≥0/clamp(未訪問を罰しない・general 勝者を覆さない)。
+  //   flag OFF/production → displayListWithReason のまま＝順位不変。reason は P5.x で「なぜ上位か」を説明。
+  const rankedDisplayList = useMemo(() => {
+    if (!isPlaceAffinityRankingEnabled() || !placeAffinitySignals || displayListWithReason.length === 0) {
+      return displayListWithReason;
+    }
+    const n = displayListWithReason.length;
+    const scores = scorePlaceCandidates(
+      displayListWithReason.map((d, i) => ({
+        placeKey: normalizeLocationText(formatCanonicalLocationText(d.candidate.name, d.candidate.address)) ?? "",
+        generalScore: n - i, // 現在の表示順を baseline に
+      })),
+      { p2: placeAffinitySignals.p2, p3: placeAffinitySignals.p3List[0] ?? null },
+    );
+    // combinedScore 降順・同点は現順序維持（安定）
+    return displayListWithReason
+      .map((d, i) => ({ d, score: scores[i].combinedScore, i }))
+      .sort((a, b) => b.score - a.score || a.i - b.i)
+      .map(({ d }) => d);
+  }, [displayListWithReason, placeAffinitySignals]);
+
   // ── handlers ──
   const handleSelect = (c: PlaceCandidate) => {
     abortRef.current?.abort();
@@ -523,7 +546,7 @@ export function PlaceCandidatesPanel({
       {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale) */}
       {!loading && results.length > 0 && (
         <ul className="space-y-1.5" data-testid="plan-place-candidates-list">
-          {displayListWithReason.map(({ candidate: c, typeReason, personalReason }) => (
+          {rankedDisplayList.map(({ candidate: c, typeReason, personalReason }) => (
             <li key={c.placeId}>
               <button
                 type="button"
