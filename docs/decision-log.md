@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-06-09 [Build] A2-6 weather 配線（JMA→context modifier）main 着地（隔離 route・全段 fail-open・dev/dogfood のみ）[承認: CEO 判断「weather 配線」]
+
+- **CEO 判断**: A2-6 weather 配線（audit→design→精査→実装）。
+- **audit（前提を疑う）**: jma.ts は **server-only**・/plan client に物理天気 cache 無し・month API は weather_daily を返すが client 未消費＝threading 侵襲的。→ **隔離した専用 route + flag-gated client hook** を選択（既存 route 不接触）。A2 は production hard block ゆえ dev/dogfood で動けば十分。
+- **実装（`8e570953`）**:
+  - `weatherMapping.ts`(pure): `weatherDailyToWeatherKind`→rain/heat/cold/normal（降水優先・**snow=cold で誤ラベル回避**・データ皆無→null）。9 tests。jma.ts 非依存（構造的入力）。
+  - `app/api/plan/today-weather/route.ts`(隔離 route): server auth→office code→`fetchJmaDailyForecast`→JST 今日を map→`{weather}`。★**全段 fail-open**（未認証/office 無/JMA 失敗/例外→`{weather:null}` 200）。出力は **category のみ**（location は server 内に留め client 非送出＝sensitive-free）。
+  - `useTodayWeather.ts`(hook): `isContextModifierEnabled()` のときだけ mount 1 回 fetch（**production/flag OFF は fetch しない**）・fail-open。
+  - `buildDayContextSnapshot` に optional weather を additive・CalendarTab 配線・`Sourced<T>` export。
+- **★安全**: external JMA は server-only 再利用・public・key 不要・fail-open。client は flag ON/dev のみ fetch（production は呼ばない）。sensitive=location 非送出。DB write なし（user_weather_settings 参照のみ）。**既存 route/挙動 不接触**。context dir 56 PASS・tsc footprint 0・eslint clean・node_modules 0。
+- **smoke**: dev Ready 3.9s・/plan 307・**`/api/plan/today-weather`→200 `{weather:null}`**（未認証 fail-open 確認）・compile error なし。
+- **★v0 制約**: snow は under-model（cold 扱い）・閾値固定（pop60/heat30/cold3）・天気 tilt は一般則（personal 化は条件×行動捕捉＝将来）。
+- **次**: 残 A2 前進＝天気の personal 化 / 履歴 baseline / production 露出（CEO 判断 or 新規データ）。mobility leg-level weather note は A2-7 候補。
+
+---
+
 ## 2026-06-09 [Build] A2 Context Modifier を dogfood 有効化（flag=true・production hard block 維持）[承認: CEO 判断「A2 を dogfood 有効化」]
 
 - **CEO 判断**: A2 を dogfood 有効化（dev/dogfood で文脈 reason を実体験）。
