@@ -132,6 +132,12 @@ const CONDITION_LABEL: Record<string, string> = {
   normal: "",
 };
 
+/** ★条件 → 表示ラベル（rain→「雨の日」等・normal/未知は null）。P5.1 reason-only で再利用。 */
+export function placeConditionLabel(condition: PlaceCondition): string | null {
+  const label = CONDITION_LABEL[condition.value];
+  return label ? label : null;
+}
+
 /**
  * ★条件下の place profile → 1 行（観測トーン・人格診断にしない・数字/place 名なし）。
  *   skew が無い/弱い/ラベル無し → null（沈黙）。
