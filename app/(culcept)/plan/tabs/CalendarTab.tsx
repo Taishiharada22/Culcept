@@ -78,6 +78,8 @@ import { DayIndicatorBadge } from "../components/DayIndicatorBadge";
 import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import { applyPersonalPaceToRehearsalInput, isPersonalPaceReflectionEnabled } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
+import { buildContextModifier, isContextModifierEnabled } from "@/lib/plan/context/contextModifier";
+import { buildDayContextSnapshot, buildContextOutlook } from "@/lib/plan/context/contextBridge";
 import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
 import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
 import { buildPaceActivationReadiness } from "@/lib/plan/mobility/paceActivationReadiness";
@@ -297,6 +299,20 @@ export function CalendarTab({
     });
     return rehearseDay(applyPersonalPaceToRehearsalInput(rehearsalInput, resolver));
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
+
+  // ★A2-3 Context Modifier（文脈条件付け・flag **default OFF**＝既存挙動完全不変）。
+  //   rehearsalInput の density/baseEnergyLevel/travelMin（既知のみ）から day-level snapshot を組み、
+  //   定性 modifier → reason 1 行を作る。★belief 不変・数値係数なし・viability に影響しない（copy のみ）。
+  //   OFF/production: isContextModifierEnabled()=false → null → banner は contextReason なし＝完全不変。
+  const contextReason = useMemo<string | null>(() => {
+    if (!isContextModifierEnabled() || !rehearsalInput) return null;
+    const snapshot = buildDayContextSnapshot({
+      density: rehearsalInput.density,
+      baseEnergyLevel: rehearsalInput.baseEnergyLevel,
+      travelMinutes: rehearsalInput.steps.map((s) => s.transitionAfter?.travelMin ?? null),
+    });
+    return buildContextOutlook(buildContextModifier(snapshot)).reasonLine;
+  }, [rehearsalInput]);
 
   // ★A1-8/A1-9 dogfood shadow activation + report（dev/dogfood・flag DAY_REHEARSAL_PACE_SHADOW_ENABLED **default OFF**・production hard block）。
   //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
@@ -684,7 +700,7 @@ export function CalendarTab({
                   <DayIndicatorBadge indicator={selectedDayIndicator} />
                 </div>
               )}
-              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} />
+              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} contextReason={contextReason} />
               {/* ★A1-9 dogfood/dev 限定 shadow report（isPaceShadowActivationEnabled=flag∧非 production のときだけ・一般ユーザー非表示・raw 数値なし）。 */}
               {isPaceShadowActivationEnabled() && shadowReport && (
                 <PaceShadowReportPanel report={shadowReport} dogfoodReadiness={dogfoodReadiness} stability={dogfoodStability} />

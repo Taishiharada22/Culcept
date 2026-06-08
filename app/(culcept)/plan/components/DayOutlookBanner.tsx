@@ -36,6 +36,7 @@ export function DayOutlookBanner({
   recoveryStepCount = 0,
   repairCandidates = [],
   simulationLineByKind,
+  contextReason = null,
 }: {
   rehearsal: DayRehearsal | null;
   recoveryStepCount?: number;
@@ -46,6 +47,12 @@ export function DayOutlookBanner({
    * read-only 表示テキストのみ（apply/save/実行 UI なし）。不在 kind は非表示。生数値/confidence は含まない。
    */
   simulationLineByKind?: ReadonlyMap<DayRepairKind, string>;
+  /**
+   * ★A2-3 Context Modifier: 今日の文脈 reason 行（仮説トーン・数字フリー・sensitive-free）。
+   * contextReasonLine（pure）の出力をそのまま受ける。null/空 → 非表示（沈黙原則）。
+   * ★これは copy のみ。viability/outlook など rehearsal の数値判定には一切影響しない。
+   */
+  contextReason?: string | null;
 }) {
   if (!rehearsal) return null;
   const outlook = rehearsal.viability.outlook;
@@ -60,6 +67,13 @@ export function DayOutlookBanner({
     >
       <span className="text-slate-400">今日の見通し · </span>
       {OUTLOOK_COPY[outlook]}
+      {/* ★A2-3: 今日の文脈 reason（あれば）。copy のみ・outlook 判定に影響しない・null は沈黙。 */}
+      {contextReason && (
+        <div data-testid="plan-day-outlook-context" className="mt-1 text-[11px] text-slate-500">
+          <span className="text-slate-400">今日の文脈 · </span>
+          {contextReason}
+        </div>
+      )}
       {lines.length > 0 && (
         <details data-testid="plan-day-outlook-why" className="mt-1">
           <summary className="cursor-pointer list-none text-[11px] text-slate-400 underline">なぜ?</summary>
