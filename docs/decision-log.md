@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-09 [Build] A2-8 weather factor 精密化 着地 + A2-9 weather personal化 mini-design（停止）[承認: CEO 判断「snow 等 weather 精密化」]
+
+- **A2-8（`03d6d710`）weather factor 精密化**: snow を「沈黙（cold 扱い）」から「注意（tightens）」へ。storm を独立カテゴリ化。
+  - 再監査: snow→cold→沈黙は under-model（雪は移動を実際に妨げる）。wind は JMA `WeatherDaily` に field 無→対象外（jma.ts 拡張＝stop gate）。cold 単独は tilt なし維持（descriptive）。
+  - WeatherKind を `rain|snow|storm|heat|cold|normal` に additive。weatherMapping は icon 降水/荒天を独立化。day-level factor=雨/雪/荒天/暑さ→tightens **slight**（全 adverse 一律 slight＝断定/警告回避）・cold/normal→none。leg-level note（mobilityHypothesis/explanationCopy/contextToDecisionContext）に snow/storm 拡張（★mode 不変）。
+  - ★偽係数/確率なし・JMA raw 文言非出力・source 不明は沈黙・既存 A2 gate 配下（prod 露出なし）。context+mobility **501 PASS**・tsc footprint 0・eslint clean・node_modules 0。
+- **A2-9 weather personal化 mini-design（`…-a2-9-weather-personalization-mini-design.md`）= ★停止**:
+  - 一般則 weather modifier（A2-8・全員）と **本人固有の weather reaction**（Mischel if-then signature）を **分離**する設計。personal reaction は belief を汚さず決定時 overlay（A2-4 density baseline と同型）・sufficient gate で薄いデータは一般則 fallback。
+  - audit: 既存ストア（MobilityObservation/MovementEvent）に **weather tag は無い** → personal 化には weatherKind の新規タグ（**derived category のみ**・raw weather/GPS/座標/場所 非保存）が要る。
+  - ★**stop gate 該当**: 新規データ保存（weatherKind 記録）・sensitive/location privacy 判断（redacted 観測の扱い・生活パターン推定）・personal化実装＝CEO 承認後。**audit + mini-design で停止**（CEO 明示「personal化実装はまだしない」）。
+  - 推奨: まず一般則 weather を dogfood 観測し personal 化の必要性を体感してから capture 開始（薄いデータで personal 層を作らない）。
+
+---
+
 ## 2026-06-09 [Build] A2-7 mobility leg weather note 着地（今日の天気→区間仮説 contextNote・mode 不変・dev のみ）[承認: 自律（weather 配線の継続・dev-gated）]
 
 - **A2-7（`931ec48c`）**: A2-6 で取得した今日の天気を MapTab の Mobility Hypothesis Surface に接続。`buildMobilityHypothesis` の既存 contextNote ロジック（屋外露出 mode[walk/bicycle]×rain/heat の「負担かも」注意）に weather を渡すだけ。
