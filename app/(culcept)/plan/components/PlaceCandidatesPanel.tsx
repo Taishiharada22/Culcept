@@ -42,7 +42,8 @@ import { buildPlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityRea
 import { buildPlaceConditionAffinity, placeConditionLabel, type PlaceCondition } from "@/lib/plan/compose/placeConditionAffinity";
 import { useTodayWeather } from "@/lib/plan/context/useTodayWeather";
 import { isPlaceAffinityReasonEnabled, placeCandidateBestReason } from "@/lib/plan/compose/placeAffinityReasonUi";
-import { loadAllObservations, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
+import { loadAllObservations, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
+import { buildShadowRanking, shadowInputsFromDisplayOrder } from "@/lib/plan/compose/placeAffinityShadowRanking";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -351,6 +352,28 @@ export function PlaceCandidatesPanel({
       })),
     [displayList, placeAffinitySignals],
   );
+
+  // ── P6-0: shadow ranking 観測（dev console・★順序は変えない・metrics のみ・place 名は出さない）──
+  //   A1-8 pattern: flag ON/dev のみ。「今の候補順を personal がどう並べ替えるか」を適用せず観測。
+  //   flag OFF/production → 何もしない＝完全不変。combiner の bounded 性（maxRankShift 小）の実データ検証。
+  useEffect(() => {
+    if (!isPlaceAffinityReasonEnabled() || !placeAffinitySignals || displayListWithReason.length === 0) return;
+    const keys = displayListWithReason.map(
+      (d) => normalizeLocationText(formatCanonicalLocationText(d.candidate.name, d.candidate.address)) ?? "",
+    );
+    const shadow = buildShadowRanking(shadowInputsFromDisplayOrder(keys), {
+      p2: placeAffinitySignals.p2,
+      p3: placeAffinitySignals.p3List[0] ?? null, // 最優先条件のみ
+    });
+    // ★metrics のみ（placeKey/place 名/座標は出さない）。順序は変えない。
+    console.debug("[place-affinity shadow]", {
+      candidateCount: keys.length,
+      orderChanged: shadow.orderChanged,
+      changedPositionCount: shadow.changedPositionCount,
+      maxRankShift: shadow.maxRankShift,
+      personalAppliedCount: shadow.personalAppliedCount,
+    });
+  }, [displayListWithReason, placeAffinitySignals]);
 
   // ── handlers ──
   const handleSelect = (c: PlaceCandidate) => {
