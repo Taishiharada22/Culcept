@@ -4,6 +4,19 @@
 
 ---
 
+## 2026-06-09 [Build] A2 Context Modifier を dogfood 有効化（flag=true・production hard block 維持）[承認: CEO 判断「A2 を dogfood 有効化」]
+
+- **CEO 判断**: A2 を dogfood 有効化（dev/dogfood で文脈 reason を実体験）。
+- **実施（`0ebac7a5`）**: `DAY_REHEARSAL_CONTEXT_MODIFIER_ENABLED = true`。
+- **★production 安全**: gate `isContextModifierEnabled() = flag && process.env.NODE_ENV !== "production"` は不変。→ **dev/dogfood のみ ON・production は hard block で OFF**。flag=true を commit しても production 挙動は一切変わらない。production 露出は別途 CEO 判断。
+- **dev/dogfood で出るもの**: /plan の DayOutlookBanner に「今日の文脈 · …」reason（copy のみ・viability/strain 不変・本人 baseline 相対で普段通りは沈黙）。belief/DB/external API 非接触。
+- **★他3 flag は OFF 維持**（PERSONAL_PACE/GPS_CAPTURE/PACE_SHADOW）。A2 のみ有効化。
+- **smoke**: flag=true で dev Ready 4.2s・/plan 307・compile error なし（有効化 smoke PASS）。flag test を更新（flag=true ∧ 非prod→ON ∧ prod→hard block OFF を vi.stubEnv で検証）。context dir 47 PASS・tsc footprint 0（NODE_ENV readonly TS2540 を vi.stubEnv で回避）・eslint clean・node_modules 混入 0。
+- **rollback**: 違和感あれば `= false` の 1 行で即時無効化。
+- **次**: CEO が dev/dogfood で実体験 → production 露出 / weather 配線 / 履歴 baseline は CEO 判断。
+
+---
+
 ## 2026-06-09 [Build] A2-4/A2-5 Personal Baseline Relativization（本人の普段基準）main 着地（flag OFF）= A2 安全側 pure/UI 層の天井 [承認: 自律（pure/flag 裏・flag OFF）]
 
 - **前提を疑った（①）**: A2-1〜3 の「普段より」は **絶対閾値**で、一般則であって**この人の普段ではない**。packed が常態の人に packed は tightening でない（Fleeson: today の意味は分布のどこか）。
