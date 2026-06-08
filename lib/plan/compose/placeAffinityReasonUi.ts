@@ -19,8 +19,12 @@ import {
   type PlaceConditionAffinity,
 } from "@/lib/plan/compose/placeConditionAffinity";
 
-/** ★P5 reason-only UI flag（**default OFF**）。 */
-export const PLACE_AFFINITY_REASON_UI_ENABLED = false;
+/**
+ * ★P5 reason-only UI flag。**dogfood 有効化（2026-06-09 CEO 判断）**で true。
+ * gate の `process.env.NODE_ENV !== "production"` により **dev/dogfood のみ ON・production は hard block**。
+ * ★ranking flag(PLACE_AFFINITY_RANKING_ENABLED)は **OFF 維持**（reason 表示+safety journal 蓄積のみ・順位不変）。
+ */
+export const PLACE_AFFINITY_REASON_UI_ENABLED = true;
 
 /** 場所候補に観測 reason を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isPlaceAffinityReasonEnabled(): boolean {

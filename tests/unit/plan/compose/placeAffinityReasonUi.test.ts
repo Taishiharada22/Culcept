@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   placeCandidatePersonalReason,
   placeCandidateBestReason,
@@ -89,11 +89,14 @@ describe("placeCandidateBestReason — P5.1 条件付き / 優先 / fallback", (
 });
 
 describe("flag", () => {
-  it("★default OFF・dev でも flag OFF ゆえ無効（production hard block 込み）", () => {
-    expect(PLACE_AFFINITY_REASON_UI_ENABLED).toBe(false);
-    expect(isPlaceAffinityReasonEnabled()).toBe(false);
+  it("★reason flag dogfood 有効（true）・production は hard block で OFF（dev/dogfood のみ）", () => {
+    expect(PLACE_AFFINITY_REASON_UI_ENABLED).toBe(true); // ★2026-06-09 CEO dogfood 有効化
+    expect(isPlaceAffinityReasonEnabled()).toBe(true); // 非 production（test）→ ON
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isPlaceAffinityReasonEnabled()).toBe(false); // ★production → hard block
+    vi.unstubAllEnvs();
   });
-  it("★P6-1 ranking flag も default OFF（reason-only とは独立）", () => {
+  it("★P6-1 ranking flag は OFF 維持（reason だけ有効化・順位は変えない）", () => {
     expect(PLACE_AFFINITY_RANKING_ENABLED).toBe(false);
     expect(isPlaceAffinityRankingEnabled()).toBe(false);
   });
