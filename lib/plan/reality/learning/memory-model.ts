@@ -54,6 +54,8 @@ export interface MemoryItem {
   readonly userConfirmed: boolean;
   /** 本人の訂正（最強 signal・null=未訂正）。 */
   readonly userCorrection: MemoryCorrection;
+  /** 出来事の発生時刻（**episodic のみ**・他 kind は null）。recency 並べ替えは下流（synthesis）が nowMs で行う。 */
+  readonly occurredAtISO: string | null;
   readonly source: MemorySource;
 }
 
@@ -139,6 +141,7 @@ export function buildMemoryItem(input: {
   readonly certainty?: unknown;
   readonly userConfirmed?: boolean;
   readonly userCorrection?: MemoryCorrection;
+  readonly occurredAtISO?: string | null;
   readonly source: MemorySource;
 }): MemoryItem {
   return {
@@ -150,6 +153,7 @@ export function buildMemoryItem(input: {
     certainty: capCertainty(input.certainty),
     userConfirmed: input.userConfirmed ?? false,
     userCorrection: input.userCorrection ?? null,
+    occurredAtISO: input.occurredAtISO ?? null,
     source: input.source,
   };
 }
