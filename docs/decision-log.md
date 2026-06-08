@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-06-09 [Build] A2-10 weatherKind capture 着地 + A2-11 weather reaction readiness engine 着地（未配線・実 personal 反映なし）= A2 weather 完了（実データ依存除く）[承認: CEO 判断「weatherKind capture」+ privacy 方針採用]
+
+- **A2-10（`0258bac4`）weatherKind capture**: 本人 weather reaction を将来学べるよう `MobilityObservation` に optional `weatherKind?: WeatherKind` を additive。`buildObservation` は **redacted でない∧valid のときだけ**付与（invalid/undefined/sensitive は付けない）。`isObservation` は任意 weatherKind 検証（旧 obs valid・invalid は drop）。`isWeatherKind` guard・`clearMobilityObservations`（opt-out/clear 導線）追加。MapTab capture=`weatherKind: todayWeather?.value`。★**privacy 方針厳守**: on-device only・category のみ・raw weather/location/GPS/officeCode 非保存・60日 retention 継承・belief 非汚染・**dev/dogfood のみ capture（todayWeather が prod で null＝production 非保存）**。store 29 PASS・mobility 452 PASS・tsc footprint 0・smoke /plan 307。
+- **A2-11（`84dede10`）weather reaction readiness engine（pure・★未配線）**: `weatherReactionReadiness.ts`=`buildWeatherReactionReadiness`（OD の weather 下 modal vs baseline modal → not_enough/no_personal_signal/personal_reaction）。minObs=4 双方 sufficient・redacted/weatherKind 無しは除外・**偽数値なし**（status+実カウント+定性 modal）。★**live 反映しない**（UI/決定に未配線）。設計=一般則 vs 本人固有の優先(personal 優先・thin は一般則 fallback)・UI は **observed-not-trait**（「雨の日はこの区間で電車が多いようです」・人格ラベル禁止）。9 tests・tsc footprint 0。
+- **★A2 weather 完了（実データ依存を除く）**: 一般則(A2-1〜8)+capture(A2-10)+personal readiness engine(A2-11・未配線)まで安全に自律実装。残るのは **実測データ蓄積（dogfood で weatherKind を貯める）+ personal overlay の live 反映（UI/決定配線=CEO enable+UI stop gate）+ production 露出（CEO/法務）**＝いずれも実データ依存 or CEO 判断。自律バッチはここで完了・停止。
+
+---
+
 ## 2026-06-09 [Build] A2-9 Weather×Movement Personalization Privacy Review（capture 前精査・分析のみ）[承認: CEO 判断「privacy review を先に」]
 
 - **位置づけ**: capture 開始前の **privacy-by-design 分析**（`…-a2-9-weather-privacy-review.md`）。★**法的意見でない**（AI は法律家でなく、APPI 確定解釈は有資格の法務 + CEO）。データ収集・privacy 設定変更・実装は **一切なし**。
