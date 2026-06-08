@@ -45,7 +45,7 @@ export interface ModeBelief {
  * v0 は weather のみ軽く扱う。baggage/fatigue/urgency は v0 に入れない（L5/後続・観測プロキシ未確定）。
  */
 export interface DecisionContext {
-  readonly weather?: "rain" | "heat" | "normal" | null;
+  readonly weather?: "rain" | "snow" | "storm" | "heat" | "normal" | null;
 }
 
 /** habitual の強さ（定性・偽の % を出さない） */
@@ -57,7 +57,8 @@ export type HabitualStrength = "none" | "weak" | "moderate" | "strong";
  */
 export interface ContextNote {
   readonly kind: "outdoor_burden";
-  readonly reason: "rain" | "heat";
+  /** ★A2-8: 雨/雪/荒天/暑さ（屋外露出 mode への悪天候の注意・mode は変えない） */
+  readonly reason: "rain" | "snow" | "storm" | "heat";
   /** 注意の対象 mode（= habitualMode・屋外露出時のみ） */
   readonly aboutMode: RouteTransportMode;
 }
@@ -132,7 +133,7 @@ export function buildMobilityHypothesis(
   if (
     habitualMode !== null &&
     OUTDOOR_EXPOSED_MODES.has(habitualMode) &&
-    (w === "rain" || w === "heat")
+    (w === "rain" || w === "snow" || w === "storm" || w === "heat") // ★A2-8: 悪天候を拡張（mode は変えない）
   ) {
     contextNote = { kind: "outdoor_burden", reason: w, aboutMode: habitualMode };
   }

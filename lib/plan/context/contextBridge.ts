@@ -84,14 +84,14 @@ export function buildDayContextSnapshot(
 /**
  * snapshot.weather を mobilityHypothesis の DecisionContext に投影（pure）。
  * ★既存 guardrail を保持: weather は contextNote（注意）のみで、todayLikelyMode を変えない（mobilityHypothesis 側）。
- * ★source 不明な weather は渡さない（断定回避）。cold は DecisionContext に無いので normal 扱い。
+ * ★source 不明な weather は渡さない（断定回避）。★A2-8: 雨/雪/荒天/暑さを渡す・cold は note 対象外ゆえ normal。
  */
 export function contextToDecisionContext(snapshot: ContextSnapshot): DecisionContext {
   const w = snapshot.weather;
   if (!w || (w.source !== "observed" && w.source !== "user" && w.source !== "derived")) {
     return {}; // 出所不明/欠落 → weather を渡さない
   }
-  if (w.value === "rain" || w.value === "heat") return { weather: w.value };
+  if (w.value === "rain" || w.value === "snow" || w.value === "storm" || w.value === "heat") return { weather: w.value };
   return { weather: "normal" }; // cold/normal → normal（mobility 側は屋外負担 note を出さない）
 }
 

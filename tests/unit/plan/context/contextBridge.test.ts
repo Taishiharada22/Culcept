@@ -40,6 +40,10 @@ describe("contextToDecisionContext — mobility への投影", () => {
     expect(contextToDecisionContext({ weather: { value: "rain", source: "observed" } })).toEqual({ weather: "rain" });
     expect(contextToDecisionContext({ weather: { value: "heat", source: "user" } })).toEqual({ weather: "heat" });
   });
+  it("★A2-8: snow/storm(observed) → そのまま投影（屋外負担 note 対象）", () => {
+    expect(contextToDecisionContext({ weather: { value: "snow", source: "observed" } })).toEqual({ weather: "snow" });
+    expect(contextToDecisionContext({ weather: { value: "storm", source: "observed" } })).toEqual({ weather: "storm" });
+  });
   it("cold / normal → {weather:'normal'}（屋外負担 note を出させない）", () => {
     expect(contextToDecisionContext({ weather: { value: "cold", source: "observed" } })).toEqual({ weather: "normal" });
     expect(contextToDecisionContext({ weather: { value: "normal", source: "observed" } })).toEqual({ weather: "normal" });
