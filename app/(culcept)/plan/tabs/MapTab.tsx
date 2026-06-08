@@ -94,6 +94,12 @@ import { buildMovementEventManual, recordMovementEvent, loadMovementEvent, delet
 import { buildReasonInsightForLeg, reasonReflectionLine } from "@/lib/plan/mobility/mobilityReasonInsight";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
+// ★A1-6b GPS 自動捕捉（安全版・flag default OFF）
+import { useGpsAutoCapture } from "@/lib/plan/mobility/useGpsAutoCapture";
+import { DAY_REHEARSAL_GPS_CAPTURE_ENABLED, type CaptureLegContext } from "@/lib/plan/mobility/gpsAutoCaptureCore";
+import { GpsArrivalPrompt } from "@/components/plan/map/GpsArrivalPrompt";
+import { getEffectiveOptInState, readLocationOptIn, type LocationOptInState } from "@/lib/alter-morning/journey/locationOptIn";
+import { subscribeGeolocationPermissionState, type GeolocationPermissionState } from "@/lib/alter-morning/journey/permissionState";
 // 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
   MapSelectedPinLabel,
@@ -547,6 +553,65 @@ export function MapTab({
     [dayKey],
   );
 
+  // ★A1-6b GPS 自動捕捉（安全版・flag DAY_REHEARSAL_GPS_CAPTURE_ENABLED **default OFF**）。
+  //   OFF: subscribe もせず hook も sampling しない＝完全 no-op（既存挙動不変）。ON は dev smoke 用のみ。
+  const [gpsPermission, setGpsPermission] = useState<GeolocationPermissionState>("prompt");
+  const [gpsOptIn, setGpsOptIn] = useState<LocationOptInState>("not_asked");
+  useEffect(() => {
+    if (!DAY_REHEARSAL_GPS_CAPTURE_ENABLED) return; // ★flag OFF: 何も購読しない
+    setGpsOptIn(getEffectiveOptInState(readLocationOptIn()));
+    return subscribeGeolocationPermissionState(setGpsPermission);
+  }, []);
+  // day の各 leg を pure core 用 CaptureLegContext 化（sensitive/readOnly/coords/odKey/mode/estimate[best-effort]）。
+  const { captureLegs, captureTitles } = useMemo(() => {
+    const sorted = [...allPins].sort((a, b) => a.anchor.startTime.localeCompare(b.anchor.startTime));
+    const ref = now ?? new Date();
+    const nowMin = ref.getHours() * 60 + ref.getMinutes();
+    const focusIdx = resolveFocusLegIndex(sorted, nowMin);
+    const legs: CaptureLegContext[] = [];
+    const titles: Record<string, { fromTitle: string; toTitle: string }> = {};
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      const from = sorted[i]!.anchor;
+      const to = sorted[i + 1]!.anchor;
+      const legKey = `${from.id}__${to.id}`;
+      const coords = legCoordsByKey[legKey];
+      const sensitive = !!(from.sensitiveCategory || to.sensitiveCategory);
+      const readOnly = resolveLegState(i, focusIdx) === "done";
+      const oNorm = normalizeLocationText(from.locationText);
+      const dNorm = normalizeLocationText(to.locationText);
+      const odKey = sensitive || !oNorm || !dNorm ? undefined : `${oNorm}__${dNorm}`;
+      const mode = selectedModeByLeg[legKey];
+      const cached = legDurCacheRef.current.get(legKey); // best-effort（未 fetch は estimate なし＝honest）
+      const info =
+        !cached || !mode
+          ? null
+          : mode === "walk"
+            ? cached.walk
+            : mode === "car" || mode === "taxi"
+              ? cached.drive
+              : mode === "train" || mode === "bus"
+                ? cached.transit
+                : null;
+      legs.push({
+        legKey,
+        odKey,
+        mode,
+        estimateMin: info?.minutes ?? null,
+        sensitive,
+        readOnly,
+        fromCoord: coords?.from ?? null,
+        toCoord: coords?.to ?? null,
+      });
+      titles[legKey] = { fromTitle: maskedAnchorTitle(from), toTitle: maskedAnchorTitle(to) };
+    }
+    return { captureLegs: legs, captureTitles: titles };
+  }, [allPins, now, selectedModeByLeg, legCoordsByKey]);
+  const gpsCapture = useGpsAutoCapture({
+    gate: { flagEnabled: DAY_REHEARSAL_GPS_CAPTURE_ENABLED, optInState: gpsOptIn, permission: gpsPermission },
+    legs: captureLegs,
+    dayKey,
+  });
+
   // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
   const dayItemsForPanel = useMemo<DayItem[]>(() => {
     return [...dayAnchors]
@@ -610,6 +675,16 @@ export function MapTab({
           loggedActualMin={loggedActualMin}
           onLogActual={mobilityCardData.sensitive ? undefined : handleLogActual}
           onClearActual={mobilityCardData.sensitive ? undefined : handleClearActual}
+        />
+      )}
+      {/* ★A1-6b: GPS 到着の確認 prompt（flag OFF / 非許可 / 候補なし では非表示・自動保存しない・非 modal）。 */}
+      {gpsCapture.candidate && captureTitles[gpsCapture.candidate.legKey] && (
+        <GpsArrivalPrompt
+          fromTitle={captureTitles[gpsCapture.candidate.legKey]!.fromTitle}
+          toTitle={captureTitles[gpsCapture.candidate.legKey]!.toTitle}
+          durationMin={gpsCapture.candidate.detected.actualDurationMin}
+          onConfirm={gpsCapture.confirm}
+          onDismiss={gpsCapture.dismiss}
         />
       )}
     </div>
