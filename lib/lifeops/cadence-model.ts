@@ -44,11 +44,17 @@ const WELL_BEYOND_MARGIN = 0.5;
 
 const MS_PER_DAY = 86_400_000;
 
-/** MVP の標準周期（A.2 + 一般周期: カラー>カット>眉）。treatment/nail/脱毛等は後続で追加。 */
+/**
+ * MVP の標準周期（default・個人学習は L-9 が override）。
+ *   美容（A.2: カラー>カット>眉）+ 生活維持の補充系（A.8: 食料品/日用品）。treatment/nail/脱毛・家事等は後続。
+ */
 const MVP_CADENCES: readonly CadenceSpec[] = [
   { categoryId: "beauty_salon", menu: "cut", typicalIntervalDays: 42, nearingRatio: 0.8, beyondRatio: 1.0 },
   { categoryId: "beauty_salon", menu: "color", typicalIntervalDays: 56, nearingRatio: 0.8, beyondRatio: 1.0 },
   { categoryId: "eyebrow", menu: null, typicalIntervalDays: 28, nearingRatio: 0.8, beyondRatio: 1.0 },
+  // 生活維持・補充系（消費ペース＝前回購入からの経過。食料品は数日・日用品は約2週間）
+  { categoryId: "groceries", menu: null, typicalIntervalDays: 4, nearingRatio: 0.8, beyondRatio: 1.0 },
+  { categoryId: "daily_necessities", menu: null, typicalIntervalDays: 14, nearingRatio: 0.8, beyondRatio: 1.0 },
 ];
 
 /** cadence key（"beauty_salon:cut" / "eyebrow"）。 */

@@ -91,3 +91,19 @@ describe("L-3 空・冪等", () => {
     expect(generateLifeOpsCandidates(inp, NOW)).toEqual(generateLifeOpsCandidates(inp, NOW));
   });
 });
+
+describe("L-3 daily_upkeep も自動候補化（cadence agnostic・L-3 改変なし）", () => {
+  it("groceries が beyond → cycle 候補（placeQuery=スーパー・L2）", () => {
+    // groceries typical 4日: 2026-06-01→11日 ratio2.75 well_beyond
+    const out = generateLifeOpsCandidates([{ categoryId: "groceries", lastCompletedAtISO: "2026-06-01" }], NOW);
+    expect(out).toHaveLength(1);
+    expect(out[0].category).toBe("groceries");
+    expect(out[0].placeQuery).toBe("スーパー");
+    expect(out[0].permissionLevelHint).toBe("L2");
+    expect(out[0].dueReason.kind).toBe("cycle");
+  });
+  it("daily_necessities が within → 出さない", () => {
+    // daily_necessities typical 14日: 2026-06-08→4日 ratio0.29 within
+    expect(generateLifeOpsCandidates([{ categoryId: "daily_necessities", lastCompletedAtISO: "2026-06-08" }], NOW)).toEqual([]);
+  });
+});

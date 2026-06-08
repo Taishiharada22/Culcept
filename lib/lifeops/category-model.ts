@@ -44,8 +44,13 @@ export type PreEventPrepCategoryId =
   | "ticket_hotel_check" // チケット・宿の確認
   | "belongings_check"; // 持ち物の確認
 
+/** 生活維持群（A.6 群 2・補充系）。消費ペースの補充周期を持つ（cyclic=true）。家事/ゴミ出し/不定期は後続。 */
+export type DailyUpkeepCategoryId =
+  | "groceries" // 食料品の買い物
+  | "daily_necessities"; // 日用品の補充
+
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
-export type LifeOpsCategoryId = BodyAppearanceCategoryId | PreEventPrepCategoryId;
+export type LifeOpsCategoryId = BodyAppearanceCategoryId | PreEventPrepCategoryId | DailyUpkeepCategoryId;
 
 /**
  * 既定実行レベル上限の **ヒント**（A.5 L0–L5 の段階）。**正本ではない**:
@@ -108,8 +113,17 @@ const PRE_EVENT_PREP: readonly LifeOpsCategorySpec[] = [
   { id: "belongings_check", group: "pre_event_prep", label: "持ち物の確認", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
+/**
+ * 生活維持群（A.6 群 2・A.8）。**補充系**（消費ペースの補充周期＝cyclic=true）。
+ *   L2（買い物候補/補充リマインド・A.8）。購入導線は L-6（CEO ゲート）。家事/ゴミ出し/不定期は後続。
+ */
+const DAILY_UPKEEP: readonly LifeOpsCategorySpec[] = [
+  { id: "groceries", group: "daily_upkeep", label: "食料品の買い物", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "スーパー", mvp: false },
+  { id: "daily_necessities", group: "daily_upkeep", label: "日用品の補充", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "ドラッグストア", mvp: false },
+];
+
 /** 全カテゴリ（群横断・定義順）。 */
-const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP];
+const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP];
 
 /** カテゴリ id → spec（正本辞書）。 */
 export const LIFE_OPS_CATEGORY_MODEL: Record<LifeOpsCategoryId, LifeOpsCategorySpec> = Object.fromEntries(

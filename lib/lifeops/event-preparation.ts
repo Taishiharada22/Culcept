@@ -90,6 +90,7 @@ export function generateEventPrepCandidates(
     if (status.phase !== "nearing") continue; // L-4 は nearing のみ前倒し（within=新しすぎ／beyond=L-3）
     const cat = getCategorySpec(obs.categoryId);
     if (!cat) continue; // L-1 未定義
+    if (cat.group !== "body_appearance") continue; // (a) 前倒しは美容のみ（daily_upkeep 等は周期 L-3 で・面接前に食料品を前倒ししない）
     const key = cadenceKey(cat.id, menu);
     if (seen.has(key)) continue; // 同カテゴリ重複 observation は 1 件
     seen.add(key);

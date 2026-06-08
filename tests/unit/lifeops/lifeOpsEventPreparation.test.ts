@@ -59,6 +59,11 @@ describe("L-4 出さない条件", () => {
   it("近接イベントなし → 空", () => {
     expect(generateEventPrepCandidates([], [obsCutNearing], NOW)).toEqual([]);
   });
+  it("daily_upkeep は (a) で前倒ししない（group フィルタ・面接前に日用品を前倒さない）", () => {
+    // daily_necessities typical14: 2026-05-31→12日 ratio0.857 nearing だが body_appearance でない → 除外
+    const dn: CadenceObservation = { categoryId: "daily_necessities", lastCompletedAtISO: "2026-05-31" };
+    expect(generateEventPrepCandidates([meetingIn5], [dn], NOW)).toEqual([]);
+  });
 });
 
 describe("L-4 dedupe / ソート", () => {

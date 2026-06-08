@@ -20,17 +20,17 @@ const COSMETIC = ["beauty_salon", "eyebrow", "nail", "eyelash", "hair_removal", 
 
 describe("L-1 カテゴリ模型 — 構造", () => {
   it("各 spec は label 非空・id は辞書 key と一致・group は既定群", () => {
-    const GROUPS = new Set(["body_appearance", "pre_event_prep"]); // L-1 で spec 定義済の群
+    const GROUPS = new Set(["body_appearance", "pre_event_prep", "daily_upkeep"]); // L-1 で spec 定義済の群
     for (const s of listCategories()) {
       expect(GROUPS.has(s.group)).toBe(true);
       expect(s.label.length).toBeGreaterThan(0);
       expect(LIFE_OPS_CATEGORY_MODEL[s.id]).toBe(s);
     }
   });
-  it("辞書と一覧は同数（15 = 身体外見10 + 予定前準備5・重複なし）", () => {
+  it("辞書と一覧は同数（17 = 身体外見10 + 予定前準備5 + 生活維持2・重複なし）", () => {
     const ids = listCategories().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(15);
+    expect(ids).toHaveLength(17);
     expect(Object.keys(LIFE_OPS_CATEGORY_MODEL)).toHaveLength(ids.length);
   });
   it("defaultMaxLevelHint は L0–L5 のいずれか", () => {
@@ -92,14 +92,24 @@ describe("L-1 helper — runtime 防御", () => {
     expect(getCategorySpec("")).toBeUndefined();
     expect(isHealthSensitive("unknown_xyz")).toBe(false);
   });
-  it("listByGroup: body_appearance=10 / pre_event_prep=5 / 未定義群は空", () => {
+  it("listByGroup: body_appearance=10 / pre_event_prep=5 / daily_upkeep=2 / 未定義群は空", () => {
     expect(listByGroup("body_appearance")).toHaveLength(10);
     expect(listByGroup("pre_event_prep")).toHaveLength(5);
+    expect(listByGroup("daily_upkeep")).toHaveLength(2);
     expect(listByGroup("money_admin")).toEqual([]);
   });
-  it("cyclic: 身体外見メンテ=true（周期管理し得る）/ 予定前準備=false（one-shot）", () => {
+  it("cyclic: 身体外見メンテ/生活維持=true（周期）/ 予定前準備=false（one-shot）", () => {
     for (const s of listByGroup("body_appearance")) expect(s.cyclic).toBe(true);
+    for (const s of listByGroup("daily_upkeep")) expect(s.cyclic).toBe(true);
     for (const s of listByGroup("pre_event_prep")) expect(s.cyclic).toBe(false);
+  });
+  it("daily_upkeep（買い物/日用品）は L2・placeQuery あり・risk なし", () => {
+    const groceries = getCategorySpec("groceries")!;
+    expect(groceries.group).toBe("daily_upkeep");
+    expect(groceries.defaultMaxLevelHint).toBe("L2");
+    expect(groceries.placeQueryHint).toBe("スーパー");
+    expect(groceries.typicalRiskFlags).toEqual([]);
+    expect(getCategorySpec("daily_necessities")!.placeQueryHint).toBe("ドラッグストア");
   });
 });
 
