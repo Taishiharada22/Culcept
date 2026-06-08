@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-09 [Build] A2-3 Context reason 実 UI 表示 main 着地（CEO smoke PASS・flag OFF）[承認: CEO smoke PASS]
+
+- **A2-3（`04286503`）**: `DayOutlookBanner` に optional `contextReason` 行（outlook 直下・slate・read-only）。`CalendarTab` で `rehearsalInput`→`buildDayContextSnapshot`→`buildContextModifier`→`buildContextOutlook().reasonLine` を `isContextModifierEnabled()` gate で計算・供給。
+- **★安全**: flag `DAY_REHEARSAL_CONTEXT_MODIFIER_ENABLED` **OFF 維持**（OFF/production で contextReason=null→banner 完全不変）。contextReason は **copy のみ**で viability/strain 等 rehearsal 数値に不接触。数字フリー・sensitive-free・仮説トーン。belief/DB/external API 非接触。
+- **smoke**: 私=server-health（flag-ON override uncommitted→dev Ready 4.6s・/plan 307・compile error なし→override 戻し）。**CEO=実機 smoke PASS**。
+- **★node_modules 混入なし**: 着地 commit は 4 ファイルのみ（node_modules entries 0・branch diff も 0）。explicit-path add 厳守。※node_modules が未 gitignore は既存リポ状態（別件 chip 化）。
+- banner render contract CTX1-5 追加（32 PASS）・context dir 33 PASS・tsc footprint 0（baseline 55）・eslint clean・zero-loss 検証済。
+- **次**: A2 の pure 全層（core+bridge+UI）が揃った。A2-4 以降を自律で design→精査→実装→監査。残る大 stop gate=weather 配線（external API）/ personal 化（条件別データ捕捉）。
+
+---
+
 ## 2026-06-09 [Build] Phase A2 Context Modifier / 文脈条件付け pure 基盤 着地（A2-3 UI 表示=stop gate）[承認: 自律（pure・flag OFF）／A2-3 は CEO]
 
 - **方針（CEO）**: Personal Reality Graph（検索AIでなく、条件を言われる前から個人を理解する存在）。「今日のあなたなら」を天候/時間帯/曜日/予定密度/energy/移動負荷で補正。★**prior/belief を汚さず決定時だけの modifier**。stop gate: belief 上書き/偽数値/source 不明断定/UI 表示/DB・production・external API/sensitive。
