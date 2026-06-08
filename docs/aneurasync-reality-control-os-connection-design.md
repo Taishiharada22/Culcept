@@ -1871,7 +1871,25 @@ A1-7-9: A1-7-7/7-8 review flow を fixture で可視化する dev 限定 preview
 - card: proposalFingerprint / valid(緑)|invalid(赤・not_reviewable) / decision→effect / snapshot(certainty≤tentative) / **persisted:false** / reviewRequired:true / assertsPersonality:false。
 - 実機検証(screenshot): approve→add_model_entry_candidate / reject→record_rejection / defer→no_model_change(user 再 review) / blocked→invalid(not_reviewable・fail-closed)・全 persisted:false・console error 0。
 - 検証: reality 741 PASS(735→+6)・自変更 tsc 新規 0・baseline 55。**A1-7-9 完了＝review flow 実装層の終端**。
-- **■ migration stop gate（必ず停止）**: A1-7-9 後の **decision 永続化（prm_review_decisions への DB write）・migration・PRM 永続化本体** は CEO 承認まで着手しない。
+- **■ migration stop gate（必ず停止）**: A1-7-9 後の **decision 永続化（prm_review_decisions への DB write）・migration・PRM 永続化本体** は CEO 承認まで着手しない。→ readiness plan は §10.10 A1-7-10 で先行（**file は作らない**）。
+
+### 10.10 A1-7-10 設計（docs-only）— PRM Migration Readiness Plan（migration file は作らない）
+
+A1-7-10: A1-7-5 schema 設計 + A1-7-6〜9 review flow を前提に、実 migration を作る**前**の readiness plan。**docs-only・migration file/DB schema 実装/DB write/Supabase apply/route/Home/persistence/production/env/remote/PR を一切しない**。詳細: `docs/prm-migration-readiness-plan.md`。
+
+**■ 段階分割**: M1 `prm_learning_events`（源泉・先行）→ M2 `prm_review_decisions`（review 入口）→ M3 `prm_model_entries`（実 PRM・M2 へ FK）。各段は**別 migration file・独立に revert 可能**。M1 単独で shadow 蓄積開始可。
+
+**■ 最小カラム/RLS/constraints**: 3 table の最小 column（設計図示・seedRef/raw column を持たない）/ RLS owner-only（`auth.uid()=user_id`・service_role 前提にしない・cross-user 不可）/ **certainty CHECK in (low,tentative)＝high 不可**・**review_decision_id NOT NULL＝review なし entry 禁止**・trait column なし（文脈束縛 tendency のみ）。
+
+**■ index/rollback/smoke**: 最小 index（recency/TTL/lookup）/ down=clean DROP（新規 table のみ・既存無変更・完全可逆）/ **local-only smoke**（remote 触らない・checklist 定義のみ・本 plan で実行しない）。
+
+**■ retention/deletion**: events expires_at（TTL・sweep cron は別段階）/ user 起点 cascade 削除（GDPR）/ decay_weight + retracted_at。
+
+**■ migration 作成前 最終 stop gate**: ①plan+review flow CEO 承認 →②開始段階（M1 推奨）承認 →③local smoke 手順承認 →④M1 file 作成+local smoke+実 SQL review →⑤remote apply 別承認。**①②未了は file を作らない・④まで local apply なし・⑤まで remote なし**。
+
+**■ しない**: migration file/DB schema/DB write/Supabase apply/route/Home/persistence/production/env/remote/PR/deploy。
+
+> A1-5-0…§10.9 / **A1-7-10 PRM Migration Readiness Plan（docs-only・§10.10・**A1-7-5 schema + A1-7-6〜9 review flow を前提に実 migration を作る前の readiness plan・docs-only・migration file/DB schema/DB write/Supabase apply/route/Home/persistence/production/env/remote/PR を一切しない**・A1-7-10 完了）。詳細 docs/prm-migration-readiness-plan.md。段階分割: M1 prm_learning_events(源泉・先行)→M2 prm_review_decisions(review 入口)→M3 prm_model_entries(実 PRM・M2 へ FK)・各段別 file 独立 revert 可・M1 単独で shadow 蓄積開始可。最小カラム/RLS/constraints: 3 table 最小 column(seedRef/raw column 持たない)・RLS owner-only(auth.uid()=user_id・service_role 前提にしない・cross-user 不可)・certainty CHECK in(low,tentative)=high 不可・review_decision_id NOT NULL=review なし entry 禁止・trait column なし(文脈束縛 tendency のみ)。index/rollback/smoke: 最小 index(recency/TTL/lookup)・down=clean DROP(新規 table のみ・既存無変更・完全可逆)・local-only smoke(remote 触らない・checklist のみ・実行しない)。retention/deletion: events expires_at(TTL・sweep cron 別段階)・user 起点 cascade 削除(GDPR)・decay_weight+retracted_at。seedRef/raw 非保存: column に含めない(構造的に保存不能)・handle opaque・snapshot redacted。migration 作成前 最終 stop gate: ①plan+review flow CEO 承認→②開始段階(M1)承認→③local smoke 承認→④M1 file 作成+local smoke+実 SQL review→⑤remote apply 別承認・①②未了は file 作らない・④まで local apply なし・⑤まで remote なし**。**実 migration を安全・可逆・段階的に作るための手順書を完成・file は作らず CEO 承認 stop gate で停止・過断定防止を DB constraint で構造化**。次は **CEO の readiness plan 承認→承認なら M1(prm_learning_events) migration file 作成は別 GO**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
 > A1-5-0…§10.8 / **A1-7-9 Review Flow Dev Preview（landed・§10.9・**A1-7-7/7-8 review flow を fixture で可視化する dev 限定 preview(/plan/dev-review-flow)・永続化前に decision ごとの effect・blocked fail-closed・persisted:false を目視検証・dev/staging 限定・render-only・no-persist/no-route/no-DB**・A1-7-9 完了＝review flow 実装層の終端）。page(三重ガード→notFound)+client(fixture proposals→toReviewDecisionRecords→record card・no-persist)・fixture(candidate evening/confidence high を approve/reject/defer+blocked morning を approve→4 records)・card(proposalFingerprint/valid 緑|invalid 赤 not_reviewable/decision→effect/snapshot certainty≤tentative/persisted:false/reviewRequired:true/assertsPersonality:false)。実機検証(screenshot): approve→add_model_entry_candidate/reject→record_rejection/defer→no_model_change(user 再 review)/blocked→invalid(not_reviewable・fail-closed)・全 persisted:false・console error 0。検証: reality 741 PASS(735→+6)・自変更 tsc 新規 0(baseline 55)**。**review flow(A1-7-6〜9)を contract→helper→preview で完成・全 dry-run/no-persist・人間 review が PRM 唯一入口・migration 手前で停止**。**■ migration stop gate: decision 永続化(prm_review_decisions DB write)/migration/PRM 永続化本体は CEO 承認まで着手しない**。次は **CEO の review flow 品質確認→承認なら migration 計画(schema 段階1 prm_learning_events から)**。raw を同じ読み取り表面に置かない・column-restricted・fail-closed・seedRef を client に出さない・production hard block を全段で維持する。
 
