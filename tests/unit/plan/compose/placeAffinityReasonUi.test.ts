@@ -3,7 +3,9 @@ import {
   placeCandidatePersonalReason,
   placeCandidateBestReason,
   isPlaceAffinityReasonEnabled,
+  isPlaceAffinityRankingEnabled,
   PLACE_AFFINITY_REASON_UI_ENABLED,
+  PLACE_AFFINITY_RANKING_ENABLED,
 } from "@/lib/plan/compose/placeAffinityReasonUi";
 import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
 import type { PlaceAffinityReadiness, PlaceVisitStrength } from "@/lib/plan/compose/placeAffinityReadiness";
@@ -90,5 +92,9 @@ describe("flag", () => {
   it("★default OFF・dev でも flag OFF ゆえ無効（production hard block 込み）", () => {
     expect(PLACE_AFFINITY_REASON_UI_ENABLED).toBe(false);
     expect(isPlaceAffinityReasonEnabled()).toBe(false);
+  });
+  it("★P6-1 ranking flag も default OFF（reason-only とは独立）", () => {
+    expect(PLACE_AFFINITY_RANKING_ENABLED).toBe(false);
+    expect(isPlaceAffinityRankingEnabled()).toBe(false);
   });
 });

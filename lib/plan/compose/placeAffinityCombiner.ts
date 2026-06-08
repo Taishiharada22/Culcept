@@ -73,6 +73,22 @@ export function combinePlaceAffinity(
   personal: { readonly p2: PlaceAffinityReadiness; readonly p3?: PlaceConditionAffinity | null },
   config: CombinerConfig = DEFAULT_COMBINER_CONFIG,
 ): CombinedPlace[] {
+  // combinedScore 降順・同点は入力（general）順を保つ（安定）。rank を付与。
+  return scorePlaceCandidates(inputs, personal, config)
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => b.c.combinedScore - a.c.combinedScore || a.i - b.i)
+    .map(({ c }, idx) => ({ ...c, rank: idx + 1 }));
+}
+
+/**
+ * ★per-item scoring（**入力順・未ソート**・pure）。combinePlaceAffinity と P6-1 ranking が共有。
+ *   sufficient gate / bounded nudge≥0 / clamp は同一。rank は 0（呼び側が付与）。
+ */
+export function scorePlaceCandidates(
+  inputs: readonly CombinerInput[],
+  personal: { readonly p2: PlaceAffinityReadiness; readonly p3?: PlaceConditionAffinity | null },
+  config: CombinerConfig = DEFAULT_COMBINER_CONFIG,
+): CombinedPlace[] {
   // ★sufficient gate: ready のときだけ map 化（not_enough は空＝general-only fallback）
   const p2Map = new Map(
     personal.p2.status === "ready" ? personal.p2.profiles.map((p) => [p.placeKey, p] as const) : [],
@@ -80,7 +96,7 @@ export function combinePlaceAffinity(
   const p3 = personal.p3 && personal.p3.status === "ready" ? personal.p3 : null;
   const p3Map = new Map(p3 ? p3.profiles.map((p) => [p.placeKey, p] as const) : []);
 
-  const scored = inputs.map((inp) => {
+  return inputs.map((inp) => {
     let nudge = 0;
     let note: PersonalPlaceNote | null = null;
 
@@ -112,12 +128,6 @@ export function combinePlaceAffinity(
       personalApplied: nudge > 0,
     };
   });
-
-  // combinedScore 降順・同点は入力（general）順を保つ（安定）
-  return scored
-    .map((c, i) => ({ c, i }))
-    .sort((a, b) => b.c.combinedScore - a.c.combinedScore || a.i - b.i)
-    .map(({ c }, idx) => ({ ...c, rank: idx + 1 }));
 }
 
 /**
