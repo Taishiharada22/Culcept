@@ -3,6 +3,17 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkStargazerTier } from "@/lib/stargazer/tierGuard";
 import { STARGAZER_FLAGS } from "@/lib/stargazer/featureFlags";
+// A1-7-36 PRM ⇄ Alter Bridge（flag REALITY_ALTER_BRIDGE_LIVE default OFF・本線 dormant・fail-open）
+import {
+  createSupabasePrmModelEntryReader,
+  type PrmModelEntryReadClient,
+} from "@/lib/plan/reality/learning/supabase-prm-model-entry-reader";
+import {
+  resolvePrmContext,
+  buildPrmTendencyBlock,
+  bandFromHour,
+  DEFAULT_PRM_BRIDGE_CONFIG,
+} from "@/lib/plan/reality/learning/prm-alter-bridge";
 import {
   runPerspectiveEngine,
   type PerspectiveEngineResult,
@@ -5437,6 +5448,22 @@ export async function POST(req: NextRequest) {
           }
         } catch {
           // パターン未蓄積時は静かにスキップ
+        }
+      }
+
+      // A1-7-36: PRM ⇄ Alter Bridge — review 済 tendency を現在文脈に一致する分だけ「内部参照のみ」hint 注入。
+      // flag REALITY_ALTER_BRIDGE_LIVE=OFF / 0件 / 解決不能 のとき homeSystemPrompt 不変＝現行 Alter と bit 同一。
+      // 過断定防止: certainty は構造的に ≤tentative・block 内に「確信を上げない/現在発話優先」明記・既存 hedge enforcement を通す。
+      if (STARGAZER_FLAGS.realityAlterBridge && hasMinTrust && responseMode !== "clarify") {
+        try {
+          const prmReader = createSupabasePrmModelEntryReader(supabase as unknown as PrmModelEntryReadClient, userId);
+          const prmTendencies = await prmReader.readSecondSelfTendencies(); // owner-RLS・fail-open []
+          const prmBand = bandFromHour(new Date().getHours());
+          const prmRelevant = resolvePrmContext(prmTendencies, { band: prmBand }, DEFAULT_PRM_BRIDGE_CONFIG);
+          const prmBlock = buildPrmTendencyBlock(prmRelevant);
+          if (prmBlock) homeSystemPrompt += `\n\n${prmBlock}`;
+        } catch {
+          // PRM 未蓄積/読取失敗時は静かにスキップ（fail-open）
         }
       }
 

@@ -72,4 +72,13 @@ export const STARGAZER_FLAGS = {
    * @see lib/ai/studentRouting.ts
    */
   useStudentProvider: process.env.STUDENT_PROVIDER_ENABLED === "true",
+
+  /**
+   * A1-7-36: PRM ⇄ Alter Bridge kill switch（本人傾向を Alter 判断に「内部参照のみ」hint 注入）.
+   * true = M3 review 済 tendency を現在文脈に一致する分だけ alter prompt に注入。
+   * false = 全ユーザーで無効化（注入せず・現行 Alter と bit 同一）。default OFF。
+   * env: REALITY_ALTER_BRIDGE_LIVE=true で有効化
+   * @see docs/prm-alter-bridge-design.md
+   */
+  realityAlterBridge: process.env.REALITY_ALTER_BRIDGE_LIVE === "true",
 } as const;
