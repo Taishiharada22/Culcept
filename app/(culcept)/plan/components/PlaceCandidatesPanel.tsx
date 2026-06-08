@@ -39,7 +39,8 @@ import { classifyPlaceIntent } from "@/lib/plan/intentClassification";
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import { rerankGoogleCandidatesByActivity } from "@/lib/plan/compose/placeCandidateRanking";
 import { buildPlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
-import { buildPlaceConditionAffinity, type PlaceCondition } from "@/lib/plan/compose/placeConditionAffinity";
+import { buildPlaceConditionAffinity, placeConditionLabel, type PlaceCondition } from "@/lib/plan/compose/placeConditionAffinity";
+import { useTodayWeather } from "@/lib/plan/context/useTodayWeather";
 import { isPlaceAffinityReasonEnabled, placeCandidateBestReason } from "@/lib/plan/compose/placeAffinityReasonUi";
 import { loadAllObservations, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 
@@ -320,16 +321,22 @@ export function PlaceCandidatesPanel({
   // ── P5/P5.1: 本人固有の観測 reason を **順位を変えずに** 添える（flag default OFF・dev-only）──
   //   flag OFF → null → personalReason 全て null＝既存挙動完全不変。座標/住所/内部値は出さない。
   //   ★P5.1 条件付き（この時間帯/平日週末）は anchor の予定時刻/日付から derive（external 依存なし・順位不変）。
+  //   ★P5.2 weather 条件は A2 既存 useTodayWeather を再利用（新規 API/DB なし・A2 flag/非 production gate 内・fail-open）。
+  const todayWeather = useTodayWeather(); // Sourced<WeatherKind> | null（flag OFF/production は null）
   const placeAffinitySignals = useMemo(() => {
     if (!isPlaceAffinityReasonEnabled()) return null;
     const observations = loadAllObservations();
     const p2 = buildPlaceAffinityReadiness(observations);
     const conditions: PlaceCondition[] = [];
-    if (anchorStartTime) conditions.push({ dimension: "timeband", value: toTimeband(anchorStartTime) }); // この時間帯（優先）
-    if (anchorDateISO) conditions.push({ dimension: "weekday", value: toWeekdayBucket(anchorDateISO) }); // 平日/週末
+    // ★優先順: weather > timeband > weekday。weather は label 付き（rain/snow/storm/heat/cold）のみ・normal/null は沈黙。
+    if (todayWeather && placeConditionLabel({ dimension: "weather", value: todayWeather.value })) {
+      conditions.push({ dimension: "weather", value: todayWeather.value });
+    }
+    if (anchorStartTime) conditions.push({ dimension: "timeband", value: toTimeband(anchorStartTime) });
+    if (anchorDateISO) conditions.push({ dimension: "weekday", value: toWeekdayBucket(anchorDateISO) });
     const p3List = conditions.map((c) => buildPlaceConditionAffinity(observations, c));
     return { p2, p3List };
-  }, [anchorStartTime, anchorDateISO]);
+  }, [anchorStartTime, anchorDateISO, todayWeather]);
   const displayListWithReason = useMemo(
     () =>
       displayList.map((d) => ({
