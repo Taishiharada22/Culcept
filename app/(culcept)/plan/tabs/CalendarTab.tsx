@@ -79,8 +79,8 @@ import { DayOutlookBanner } from "../components/DayOutlookBanner";
 import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, recoveryStepsFromFeasibilityRaw, DAY_REHEARSAL_FULL_PATH_ENABLED, DAY_REHEARSAL_ENERGY_ENABLED, DAY_REHEARSAL_PERSONAL_PACE_ENABLED, normalizeInnerWeatherEnergy } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import { applyPersonalPaceToRehearsalInput } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
-import { buildPersonalPaceRatiosFromStore, resolvePersonalPaceForLeg } from "@/lib/plan/mobility/personalPaceResolver";
-import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
+import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
+import { runPaceShadowActivation, isPaceShadowActivationEnabled } from "@/lib/plan/mobility/paceShadowActivation";
 import { loadSelectedModesForDay } from "@/lib/plan/map/selectedModeStore";
 import type { EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
 import { useInnerWeather } from "@/hooks/useInnerWeather";
@@ -282,24 +282,31 @@ export function CalendarTab({
   const dayRehearsal = useMemo(() => {
     if (!rehearsalInput) return null;
     if (!DAY_REHEARSAL_PERSONAL_PACE_ENABLED) return rehearseDay(rehearsalInput); // OFF: 完全不変
-    const ratios = buildPersonalPaceRatiosFromStore(loadMovementEventStore());
-    const graph = dayGraphByDate?.[selectedDate]?.graph;
-    const events = graph ? graph.nodes.filter((n): n is EventNode => n.kind === "event") : [];
-    const anchorById = new Map(selectedDayAnchors.map((a) => [a.id, a] as const));
-    const selectedModes = loadSelectedModesForDay(selectedDate);
-    const resolver = (stepIndex: number) => {
-      const from = events[stepIndex];
-      const to = events[stepIndex + 1];
-      if (!from || !to) return null;
-      const legKey = `${from.anchorId}__${to.anchorId}`;
-      const mode = selectedModes[legKey];
-      if (!mode) return null; // mode 未選択 → 引けない（fallback）
-      const oNorm = normalizeLocationText(anchorById.get(from.anchorId)?.locationText ?? null);
-      const dNorm = normalizeLocationText(anchorById.get(to.anchorId)?.locationText ?? null);
-      const odKey = oNorm && dNorm ? `${oNorm}__${dNorm}` : undefined;
-      return resolvePersonalPaceForLeg(ratios, { odKey, legKey, mode });
-    };
+    const events = dayGraphByDate?.[selectedDate]?.graph?.nodes.filter((n): n is EventNode => n.kind === "event") ?? [];
+    const resolver = buildRehearsalPaceResolver({
+      events,
+      anchorById: new Map(selectedDayAnchors.map((a) => [a.id, a] as const)),
+      selectedModes: loadSelectedModesForDay(selectedDate),
+      ratios: buildPersonalPaceRatiosFromStore(loadMovementEventStore()),
+    });
     return rehearseDay(applyPersonalPaceToRehearsalInput(rehearsalInput, resolver));
+  }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
+
+  // ★A1-8 dogfood shadow activation（dev/dogfood・flag DAY_REHEARSAL_PACE_SHADOW_ENABLED **default OFF**・production hard block）。
+  //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
+  //   ready のとき shadow 比較（OFF/ON）を走らせ structured 差分（過悲観/marker 爆発/診断悪化/過剰変化）を console に出す（UI なし）。
+  useEffect(() => {
+    if (!isPaceShadowActivationEnabled() || !rehearsalInput) return;
+    const ratios = buildPersonalPaceRatiosFromStore(loadMovementEventStore());
+    const events = dayGraphByDate?.[selectedDate]?.graph?.nodes.filter((n): n is EventNode => n.kind === "event") ?? [];
+    const resolvePace = buildRehearsalPaceResolver({
+      events,
+      anchorById: new Map(selectedDayAnchors.map((a) => [a.id, a] as const)),
+      selectedModes: loadSelectedModesForDay(selectedDate),
+      ratios,
+    });
+    const report = runPaceShadowActivation({ rehearsalInput, ratios, resolvePace });
+    if (report.ran) console.debug("[pace-shadow]", report); // dev-only structured 出力（UI 非表示）
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
