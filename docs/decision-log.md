@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity 検証基盤（dogfood safety journal）main 着地（自律）= Place Affinity code 完全完了 [承認: CEO「蓄積データの検証基盤を追加」]
+
+- **検証基盤（`62beddb0`）**: A1-13 dogfood safety journal 型を Place Affinity に適用。データが出る前に検証枠を用意。`placeAffinitySafetyJournal.ts`=`summarizePlaceAffinityShadow`(派生 counts/boolean のみ・★`excessiveShift`=maxRankShift>許容2＝clamp が効いていれば起きない安全不変条件)+record/load(local・fail-open・上限200・raw 排除)+`assessPlaceAffinitySafety`(insufficient/unstable/stable_safe)+rollback 条件。`PlaceCandidatesPanel` の shadow useEffect で dogfood(reason flag ON∧dev)のみ journal 記録。
+- **★安全**: place 名/座標/raw score 非保存（counts+boolean のみ・test 担保）・local-only・production 記録なし・belief 非汚染・新規 external なし。safety 8 tests・compose 249 PASS・tsc footprint 0・node_modules 0・server-health PASS。
+- **目的**: dogfood 蓄積後に ranking の bounded 性（over-personalization なし）を実データ検証→`stable_safe` で初めて ranking flag の広い有効化を検討（A1「shadow→stable→activation」型）。
+- **★Place Affinity code 完全完了（自律範囲）**: P2/P3/P4 engine + P5/5.1/5.2 reason-only + P5.3 shadow 検証 + P6-0 shadow 観測 + P6-1 ranking + 検証基盤(safety journal)。全 flag OFF/dogfood。**残る前進は実データ蓄積（dogfood 使用）→assess stable_safe→enable 判断（CEO）＝データ依存。安全に自律で進める Place Affinity code は完全に出尽くした。**
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P6-1 ranking 実反映 main 着地（別 flag・dev-only・flag OFF・条件付き smoke PASS）[承認: CEO 条件付き smoke PASS（thin data）]
 
 - **P6-1（`cb776c03`）**: 場所候補の **実順序を combiner で穏やかに調整**（familiar/condition-fit を少し上位へ）。`scorePlaceCandidates`(combiner から抽出・入力順)・flag `PLACE_AFFINITY_RANKING_ENABLED`(default OFF・dev-only・**reason-only と独立**)・`PlaceCandidatesPanel` の `rankedDisplayList`(ranking flag ON のみ・shadow と同じ p2+p3List[0])。
