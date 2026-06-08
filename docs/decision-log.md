@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity P6-0 shadow ranking 観測（dev console・順位不変）main 着地（自律）= P6-1 ranking 実反映は design で停止 [承認: CEO「1=P6-0 自律実装、P6-1 は design まで」]
+
+- **P6-0（`47c6b3d9`）**: A1-8 pattern。`PlaceCandidatesPanel` で flag ON/dev のみ useEffect で `buildShadowRanking`（現在の候補順を baseline に P4 combiner の並べ替えを **適用せず** 算出）→ **集約 metrics のみ** console.debug（`{candidateCount, orderChanged, changedPositionCount, maxRankShift, personalAppliedCount}`）。`shadowInputsFromDisplayOrder`(表示順→generalScore=n−index)。
+- **★安全**: 順序を変えない（displayList 不変・観測のみ）・flag OFF/production→何もしない＝完全不変・**place 名/placeKey/座標を出さない**（metrics のみ）・新規データ/DB/external なし・人格診断なし。shadow 7 tests・tsc footprint 0・node_modules 0・server-health smoke PASS(flag ON→Ready 6.3s/307)。
+- **★P6-1 ranking 実反映 = design で停止（CEO 指示）**: 候補の実順序を combiner で変える＝候補挙動が変わる UI stop gate。design 済（P5.3/P6 mini-design）・実装は CEO 判断。P6-0 で実データの並べ替え傾向を観測してから判断。
+- **★Place Affinity 完了形（自律範囲）**: P2/P3/P4 engine + P5/5.1/5.2 reason-only UI + P5.3 shadow 検証 + P6-0 shadow 観測 + P6-1 design。全 flag OFF/dogfood・pure・順位不変。次は CEO 判断（P6-1 ranking 実反映 or 別テーマ）。
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P5.3 shadow ranking 検証（pure・適用しない）main 着地 + P6 ranking-反映 mini-design = ★ranking 実反映 stop gate [承認: GPT 自律方針]
 
 - **P5.3（`95175a88`）**: A1 の「activate 前に shadow で検証」を place ranking に適用。`buildShadowRanking(inputs, {p2, p3?})` が P4 combiner の並べ替えを **適用せず** 算出し general 順との差分（orderChanged/changedPositionCount/**maxRankShift**/personalAppliedCount）を返す。★maxRankShift が clamp で小さい＝over-personalization防止の数値検証。pure・未配線・新規データ/座標/raw 値なし。5 tests・tsc footprint 0・node_modules 0。
