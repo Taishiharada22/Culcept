@@ -13,6 +13,7 @@
  *   - 過悲観 / marker 爆発 / 診断悪化 / 過剰変化 を明確に出す。
  */
 import type { PaceShadowActivationReport } from "@/lib/plan/mobility/paceShadowActivation";
+import type { PersonalPaceDogfoodReadiness } from "@/lib/plan/mobility/personalPaceDogfoodReadiness";
 
 function ConcernBadge({ label, on }: { label: string; on: boolean }) {
   return (
@@ -25,7 +26,14 @@ function ConcernBadge({ label, on }: { label: string; on: boolean }) {
   );
 }
 
-export function PaceShadowReportPanel({ report }: { report: PaceShadowActivationReport }) {
+export function PaceShadowReportPanel({
+  report,
+  dogfoodReadiness,
+}: {
+  report: PaceShadowActivationReport;
+  /** ★A1-11: dogfood activation の前チェック集約（任意・dev のみ）。 */
+  dogfoodReadiness?: PersonalPaceDogfoodReadiness | null;
+}) {
   return (
     <div data-testid="pace-shadow-report" className="mt-3 rounded-xl border border-slate-300 border-dashed bg-slate-50/70 px-3 py-2.5 text-slate-600">
       <div className="flex items-baseline justify-between">
@@ -66,6 +74,29 @@ export function PaceShadowReportPanel({ report }: { report: PaceShadowActivation
           >
             {report.anyConcern ? "⚠ 懸念あり（有効化前に要確認）" : "✓ 懸念なし"}
           </div>
+        </div>
+      )}
+
+      {/* ★A1-11: dogfood activation 前チェック（opt-in / 反映区間 / shadow 安全 / 記録の質）。raw 数値なし。 */}
+      {dogfoodReadiness && (
+        <div data-testid="dogfood-readiness" className="mt-2 border-t border-dashed border-slate-200 pt-2 text-[11px]">
+          <div
+            data-testid="dogfood-verdict"
+            className={`font-semibold ${dogfoodReadiness.overall === "ready_for_dogfood" ? "text-emerald-600" : "text-slate-500"}`}
+          >
+            dogfood: {dogfoodReadiness.overall === "ready_for_dogfood" ? "✓ ready_for_dogfood" : "未充足（not_ready）"}
+          </div>
+          <ul className="mt-1 space-y-0.5">
+            {dogfoodReadiness.checks.map((c) => (
+              <li key={c.key} className={c.passed ? "text-slate-500" : "text-rose-600"}>
+                {c.passed ? "✓ " : "✗ "}
+                {c.label}：<span className="text-slate-400">{c.detail}</span>
+              </li>
+            ))}
+          </ul>
+          {dogfoodReadiness.blockers.length > 0 && (
+            <div className="mt-1 text-slate-400">未充足: {dogfoodReadiness.blockers.join(" / ")}</div>
+          )}
         </div>
       )}
     </div>

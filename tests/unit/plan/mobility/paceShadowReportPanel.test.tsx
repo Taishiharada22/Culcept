@@ -70,4 +70,25 @@ describe("PaceShadowReportPanel — dogfood debug report", () => {
     expect(html).not.toContain("viability");
     expect(html).not.toContain("懸念あり");
   });
+  it("★A1-11 dogfoodReadiness を渡すと checklist + verdict を出す（raw 値なし）", () => {
+    const dogfood = {
+      checks: [
+        { key: "opt_in" as const, label: "移動記録の opt-in", passed: true, detail: "許可済" },
+        { key: "shadow_confirmed_safe" as const, label: "shadow で懸念なし", passed: false, detail: "懸念あり" },
+      ],
+      overall: "not_ready" as const,
+      blockers: ["shadow で懸念なし"],
+      watchItems: [],
+      rollbackConditions: [],
+    };
+    const html = renderToStaticMarkup(<PaceShadowReportPanel report={ranClean} dogfoodReadiness={dogfood} />);
+    expect(html).toContain("dogfood");
+    expect(html).toContain("移動記録の opt-in");
+    expect(html).toContain("未充足");
+    expect(html).not.toContain("medianRatio");
+  });
+  it("dogfoodReadiness なし → checklist は出さない（後方互換）", () => {
+    const html = renderToStaticMarkup(<PaceShadowReportPanel report={ranClean} />);
+    expect(html).not.toContain("dogfood-readiness");
+  });
 });

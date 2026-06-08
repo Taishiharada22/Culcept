@@ -80,6 +80,9 @@ import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, r
 import { applyPersonalPaceToRehearsalInput, isPersonalPaceReflectionEnabled } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
 import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
+import { buildPaceActivationReadiness } from "@/lib/plan/mobility/paceActivationReadiness";
+import { buildPersonalPaceDogfoodReadiness, summarizeCaptureQuality, type PersonalPaceDogfoodReadiness } from "@/lib/plan/mobility/personalPaceDogfoodReadiness";
+import { loadPaceCaptureOptInState } from "@/lib/plan/mobility/paceCaptureOptIn";
 import { runPaceShadowActivation, isPaceShadowActivationEnabled, type PaceShadowActivationReport } from "@/lib/plan/mobility/paceShadowActivation";
 import { PaceShadowReportPanel } from "@/components/plan/PaceShadowReportPanel";
 import { loadSelectedModesForDay } from "@/lib/plan/map/selectedModeStore";
@@ -298,12 +301,16 @@ export function CalendarTab({
   //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
   //   ready のとき shadow 比較（OFF/ON）を走らせ structured 差分を **A1-9 dogfood debug panel** に保持（flag ON のみ描画）。
   const [shadowReport, setShadowReport] = useState<PaceShadowActivationReport | null>(null);
+  // ★A1-11: dogfood activation 前チェック集約（dev のみ・report に表示）。
+  const [dogfoodReadiness, setDogfoodReadiness] = useState<PersonalPaceDogfoodReadiness | null>(null);
   useEffect(() => {
     if (!isPaceShadowActivationEnabled() || !rehearsalInput) {
       setShadowReport(null); // OFF/非 dev: パネルも出さない
+      setDogfoodReadiness(null);
       return;
     }
-    const ratios = buildPersonalPaceRatiosFromStore(loadMovementEventStore());
+    const store = loadMovementEventStore();
+    const ratios = buildPersonalPaceRatiosFromStore(store);
     const events = dayGraphByDate?.[selectedDate]?.graph?.nodes.filter((n): n is EventNode => n.kind === "event") ?? [];
     const resolvePace = buildRehearsalPaceResolver({
       events,
@@ -312,7 +319,16 @@ export function CalendarTab({
       ratios,
       activationReadyOnly: true, // ★A1-10: shadow も実 activation(ready_for_activation のみ)を正確に preview
     });
-    setShadowReport(runPaceShadowActivation({ rehearsalInput, ratios, resolvePace }));
+    const report = runPaceShadowActivation({ rehearsalInput, ratios, resolvePace });
+    setShadowReport(report);
+    setDogfoodReadiness(
+      buildPersonalPaceDogfoodReadiness({
+        readiness: buildPaceActivationReadiness(ratios),
+        shadowReport: report,
+        optInState: loadPaceCaptureOptInState(),
+        captureQuality: summarizeCaptureQuality(store),
+      }),
+    );
   }, [rehearsalInput, dayGraphByDate, selectedDate, selectedDayAnchors]);
 
   // WPM-1: 「詰まりやすい」transition の stepIndex 集合（read-only marker 用・convergence のみ・回復は別 slice）。
@@ -655,7 +671,9 @@ export function CalendarTab({
               )}
               <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} />
               {/* ★A1-9 dogfood/dev 限定 shadow report（isPaceShadowActivationEnabled=flag∧非 production のときだけ・一般ユーザー非表示・raw 数値なし）。 */}
-              {isPaceShadowActivationEnabled() && shadowReport && <PaceShadowReportPanel report={shadowReport} />}
+              {isPaceShadowActivationEnabled() && shadowReport && (
+                <PaceShadowReportPanel report={shadowReport} dogfoodReadiness={dogfoodReadiness} />
+              )}
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-semibold text-slate-800">
                   {formatJpDate(selectedDateObj)}
