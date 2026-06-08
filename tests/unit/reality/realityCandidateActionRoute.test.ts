@@ -11,10 +11,13 @@ import { describe, it, expect } from "vitest";
 import {
   runCandidateActionRoute,
   loadSurfaceableForAction,
+  loadSurfaceableForActionWithEntries,
 } from "@/lib/plan/reality/integration/candidate-action-route-support";
 import type { CandidateActionExecutor } from "@/lib/plan/reality/integration/candidate-action-executor";
 import type { PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
 import { deriveCandidateHandle } from "@/lib/plan/reality/integration/candidate-action-handle";
+import { writeLearningEventOnAction } from "@/lib/plan/reality/integration/learning-event-write-on-action";
+import type { PrmLearningEventInsertRow, PrmLearningEventRepository } from "@/lib/plan/reality/learning/prm-learning-event-insert";
 
 const SEED_A = "11111111-1111-4111-8111-111111111111";
 const USER = "99999999-9999-4999-8999-999999999999";
@@ -128,5 +131,61 @@ describe("A1-6-6 loadSurfaceableForAction — surface 同一 pipeline で active
     ];
     const surfaceable = await loadSurfaceableForAction(mockReadClient({ plan_seeds: seedRows, plan_seed_duration_evidences: [] }), USER, NOW);
     expect(surfaceable).toEqual([]); // stale → drop（active 全件でなく surfaceable のみ）
+  });
+});
+
+describe("A1-7-24 loadSurfaceableForActionWithEntries — surfaceable + pre-transition entries（bug 修正）", () => {
+  const NOW = 1780000000000;
+  type Row = Record<string, unknown>;
+  function mockReadClient(byTable: Record<string, Row[]>): PendingCapturedRowsReadClient {
+    const client = {
+      from(table: string) {
+        const chain = { eq() { return chain; }, in() { return chain; }, or() { return chain; }, async limit() { return { data: byTable[table] ?? [], error: null }; } };
+        return { select() { return chain; } };
+      },
+    };
+    return client as unknown as PendingCapturedRowsReadClient;
+  }
+  const seedRows = [
+    { id: SEED_A, user_id: USER, desired_date: "2026-06-20", desired_time_hint: "afternoon", action_shape: "full_go", confidence: 0.9, status: "active", captured_at: new Date(NOW).toISOString(), expires_at: null },
+  ];
+
+  it("active seed → surfaceable + entries(context)・delegate(loadSurfaceableForAction)と surfaceable 一致", async () => {
+    const { surfaceable, entries } = await loadSurfaceableForActionWithEntries(mockReadClient({ plan_seeds: seedRows, plan_seed_duration_evidences: [] }), USER, NOW);
+    expect(surfaceable).toEqual([{ seedRef: SEED_A, status: "active" }]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.seedRef).toBe(SEED_A);
+    expect(entries[0]!.desiredDate).toBe("2026-06-20");
+    expect(entries[0]!.desiredTimeHint).toBe("afternoon");
+    expect(deriveCandidateHandle(entries[0]!.seedRef)).toBe(HANDLE_A); // entries の handle 解決で learning write が context を引ける
+    const only = await loadSurfaceableForAction(mockReadClient({ plan_seeds: seedRows, plan_seed_duration_evidences: [] }), USER, NOW);
+    expect(only).toEqual(surfaceable);
+  });
+
+  it("seed なし → surfaceable []・entries []", async () => {
+    const { surfaceable, entries } = await loadSurfaceableForActionWithEntries(mockReadClient({ plan_seeds: [], plan_seed_duration_evidences: [] }), USER, NOW);
+    expect(surfaceable).toEqual([]);
+    expect(entries).toEqual([]);
+  });
+
+  it("**fix 検証**: pre-transition entries を使えば accept(→consumed)/dismiss(→rejected) でも learning write が走る", async () => {
+    const { entries } = await loadSurfaceableForActionWithEntries(mockReadClient({ plan_seeds: seedRows, plan_seed_duration_evidences: [] }), USER, NOW);
+    for (const [action, signal] of [["accept", "adoption"], ["dismiss", "non_adoption"], ["later", "deferral"]] as const) {
+      const inserted: PrmLearningEventInsertRow[] = [];
+      const repo: PrmLearningEventRepository = { async insert(rows) { inserted.push(...rows); return { ok: true, inserted: rows.length }; } };
+      // accept/dismiss は実 DB では seed を consumed/rejected にするが、entries は **transition 前 snapshot** ゆえ glue が解決できる
+      await writeLearningEventOnAction({
+        flagEnabled: true,
+        rawBody: { handle: HANDLE_A, action },
+        response: { accepted: true, reason: "ok", reflectsToPlan: action === "accept", deferred: action === "later" },
+        entries,
+        repository: repo,
+        nowMs: NOW,
+      });
+      expect(inserted).toHaveLength(1); // ← A1-7-23 bug では accept/dismiss が 0 だった
+      expect(inserted[0]!.action).toBe(action);
+      expect(inserted[0]!.signal).toBe(signal);
+      expect(JSON.stringify(inserted[0])).not.toMatch(/raw|seed_?ref|utterance|personality|trait|fixed_preference|certainty|hypothes/i);
+    }
   });
 });

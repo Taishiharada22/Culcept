@@ -1,8 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { loadSurfaceableForAction, runCandidateActionRoute } from "@/lib/plan/reality/integration/candidate-action-route-support";
+import { loadSurfaceableForActionWithEntries, runCandidateActionRoute } from "@/lib/plan/reality/integration/candidate-action-route-support";
 import { createStatusOnlyExecutor, type PlanSeedStatusUpdateClient } from "@/lib/plan/reality/integration/plan-seed-status-executor";
-import { loadActiveCandidateEntries, type PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
+import type { PendingCapturedRowsReadClient } from "@/lib/plan/reality/integration/morning-capture-surface.server";
 import { writeLearningEventOnAction } from "@/lib/plan/reality/integration/learning-event-write-on-action";
 import {
   createSupabasePrmLearningEventRepository,
@@ -40,14 +40,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const nowMs = Date.now();
-  const surfaceable = await loadSurfaceableForAction(supabase as unknown as PendingCapturedRowsReadClient, user.id, nowMs);
+  // A1-7-24: surfaceable + **pre-transition entries** を 1 read で capture（transition 前 snapshot）。
+  const { surfaceable, entries } = await loadSurfaceableForActionWithEntries(supabase as unknown as PendingCapturedRowsReadClient, user.id, nowMs);
   const executor = createStatusOnlyExecutor(supabase as unknown as PlanSeedStatusUpdateClient);
   const result = await runCandidateActionRoute(body, surfaceable, executor);
 
-  // A1-7-17: status transition 成功後の PRM learning event write（**flag default OFF**・await-and-swallow・fail-open）。
-  //   flag OFF → 本 block を一切実行しない（entry 再 read も repository 生成もせず insert 0・既存挙動完全不変）。
+  // A1-7-17/24: validly processed action 後の PRM learning event write（**flag default OFF**・await-and-swallow・fail-open）。
+  //   entries は **transition 前に capture 済**ゆえ accept→consumed / dismiss→rejected でも acted candidate の context を解決でき、
+  //   accept/dismiss/later の 3 action すべてで write できる（A1-7-23 bug 修正）。
+  //   flag OFF → 本 block を skip（entries は未使用・surfaceable load は従来と同一 1 read ゆえ挙動不変）。
   if (PLAN_FLAGS.realityLearningEventWrite) {
-    const entries = await loadActiveCandidateEntries(supabase as unknown as PendingCapturedRowsReadClient, user.id, nowMs);
     await writeLearningEventOnAction({
       flagEnabled: true,
       rawBody: body,
