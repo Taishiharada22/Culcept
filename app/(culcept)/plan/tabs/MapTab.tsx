@@ -89,6 +89,8 @@ import { createDirectionsService, fetchLegInfo, fetchRoadSegmentPath, flightArcP
 import { loadPriorLegMode, loadSelectedModesForDay, saveSelectedMode } from "@/lib/plan/map/selectedModeStore";
 import { loadL3bPooledBeliefMultiLevel, type RepertoireQuery } from "@/lib/plan/mobility/mobilityRepertoireBelief";
 import { resolveMobilityGuidance } from "@/lib/plan/mobility/mobilityGuidance";
+import { useTodayWeather } from "@/lib/plan/context/useTodayWeather";
+import { contextToDecisionContext } from "@/lib/plan/context/contextBridge";
 import { buildFeedbackEntry, saveHypothesisFeedback, saveHypothesisFeedbackReason, loadHypothesisFeedbackStore, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { buildMovementEventManual, recordMovementEvent, loadMovementEvent, deleteMovementEvent } from "@/lib/plan/mobility/movementEventStore";
 import { buildReasonInsightForLeg, reasonReflectionLine } from "@/lib/plan/mobility/mobilityReasonInsight";
@@ -325,6 +327,10 @@ export function MapTab({
 
   // Slice 1 (API不要): 開いた leg の card data — focus 階層 state / readOnly(過去=実績) / recall / sensitive mask。
   //   FH mobilityCard を NT 構造へ忠実 port。視覚復元(ガラス線/chip/オーラ)は Tier 2。
+  // ★A2-7 今日の天気（flag ON/dev のみ・fail-open）→ mobility DecisionContext へ投影（cold→normal・mode は変えない）。
+  //   production/flag OFF は null→{}→contextNote なし＝完全不変。
+  const todayWeather = useTodayWeather();
+  const mobilityWeather = useMemo(() => contextToDecisionContext({ weather: todayWeather }).weather, [todayWeather]);
   const mobilityCardData = useMemo(() => {
     if (!openLeg) return null;
     const sorted = [...allPins].sort((a, b) =>
@@ -368,6 +374,7 @@ export function MapTab({
       readOnly: isDone,
       sensitive,
       recallMode: existingRecall,
+      weather: mobilityWeather, // ★A2-7: 屋外 mode×悪天候の contextNote 用（mode は変えない・null は従来通り）
     });
     // ★A0-2 reason reflection: established insight のみ穏やかに 1 行（readOnly/sensitive は沈黙）。
     //   pure helper が established 以外・「その他」reason・not_enough を null にする（保守的・沈黙デフォルト）。
@@ -400,7 +407,7 @@ export function MapTab({
         destSensitive: !!sorted[idx + 1]!.anchor.sensitiveCategory,
       },
     };
-  }, [openLeg, allPins, selectedModeByLeg, now, dayKey]);
+  }, [openLeg, allPins, selectedModeByLeg, now, dayKey, mobilityWeather]);
 
   // v0-E: mode 選択時に「仮説への応答」を別 store(hypothesisFeedback)へ記録する wrapper。
   //   既存 handleLegSelect(現在選択の保存=selectedModeStore)は不変。本 wrapper はその後段で feedback だけ追記。
