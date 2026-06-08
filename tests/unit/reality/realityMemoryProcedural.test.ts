@@ -56,6 +56,9 @@ describe("R1-5 tendencyToProceduralMemory — hypothesis のみ", () => {
   it("non_adoption は手順でない → null", () => {
     expect(tendencyToProceduralMemory(t({ tendencyDirection: "non_adoption" }))).toBeNull();
   });
+  it("本人が rejected した傾向は手順仮説にしない → null（semantic/preference と一貫）", () => {
+    expect(tendencyToProceduralMemory(t({ tendencyDirection: "adoption", userCorrection: "rejected" }))).toBeNull();
+  });
   it("adoption→取り入れる進め方 / deferral→後回しにする進め方", () => {
     expect(tendencyToProceduralMemory(t({ tendencyDirection: "adoption" }))!.observation).toContain("取り入れる進め方");
     expect(tendencyToProceduralMemory(t({ tendencyDirection: "deferral" }))!.observation).toContain("後回しにする進め方");

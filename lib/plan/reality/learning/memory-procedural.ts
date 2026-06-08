@@ -54,6 +54,7 @@ export function assessProceduralSignals(t: SecondSelfTendency, opts: { confirmed
  *   certainty: stable のとき tendency の certainty を継承（≤tentative）、それ以外は low。
  */
 export function tendencyToProceduralMemory(t: SecondSelfTendency, opts: { confirmed?: boolean } = {}): MemoryItem | null {
+  if (t.userCorrection === "rejected") return null; // 本人が否定した傾向を手順仮説にしない（semantic/preference と一貫・defense-in-depth）
   const approach = APPROACH_OF[t.tendencyDirection];
   if (!approach) return null; // non_adoption は手順でない
   const signals = assessProceduralSignals(t, opts);

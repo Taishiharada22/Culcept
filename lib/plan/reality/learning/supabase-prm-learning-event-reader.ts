@@ -44,6 +44,11 @@ export interface PrmLearningEventReadClient {
 export interface PrmLearningEventReader {
   /** owner の learning events を DryRunLearningEvent[] として読む（recency 昇順・上限 READ_LIMIT・fail-open []）。 */
   readLearningEvents(): Promise<readonly DryRunLearningEvent[]>;
+  /**
+   * episodic memory 用に owner の learning events を **column-restricted な生 row** として読む（acted_at 昇順・fail-open []）。
+   * 同一 query（許可列のみ）・raw/source_ref/user_id/id/signal は select しない。
+   */
+  readEventRows(): Promise<readonly PrmLearningEventReadRow[]>;
 }
 
 /**
@@ -61,6 +66,16 @@ export function createSupabasePrmLearningEventReader(client: PrmLearningEventRea
         .limit(READ_LIMIT);
       if (res.error || !res.data) return []; // fail-open
       return prmLearningEventRowsToDryRunEvents(res.data as unknown as readonly PrmLearningEventReadRow[]);
+    },
+    async readEventRows() {
+      const res = await client
+        .from("prm_learning_events")
+        .select(PRM_LEARNING_EVENT_READ_COLUMNS) // 許可列のみ（raw/source_ref/user_id/id/signal なし）
+        .eq("user_id", userId) // RLS + 明示 user
+        .order("acted_at", { ascending: true })
+        .limit(READ_LIMIT);
+      if (res.error || !res.data) return []; // fail-open
+      return res.data as unknown as readonly PrmLearningEventReadRow[];
     },
   };
 }
