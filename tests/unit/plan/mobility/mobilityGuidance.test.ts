@@ -90,6 +90,12 @@ describe("resolveMobilityGuidance — A2-7 weather contextNote", () => {
     expect(g.hypothesisCopy?.contextNoteText).not.toBeNull();
     expect(g.surfacedMode).toBe("bicycle"); // ★mode は変わらない（雨でも bicycle のまま）
   });
+  it("★A2-8: weather=snow/storm × 屋外 habitual → 雪/荒天の注意（mode 不変）", () => {
+    const snow = resolveMobilityGuidance(input({ belief: bicycleBelief(), weather: "snow" }));
+    expect(snow.hypothesisCopy?.contextNoteText).toContain("雪");
+    expect(snow.surfacedMode).toBe("bicycle"); // mode 不変
+    expect(resolveMobilityGuidance(input({ belief: bicycleBelief(), weather: "storm" })).hypothesisCopy?.contextNoteText).toContain("荒天");
+  });
   it("★weather=rain × 非屋外 habitual(train) → contextNoteText なし（屋外露出のみ）", () => {
     const g = resolveMobilityGuidance(input({ belief: strongBelief(), weather: "rain" }));
     expect(g.hypothesisCopy?.contextNoteText).toBeNull();

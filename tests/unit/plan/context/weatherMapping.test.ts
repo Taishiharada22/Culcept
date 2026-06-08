@@ -13,9 +13,10 @@ describe("weatherDailyToWeatherKind — JMA → WeatherKind", () => {
   it("★データ皆無（unknown ∧ pop/temp 全 null）→ null", () => {
     expect(weatherDailyToWeatherKind(d({ weather_icon: "unknown" }))).toBeNull();
   });
-  it("icon rain/storm → rain", () => {
+  it("★A2-8: rain→rain / storm→storm（独立）/ snow→snow（cold で沈黙させない）", () => {
     expect(weatherDailyToWeatherKind(d({ weather_icon: "rain" }))).toBe("rain");
-    expect(weatherDailyToWeatherKind(d({ weather_icon: "storm" }))).toBe("rain");
+    expect(weatherDailyToWeatherKind(d({ weather_icon: "storm" }))).toBe("storm");
+    expect(weatherDailyToWeatherKind(d({ weather_icon: "snow" }))).toBe("snow");
   });
   it("★pop_max≥60（rain icon でなくても）→ rain / <60 → rain でない", () => {
     expect(weatherDailyToWeatherKind(d({ weather_icon: "cloud", pop_max: 70 }))).toBe("rain");
@@ -24,8 +25,7 @@ describe("weatherDailyToWeatherKind — JMA → WeatherKind", () => {
   it("temp_max≥30 → heat", () => {
     expect(weatherDailyToWeatherKind(d({ weather_icon: "sun", temp_max: 32 }))).toBe("heat");
   });
-  it("★snow → cold（雨と誤ラベルしない）/ temp_min≤3 → cold", () => {
-    expect(weatherDailyToWeatherKind(d({ weather_icon: "snow" }))).toBe("cold");
+  it("★temp_min≤3（precip でない）→ cold", () => {
     expect(weatherDailyToWeatherKind(d({ weather_icon: "cloud", temp_min: 1 }))).toBe("cold");
   });
   it("穏やか（sun/cloud・通常気温）→ normal", () => {

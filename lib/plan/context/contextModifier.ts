@@ -50,7 +50,19 @@ export type ContextSource = "observed" | "user" | "derived" | "unknown";
 
 // ───────────────────────── 条件スナップショット（抽象・sensitive-free） ─────────────────────────
 
-export type WeatherKind = "rain" | "heat" | "cold" | "normal";
+export type WeatherKind = "rain" | "snow" | "storm" | "heat" | "cold" | "normal";
+
+/**
+ * ★A2-8: 移動負担を持つ天候 → 一般則 basis（仮説トーン）。雨/雪/荒天/暑さは tightens(slight・保守的)。
+ * cold/normal は本 map に無い＝tilt なし（寒さ単独は移動を強く妨げない＝descriptive）。
+ * ★全て slight（断定/警告を避ける）・偽数値なし・mode を変えない（day-level の注意のみ）。
+ */
+const WEATHER_TILT_BASIS: Partial<Record<WeatherKind, string>> = {
+  rain: "雨の日は移動に余白が要りやすい（一般的傾向）",
+  snow: "雪の日は移動に時間がかかりやすい（一般的傾向）",
+  storm: "荒天の日は移動が乱れやすい（一般的傾向）",
+  heat: "暑い日は移動で消耗しやすい（一般的傾向）",
+};
 export type DayType = "weekday" | "weekend";
 export type DensityLevel = "sparse" | "balanced" | "packed";
 export type PositionInDay = "early" | "mid" | "late";
@@ -225,20 +237,11 @@ export function buildContextModifier(
     if (f) factors.push(f);
   };
 
-  // weather（rain/heat のみ tilt・cold/normal は記述扱いで factor なし）
+  // weather（A2-8: 雨/雪/荒天/暑さ → tightens slight・cold/normal は記述扱いで factor なし）
   note("weather", snapshot.weather, (source) => {
-    const k = snapshot.weather!.value;
-    if (k === "rain" || k === "heat") {
-      return {
-        signal: "weather",
-        source,
-        direction: "tightens",
-        strength: "slight",
-        basis: k === "rain" ? "雨の日は移動に余白が要りやすい（一般的傾向）" : "暑い日は移動で消耗しやすい（一般的傾向）",
-        grounding: "general",
-      };
-    }
-    return null;
+    const basis = WEATHER_TILT_BASIS[snapshot.weather!.value];
+    if (!basis) return null; // cold/normal → tilt なし
+    return { signal: "weather", source, direction: "tightens", strength: "slight", basis, grounding: "general" };
   });
 
   // density（A2-4: baseline sufficient なら本人相対・不在/insufficient なら一般則）
@@ -320,7 +323,10 @@ export function buildContextModifier(
 function factorPhrase(f: ContextFactor): string {
   switch (f.signal) {
     case "weather":
-      return f.basis.startsWith("雨") ? "雨" : "暑さ";
+      if (f.basis.startsWith("雨")) return "雨";
+      if (f.basis.startsWith("雪")) return "雪";
+      if (f.basis.startsWith("荒天")) return "荒天";
+      return "暑さ";
     case "density":
       // ★A2-4: personal grounding は本人相対のニュアンス（いつもより多め/少なめ）。
       if (f.grounding === "personal") return f.direction === "tightens" ? "いつもより多めの予定" : "いつもより少なめの予定";

@@ -1,11 +1,13 @@
 /**
- * lib/plan/context/weatherMapping.ts — Phase A2-6a: JMA WeatherDaily → A2 WeatherKind（pure）
+ * lib/plan/context/weatherMapping.ts — Phase A2-6a/A2-8: JMA WeatherDaily → A2 WeatherKind（pure）
  *
- * ★目的: 既存 JMA 予報（`WeatherDaily`）を A2 context modifier の `WeatherKind`(rain/heat/cold/normal) に
- *   honest にマッピングする。sourcing（route/fetch）に依らず必要な純粋変換。
+ * ★目的: 既存 JMA 予報（`WeatherDaily`）を A2 context modifier の `WeatherKind`
+ *   (rain/snow/storm/heat/cold/normal) に honest にマッピングする。純粋変換。
  *
  * ★安全境界:
- *   - 誤ラベルしない: snow は「雨」と言わず cold 扱い（A2-1 で cold は tilt なし＝under-claim・保守的）。
+ *   - 誤ラベルしない: A2-8 で snow/storm を独立カテゴリ化（雪を「雨」と言わない・雪は tightens で沈黙させない）。
+ *   - wind は JMA WeatherDaily に field が無い（icon=sun/cloud/rain/snow/storm/fog/unknown）→ 本マッピング対象外
+ *     （wind を出すには jma.ts の parse 拡張＝共有 weather module 変更が要る・将来）。
  *   - 捏造しない: データが無い（icon unknown ∧ pop/temp 全 null）→ null（weather factor を出させない）。
  *   - 偽数値を作らない・閾値は固定（較正は backlog）。pure / Date 不使用 / IO なし。
  *   - 入力は構造的（jma.ts に依存しない＝server-only コードを引き込まない）。
@@ -52,15 +54,14 @@ export function weatherDailyToWeatherKind(
     return null;
   }
 
-  // rain（降水優先・移動負担が最も意味を持つ）
-  if (weather_icon === "rain" || weather_icon === "storm") return "rain";
+  // ★A2-8: icon の降水/荒天を独立カテゴリ化（snow を cold で沈黙させない）。優先=storm>snow>rain>heat>cold>normal。
+  if (weather_icon === "storm") return "storm";
+  if (weather_icon === "snow") return "snow";
+  if (weather_icon === "rain") return "rain";
   if (pop_max !== null && pop_max >= config.popRainThreshold) return "rain";
 
-  // heat
+  // 気温（precip でない日）
   if (temp_max !== null && temp_max >= config.heatMaxC) return "heat";
-
-  // cold（snow は cold 扱い＝「雨」と誤ラベルしない・A2-1 では tilt なし）
-  if (weather_icon === "snow") return "cold";
   if (temp_min !== null && temp_min <= config.coldMinC) return "cold";
 
   // それ以外（sun/cloud/fog や穏やかな気温）→ normal

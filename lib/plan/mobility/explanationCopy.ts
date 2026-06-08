@@ -89,11 +89,16 @@ function buildRationale(label: string, strength: HabitualStrength): string | nul
   return null; // weak/none は gate 済（surface に到達しない想定）
 }
 
-/** contextNoteText（注意のみ・手段変更でない）。雨=noun / 暑い=i-adj で接続を分ける */
+/** contextNoteText（注意のみ・手段変更でない）。★A2-8: 雨/雪/荒天/暑さ。 */
+const WEATHER_NOTE_PREFIX: Record<ContextNote["reason"], string> = {
+  rain: "今日は雨なので",
+  snow: "今日は雪なので",
+  storm: "今日は荒天なので",
+  heat: "今日は暑いので",
+};
 function buildContextNoteText(note: ContextNote): string {
   const label = MODE_LABELS[note.aboutMode];
-  const prefix = note.reason === "rain" ? "今日は雨なので" : "今日は暑いので";
-  return `${prefix}、${label}は少し負担かもしれません。`;
+  return `${WEATHER_NOTE_PREFIX[note.reason]}、${label}は少し負担かもしれません。`;
 }
 
 /** correction 誘導（おすすめでなく選び直しの招待） */

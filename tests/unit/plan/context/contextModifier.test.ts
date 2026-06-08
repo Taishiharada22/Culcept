@@ -31,14 +31,15 @@ describe("buildContextModifier — 空 / unknown source", () => {
 });
 
 describe("buildContextModifier — 各信号の tilt", () => {
-  it("weather rain(observed) → tightens slight", () => {
-    const m = buildContextModifier(snap({ weather: { value: "rain", source: OBS } }));
-    const f = m.factors.find((x) => x.signal === "weather")!;
-    expect(f.direction).toBe("tightens");
-    expect(f.strength).toBe("slight");
-    expect(f.grounding).toBe("general"); // ★v0 は本人観測でなく一般則
+  it("★A2-8: rain/snow/storm/heat(observed) → tightens slight・general", () => {
+    for (const k of ["rain", "snow", "storm", "heat"] as const) {
+      const f = buildContextModifier(snap({ weather: { value: k, source: OBS } })).factors.find((x) => x.signal === "weather")!;
+      expect(f.direction).toBe("tightens");
+      expect(f.strength).toBe("slight"); // ★全 adverse weather は slight（断定/警告回避・偽数値なし）
+      expect(f.grounding).toBe("general");
+    }
   });
-  it("weather cold/normal → factor なし（記述扱い）", () => {
+  it("★weather cold/normal → factor なし（寒さ単独は移動を強く妨げない＝記述扱い）", () => {
     expect(buildContextModifier(snap({ weather: { value: "cold", source: OBS } })).factors).toHaveLength(0);
     expect(buildContextModifier(snap({ weather: { value: "normal", source: OBS } })).factors).toHaveLength(0);
   });
