@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-06-09 [Build] A1-14 dogfood smoke=gate safety PASS + A1-15 canary readiness 着地（A1-16=完全 stop case）[承認: 自律（pure・flag OFF）／A1-16 は CEO]
+
+- **A1-14 Dogfood Activation Smoke = ★gate safety PASS（actual activation でない）**: local/dev で `DAY_REHEARSAL_PACE_SHADOW_ENABLED=true`（worktree 限定 uncommitted）にして smoke。条件未充足（dogfood 実データ無し）→ readiness=not_enough / dogfood=not_ready / stability=insufficient で **gate が正しく ON を弾く**ことを確認。CEO 指示通り `DAY_REHEARSAL_PERSONAL_PACE_ENABLED=true` には進めず、override は **戻し済（全 flag OFF）**。main には flag OFF のまま closeout のみ着地。
+- **A1-15 Canary Entry Readiness（pure helper）**: `personalPaceCanaryReadiness.ts` の `buildCanaryReadiness`。4 check（複数日 stable_safe / 観測≥7日 / dogfood ready / ready_for_activation 区間≥2）→ `ready_for_canary_assessment` / `not_ready_for_canary`。★canary を **実行しない**・production hard block を **解除しない**・calibration 凍結維持・raw 数値非出力。8 tests PASS・mobility 439 PASS・tsc footprint 0・eslint clean。main 直接着地（commit 2f279cdf・flag OFF）。
+- **★A1-16 = canary 実行 / production block 解除 = 完全 stop case**: production hard block（`process.env.NODE_ENV !== "production"`）の解除 + cohort 配信機構 = production 変更 + CEO/法務判断。自律で進めない。**A1 系（pace activation）の安全側 pure 基盤は出尽くした**（capture→…→canary readiness）。残るのは「実 dogfood activation / canary / calibration」＝いずれも実運用データ蓄積 or CEO 判断が前提。自律バッチはここで **完全停止**。
+
+---
+
 ## 2026-05-25 [Build] Plan 9 closeout cleanup 完了 (= 「最新の状態を確実に保存」 達成) [承認: CEO 直接指示]
 
 ### CEO 指示 (= 一字一句)
