@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity P5.1 条件付き reason-only main 着地（順位不変・flag OFF・条件付き smoke PASS）[承認: CEO/GPT 条件付き smoke PASS]
+
+- **P5.1（`1de98aff`）**: P5 案A を P3 条件付きに拡張。場所候補に「**この時間帯に選ばれやすい場所のようです**」「平日/週末に選ばれやすい場所のようです」を控えめに添える（無ければ無条件「よく行く」に fallback）。
+- 実装: `placeCandidateBestReason`(p3List 優先順 timeband>weekday → 条件 reason / 無ければ P2) + `conditionPhrase`(★timeband は「この時間帯」=具体時刻を露わさない・weekday は平日/週末) + `placeConditionLabel` export + `PlaceCandidatesPanel` の `anchorStartTime`/`anchorDateISO` props(予定時刻/日付から timeband/weekday derive・**external なし**) + `AnchorFormFields` 配線。
+- **★安全**: ranking 変更なし・flag OFF→null＝完全不変・sparse 沈黙・sensitive/redacted 除外・raw score/visitCount/strength/内部値 非表示・時刻具体値なし・人格診断なし・新規データ/DB/external なし。reasonUi 13 tests・compose 229 PASS・tsc footprint 0・node_modules 0・zero-loss。
+- **smoke**: 私=dev server flag ON 起動(Ready 4.1s/307/compile error なし)。**CEO/GPT=条件付き smoke PASS**（観測不足ゆえ timeband/weekday 未発火は正常沈黙・UI 非破壊・候補順不変を確認）。
+- weather 条件は P5.2（useTodayWeather=A2 hook/route 再利用・新規 API/DB なし）。
+- **★GPT 方針**: P5.2 以降は Claude 自律進行（audit→mini-design→safe 実装→tests/tsc→smoke/server-health→flag OFF main着地→docs→次）。明確な stop gate（ranking 反映実装/production/DB/external API/予約/通知/Reality apply/候補順変更/大 UI 変更/raw GPS等保存/privacy 判断/人格診断）でのみ即停止報告。
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P5 案A reason-only UI main 着地（順位不変・flag OFF・dev-only・CEO 条件付き smoke PASS）[承認: CEO 条件付き smoke PASS]
 
 - **P5 案A（`435825b7`）**: `PlaceCandidatesPanel` の各場所候補に本人固有の観測 reason「よく行く場所のようです」を **slate-400 の 1 行**で控えめに添える。★**順位は変えない**（combiner を ranking に使わず P1A-2a の並びのまま reason だけ追加）。
