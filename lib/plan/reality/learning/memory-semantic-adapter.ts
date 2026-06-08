@@ -11,25 +11,15 @@
  */
 
 import type { SecondSelfTendency } from "./prm-model-entry-read";
-import { buildMemoryItem, type MemoryItem } from "./memory-model";
+import { buildMemoryItem, memoryContextPhrase, type MemoryItem } from "./memory-model";
 
-const CONTEXT_PHRASE: Record<string, Record<string, string>> = {
-  band: { morning: "朝の予定", afternoon: "午後の予定", evening: "夜の予定", none: "時間帯の定まらない予定" },
-  durationBucket: { short: "短い予定", medium: "中くらいの予定", long: "時間のかかる予定", unknown: "所要不明の予定" },
-  confidence: { high: "確信高めの提案", medium: "確信中くらいの提案", low: "確信低めの提案" },
-  source: { seed_explicit: "会話から拾った予定", correction: "調整された予定" },
-};
 const VERB: Record<string, string> = { adoption: "取り入れ", non_adoption: "見送り", deferral: "後回しにし" };
-
-function phrase(dim: string, value: string): string {
-  return CONTEXT_PHRASE[dim]?.[value] ?? "ある場面";
-}
 
 /** SecondSelfTendency → semantic MemoryItem（非断定・文脈束縛）。 */
 export function tendencyToSemanticMemory(t: SecondSelfTendency): MemoryItem {
   const verb = VERB[t.tendencyDirection] ?? "動き";
   // 内部 observation（非断定・「〜やすい傾向」型・trait 語なし）。表示時は presenter を別途通す。
-  const observation = `${phrase(t.contextDimension, t.contextValue)}では「${verb}やすい」傾向`;
+  const observation = `${memoryContextPhrase(t.contextDimension, t.contextValue)}では「${verb}やすい」傾向`;
   return buildMemoryItem({
     kind: "semantic",
     observation,

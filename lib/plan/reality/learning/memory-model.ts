@@ -115,6 +115,20 @@ export function memoryObservationHasViolation(observation: string): boolean {
   return ASSERTIVE.test(observation) || TRAIT.test(observation);
 }
 
+/**
+ * context_dimension+value → 人間可読な文脈句（**記憶 adapter 共通**・内部表現）。
+ *   UI 表示は presenter（second-self-presenter）が別途担う。ここは記憶層の内部 observation 用。
+ */
+const MEMORY_CONTEXT_PHRASE: Record<string, Record<string, string>> = {
+  band: { morning: "朝の予定", afternoon: "午後の予定", evening: "夜の予定", none: "時間帯の定まらない予定" },
+  durationBucket: { short: "短い予定", medium: "中くらいの予定", long: "時間のかかる予定", unknown: "所要不明の予定" },
+  confidence: { high: "確信高めの提案", medium: "確信中くらいの提案", low: "確信低めの提案" },
+  source: { seed_explicit: "会話から拾った予定", correction: "調整された予定" },
+};
+export function memoryContextPhrase(dimension: string, value: string): string {
+  return MEMORY_CONTEXT_PHRASE[dimension]?.[value] ?? "ある場面";
+}
+
 /** 入力を安全な MemoryItem へ正規化（certainty を cap・counts を非負へ・provenance 必須）。 */
 export function buildMemoryItem(input: {
   readonly kind: MemoryKind;
