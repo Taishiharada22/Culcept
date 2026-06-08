@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity P5 案A reason-only UI main 着地（順位不変・flag OFF・dev-only・CEO 条件付き smoke PASS）[承認: CEO 条件付き smoke PASS]
+
+- **P5 案A（`435825b7`）**: `PlaceCandidatesPanel` の各場所候補に本人固有の観測 reason「よく行く場所のようです」を **slate-400 の 1 行**で控えめに添える。★**順位は変えない**（combiner を ranking に使わず P1A-2a の並びのまま reason だけ追加）。
+- 実装: `placeAffinityReasonUi.ts`(flag `PLACE_AFFINITY_REASON_UI_ENABLED` default OFF + dev-only gate + `placeCandidatePersonalReason`=candidate canonical text を正規化 key で P2 destKey 照合・frequent/habitual のみ) + `mobilityObservationStore.loadAllObservations`(additive read) + Panel 配線(flag ON 時のみ P2 算出→候補に personalReason 順位不変付与)。
+- **★安全**: 順位不変・flag OFF→p2 null→reason 全 null＝完全不変・断定/人格診断なし(観測トーン)・raw score/visitCount/strength/内部値 非表示・sensitive/redacted 除外(destKey null)・raw GPS/座標/住所/placeId 非扱い・新規データなし・modal なし。reasonUi 7 tests・compose 223 PASS・tsc footprint 0・node_modules 0。
+- **smoke**: 私=server-health(flag-ON override uncommitted→Ready 3.9s/307/compile error なし→戻し)。**CEO=条件付き smoke PASS**(表示位置・候補順・typeReason 非破壊を確認。「よく行く」未表示は観測未蓄積ゆえの正常沈黙)。
+- 照合は「過去に同じ Google 候補を選び locationText が canonical 保存」時に成立(destKey=正規化 canonical)。表記の異なる手入力は沈黙(誤 reason 出さない保守)。
+- **次**: P5.1 条件付き reason-only(P3 を timeband/weather で reason-only 拡張・順位不変)。
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P4 general×personal combiner 着地（pure・未配線）+ P5 UI配線 mini-design [承認: CEO 判断「general+personal 結合を設計」]
 
 - **P4 combiner（`bece7752`・pure・未配線）**: P1A 一般則 scorer に P2(revealed preference)+P3(条件付き) を **bounded nudge** で結合。`combinePlaceAffinity` = `combinedScore = generalScore + clamp(nudge, 0, maxNudge=0.25)`。
