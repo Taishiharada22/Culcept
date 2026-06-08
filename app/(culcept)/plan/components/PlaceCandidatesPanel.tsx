@@ -38,6 +38,9 @@ import {
 import { classifyPlaceIntent } from "@/lib/plan/intentClassification";
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import { rerankGoogleCandidatesByActivity } from "@/lib/plan/compose/placeCandidateRanking";
+import { buildPlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
+import { isPlaceAffinityReasonEnabled, placeCandidatePersonalReason } from "@/lib/plan/compose/placeAffinityReasonUi";
+import { loadAllObservations } from "@/lib/plan/mobility/mobilityObservationStore";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -307,6 +310,23 @@ export function PlaceCandidatesPanel({
     [rankByAffinity, results, title],
   );
 
+  // ── P5 案A: 本人固有の観測 reason を **順位を変えずに** 添える（flag default OFF・dev-only）──
+  //   flag OFF → p2=null → personalReason 全て null＝既存挙動完全不変。座標/住所/内部値は出さない。
+  const placeAffinityP2 = useMemo(
+    () => (isPlaceAffinityReasonEnabled() ? buildPlaceAffinityReadiness(loadAllObservations()) : null),
+    [],
+  );
+  const displayListWithReason = useMemo(
+    () =>
+      displayList.map((d) => ({
+        ...d,
+        personalReason: placeAffinityP2
+          ? placeCandidatePersonalReason(formatCanonicalLocationText(d.candidate.name, d.candidate.address), placeAffinityP2)
+          : null,
+      })),
+    [displayList, placeAffinityP2],
+  );
+
   // ── handlers ──
   const handleSelect = (c: PlaceCandidate) => {
     abortRef.current?.abort();
@@ -455,7 +475,7 @@ export function PlaceCandidatesPanel({
       {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale) */}
       {!loading && results.length > 0 && (
         <ul className="space-y-1.5" data-testid="plan-place-candidates-list">
-          {displayList.map(({ candidate: c, typeReason }) => (
+          {displayListWithReason.map(({ candidate: c, typeReason, personalReason }) => (
             <li key={c.placeId}>
               <button
                 type="button"
@@ -492,6 +512,15 @@ export function PlaceCandidatesPanel({
                     className="text-[10px] text-indigo-500 mt-0.5"
                   >
                     {typeReason}
+                  </p>
+                )}
+                {/* ★P5 案A: 本人固有の観測 reason（控えめ・順位に影響しない・flag OFF では非表示）。 */}
+                {personalReason && (
+                  <p
+                    data-testid="plan-place-candidate-personal-reason"
+                    className="text-[10px] text-slate-400 mt-0.5"
+                  >
+                    {personalReason}
                   </p>
                 )}
               </button>
