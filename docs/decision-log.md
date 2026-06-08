@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity P5.3 shadow ranking 検証（pure・適用しない）main 着地 + P6 ranking-反映 mini-design = ★ranking 実反映 stop gate [承認: GPT 自律方針]
+
+- **P5.3（`95175a88`）**: A1 の「activate 前に shadow で検証」を place ranking に適用。`buildShadowRanking(inputs, {p2, p3?})` が P4 combiner の並べ替えを **適用せず** 算出し general 順との差分（orderChanged/changedPositionCount/**maxRankShift**/personalAppliedCount）を返す。★maxRankShift が clamp で小さい＝over-personalization防止の数値検証。pure・未配線・新規データ/座標/raw 値なし。5 tests・tsc footprint 0・node_modules 0。
+- **P6 ranking-反映 mini-design（同 doc）**: 段階=P6-0 shadow 観測(dev console・順序不変・safe)→**P6-1 ranking 実反映=候補挙動が変わる=UI stop gate**（専用 flag・branch+smoke・CEO 判断）。bounded nudge≥0/clamp/sufficient gate を P4 から継承・shadow で事前検証。
+- **★Place Affinity 安全 pure 層 完成**: P2(revealed)+P3(条件付き)+P4(combiner) engine / P5・5.1・5.2(reason-only UI: revealed+timeband+weekday+weather・優先順・flag OFF dogfood) / P5.3(shadow 検証) / P6(ranking design)。**残=P6-1 ranking 実反映=候補挙動変更=明確な stop gate（CEO 判断）。** 自律で安全に進める Place Affinity pure/reason 層は出尽くした。
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P5.2 weather 条件付き reason-only main 着地（最優先・順位不変・flag OFF・自律）[承認: GPT 自律方針]
 
 - **P5.2（`0dc0ad4c`）**: P5.1 の条件に **weather を最優先**で追加。場所候補に「雨/雪/荒天/暑い/寒い の日に選ばれやすい場所のようです」を控えめに（無ければ timeband>weekday>P2 へ fallback）。
