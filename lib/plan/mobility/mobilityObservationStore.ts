@@ -331,6 +331,16 @@ export function loadMobilityObservation(dayISO: string, legKey: string): Mobilit
   return getObservation(readObservationStore(), dayISO, legKey);
 }
 
+/** ★Place Affinity P5: 全観測を flat 配列で読む（client・fail-open・read-only）。 */
+export function loadAllObservations(): readonly MobilityObservation[] {
+  const store = readObservationStore();
+  const out: MobilityObservation[] = [];
+  for (const legs of Object.values(store.byDay)) {
+    for (const obs of Object.values(legs)) out.push(obs);
+  }
+  return out;
+}
+
 /**
  * ★A2-10: 観測ログを全消去（opt-out / clear 導線のデータ層・client・fail-open）。
  * UI からの呼び出し（明示の「データを消す」）用。DB/network なし。
