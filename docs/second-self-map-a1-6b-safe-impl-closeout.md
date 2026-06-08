@@ -1,6 +1,7 @@
 # A1-6b — GPS 自動捕捉 安全版 実装 closeout + dev smoke 観点
 
-> 2026-06-08 / Build Unit / branch `feat/a1-6b-gps-capture`。★main 着地は **CEO smoke PASS 後**。flag **default OFF**。
+> 2026-06-08 / Build Unit / branch `feat/a1-6b-gps-capture` → **CEO 実機 smoke PASS → main 着地済（`50a9d0ea`）**。flag **default OFF**（本番 dormant・activation は A1-7 別判断）。
+> smoke 知見: prompt 不出の原因は **opt-in が `not_asked`（sampling 未起動＝正しい安全動作）**で bug でなし。dev smoke は opt-in granted（要 `updatedAt` 付き record）+ permission granted + 到着座標 dwell で candidate→prompt を確認し PASS。smoke override（flag true / interval 5s / window seam）は worktree 限定 throwaway で commit 不混入。
 
 ---
 
