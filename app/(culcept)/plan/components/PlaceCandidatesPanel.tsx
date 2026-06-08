@@ -45,6 +45,7 @@ import { isPlaceAffinityReasonEnabled, isPlaceAffinityRankingEnabled, placeCandi
 import { scorePlaceCandidates } from "@/lib/plan/compose/placeAffinityCombiner";
 import { loadAllObservations, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { buildShadowRanking, shadowInputsFromDisplayOrder } from "@/lib/plan/compose/placeAffinityShadowRanking";
+import { recordPlaceAffinitySafetyEntry, summarizePlaceAffinityShadow } from "@/lib/plan/compose/placeAffinitySafetyJournal";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -374,6 +375,8 @@ export function PlaceCandidatesPanel({
       maxRankShift: shadow.maxRankShift,
       personalAppliedCount: shadow.personalAppliedCount,
     });
+    // ★検証基盤: dogfood で派生サマリーを journal に蓄積（local-only・raw なし）。蓄積後に安全性を assess。
+    recordPlaceAffinitySafetyEntry(summarizePlaceAffinityShadow(shadow, placeAffinitySignals.p2));
   }, [displayListWithReason, placeAffinitySignals]);
 
   // ── P6-1: ranking 実反映（別 flag・default OFF・dev-only）。familiar/condition-fit を **穏やかに** 上位へ。──
