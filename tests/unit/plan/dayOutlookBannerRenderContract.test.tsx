@@ -180,6 +180,43 @@ describe("DayOutlookBanner — Repair「どうするとよさそう？」disclos
   });
 });
 
+// ── A2-3 Context Modifier: 今日の文脈 reason 行 ──
+describe("DayOutlookBanner — A2-3 context reason 行", () => {
+  const REASON = "今日は予定の詰まり・後半の時間帯があるので、普段より少し余白を見ておくと安心かもしれません。";
+
+  it("CTX1. contextReason 供給 → 今日の文脈行が出る（testid + 文言）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} contextReason={REASON} />);
+    expect(html).toContain('data-testid="plan-day-outlook-context"');
+    expect(html).toContain("今日の文脈 · ");
+    expect(html).toContain(REASON);
+  });
+
+  it("CTX2. contextReason なし/null → 文脈行を出さない（既存挙動不変・沈黙）", () => {
+    expect(renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} />)).not.toContain("plan-day-outlook-context");
+    expect(renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} contextReason={null} />)).not.toContain("plan-day-outlook-context");
+  });
+
+  it("CTX3. ★outlook unknown → banner ごと出ない（contextReason 供給でも非表示）", () => {
+    expect(renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("unknown")} contextReason={REASON} />)).toBe("");
+  });
+
+  it("CTX4. 文脈行は slate 中立・warning 色/断定語/数字を含まない", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} contextReason={REASON} />);
+    expect(html).toMatch(/plan-day-outlook-context[\s\S]{0,160}text-slate/);
+    for (const w of ["amber", "orange", "bg-red", "危険", "警告", "疲れ", "壊れ"]) {
+      expect(html).not.toContain(w);
+    }
+  });
+
+  it("CTX5. read-only: 文脈行に実行 UI（button/input）を置かない", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("holds")} contextReason={REASON} />);
+    const ctxIdx = html.indexOf("plan-day-outlook-context");
+    const ctxSegment = html.slice(ctxIdx, ctxIdx + 240);
+    expect(ctxSegment).not.toContain("<button");
+    expect(ctxSegment).not.toContain("<input");
+  });
+});
+
 // ── What-if v0 UI: 候補文の下の「試すと…」simulation 1 行 ──
 describe("DayOutlookBanner — What-if v0 simulation line", () => {
   const rc = (kind: DayRepairKind, suggestion: string): DayRepairCandidate => ({ kind, suggestion, targetStepIndex: 0, evidence: EV });
