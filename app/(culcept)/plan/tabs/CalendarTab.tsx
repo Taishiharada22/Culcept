@@ -80,6 +80,7 @@ import { rehearseDay, buildRehearsalInputFromDisplay, buildRehearsalInputFull, r
 import { applyPersonalPaceToRehearsalInput, isPersonalPaceReflectionEnabled } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 import { buildContextModifier, isContextModifierEnabled } from "@/lib/plan/context/contextModifier";
 import { buildDayContextSnapshot, buildContextOutlook } from "@/lib/plan/context/contextBridge";
+import { buildDensityBaseline } from "@/lib/plan/context/contextBaseline";
 import { loadMovementEventStore } from "@/lib/plan/mobility/movementEventStore";
 import { buildPersonalPaceRatiosFromStore, buildRehearsalPaceResolver } from "@/lib/plan/mobility/personalPaceResolver";
 import { buildPaceActivationReadiness } from "@/lib/plan/mobility/paceActivationReadiness";
@@ -311,8 +312,14 @@ export function CalendarTab({
       baseEnergyLevel: rehearsalInput.baseEnergyLevel,
       travelMinutes: rehearsalInput.steps.map((s) => s.transitionAfter?.travelMin ?? null),
     });
-    return buildContextOutlook(buildContextModifier(snapshot)).reasonLine;
-  }, [rehearsalInput]);
+    // ★A2-5: 本人の density baseline を「見えている日々」から算出（read-only・観測のみ）。
+    //   薄い(<5日)/tie は sufficient=false → buildContextModifier が一般則に fallback（断定しない）。
+    const densities = Object.values(dayGraphByDate ?? {})
+      .map((r) => r?.graph?.attributes?.density)
+      .filter((d): d is "sparse" | "balanced" | "packed" => d != null);
+    const densityBaseline = buildDensityBaseline(densities);
+    return buildContextOutlook(buildContextModifier(snapshot, undefined, { density: densityBaseline })).reasonLine;
+  }, [rehearsalInput, dayGraphByDate]);
 
   // ★A1-8/A1-9 dogfood shadow activation + report（dev/dogfood・flag DAY_REHEARSAL_PACE_SHADOW_ENABLED **default OFF**・production hard block）。
   //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
