@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-06-09 [Build] A2-9 Weather×Movement Personalization Privacy Review（capture 前精査・分析のみ）[承認: CEO 判断「privacy review を先に」]
+
+- **位置づけ**: capture 開始前の **privacy-by-design 分析**（`…-a2-9-weather-privacy-review.md`）。★**法的意見でない**（AI は法律家でなく、APPI 確定解釈は有資格の法務 + CEO）。データ収集・privacy 設定変更・実装は **一切なし**。
+- **データ棚卸し**: weatherKind は derived category のみ（raw weather/GPS/座標/office code/場所 **非保存**・居住地 day-level ゆえ leg location 非露呈）。
+- **リスク**: 生活パターン推論の深化（中）・location プロファイル濃化（中・新規 location は足さない）・sensitive leg の間接推論（要除外）・保管場所が最大分岐（**端末内 localStorage なら中央集約なしで負担小**）。
+- **緩和（推奨）**: ★on-device only / derived-only / sensitive 除外 / bounded 60日 / sufficient gate / transparency+opt-out / 非移転。既存ローカル Second Self Map 姿勢と一致。
+- **★CEO/法務 判断点（stop gate）**: ①収集是非 ②on-device only 確約 ③redacted 観測の扱い ④transparency/opt-out UX ⑤APPI 確定判断（有資格法務）。→ **承認まで A2-9 実装に進まない**。
+
+---
+
 ## 2026-06-09 [Build] A2-8 weather factor 精密化 着地 + A2-9 weather personal化 mini-design（停止）[承認: CEO 判断「snow 等 weather 精密化」]
 
 - **A2-8（`03d6d710`）weather factor 精密化**: snow を「沈黙（cold 扱い）」から「注意（tightens）」へ。storm を独立カテゴリ化。
