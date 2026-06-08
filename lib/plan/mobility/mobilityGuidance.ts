@@ -11,7 +11,7 @@
 // 禁則: writeback なし / weather→mode なし / mock belief なし（呼び側が loadModeBelief で実データを渡す）。
 
 import type { RouteTransportMode } from "@/lib/plan/map/routeMode";
-import { buildMobilityHypothesis, type ModeBelief } from "./mobilityHypothesis";
+import { buildMobilityHypothesis, type ModeBelief, type DecisionContext } from "./mobilityHypothesis";
 import { decideSurface } from "./necessityGate";
 import { buildExplanationCopy, type ExplanationCopy } from "./explanationCopy";
 
@@ -26,6 +26,11 @@ export interface MobilityGuidanceInput {
   readonly sensitive: boolean;
   /** 既存 S2-A recall（hypothesis が出ない時の fallback） */
   readonly recallMode: RouteTransportMode | null;
+  /**
+   * ★A2-7: 今日の天気（任意）。屋外露出 habitual mode × 悪天候のとき contextNote（注意）を付すためだけ。
+   * ★mode を変えない（既存 guardrail 保持）。不在/null → 従来通り contextNote なし（後方互換）。
+   */
+  readonly weather?: DecisionContext["weather"];
 }
 
 export interface MobilityGuidance {
@@ -48,14 +53,15 @@ function isUnselected(mode: RouteTransportMode | null | undefined): boolean {
  *   それ以外           → { hypothesisCopy: null, recallMode }（既存 recall）。
  */
 export function resolveMobilityGuidance(input: MobilityGuidanceInput): MobilityGuidance {
-  const { belief, selectedMode, readOnly, sensitive, recallMode } = input;
+  const { belief, selectedMode, readOnly, sensitive, recallMode, weather } = input;
 
   // 補正1+2: readOnly / 選択済み は hypothesis 対象外（recall は呼び側の既存ロジックのまま）
   if (readOnly || !isUnselected(selectedMode)) {
     return { hypothesisCopy: null, recallMode, surfacedMode: null };
   }
 
-  const hypothesis = buildMobilityHypothesis(belief, {}); // ★v0-D は weather を渡さない
+  // ★A2-7: weather を渡す（屋外 mode × 悪天候の contextNote 用・mode は変えない）。不在→{}（後方互換）。
+  const hypothesis = buildMobilityHypothesis(belief, weather ? { weather } : {});
   const decision = decideSurface(hypothesis, { sensitive });
   if (!decision.surface) {
     return { hypothesisCopy: null, recallMode, surfacedMode: null };

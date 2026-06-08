@@ -72,3 +72,29 @@ describe("resolveMobilityGuidance (v0-D guidance gate)", () => {
     expect(g.recallMode).toBe("train");
   });
 });
+
+// ★A2-7: weather pass-through（屋外 mode×悪天候の contextNote のみ・mode は変えない）
+describe("resolveMobilityGuidance — A2-7 weather contextNote", () => {
+  /** bicycle 優勢（屋外露出 mode・strong → surface） */
+  function bicycleBelief(): ModeBelief {
+    return { legKey: "a__b", counts: { bicycle: 7, train: 3 }, total: 10, topMode: "bicycle", topShare: 0.7 };
+  }
+
+  it("★weather なし → contextNoteText なし（後方互換）", () => {
+    const g = resolveMobilityGuidance(input({ belief: bicycleBelief() }));
+    expect(g.hypothesisCopy?.surface).toBe(true);
+    expect(g.hypothesisCopy?.contextNoteText).toBeNull();
+  });
+  it("★weather=rain × 屋外 habitual(bicycle) → contextNoteText 出る（注意のみ）", () => {
+    const g = resolveMobilityGuidance(input({ belief: bicycleBelief(), weather: "rain" }));
+    expect(g.hypothesisCopy?.contextNoteText).not.toBeNull();
+    expect(g.surfacedMode).toBe("bicycle"); // ★mode は変わらない（雨でも bicycle のまま）
+  });
+  it("★weather=rain × 非屋外 habitual(train) → contextNoteText なし（屋外露出のみ）", () => {
+    const g = resolveMobilityGuidance(input({ belief: strongBelief(), weather: "rain" }));
+    expect(g.hypothesisCopy?.contextNoteText).toBeNull();
+  });
+  it("weather=normal → contextNoteText なし", () => {
+    expect(resolveMobilityGuidance(input({ belief: bicycleBelief(), weather: "normal" })).hypothesisCopy?.contextNoteText).toBeNull();
+  });
+});
