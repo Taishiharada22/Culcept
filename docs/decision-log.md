@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-06-09 [Build] Place Affinity P6-1 ranking 実反映 main 着地（別 flag・dev-only・flag OFF・条件付き smoke PASS）[承認: CEO 条件付き smoke PASS（thin data）]
+
+- **P6-1（`cb776c03`）**: 場所候補の **実順序を combiner で穏やかに調整**（familiar/condition-fit を少し上位へ）。`scorePlaceCandidates`(combiner から抽出・入力順)・flag `PLACE_AFFINITY_RANKING_ENABLED`(default OFF・dev-only・**reason-only と独立**)・`PlaceCandidatesPanel` の `rankedDisplayList`(ranking flag ON のみ・shadow と同じ p2+p3List[0])。
+- **★安全**: bounded nudge≥0/clamp（未訪問を罰しない・general 勝者を覆さない）・別 flag・flag OFF/production→順位不変=完全不変・shadow(P6-0)と一致・sufficient gate・座標/住所/raw 値なし・人格診断なし・新規データ/DB/external なし。compose 241 PASS・tsc footprint 0・node_modules 0・zero-loss。
+- **smoke**: 私=server 両 flag ON 起動(Ready 4.1s/307/compile error なし)。**CEO=条件付き smoke PASS**（観測薄で新規候補は P2/P3 不一致→nudge 0・並べ替えなし・reason なし＝正常沈黙・候補 UI 非破壊を確認）。CEO 注記: P6-1 は ranking 実反映の**仕組み**であり実データでの rank shift 安全性は蓄積後に確認。
+- v0 制約: ranking は p3List[0] で nudge・reason は full p3List（稀に reason 下位条件・nudge 0 の不一致）。
+- **★Place Affinity 完成（自律範囲・全 flag OFF/dogfood）**: P2/P3/P4 engine + P5/5.1/5.2 reason-only UI + P5.3 shadow 検証 + P6-0 shadow 観測 + P6-1 ranking 実反映。**残る前進は実データ蓄積（dogfood で観測を貯める）+ enable 判断 + 蓄積後の tuning ＝データ依存/CEO 判断。安全に自律で進める Place Affinity code は出尽くした（saturation）。**
+
+---
+
 ## 2026-06-09 [Build] Place Affinity P6-0 shadow ranking 観測（dev console・順位不変）main 着地（自律）= P6-1 ranking 実反映は design で停止 [承認: CEO「1=P6-0 自律実装、P6-1 は design まで」]
 
 - **P6-0（`47c6b3d9`）**: A1-8 pattern。`PlaceCandidatesPanel` で flag ON/dev のみ useEffect で `buildShadowRanking`（現在の候補順を baseline に P4 combiner の並べ替えを **適用せず** 算出）→ **集約 metrics のみ** console.debug（`{candidateCount, orderChanged, changedPositionCount, maxRankShift, personalAppliedCount}`）。`shadowInputsFromDisplayOrder`(表示順→generalScore=n−index)。
