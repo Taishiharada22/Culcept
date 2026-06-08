@@ -11,8 +11,8 @@
  */
 
 import { toDryRunLearningEvent, hypothesisLabel, type CandidateActionContext } from "@/lib/plan/reality/learning/dry-run-learning-event";
-import { aggregateDryRunEvents, type TentativePattern } from "@/lib/plan/reality/learning/dry-run-aggregation";
-import { projectPrmDryRun, blockedReasonLabel, type PrmDryRunProposal } from "@/lib/plan/reality/learning/prm-dry-run-projection";
+import { aggregateDryRunEvents, type TentativePattern, type TentativePatternReport } from "@/lib/plan/reality/learning/dry-run-aggregation";
+import { projectPrmDryRun, blockedReasonLabel, type PrmDryRunProposal, type PrmDryRunProjection } from "@/lib/plan/reality/learning/prm-dry-run-projection";
 import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
 
 const HANDLE = "c1:" + "f".repeat(64);
@@ -108,16 +108,21 @@ function ProposalCard({ p }: { p: PrmDryRunProposal }) {
   );
 }
 
-export function LearningReportPreviewClient() {
-  const report = aggregateDryRunEvents(fixtureEvents());
-  const projection = projectPrmDryRun(report); // A1-7-4: PRM 保存前の proposal projection（保存しない）
+export function LearningReportPreviewClient({
+  report: reportProp,
+  projection: projectionProp,
+  live,
+}: { report?: TentativePatternReport; projection?: PrmDryRunProjection; live?: boolean } = {}) {
+  // A1-7-28: props 指定（live=staging events から server 集約）なら使用・なければ fixture（既存挙動）。
+  const report = reportProp ?? aggregateDryRunEvents(fixtureEvents());
+  const projection = projectionProp ?? projectPrmDryRun(report); // A1-7-4: PRM 保存前の proposal projection（保存しない）
   return (
     <div className="mx-auto max-w-md px-4 py-6 text-gray-800" data-testid="learning-report">
-      <h1 className="text-lg font-bold">Shadow Learning Report（dry-run）</h1>
+      <h1 className="text-lg font-bold">{live ? "Live Learning Observation（staging dogfood）" : "Shadow Learning Report（dry-run）"}</h1>
       <p className="mt-1 text-[12px] text-gray-500">
-        A1-7-2・dev/staging 限定・<b>render-only</b>。fixture dry-run events を <b>aggregateDryRunEvents</b> で集約した
-        tentative pattern。<b>実 event / DB / persistence なし</b>。certainty は最大 <b>tentative</b>・counter-evidence と
-        他仮説（stillPossible）を残す設計を目視確認（同じ dismiss でも band→timing / confidence→framing に分岐）。
+        A1-7-{live ? "28" : "2"}・dev/staging 限定・<b>render-only</b>。{live ? "あなたの staging learning events（owner-only）" : "fixture dry-run events"} を{" "}
+        <b>aggregateDryRunEvents</b>（同日 dedup）で集約した tentative pattern。<b>{live ? "PRM 本体に保存しない・観測のみ" : "実 event / DB / persistence なし"}</b>。
+        certainty は最大 <b>tentative</b>・counter-evidence と他仮説（stillPossible）を残す設計（同じ dismiss でも band→timing / confidence→framing に分岐）。
       </p>
       <div className="mt-2 text-[11px] text-gray-400">
         totalEvents: {report.totalEvents} / patterns: {report.patterns.length} / assertsPersonality:{" "}
