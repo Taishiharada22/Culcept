@@ -16,6 +16,7 @@ import {
   getObservation,
   saveMobilityObservation,
   loadMobilityObservation,
+  clearMobilityObservations,
   type MobilityObservation,
   type MobilityObservationStore,
 } from "@/lib/plan/mobility/mobilityObservationStore";
@@ -281,5 +282,52 @@ describe("mobilityObservationStore (L1-a・GPT 必須 20 ケース)", () => {
   it("round-trip: save→load で復元", () => {
     saveMobilityObservation("2026-06-08", "home__work", OBS);
     expect(loadMobilityObservation("2026-06-08", "home__work")).toEqual(OBS);
+  });
+});
+
+// ★A2-10: weatherKind capture（derived category のみ・redacted/invalid 除外・後方互換）
+describe("mobilityObservationStore — A2-10 weatherKind capture", () => {
+  it("★normal × valid weatherKind → 保存される", () => {
+    const o = buildObservation(obsInput({ weatherKind: "rain" }))!;
+    expect(o.weatherKind).toBe("rain");
+    expect(o.privacyClass).toBe("normal");
+  });
+  it("★redacted（sensitive）→ valid でも weatherKind を付けない（personal 化対象外）", () => {
+    const o = buildObservation(obsInput({ originSensitive: true, weatherKind: "rain" }))!;
+    expect(o.privacyClass).toBe("redacted");
+    expect(o.weatherKind).toBeUndefined();
+  });
+  it("★invalid / undefined weatherKind → 付けない（捏造しない）", () => {
+    expect(buildObservation(obsInput({ weatherKind: "typhoon" }))!.weatherKind).toBeUndefined();
+    expect(buildObservation(obsInput({ weatherKind: 42 }))!.weatherKind).toBeUndefined();
+    expect(buildObservation(obsInput({ weatherKind: undefined }))!.weatherKind).toBeUndefined();
+  });
+  it("snow/storm/heat/cold/normal も保存できる", () => {
+    for (const k of ["snow", "storm", "heat", "cold", "normal"] as const) {
+      expect(buildObservation(obsInput({ weatherKind: k }))!.weatherKind).toBe(k);
+    }
+  });
+  it("★後方互換: weatherKind なしの旧 obs は valid のまま parse される", () => {
+    const raw = JSON.stringify(store({ "2026-06-08": { "a__b": OBS } })); // OBS は weatherKind なし
+    expect(getObservation(parseObservationStore(raw), "2026-06-08", "a__b")).toEqual(OBS);
+  });
+  it("★parse: weatherKind 付き → 復元 / invalid weatherKind の obs は drop", () => {
+    const good = { ...OBS, weatherKind: "snow" as const };
+    const bad = { ...OBS } as Record<string, unknown>;
+    bad.weatherKind = "typhoon"; // invalid → obs ごと drop
+    const raw = JSON.stringify(store({ "2026-06-08": { good: good as MobilityObservation, bad: bad as unknown as MobilityObservation } }));
+    const parsed = parseObservationStore(raw);
+    expect(getObservation(parsed, "2026-06-08", "good")?.weatherKind).toBe("snow");
+    expect(getObservation(parsed, "2026-06-08", "bad")).toBeNull(); // invalid weatherKind → drop
+  });
+  it("save→load で weatherKind 復元", () => {
+    saveMobilityObservation("2026-06-08", "w__leg", buildObservation(obsInput({ weatherKind: "rain" })));
+    expect(loadMobilityObservation("2026-06-08", "w__leg")?.weatherKind).toBe("rain");
+  });
+  it("★clearMobilityObservations: 観測ログを全消去（opt-out/clear 導線）", () => {
+    saveMobilityObservation("2026-06-08", "home__work", OBS);
+    expect(loadMobilityObservation("2026-06-08", "home__work")).not.toBeNull();
+    clearMobilityObservations();
+    expect(loadMobilityObservation("2026-06-08", "home__work")).toBeNull();
   });
 });
