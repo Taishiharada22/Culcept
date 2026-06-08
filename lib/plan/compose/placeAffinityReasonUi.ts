@@ -13,6 +13,11 @@
  */
 import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
 import { placeAffinityReasonLine, type PlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
+import {
+  placeConditionLabel,
+  type PlaceCondition,
+  type PlaceConditionAffinity,
+} from "@/lib/plan/compose/placeConditionAffinity";
 
 /** ★P5 reason-only UI flag（**default OFF**）。 */
 export const PLACE_AFFINITY_REASON_UI_ENABLED = false;
@@ -36,4 +41,36 @@ export function placeCandidatePersonalReason(
   const profile = p2.profiles.find((p) => p.placeKey === key);
   if (!profile) return null;
   return placeAffinityReasonLine(profile); // habitual/frequent → 1 行 / occasional → null
+}
+
+/** 条件 → 表示フレーズ（P5.1）。timeband は時刻を露わさず「この時間帯」・weekday/weather はラベル。 */
+function conditionPhrase(condition: PlaceCondition): string | null {
+  if (condition.dimension === "timeband") return "この時間帯"; // ★具体時刻を出さない（privacy）
+  if (condition.dimension === "weekday") return condition.value === "weekend" ? "週末" : "平日";
+  return placeConditionLabel(condition); // weather: 雨の日/雪の日/… or null（normal）
+}
+
+/**
+ * ★P5.1: 候補の最良 reason（pure）。条件付き（p3List を優先順で）→ 該当 place が skew + sufficient なら
+ *   「{この時間帯/週末/雨の日 …}に選ばれやすい場所のようです」。無ければ無条件 P2（「よく行く」）に fallback。
+ *   ★順位に影響しない（reason のみ）。not_enough / occasional / skew 無 / 未訪問 → 沈黙。
+ */
+export function placeCandidateBestReason(
+  candidateCanonicalText: string,
+  p2: PlaceAffinityReadiness,
+  p3List: readonly PlaceConditionAffinity[],
+): string | null {
+  const key = normalizeLocationText(candidateCanonicalText);
+  if (key == null) return null;
+
+  for (const p3 of p3List) {
+    if (p3.status !== "ready") continue;
+    const prof = p3.profiles.find((p) => p.placeKey === key);
+    if (prof && prof.skewsToCondition && prof.strength !== "occasional") {
+      const phrase = conditionPhrase(p3.condition);
+      if (phrase) return `${phrase}に選ばれやすい場所のようです。`;
+    }
+  }
+  // fallback: 無条件「よく行く」
+  return placeCandidatePersonalReason(candidateCanonicalText, p2);
 }

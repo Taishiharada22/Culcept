@@ -39,8 +39,9 @@ import { classifyPlaceIntent } from "@/lib/plan/intentClassification";
 import { classifyActivityIconKey } from "@/lib/plan/compose/activityIcon";
 import { rerankGoogleCandidatesByActivity } from "@/lib/plan/compose/placeCandidateRanking";
 import { buildPlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
-import { isPlaceAffinityReasonEnabled, placeCandidatePersonalReason } from "@/lib/plan/compose/placeAffinityReasonUi";
-import { loadAllObservations } from "@/lib/plan/mobility/mobilityObservationStore";
+import { buildPlaceConditionAffinity, type PlaceCondition } from "@/lib/plan/compose/placeConditionAffinity";
+import { isPlaceAffinityReasonEnabled, placeCandidateBestReason } from "@/lib/plan/compose/placeAffinityReasonUi";
+import { loadAllObservations, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -116,6 +117,10 @@ export interface PlaceCandidatesPanelProps {
    * persona / 履歴 / 距離 / 外部API は一切使わない。generic（title 空含む）は並べ替えない。
    */
   rankByAffinity?: boolean;
+  /** ★P5.1: 予定の開始時刻("HH:mm")。条件付き reason(この時間帯) 用・任意・順位不変。 */
+  anchorStartTime?: string;
+  /** ★P5.1: 予定日(YYYY-MM-DD)。条件付き reason(平日/週末) 用・任意・順位不変。 */
+  anchorDateISO?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -129,6 +134,8 @@ export function PlaceCandidatesPanel({
   onSkip,
   initialClosedAtSearchKey = null as unknown as string,
   rankByAffinity = false,
+  anchorStartTime,
+  anchorDateISO,
 }: PlaceCandidatesPanelProps) {
   const [debouncedQuery, setDebouncedQuery] = useState<string>(query);
   const [debouncedTitle, setDebouncedTitle] = useState<string>(title);
@@ -310,21 +317,32 @@ export function PlaceCandidatesPanel({
     [rankByAffinity, results, title],
   );
 
-  // ── P5 案A: 本人固有の観測 reason を **順位を変えずに** 添える（flag default OFF・dev-only）──
-  //   flag OFF → p2=null → personalReason 全て null＝既存挙動完全不変。座標/住所/内部値は出さない。
-  const placeAffinityP2 = useMemo(
-    () => (isPlaceAffinityReasonEnabled() ? buildPlaceAffinityReadiness(loadAllObservations()) : null),
-    [],
-  );
+  // ── P5/P5.1: 本人固有の観測 reason を **順位を変えずに** 添える（flag default OFF・dev-only）──
+  //   flag OFF → null → personalReason 全て null＝既存挙動完全不変。座標/住所/内部値は出さない。
+  //   ★P5.1 条件付き（この時間帯/平日週末）は anchor の予定時刻/日付から derive（external 依存なし・順位不変）。
+  const placeAffinitySignals = useMemo(() => {
+    if (!isPlaceAffinityReasonEnabled()) return null;
+    const observations = loadAllObservations();
+    const p2 = buildPlaceAffinityReadiness(observations);
+    const conditions: PlaceCondition[] = [];
+    if (anchorStartTime) conditions.push({ dimension: "timeband", value: toTimeband(anchorStartTime) }); // この時間帯（優先）
+    if (anchorDateISO) conditions.push({ dimension: "weekday", value: toWeekdayBucket(anchorDateISO) }); // 平日/週末
+    const p3List = conditions.map((c) => buildPlaceConditionAffinity(observations, c));
+    return { p2, p3List };
+  }, [anchorStartTime, anchorDateISO]);
   const displayListWithReason = useMemo(
     () =>
       displayList.map((d) => ({
         ...d,
-        personalReason: placeAffinityP2
-          ? placeCandidatePersonalReason(formatCanonicalLocationText(d.candidate.name, d.candidate.address), placeAffinityP2)
+        personalReason: placeAffinitySignals
+          ? placeCandidateBestReason(
+              formatCanonicalLocationText(d.candidate.name, d.candidate.address),
+              placeAffinitySignals.p2,
+              placeAffinitySignals.p3List,
+            )
           : null,
       })),
-    [displayList, placeAffinityP2],
+    [displayList, placeAffinitySignals],
   );
 
   // ── handlers ──

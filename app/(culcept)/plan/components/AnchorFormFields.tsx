@@ -413,6 +413,8 @@ export function AnchorFormFields({
           sensitive={!!form.sensitiveCategory}
           onSelect={handlePlaceCandidateSelect}
           onSkip={handlePlaceCandidateSkip}
+          anchorStartTime={form.startTime}
+          anchorDateISO={form.date}
         />
       </Field>
 
