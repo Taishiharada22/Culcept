@@ -317,4 +317,23 @@ export const PLAN_FLAGS = {
    *   error→fail-open（action 不破壊）。**実 staging/production apply + flag ON は別 CEO gate（slice ⑤）**。
    */
   realityLearningEventWrite: process.env.REALITY_LEARNING_EVENT_WRITE === "true",
+
+  /**
+   * A1-7-33: operator が proposal を review し decision を **M2/M3 に書く** route（POST /api/reality/review-decision）の有効化。
+   *   true  : flag ON で route が server 再導出 proposal を review→M2 insert→approve なら M3 entry insert（review_decision_id FK）。
+   *   false : route は no-op（**本番デフォルト**・M2/M3 write 0・既存挙動不変）。
+   * env: REALITY_REVIEW_WRITE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/prm-review-flow-route-design.md（A1-7-33）
+   * 制約: **default OFF**（local/staging only・production OFF + hard block）。operator-only（reviewer は server で operator 固定）。
+   *   snapshot は client から受けず server 再導出（integrity）。第二の自己 surfacing（実ユーザー公開）は別 gate。
+   */
+  realityReviewWrite: process.env.REALITY_REVIEW_WRITE === "true",
+
+  /**
+   * A1-7-33: dev-learning-observation の **review ボタン UI**（operator が approve/reject/defer を押す）の client 有効化。
+   *   true  : observation の candidate proposal に review ボタン表示し /api/reality/review-decision に POST。
+   *   false : ボタン非表示（**本番デフォルト**・observation は read-only=既存不変）。
+   * env: NEXT_PUBLIC_REALITY_REVIEW_UI=true で有効化（**client 評価可・NEXT_PUBLIC_**）。dev 限定（triple-guard host 配下）。
+   */
+  realityReviewUi: process.env.NEXT_PUBLIC_REALITY_REVIEW_UI === "true",
 } as const;

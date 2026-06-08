@@ -20,6 +20,7 @@ import {
 import { aggregateDryRunEvents } from "@/lib/plan/reality/learning/dry-run-aggregation";
 import { projectPrmDryRun } from "@/lib/plan/reality/learning/prm-dry-run-projection";
 import type { DryRunLearningEvent } from "@/lib/plan/reality/learning/dry-run-learning-event";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { LearningReportPreviewClient } from "../dev-learning-report/LearningReportPreviewClient";
 
 export const dynamic = "force-dynamic";
@@ -48,5 +49,6 @@ export default async function DevLearningObservationPage() {
   const report = aggregateDryRunEvents(events, { dedupeSameDay: true });
   const projection = projectPrmDryRun(report);
 
-  return <LearningReportPreviewClient report={report} projection={projection} live />;
+  // A1-7-33: review UI flag ON のとき candidate に review ボタン（server write は REALITY_REVIEW_WRITE が別途 gate）。
+  return <LearningReportPreviewClient report={report} projection={projection} live reviewEnabled={PLAN_FLAGS.realityReviewUi} />;
 }

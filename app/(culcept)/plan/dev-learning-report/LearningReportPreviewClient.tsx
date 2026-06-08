@@ -14,6 +14,7 @@ import { toDryRunLearningEvent, hypothesisLabel, type CandidateActionContext } f
 import { aggregateDryRunEvents, type TentativePattern, type TentativePatternReport } from "@/lib/plan/reality/learning/dry-run-aggregation";
 import { projectPrmDryRun, blockedReasonLabel, type PrmDryRunProposal, type PrmDryRunProjection } from "@/lib/plan/reality/learning/prm-dry-run-projection";
 import type { CandidateActionKind } from "@/lib/plan/reality/candidate-action";
+import { ReviewButtons } from "./ReviewButtons";
 
 const HANDLE = "c1:" + "f".repeat(64);
 function ev(action: CandidateActionKind, over: Partial<CandidateActionContext>) {
@@ -79,8 +80,8 @@ function PatternCard({ p }: { p: TentativePattern }) {
   );
 }
 
-/** A1-7-4: PRM dry-run proposal（candidate=amber / blocked=gray・要 review・blockedReason 明示）。 */
-function ProposalCard({ p }: { p: PrmDryRunProposal }) {
+/** A1-7-4: PRM dry-run proposal（candidate=amber / blocked=gray・要 review）。A1-7-33: reviewEnabled で candidate に review ボタン。 */
+function ProposalCard({ p, reviewEnabled }: { p: PrmDryRunProposal; reviewEnabled?: boolean }) {
   const isCandidate = p.status === "candidate";
   return (
     <li
@@ -104,6 +105,7 @@ function ProposalCard({ p }: { p: PrmDryRunProposal }) {
       </div>
       {p.blockedReason && <div className="mt-1 text-[10px] text-gray-400">blocked: {blockedReasonLabel(p.blockedReason)}</div>}
       <div className="mt-1 text-[10px] text-gray-400">{p.whyProposalOnly}</div>
+      {reviewEnabled && isCandidate && <ReviewButtons p={p} />}
     </li>
   );
 }
@@ -112,7 +114,8 @@ export function LearningReportPreviewClient({
   report: reportProp,
   projection: projectionProp,
   live,
-}: { report?: TentativePatternReport; projection?: PrmDryRunProjection; live?: boolean } = {}) {
+  reviewEnabled,
+}: { report?: TentativePatternReport; projection?: PrmDryRunProjection; live?: boolean; reviewEnabled?: boolean } = {}) {
   // A1-7-28: props 指定（live=staging events から server 集約）なら使用・なければ fixture（既存挙動）。
   const report = reportProp ?? aggregateDryRunEvents(fixtureEvents());
   const projection = projectionProp ?? projectPrmDryRun(report); // A1-7-4: PRM 保存前の proposal projection（保存しない）
@@ -145,7 +148,7 @@ export function LearningReportPreviewClient({
       </div>
       <ul className="mt-2 space-y-2" data-testid="proposal-list">
         {projection.proposals.map((p, i) => (
-          <ProposalCard key={i} p={p} />
+          <ProposalCard key={i} p={p} reviewEnabled={reviewEnabled} />
         ))}
       </ul>
     </div>
