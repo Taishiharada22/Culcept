@@ -42,6 +42,11 @@ export interface MobilityLegCardProps {
    */
   reasonReflection?: string | null;
   /**
+   * ★Movement Tolerance reason-only（CEO 2026-06-09・flag OFF/dev-only）: 移動耐性の観測 1 行（null=沈黙）。
+   * read-only（mode/ranking/friction を変えない）・観測トーン・trait でない（copy は pure helper 由来）。readOnly では出さない。
+   */
+  movementToleranceReason?: string | null;
+  /**
    * ★A1-6a 手動ログ: この区間の「実際の所要（分）」。記録済なら数値・未記録は null。
    * onLogActual 不在 or readOnly では affordance を出さない（任意・GPS 不要・MapTab が sensitive 等を除外して渡す）。
    */
@@ -53,6 +58,7 @@ export interface MobilityLegCardProps {
 export function MobilityLegCard({
   legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose, hypothesisCopy,
   reasonPromptVisible = false, selectedReason = null, onReasonSelect, onReasonDismiss, reasonReflection = null,
+  movementToleranceReason = null,
   loggedActualMin = null, onLogActual, onClearActual,
 }: MobilityLegCardProps) {
   // ★A0-2: reflection の軽い dismiss（local state のみ・永続化しない・leg ごとに key で reset）。
@@ -127,6 +133,15 @@ export function MobilityLegCard({
               ✕
             </button>
           </div>
+        )}
+        {/*
+         * ★Movement Tolerance reason-only（CEO 2026-06-09・flag OFF/dev-only）: 移動耐性の観測 1 行。
+         * read-only（mode/ranking/friction を変えない）・小さい inline・1 行・dismiss なし。null/readOnly は沈黙。
+         */}
+        {!readOnly && movementToleranceReason && (
+          <p data-testid="mobility-movement-tolerance" className="mt-2 text-[11px] text-slate-400">
+            {movementToleranceReason}
+          </p>
         )}
         {hypothesisCopy && hypothesisCopy.surface && (
           <div data-testid="mobility-hypothesis" className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">

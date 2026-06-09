@@ -15,6 +15,7 @@ function render(
     reasonPromptVisible?: boolean;
     selectedReason?: MobilityReason | null;
     reasonReflection?: string | null;
+    movementToleranceReason?: string | null;
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -28,6 +29,7 @@ function render(
       reasonPromptVisible={opts.reasonPromptVisible ?? false}
       selectedReason={opts.selectedReason ?? null}
       reasonReflection={opts.reasonReflection ?? null}
+      movementToleranceReason={opts.movementToleranceReason ?? null}
       onSelect={noop}
       onClose={noop}
       onReasonSelect={noop}
@@ -147,6 +149,36 @@ describe("MobilityLegCard — A0-2 reason reflection", () => {
   it("RUI6. ★禁止語/警告色なし（reflection は仮説トーン・per-leg）", () => {
     const html = render({ reasonReflection: LINE });
     for (const w of ["しがち", "よく", "いつも", "あなたは", "性格", "amber", "orange", "bg-red", "危険"]) {
+      expect(html).not.toContain(w);
+    }
+  });
+});
+
+// ── Movement Tolerance reason-only line（CEO 2026-06-09・read-only・1 行・沈黙保証） ──
+describe("MobilityLegCard — Movement Tolerance reason-only", () => {
+  const MT = "雨の日は移動負荷の少ない手段を選びやすい傾向が見えます。";
+
+  it("MT1. movementToleranceReason 供給 + 編集可 → 1 行が出る", () => {
+    const html = render({ movementToleranceReason: MT });
+    expect(html).toContain('data-testid="mobility-movement-tolerance"');
+    expect(html).toContain(MT);
+  });
+  it("MT2. null → 出ない（沈黙）", () => {
+    expect(render()).not.toContain("mobility-movement-tolerance");
+  });
+  it("MT3. ★readOnly では出さない（沈黙保証）", () => {
+    expect(render({ movementToleranceReason: MT, readOnly: true })).not.toContain("mobility-movement-tolerance");
+  });
+  it("MT4. read-only 表示（dismiss/dialog/警告色なし・小さい slate・1 行）", () => {
+    const html = render({ movementToleranceReason: MT });
+    expect(html).not.toContain('role="dialog"');
+    expect(html).toMatch(/mobility-movement-tolerance[^>]*text-slate-400/);
+    // ★mode/ranking を操作する affordance を持たない（純粋な観測行）。
+    expect(html).not.toMatch(/mobility-movement-tolerance[\s\S]{0,80}<button/);
+  });
+  it("MT5. ★trait 断定語・警告色を含まない", () => {
+    const html = render({ movementToleranceReason: MT });
+    for (const w of ["苦手", "嫌い", "タイプです", "性格", "amber", "orange", "bg-red", "危険"]) {
       expect(html).not.toContain(w);
     }
   });

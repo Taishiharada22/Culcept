@@ -94,7 +94,8 @@ import { contextToDecisionContext } from "@/lib/plan/context/contextBridge";
 import { buildFeedbackEntry, saveHypothesisFeedback, saveHypothesisFeedbackReason, loadHypothesisFeedbackStore, type MobilityReason } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import { buildMovementEventManual, recordMovementEvent, loadMovementEvent, deleteMovementEvent } from "@/lib/plan/mobility/movementEventStore";
 import { buildReasonInsightForLeg, reasonReflectionLine } from "@/lib/plan/mobility/mobilityReasonInsight";
-import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
+import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket, loadAllObservations } from "@/lib/plan/mobility/mobilityObservationStore";
+import { isMovementToleranceReasonUiEnabled, movementToleranceReasonForContext } from "@/lib/plan/mobility/movementToleranceReasonUi";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // ★A1-6b GPS 自動捕捉（安全版・flag default OFF）
 import { useGpsAutoCapture } from "@/lib/plan/mobility/useGpsAutoCapture";
@@ -386,6 +387,17 @@ export function MapTab({
               excludeLegKeys: sensitive ? new Set([openLeg.legKey]) : undefined,
             }),
           );
+    // ★Movement Tolerance reason-only UI（flag OFF/dev-only・readOnly/sensitive は沈黙・1 行のみ・read-only）。
+    //   今の文脈（今日の天気/この leg の timeband/曜日）に一致する移動耐性 signal を 1 行。なければ corroboration fallback。
+    //   ★ranking/scoring/Day Rehearsal friction には反映しない（観測の鏡のみ）。
+    const movementToleranceReason =
+      isDone || sensitive || !isMovementToleranceReasonUiEnabled()
+        ? null
+        : movementToleranceReasonForContext(loadAllObservations(), loadHypothesisFeedbackStore(), {
+            weather: todayWeather?.value ?? null,
+            timeband: repertoireQuery.timeband,
+            weekday: repertoireQuery.weekday,
+          });
     return {
       legKey: openLeg.legKey,
       fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
@@ -398,6 +410,7 @@ export function MapTab({
       hypothesisCopy: guidance.hypothesisCopy,
       surfacedMode: guidance.surfacedMode, // v0-E: feedback の kind 判定用(surface 時のみ非 null)
       reasonReflection,
+      movementToleranceReason,
       // L1-a: 観測前方記録の context（place key/timeband の算出元・anchor 由来・capture は onSelect で）
       observationContext: {
         toStartTime: sorted[idx + 1]!.anchor.startTime,
@@ -407,7 +420,7 @@ export function MapTab({
         destSensitive: !!sorted[idx + 1]!.anchor.sensitiveCategory,
       },
     };
-  }, [openLeg, allPins, selectedModeByLeg, now, dayKey, mobilityWeather]);
+  }, [openLeg, allPins, selectedModeByLeg, now, dayKey, mobilityWeather, todayWeather]);
 
   // v0-E: mode 選択時に「仮説への応答」を別 store(hypothesisFeedback)へ記録する wrapper。
   //   既存 handleLegSelect(現在選択の保存=selectedModeStore)は不変。本 wrapper はその後段で feedback だけ追記。
@@ -694,6 +707,7 @@ export function MapTab({
           onReasonSelect={handleReasonSelect}
           onReasonDismiss={handleReasonDismiss}
           reasonReflection={mobilityCardData.reasonReflection}
+          movementToleranceReason={mobilityCardData.movementToleranceReason}
           loggedActualMin={loggedActualMin}
           onLogActual={mobilityCardData.sensitive ? undefined : handleLogActual}
           onClearActual={mobilityCardData.sensitive ? undefined : handleClearActual}
