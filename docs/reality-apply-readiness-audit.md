@@ -106,3 +106,56 @@
 - `scripts/reality-*-shadow.ts` / `reality-pipeline-preview-smoke.ts`（5 件）: assertion を opCount-only に更新。
 
 → **本監査の green 条件**: preview guard 固定（§1）+ envelope opCount-only（§2）+ no-apply guarantee（§3 test）+ permission 再評価証明（§4）。**全て green。** apply（R5-4）は §3 の G1–G7 を満たすまで進めない。
+
+---
+
+## 7. A-1 Apply Precondition Checker 実装（2026-06-09・pure / no-write）
+
+`lib/plan/reality/permission/apply-precondition.ts`：`evaluateApplyPrecondition(input) → result`。**判定のみ・書かない・適用しない**。
+
+### 出力契約
+```ts
+{
+  canApply: boolean;            // verdict === "can_apply"
+  verdict: "can_apply" | "confirm_required" | "blocked" | "stale" | "conflict" | "insufficient_context";
+  blockers: string[];           // 安定コード（redacted）
+  warnings: string[];           // 非ブロック注意（redacted）
+  requiredConfirmation?: boolean;
+}
+```
+verdict 優先順位（単一）: **insufficient_context > stale > conflict > blocked > confirm_required > can_apply**。
+- `stale`/`conflict` は「draft が現実から外れた」状態（canApply=false）。CEO の「stale→blocked / conflict→blocked」は *blocking（apply 不可）* の意で、本実装は union に従い **具体 verdict** を返す（より情報量が多い）。
+
+### blocker コード一覧（redacted・raw 非搬送）
+| コード | 意味 | 由来 |
+|---|---|---|
+| `missing_freshness_inputs` | baseVersion/computedAtMs/nowMs 欠落 → stale 判定不能 | insufficient_context |
+| `missing_idempotency_snapshot` | applied-set snapshot 欠落 → 二重 apply 判定不能 | insufficient_context |
+| `live_context_insufficient` | live readiness=insufficient（窓なし等） | insufficient_context |
+| `stale_base_version` | draft 生成時 signature ≠ live signature | stale |
+| `stale_draft_age` | nowMs − computedAtMs > 15 分 | stale |
+| `conflict_window_occupied` | 対象 window が固定予定と重なる / 窓が消えた | conflict |
+| `conflict_immovable` | 重なった予定が hard_external（最強保護） | conflict |
+| `permission_blocked` | **apply ActionKind で再評価**して blocked | blocked |
+| `undo_incomplete` | validateUndoability=false（復元不能） | blocked |
+| `provenance_missing` | sourceTraces 空（G1） | blocked |
+| `already_applied` | draft.id が applied-set に存在（G4） | blocked |
+
+### 判定の要点（G1–G7 対応）
+- **G6 permission 再評価**: `evaluatePermission({ action: applyAction, ... })`（**propose ではない**）。高リスクは **never auto can_apply**（confirm_required・confirmed でも A-1 は自動承認しない）。
+- **G3 stale**: `worldStateApplySignature`（schedule/windows/date のみ・**label/title 非搬送**）で base ↔ live を照合 + age。
+- **G5 conflict**: add 対象が live 固定予定と重なる / available window に収まらない。
+- **G7 confirmation**: confirm_required / 高リスク / 確認 flag（他人/予約/購入/個人情報/連絡）/ immovable 衝突 → 未確認は confirm_required。
+- **idempotency ledger は未実装**（CEO 指示）。snapshot interface で判定だけ。
+
+## 8. A-2 設計提案（draft → real id mint + sourceTrace 注入・pure / no-write）
+
+A-1 が「apply 可能か」を判定したが、現 draft は **synthetic itemId（G2）+ sourceTraces 空（G1）** のため、apply 可能判定を通しても **書ける形になっていない**。A-2 は**書かずに**この 2 ギャップを埋める pure mapper。
+
+- **目的**: `(draft, idMintPort, provenance) → ChangeSet`（real-id 化 + provenance 付き）。**DB/route/PlanClient 非接触**。
+- **id mint**: `draft:emptyday:{date}:{tier}:{startMin}` → real plan item id。**port 注入**（`mintId(): string`）で pure に保つ（実 id 採番は server-only port・A-2 では fake）。draft→real の **対応表**を返し、undo 可逆性（invertChangeSet）を保つ。
+- **sourceTrace 注入**: 観測根拠（どの memory/anchor/PRM から組んだか）を `SourceTrace[]`（kind=prm/anchor/environment・ref 付き・**raw/PII なし**）で付与。`isAuditableTrace`（INV-23）を満たすこと。
+- **A-2 を開く条件**: ① A-1 が green（本 commit 達成）② id mint は **port 注入で pure**（実採番は後続 server gate）③ provenance は **既存観測 id を参照するだけ**（新規 PII を作らない）④ 出力は依然 **draft（apply しない）**。
+- **A-2 でも踏み込まない**: 実 id 採番の DB 採番 / route / PlanClient / apply / write。これらは **A-4 server apply writer = hard gate**。
+
+→ **A-4 server apply writer は依然 hard gate**（初の DB write・CEO write gate）。A-1（判定）→ A-2（pure 整形）までは write ゼロで前進可能だが、A-3 transaction design を挟んでから A-4 に CEO 承認を取る。
