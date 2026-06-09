@@ -47,6 +47,11 @@ export interface MobilityLegCardProps {
    */
   movementToleranceReason?: string | null;
   /**
+   * ★Energy Rhythm reason-only（CEO 2026-06-09・flag OFF/dev-only）: 活動時間帯の観測 1 行（null=沈黙）。
+   * read-only・観測トーン・trait（朝型/夜型）でない。★movementToleranceReason がある時は出さない（AT MOST 1 行）。readOnly では出さない。
+   */
+  energyRhythmReason?: string | null;
+  /**
    * ★A1-6a 手動ログ: この区間の「実際の所要（分）」。記録済なら数値・未記録は null。
    * onLogActual 不在 or readOnly では affordance を出さない（任意・GPS 不要・MapTab が sensitive 等を除外して渡す）。
    */
@@ -58,7 +63,7 @@ export interface MobilityLegCardProps {
 export function MobilityLegCard({
   legKey, fromTitle, toTitle, selectedMode, recallMode, durations, readOnly, onSelect, onClose, hypothesisCopy,
   reasonPromptVisible = false, selectedReason = null, onReasonSelect, onReasonDismiss, reasonReflection = null,
-  movementToleranceReason = null,
+  movementToleranceReason = null, energyRhythmReason = null,
   loggedActualMin = null, onLogActual, onClearActual,
 }: MobilityLegCardProps) {
   // ★A0-2: reflection の軽い dismiss（local state のみ・永続化しない・leg ごとに key で reset）。
@@ -141,6 +146,15 @@ export function MobilityLegCard({
         {!readOnly && movementToleranceReason && (
           <p data-testid="mobility-movement-tolerance" className="mt-2 text-[11px] text-slate-400">
             {movementToleranceReason}
+          </p>
+        )}
+        {/*
+         * ★Energy Rhythm reason-only（CEO 2026-06-09・flag OFF/dev-only）: 活動時間帯の観測 1 行。
+         * ★movementToleranceReason がある時は出さない（AT MOST 1 行・stacking 回避）。null/readOnly は沈黙。
+         */}
+        {!readOnly && !movementToleranceReason && energyRhythmReason && (
+          <p data-testid="mobility-energy-rhythm" className="mt-2 text-[11px] text-slate-400">
+            {energyRhythmReason}
           </p>
         )}
         {hypothesisCopy && hypothesisCopy.surface && (

@@ -96,6 +96,7 @@ import { buildMovementEventManual, recordMovementEvent, loadMovementEvent, delet
 import { buildReasonInsightForLeg, reasonReflectionLine } from "@/lib/plan/mobility/mobilityReasonInsight";
 import { buildObservation, saveMobilityObservation, normalizeLocationText, toTimeband, toWeekdayBucket, loadAllObservations } from "@/lib/plan/mobility/mobilityObservationStore";
 import { isMovementToleranceReasonUiEnabled, movementToleranceReasonForContext } from "@/lib/plan/mobility/movementToleranceReasonUi";
+import { isEnergyRhythmReasonUiEnabled, energyRhythmReasonForTimeband } from "@/lib/plan/mobility/energyRhythmReasonUi";
 import { resolveFocusLegIndex, resolveLegState } from "@/lib/plan/map/legState";
 // ★A1-6b GPS 自動捕捉（安全版・flag default OFF）
 import { useGpsAutoCapture } from "@/lib/plan/mobility/useGpsAutoCapture";
@@ -398,6 +399,13 @@ export function MapTab({
             timeband: repertoireQuery.timeband,
             weekday: repertoireQuery.weekday,
           });
+    // ★Energy Rhythm reason-only UI（flag OFF/dev-only・readOnly/sensitive 沈黙）。
+    //   day-level の活動時間帯 profile を、この leg の timeband に一致した時のみ 1 行（標準 profile 文）。
+    //   ★movement tolerance がある時はカード側で出さない（AT MOST 1 行）。ranking/scoring/Day Rehearsal 不反映。
+    const energyRhythmReason =
+      isDone || sensitive || !isEnergyRhythmReasonUiEnabled()
+        ? null
+        : energyRhythmReasonForTimeband(loadAllObservations(), repertoireQuery.timeband);
     return {
       legKey: openLeg.legKey,
       fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
@@ -411,6 +419,7 @@ export function MapTab({
       surfacedMode: guidance.surfacedMode, // v0-E: feedback の kind 判定用(surface 時のみ非 null)
       reasonReflection,
       movementToleranceReason,
+      energyRhythmReason,
       // L1-a: 観測前方記録の context（place key/timeband の算出元・anchor 由来・capture は onSelect で）
       observationContext: {
         toStartTime: sorted[idx + 1]!.anchor.startTime,
@@ -708,6 +717,7 @@ export function MapTab({
           onReasonDismiss={handleReasonDismiss}
           reasonReflection={mobilityCardData.reasonReflection}
           movementToleranceReason={mobilityCardData.movementToleranceReason}
+          energyRhythmReason={mobilityCardData.energyRhythmReason}
           loggedActualMin={loggedActualMin}
           onLogActual={mobilityCardData.sensitive ? undefined : handleLogActual}
           onClearActual={mobilityCardData.sensitive ? undefined : handleClearActual}

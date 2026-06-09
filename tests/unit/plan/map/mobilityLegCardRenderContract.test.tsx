@@ -16,6 +16,7 @@ function render(
     selectedReason?: MobilityReason | null;
     reasonReflection?: string | null;
     movementToleranceReason?: string | null;
+    energyRhythmReason?: string | null;
   } = {},
 ): string {
   return renderToStaticMarkup(
@@ -30,6 +31,7 @@ function render(
       selectedReason={opts.selectedReason ?? null}
       reasonReflection={opts.reasonReflection ?? null}
       movementToleranceReason={opts.movementToleranceReason ?? null}
+      energyRhythmReason={opts.energyRhythmReason ?? null}
       onSelect={noop}
       onClose={noop}
       onReasonSelect={noop}
@@ -179,6 +181,41 @@ describe("MobilityLegCard — Movement Tolerance reason-only", () => {
   it("MT5. ★trait 断定語・警告色を含まない", () => {
     const html = render({ movementToleranceReason: MT });
     for (const w of ["苦手", "嫌い", "タイプです", "性格", "amber", "orange", "bg-red", "危険"]) {
+      expect(html).not.toContain(w);
+    }
+  });
+});
+
+// ── Energy Rhythm reason-only line（CEO 2026-06-09・read-only・movement tolerance 優先・AT MOST 1 行） ──
+describe("MobilityLegCard — Energy Rhythm reason-only", () => {
+  const ER = "朝は活動の記録が多い時間帯のようです。";
+  const MT = "雨の日は移動負荷の少ない手段を選びやすい傾向が見えます。";
+
+  it("ER1. energyRhythmReason 供給 + MT なし + 編集可 → 1 行が出る", () => {
+    const html = render({ energyRhythmReason: ER });
+    expect(html).toContain('data-testid="mobility-energy-rhythm"');
+    expect(html).toContain(ER);
+  });
+  it("ER2. null → 出ない（沈黙）", () => {
+    expect(render()).not.toContain("mobility-energy-rhythm");
+  });
+  it("ER3. ★readOnly では出さない（沈黙保証）", () => {
+    expect(render({ energyRhythmReason: ER, readOnly: true })).not.toContain("mobility-energy-rhythm");
+  });
+  it("ER4. ★AT MOST 1 行: movementToleranceReason がある時は energy rhythm を出さない（MT 優先）", () => {
+    const html = render({ movementToleranceReason: MT, energyRhythmReason: ER });
+    expect(html).toContain("mobility-movement-tolerance");
+    expect(html).not.toContain("mobility-energy-rhythm"); // ★stacking 回避
+  });
+  it("ER5. read-only 表示（dismiss/dialog/警告色なし・小さい slate・操作 affordance なし）", () => {
+    const html = render({ energyRhythmReason: ER });
+    expect(html).not.toContain('role="dialog"');
+    expect(html).toMatch(/mobility-energy-rhythm[^>]*text-slate-400/);
+    expect(html).not.toMatch(/mobility-energy-rhythm[\s\S]{0,80}<button/);
+  });
+  it("ER6. ★trait（朝型/夜型/型）・警告色を含まない", () => {
+    const html = render({ energyRhythmReason: ER });
+    for (const w of ["朝型", "夜型", "タイプです", "性格", "amber", "orange", "bg-red", "危険"]) {
       expect(html).not.toContain(w);
     }
   });
