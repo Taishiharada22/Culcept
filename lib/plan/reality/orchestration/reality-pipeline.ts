@@ -52,8 +52,13 @@ export interface RealityPipelineEnvelope {
   readonly silencedTriggerCount: number;
   /** requestedAction の permission 判定（verdict + risk・reason は redacted）。 */
   readonly permission: { readonly verdict: PermissionVerdict; readonly risk: RiskCategory; readonly reason: string };
-  /** ChangeSet draft **要約のみ**（id + op 数・**apply しない**・item 内容は出さない）。 */
-  readonly changeSetDraft: { readonly id: string; readonly opCount: number } | null;
+  /**
+   * ChangeSet draft **要約のみ**（**op 数のみ**・**apply しない**・item 内容/id は出さない）。
+   * 設計判断（Apply Readiness Audit 2026-06-09）: client へ渡る summary は **opCount のみ**に固定する。
+   *   draft id（`draft:emptyday:{date}:{tier}`）は date+tier＝既に envelope.date / recommended.tier に存在する冗長値ゆえ載せない。
+   *   実 apply 用の draft identity / baseVersion は **観測 envelope と別経路**で carry する（R5-4 gate・本 envelope は観測専用）。
+   */
+  readonly changeSetDraft: { readonly opCount: number } | null;
   /** 停止理由 / 欠損 signal（非断定・捏造しない）。 */
   readonly stopReasons: readonly string[];
 }
@@ -106,7 +111,7 @@ export function runRealityPipeline(input: RealityPipelineInput): RealityPipeline
     surfacedTrigger,
     silencedTriggerCount: surface.silencedCount,
     permission: { verdict: verdict.verdict, risk: verdict.risk, reason: verdict.reason },
-    changeSetDraft: changeSetDraft ? { id: changeSetDraft.id, opCount: changeSetDraft.ops.length } : null,
+    changeSetDraft: changeSetDraft ? { opCount: changeSetDraft.ops.length } : null,
     stopReasons,
   };
 }

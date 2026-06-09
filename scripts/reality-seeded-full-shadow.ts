@@ -124,7 +124,7 @@ async function main(): Promise<void> {
     pass = ok(env.reasoning?.confidence === "tentative" && baseline.reasoning?.confidence === "low", "memory influence: confidence low→tentative") && pass;
     pass = ok(world.availableWindows.length >= 1, "real anchor → availableWindows(interval-complement)") && pass;
     pass = ok(!FORBIDDEN.test(JSON.stringify({ memory, world, env })), "redaction: raw/seedRef/PII/personality/title/location なし") && pass;
-    pass = ok(env.changeSetDraft != null && Object.keys(env.changeSetDraft).join(",") === "id,opCount", "ChangeSet draft summary のみ・apply 0") && pass;
+    pass = ok(env.changeSetDraft != null && Object.keys(env.changeSetDraft).join(",") === "opCount", "ChangeSet draft summary のみ・apply 0") && pass;
   } finally {
     if (m3Ids.length) await client.from(M3).delete().in("id", m3Ids);
     await client.from(M2).delete().like("source_value", `${marker}%`);

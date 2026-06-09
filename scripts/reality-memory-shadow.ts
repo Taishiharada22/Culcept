@@ -109,13 +109,13 @@ async function main(): Promise<void> {
 
   // ── 観測 + assert ──
   log(`▶ MemoryItem=${memory.length} / usableContexts=${synthesis.usableContexts.length} / suppressed=${synthesis.contexts.filter((c) => c.suppressed).length}`);
-  log(`▶ envelope: readiness=${env.worldReadiness} recommended=${env.recommended?.tier ?? "none"} surfacedTrigger=${env.surfacedTrigger?.kind ?? "silent"} permission=${env.permission.verdict} changeSetDraft=${env.changeSetDraft ? `id=… opCount=${env.changeSetDraft.opCount}` : "null"}`);
+  log(`▶ envelope: readiness=${env.worldReadiness} recommended=${env.recommended?.tier ?? "none"} surfacedTrigger=${env.surfacedTrigger?.kind ?? "silent"} permission=${env.permission.verdict} changeSetDraft=${env.changeSetDraft ? `opCount=${env.changeSetDraft.opCount}` : "null"}`);
 
   let pass = true;
   const blob = JSON.stringify({ memory, env });
   pass = ok(!FORBIDDEN.test(blob), "redaction: memory+envelope に raw/seedRef/PII/personality なし") && pass;
   pass = ok(highRisk.permission.verdict !== "allowed", "high risk(book) は auto-allowed にならない") && pass;
-  pass = ok(env.changeSetDraft === null || Object.keys(env.changeSetDraft).join(",") === "id,opCount", "ChangeSet draft は summary のみ(id,opCount)") && pass;
+  pass = ok(env.changeSetDraft === null || Object.keys(env.changeSetDraft).join(",") === "opCount", "ChangeSet draft は summary のみ(opCount)") && pass;
   pass = ok(synthesis.contexts.every((c) => c.confidence !== ("high" as unknown)), "confidence high なし(≤tentative)") && pass;
   // retracted/suppressed が read で除外: M3 reader は retracted_at IS NULL を select → tendencies に retracted は来ない
   pass = ok(tendencies.every((t) => t.certainty !== ("high" as unknown)), "M3 tendency は certainty ≤tentative(retracted/高 certainty 混入なし)") && pass;

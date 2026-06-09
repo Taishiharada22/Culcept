@@ -109,8 +109,8 @@ async function main(): Promise<void> {
   // ── client へ渡る payload は **envelope + meta のみ**。redaction-clean を実データで確認。──
   const clientPayload = { envelope, meta };
   pass = ok(!FORBIDDEN.test(JSON.stringify(clientPayload)), "redaction: client payload(envelope+meta) に raw/PII/title/location/seedRef なし") && pass;
-  // ChangeSet は summary のみ（id + opCount）。full payload を渡さない。
-  pass = ok(envelope.changeSetDraft === null || Object.keys(envelope.changeSetDraft).sort().join(",") === "id,opCount", "ChangeSet draft は summary のみ（id,opCount）・full payload なし・apply 0") && pass;
+  // ChangeSet は summary のみ（opCount）。full payload / id を渡さない。
+  pass = ok(envelope.changeSetDraft === null || Object.keys(envelope.changeSetDraft).join(",") === "opCount", "ChangeSet draft は summary のみ（opCount）・full payload なし・apply 0") && pass;
   // meta は count（number）のみ。実体を渡さない。
   pass = ok(Object.values(meta).every((v) => typeof v === "number"), "meta は count(number) のみ・MemoryItem/WorldState 実体を渡さない") && pass;
   // pipeline が破綻なく通る（insufficient でも止まる＝捏造しない）。

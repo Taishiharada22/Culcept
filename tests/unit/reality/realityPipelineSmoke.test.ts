@@ -79,7 +79,7 @@ describe("R1-R5 pipeline — 安全条件", () => {
   it("ChangeSet は draft 要約のみ（op 内容を出さない・apply フラグなし）", () => {
     const e = runRealityPipeline(inp({ memoryItems: [sem("evening", "toward_declining")] }));
     expect(e.changeSetDraft).toHaveProperty("opCount");
-    expect(Object.keys(e.changeSetDraft!)).toEqual(["id", "opCount"]); // 要約のみ
+    expect(Object.keys(e.changeSetDraft!)).toEqual(["opCount"]); // 要約のみ（opCount のみ・id/op 内容を出さない）
   });
   it("silence-by-default: surfacedTrigger は最大 1・残りは silencedCount", () => {
     const e = runRealityPipeline(inp({ worldState: ws({ nowMinute: 540, todaySchedule: [] }) }));

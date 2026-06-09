@@ -120,7 +120,7 @@ async function main(): Promise<void> {
     pass = ok(env.reasoning?.confidence === "tentative" && baseline.reasoning?.confidence === "low", "memory influence: confidence low→tentative") && pass;
     pass = ok(env.recommended != null && env.surfacedTrigger != null, "envelope に recommended / trigger が出る") && pass;
     pass = ok(!FORBIDDEN.test(JSON.stringify({ memory, env })), "redaction: raw/seedRef/PII/personality なし") && pass;
-    pass = ok(env.changeSetDraft != null && Object.keys(env.changeSetDraft).join(",") === "id,opCount", "ChangeSet draft summary のみ・apply 0") && pass;
+    pass = ok(env.changeSetDraft != null && Object.keys(env.changeSetDraft).join(",") === "opCount", "ChangeSet draft summary のみ・apply 0") && pass;
   } finally {
     // ── cleanup（必ず・成功失敗どちらでも）──
     if (m3Ids.length) await client.from(M3).delete().in("id", m3Ids);

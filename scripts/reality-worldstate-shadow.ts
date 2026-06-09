@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   else pass = ok(world.todaySchedule.length >= 0, `anchors ${rows.length} 件 → hardConstraints=${world.todaySchedule.length} windows=${world.availableWindows.length}`) && pass;
   // 6. pipeline redacted で通る
   pass = ok(env.recommended != null || env.worldReadiness === "insufficient", "WorldState+memory → pipeline が通る") && pass;
-  pass = ok(env.changeSetDraft === null || Object.keys(env.changeSetDraft).join(",") === "id,opCount", "ChangeSet draft summary のみ・apply 0") && pass;
+  pass = ok(env.changeSetDraft === null || Object.keys(env.changeSetDraft).join(",") === "opCount", "ChangeSet draft summary のみ・apply 0") && pass;
 
   log(`\n${pass ? "✅ PASS" : "❌ FAIL"} — 4-E-a full WorldState shadow（real anchor read・seed 0・write 0・apply 0・production 0）`);
   await sb.auth.signOut();

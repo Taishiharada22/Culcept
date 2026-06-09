@@ -21,7 +21,7 @@ function env(over: Partial<RealityPipelineEnvelope> = {}): RealityPipelineEnvelo
     surfacedTrigger: { kind: "preflight", headline: "そろそろ次の予定の準備を始められます" },
     silencedTriggerCount: 1,
     permission: { verdict: "allowed", risk: "low", reason: "権限の範囲内です" },
-    changeSetDraft: { id: "draft:emptyday:2026-06-20:protect", opCount: 6 },
+    changeSetDraft: { opCount: 6 },
     stopReasons: [],
     ...over,
   };
@@ -50,9 +50,10 @@ describe("P-D safety — raw/PII/apply button なし", () => {
   it("FORBIDDEN（raw/seedRef/personality）が render に出ない", () => {
     expect(renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} />)).not.toMatch(FORBIDDEN);
   });
-  it("ChangeSet draft の **id（full payload）を render しない**（opCount のみ）", () => {
+  it("ChangeSet draft は **opCount のみ**（id/op 内容を render しない）", () => {
     const html = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} />);
-    expect(html).not.toContain("draft:emptyday"); // id 文字列を出さない
+    expect(html).toContain("6 操作候補"); // opCount のみ表示
+    expect(html).not.toContain("draft:emptyday"); // id 文字列（draft identity）を出さない
   });
   it("**apply button / 一切の button を置かない**", () => {
     const html = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} />);
