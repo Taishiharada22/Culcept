@@ -75,19 +75,28 @@ describe("P-B real read 配線（owner-RLS・anchors + M1/M3）", () => {
   });
 });
 
-describe("P-C client へ渡す payload は envelope + meta のみ（実体を渡さない）", () => {
-  it("RealityPipelinePreviewClient に envelope + meta を渡す", () => {
+describe("P-C/A-4-c client へ渡す payload は envelope + meta + reflection DTO のみ（実体を渡さない）", () => {
+  it("RealityPipelinePreviewClient に envelope + meta + reflectionPreview(DTO) を渡す", () => {
     expect(PAGE_CODE).toContain("<RealityPipelinePreviewClient");
     expect(PAGE_CODE).toMatch(/envelope=\{envelope\}/);
     expect(PAGE_CODE).toMatch(/meta=\{meta\}/);
+    expect(PAGE_CODE).toMatch(/reflectionPreview=\{reflectionPreview\}/);
   });
-  it("MemoryItem / WorldState / ChangeSet 実体・raw row を client props に渡さない", () => {
-    // client へ渡す JSX props に実体名が現れないこと（envelope/meta のみ）。
+  it("reflection は computeReflectionPreviewDto（既読 world/memoryItems・新規 read なし）で計算", () => {
+    expect(PAGE_CODE).toContain("computeReflectionPreviewDto");
+    // 新規 reader/flag を増やしていない（wiring は既存 2 種のみ＝import+call で名前は 2 種類）。
+    expect(new Set(PAGE_CODE.match(/createSupabase\w+SourcePorts/g) ?? []).size).toBe(2);
+    expect(PAGE_CODE).not.toContain("REALITY_REFLECTION"); // 新 flag なし（既存 REALITY_PIPELINE_PREVIEW のみ）
+  });
+  it("MemoryItem / WorldState / ChangeSet / DraftPlan 実体・raw row を client props に渡さない", () => {
+    // client へ渡す JSX props に実体名が現れないこと（envelope/meta/reflectionPreview のみ）。
     expect(PAGE_CODE).not.toMatch(/memoryItems=\{/);
     expect(PAGE_CODE).not.toMatch(/worldState=\{/);
     expect(PAGE_CODE).not.toMatch(/world=\{/);
     expect(PAGE_CODE).not.toMatch(/rows=\{/);
     expect(PAGE_CODE).not.toMatch(/changeSet=\{/);
+    expect(PAGE_CODE).not.toMatch(/draftPlan=\{/);
+    expect(PAGE_CODE).not.toMatch(/items=\{/);
   });
 });
 

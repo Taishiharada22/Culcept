@@ -11,6 +11,7 @@
  *   plan を書き換えない・通知しない・fetch しない（presentational のみ）・route に依存しない（fixture で render 可）。
  */
 import type { RealityPipelineEnvelope } from "@/lib/plan/reality/orchestration/reality-pipeline";
+import type { ReflectionPreviewClientDto } from "@/lib/plan/reality/permission/reflection-preview-dto";
 
 /** envelope に無い count（page が WorldState/synthesis から渡す・fixture test が渡す）。 */
 export interface RealityPipelinePreviewMeta {
@@ -32,8 +33,17 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-export function RealityPipelinePreviewClient({ envelope, meta }: { envelope: RealityPipelineEnvelope; meta?: RealityPipelinePreviewMeta }) {
-  const redactionClean = !FORBIDDEN.test(JSON.stringify({ envelope, meta }));
+export function RealityPipelinePreviewClient({
+  envelope,
+  meta,
+  reflectionPreview,
+}: {
+  envelope: RealityPipelineEnvelope;
+  meta?: RealityPipelinePreviewMeta;
+  /** A-4-c: reflection preview の **DTO のみ**（A-4-c0 allowlist・実体は渡らない・optional）。 */
+  reflectionPreview?: ReflectionPreviewClientDto;
+}) {
+  const redactionClean = !FORBIDDEN.test(JSON.stringify({ envelope, meta, reflectionPreview }));
   const rec = envelope.recommended;
   const r = envelope.reasoning;
   const t = envelope.surfacedTrigger;
@@ -69,6 +79,29 @@ export function RealityPipelinePreviewClient({ envelope, meta }: { envelope: Rea
         <Row k="ChangeSet draft（適用しない候補）" v={envelope.changeSetDraft ? `${envelope.changeSetDraft.opCount} 操作候補` : "なし"} />
         <Row k="redaction" v={redactionClean ? "clean ✓" : "violation ✗"} />
       </section>
+
+      {/* A-4-c Reflection Preview（DTO のみ・観測のみ・操作要素を置かない・完了語を使わない） */}
+      {reflectionPreview && (
+        <section className="mt-3 rounded-xl border border-sky-200 bg-sky-50/40 px-4 py-3" data-testid="reflection-preview">
+          <h2 className="text-[12px] font-bold text-sky-800">Reflection Preview（反映プレビュー・観測のみ）</h2>
+          <p className="mt-1 text-[10px] text-gray-500">まだ予定には書き込んでいません。保存・確定・通知は行いません。</p>
+          <Row k="stage" v={reflectionPreview.stage} />
+          <Row k="precondition" v={reflectionPreview.preconditionVerdict ?? "—"} />
+          <Row k="候補数（未確定）" v={String(reflectionPreview.reflectedItemCount)} />
+          <Row k="blockers / warnings" v={`${reflectionPreview.blockersCount} / ${reflectionPreview.warningsCount}`} />
+          {reflectionPreview.items.length > 0 && (
+            <ul className="mt-2 list-disc pl-4 text-[11px] text-gray-700" data-testid="reflection-items">
+              {reflectionPreview.items.map((it, i) => (
+                <li key={i}>
+                  {it.startTime}
+                  {it.endTime ? `–${it.endTime}` : ""} {it.label}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-1 text-[10px] text-gray-400">すべて動かせる候補（suggestion）・エンジン推論。未確定。</p>
+        </section>
+      )}
 
       {envelope.stopReasons.length > 0 && (
         <section className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-2" data-testid="stop-reasons">

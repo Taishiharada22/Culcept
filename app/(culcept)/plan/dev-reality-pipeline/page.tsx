@@ -27,6 +27,7 @@ import { assembleWorldState } from "@/lib/plan/reality/assembly/world-state-asse
 import { assembleMemoryItems } from "@/lib/plan/reality/assembly/memory-assembler";
 import { synthesizeMemory } from "@/lib/plan/reality/learning/memory-synthesis";
 import { runRealityPipeline } from "@/lib/plan/reality/orchestration/reality-pipeline";
+import { computeReflectionPreviewDto } from "@/lib/plan/reality/permission/reflection-preview-compute";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "./RealityPipelinePreviewClient";
@@ -90,7 +91,7 @@ export default async function DevRealityPipelinePage() {
   const envelope = runRealityPipeline({ memoryItems, worldState: world, permissionLevel: 2, nowMs });
   const synthesis = synthesizeMemory(memoryItems, nowMs);
 
-  // **client には envelope（要約）+ count(meta) のみ**（MemoryItem/WorldState/ChangeSet 実体・raw row は渡さない）。
+  // **client には envelope（要約）+ count(meta) + reflection DTO のみ**（MemoryItem/WorldState/ChangeSet/DraftPlanItem 実体・raw row は渡さない）。
   const meta: RealityPipelinePreviewMeta = {
     hardConstraintsCount: world.todaySchedule.length,
     availableWindowsCount: world.availableWindows.length,
@@ -98,5 +99,8 @@ export default async function DevRealityPipelinePage() {
     memoryItemCount: memoryItems.length,
   };
 
-  return <RealityPipelinePreviewClient envelope={envelope} meta={meta} />;
+  // A-4-c: 既読 (world, memoryItems) から **新規 read なし**で reflection preview DTO を計算（A-4-c0 allowlist・組めない日は null）。
+  const reflectionPreview = computeReflectionPreviewDto({ world, memoryItems, date, nowMs }) ?? undefined;
+
+  return <RealityPipelinePreviewClient envelope={envelope} meta={meta} reflectionPreview={reflectionPreview} />;
 }

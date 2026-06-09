@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "@/app/(culcept)/plan/dev-reality-pipeline/RealityPipelinePreviewClient";
 import type { RealityPipelineEnvelope } from "@/lib/plan/reality/orchestration/reality-pipeline";
+import type { ReflectionPreviewClientDto } from "@/lib/plan/reality/permission/reflection-preview-dto";
 
 const FORBIDDEN = /seed_?ref|utterance|personality|怠惰|だらしな|@[a-z]|\b\d{10,}\b/i;
 const meta: RealityPipelinePreviewMeta = { hardConstraintsCount: 5, availableWindowsCount: 6, usableContextsCount: 1, memoryItemCount: 5 };
@@ -58,6 +59,44 @@ describe("P-D safety — raw/PII/apply button なし", () => {
   it("**apply button / 一切の button を置かない**", () => {
     const html = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} />);
     expect(html).not.toContain("<button");
+  });
+});
+
+describe("A-4-c render — Reflection Preview section（DTO のみ・観測のみ）", () => {
+  const reflection: ReflectionPreviewClientDto = {
+    stage: "done",
+    preconditionVerdict: "can_apply",
+    reflected: true,
+    reflectedItemCount: 2,
+    blockersCount: 0,
+    warningsCount: 0,
+    items: [
+      { startTime: "10:00", endTime: "11:00", label: "集中の時間" },
+      { startTime: "12:00", endTime: "13:00", label: "休息" },
+    ],
+  };
+  it("section 名・必須明示文・HH:MM + allowlist label・counts が出る", () => {
+    const html = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} reflectionPreview={reflection} />);
+    expect(html).toContain("Reflection Preview（反映プレビュー・観測のみ）");
+    expect(html).toContain("まだ予定には書き込んでいません。保存・確定・通知は行いません。");
+    expect(html).toContain("10:00");
+    expect(html).toContain("–11:00");
+    expect(html).toContain("集中の時間");
+    expect(html).toContain("休息");
+    expect(html).toContain("can_apply");
+  });
+  it("完了語（反映済み/書き込み済み/保存済み）と display: id と button を出さない", () => {
+    const html = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} reflectionPreview={reflection} />);
+    expect(html).not.toContain("反映済み");
+    expect(html).not.toContain("書き込み済み");
+    expect(html).not.toContain("保存済み");
+    expect(html).not.toContain("display:emptyday"); // item id を渡していない（DTO に無い）
+    expect(html).not.toContain("<button");
+    expect(html).not.toMatch(FORBIDDEN);
+  });
+  it("prop なしなら section 不在（optional・既存表示は不変）", () => {
+    const html = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={env()} meta={meta} />);
+    expect(html).not.toContain("Reflection Preview");
   });
 });
 
