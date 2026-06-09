@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildCounterfactualInput,
   previewInverseProtection,
   inverseProtectionReasonLine,
   DAY_REHEARSAL_INVERSE_ENABLED,
+  isInverseWhatIfEnabled,
   type InverseWhatIfResult,
 } from "@/lib/plan/dayRehearsal/inverseWhatIf";
 import type {
@@ -38,9 +39,18 @@ const FIXTURE_C = mkInput([
   { event: ev("b", { durationMin: 30 }), transitionAfter: null },
 ]);
 
-describe("flag / gate", () => {
-  it("★default OFF（production hard block）", () => {
-    expect(DAY_REHEARSAL_INVERSE_ENABLED).toBe(false);
+describe("flag / gate（dogfood 有効化・production hard block）", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("★dogfood 有効化（flag true）", () => {
+    expect(DAY_REHEARSAL_INVERSE_ENABLED).toBe(true);
+  });
+  it("★非 production は ON", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isInverseWhatIfEnabled()).toBe(true);
+  });
+  it("★production は hard block（flag true でも OFF）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isInverseWhatIfEnabled()).toBe(false);
   });
 });
 

@@ -33,8 +33,12 @@ import {
   isLevelWorsened,
 } from "@/lib/plan/dayRehearsal/whatIfMagnitude";
 
-/** ★scenario comparison flag（**default OFF**・dev-only・将来の配線用）。production hard block。 */
-export const DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED = false;
+/**
+ * ★scenario comparison flag。**dogfood 有効化（2026-06-09 CEO 判断）で true**。
+ * gate の `process.env.NODE_ENV !== "production"` により **dev/dogfood のみ ON・production は hard block**。
+ * ★reason-only UI のみ（Day Rehearsal 本流/scoring/marker/repair candidate 生成には不反映）。rollback=`=false` 1 行。
+ */
+export const DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED = true;
 export function isScenarioComparisonEnabled(): boolean {
   return DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
 }

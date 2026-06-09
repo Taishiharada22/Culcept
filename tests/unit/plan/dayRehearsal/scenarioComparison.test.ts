@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   applyStance,
   compareScenarios,
   scenarioComparisonReasonLines,
   DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED,
+  isScenarioComparisonEnabled,
 } from "@/lib/plan/dayRehearsal/scenarioComparison";
 import type {
   RehearsalInput,
@@ -37,9 +38,18 @@ const FIXTURE_UNKNOWN = mkInput([
   { event: ev("b"), transitionAfter: null },
 ]);
 
-describe("flag / gate", () => {
-  it("★default OFF（production hard block）", () => {
-    expect(DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED).toBe(false);
+describe("flag / gate（dogfood 有効化・production hard block）", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("★dogfood 有効化（flag true）", () => {
+    expect(DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED).toBe(true);
+  });
+  it("★非 production は ON", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isScenarioComparisonEnabled()).toBe(true);
+  });
+  it("★production は hard block（flag true でも OFF）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isScenarioComparisonEnabled()).toBe(false);
   });
 });
 
