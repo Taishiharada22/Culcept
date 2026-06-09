@@ -14,17 +14,21 @@
 import type { PlanItemSnapshot } from "../change-set";
 import type { ContextSnapshot } from "../../context/contextModifier";
 import type { WorldState } from "../world-state/world-state";
-import type { EmptyDayPermissionLevel, MobilityPlaceholder } from "../empty-day/empty-day-input";
+import type { AvailableWindow, EmptyDayPermissionLevel, MobilityPlaceholder } from "../empty-day/empty-day-input";
 import type { GapMeaning } from "../gap-meaning";
 import { gapNodesToAvailableWindows, type GapWindowSource } from "./daygraph-windows-adapter";
 import { snapshotsToHardConstraints } from "./schedule-hardconstraint-mapper";
+import { availableWindowsFromCommitments } from "./anchor-gap-adapter";
 
 /** WorldState source の reader port（schedule/gap/context は **実装 deferred**・test は fake）。 */
 export interface WorldStateSourcePorts {
   /** 当日の固定予定（PlanItemSnapshot・実装は plan 側・deferred）。 */
   readSchedule(): Promise<readonly PlanItemSnapshot[]>;
-  /** DayGraph の gap（GapNode の startTime/endTime・実装は DayGraph 側・deferred）。 */
-  readGaps(): Promise<readonly GapWindowSource[]>;
+  /**
+   * DayGraph の gap（GapNode の startTime/endTime）。**optional**＝省略時は anchor path（todaySchedule から interval-complement）。
+   * GapNode が full に得られる文脈（client 等）でのみ提供。
+   */
+  readGaps?(): Promise<readonly GapWindowSource[]>;
   /** context 集約（buildDayContextSnapshot・実装は context 側・deferred）。null=未取得。 */
   readContext(): Promise<ContextSnapshot | null>;
   /** 移動 placeholder（任意・無ければ null）。 */
@@ -43,23 +47,34 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+/** anchor path の既定 day 境界（6:00–23:00）。interval-complement の範囲。 */
+export const DEFAULT_DAY_BOUNDS = { startMin: 6 * 60, endMin: 23 * 60 } as const;
+
 /**
- * Step 1: port から WorldState を assemble。各 port fail-open（欠損は null/[]→readiness が surface・捏造しない）。
+ * port から WorldState を assemble。各 port fail-open（欠損は null/[]→readiness が surface・捏造しない）。
+ *   availableWindows: readGaps 提供時は GapNode path、無ければ **anchor path**（todaySchedule から interval-complement）。
  */
-export async function assembleWorldState(ports: WorldStateSourcePorts, date: string, nowMinute: number | null): Promise<WorldState> {
+export async function assembleWorldState(
+  ports: WorldStateSourcePorts,
+  date: string,
+  nowMinute: number | null,
+  opts: { dayBounds?: { startMin: number; endMin: number } } = {},
+): Promise<WorldState> {
   const schedule = await safe(() => ports.readSchedule(), [] as readonly PlanItemSnapshot[]);
-  const gaps = await safe(() => ports.readGaps(), [] as readonly GapWindowSource[]);
   const context = await safe(() => ports.readContext(), null as ContextSnapshot | null);
   const mobility = ports.readMobility ? await safe(() => ports.readMobility!(), null as MobilityPlaceholder | null) : null;
   const permissionLevel = ports.readPermissionLevel ? await safe(() => ports.readPermissionLevel!(), 2 as EmptyDayPermissionLevel) : (2 as EmptyDayPermissionLevel);
+  const todaySchedule = snapshotsToHardConstraints(schedule);
 
-  return {
-    date,
-    nowMinute,
-    todaySchedule: snapshotsToHardConstraints(schedule),
-    availableWindows: gapNodesToAvailableWindows(gaps, ports.meaningOf),
-    context,
-    mobility,
-    permissionLevel,
-  };
+  // availableWindows: GapNode path（readGaps）or anchor path（schedule の interval-complement）
+  let availableWindows: readonly AvailableWindow[];
+  if (ports.readGaps) {
+    const gaps = await safe(() => ports.readGaps!(), [] as readonly GapWindowSource[]);
+    availableWindows = gapNodesToAvailableWindows(gaps, ports.meaningOf);
+  } else {
+    const b = opts.dayBounds ?? DEFAULT_DAY_BOUNDS;
+    availableWindows = availableWindowsFromCommitments(todaySchedule, b.startMin, b.endMin);
+  }
+
+  return { date, nowMinute, todaySchedule, availableWindows, context, mobility, permissionLevel };
 }
