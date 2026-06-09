@@ -159,3 +159,51 @@ A-1 が「apply 可能か」を判定したが、現 draft は **synthetic itemI
 - **A-2 でも踏み込まない**: 実 id 採番の DB 採番 / route / PlanClient / apply / write。これらは **A-4 server apply writer = hard gate**。
 
 → **A-4 server apply writer は依然 hard gate**（初の DB write・CEO write gate）。A-1（判定）→ A-2（pure 整形）までは write ゼロで前進可能だが、A-3 transaction design を挟んでから A-4 に CEO 承認を取る。
+
+---
+
+## 9. A-2 Draft → Real ID Mapping + SourceTrace Injection 実装（2026-06-09・pure / no-write）
+
+`lib/plan/reality/permission/apply-draft-prepare.ts`：`prepareApplyDraft(input) → PreparedApplyDraft`。**書かない・apply しない・元 draft 不変**。G1/G2 を no-write で解消。
+
+### 出力契約
+```ts
+prepareApplyDraft({ draft, idMint, provenance }) → {
+  prepared: ChangeSet | null;                 // real-id + provenance 付き（blocker あれば null）
+  draftToRealIdMap: Record<string,string>;    // synthetic → real（mint した分のみ）
+  blockers: string[];                         // redacted 安定コード
+  warnings: string[];
+}
+```
+
+### mapping 契約（G2）
+- `draft:` prefix の itemId のみ `idMint.mintRealId()` で real id に置換（op.itemId + snapshot.itemId を**一貫**rename）。
+- **id mint は port 注入**（実採番は server gate・本層は fake）。`draftToRealIdMap` を返す。
+- **collision** → `id_collision`（2 synthetic が同一 real / passthrough と衝突）、空文字 → `id_mint_failed`。いずれも prepared=null。
+- **元 draft は mutation しない**（全て新規オブジェクト）。**ChangeSet.id は据え置き**（idempotency key・A-1 already_applied 照合用）。
+- **undo 可逆性保持**: itemId を一貫 rename・timing 保持ゆえ `validateUndoability`/`invertChangeSet` が real id で成立（test 固定）。
+
+### sourceTrace 契約（G1）
+- provenance は **auditable（`isAuditable`・INV-23）かつ redaction-clean** のみ採用 → `prepared.sourceTraces` に注入。
+- **raw/PII 検査**: reason/ref が `FORBIDDEN`（seedRef/utterance/personality/trait/title/location/@/長桁数字）に一致 → **注入せず `provenance_contains_raw`**（fail loud・prepared=null）。
+- auditable でない trace（entity kind で ref 欠落 等）→ drop + `trace_dropped_unauditable` warning。
+- 採用 trace が 0 → `provenance_missing`（blocker・prepared=null）。
+- **既存観測 id を参照するのみ**（新規 PII を作らない）。
+
+### A-1 との接続
+- `prepared` を `evaluateApplyPrecondition` に渡すと **`provenance_missing` が解消**（test 固定）。
+- **stale / conflict / permission / confirmation / idempotency は引き続き A-1 が判定**（A-2 は G1/G2 のみ解消・apply 可否は判定しない）。
+
+## 10. A-3 設計提案（Apply Transaction / Undo / Idempotency design・**docs-only**）
+
+A-1（判定）+ A-2（pure 整形）で「apply 可能か」と「書ける形」は揃うが、**実 write の取引境界**は未設計。A-3 は **docs-only**（コードも write も無し）で以下を設計する。
+
+- **取引境界**: prepared ChangeSet を 1 atomic transaction として適用する境界（部分適用を許さない・失敗時 rollback）。
+- **undo entry**: `makeUndoEntry`（既存）で apply 時刻から 5 分（単一）/ session 窓（bulk）の undo を生成。apply と undo entry 生成を**同一取引**に含める。
+- **idempotency ledger**: `appliedChangeSetIds` を**どこに永続化するか**の設計（A-3 は設計のみ・実装は A-4）。ChangeSet.id をキーに二重 apply を no-op 化。
+- **post-write 検証**: 書いた結果が prepared と一致するか（書き込み後 read-back で invariant 検証）。
+- **rollback**: 失敗・不一致時に invertChangeSet で戻す手順。
+- **A-3 を開く条件**: ① A-1/A-2 green（達成）② docs-only（route/DB/PlanClient 不接触）③ 既存 `change-set.ts`（makeUndoEntry/invertChangeSet/validateUndoability）を consume するだけ。
+- **A-3 でも踏み込まない**: 実 DB write / route / PlanClient / apply 実行。
+
+→ **A-4 server apply writer は依然 hard gate**（初の DB write・owner-RLS・CEO write 承認必須）。順序: A-1（判定・済）→ A-2（pure 整形・済）→ **A-3（transaction design・docs-only）** → A-4（server write・CEO gate）。
