@@ -14,6 +14,12 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import {
+  isPrgReadinessConsoleEnabled,
+  buildPrgReadinessReportFromStores,
+} from "@/lib/plan/mobility/prgReadinessConsole";
+import type { PrgReadinessReport } from "@/lib/plan/mobility/prgReadinessEvaluator";
+import { PrgReadinessReportView } from "./PrgReadinessPanel";
 
 // ═══════════════════════════════════════════════════════════════
 // Types
@@ -194,6 +200,12 @@ export default function CeoDashboardClient() {
   const [autoRefreshMs, setAutoRefreshMs] = useState(() => lsGet<number>("autoRefresh", 60_000));
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => lsGet("collapsed", {}));
   const [countdown, setCountdown] = useState(0);
+  // ★PRG Readiness operator 表示（dev/operator 専用・flag OFF→未計算/未描画・client localStorage 由来）。
+  const [prgReport, setPrgReport] = useState<PrgReadinessReport | null>(null);
+  useEffect(() => {
+    if (!isPrgReadinessConsoleEnabled()) return;
+    setPrgReport(buildPrgReadinessReportFromStores());
+  }, []);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastFetchRef = useRef(Date.now());
@@ -865,6 +877,15 @@ export default function CeoDashboardClient() {
           <Skeleton />
         )}
       </CollapsibleSection>
+
+      {/* ════════════════════════════════════════════════════════
+          PRG 観測ステータス（dev/operator 専用・flag OFF→非描画・read-only）
+          ════════════════════════════════════════════════════════ */}
+      {isPrgReadinessConsoleEnabled() && prgReport && (
+        <CollapsibleSection id="prg-readiness" title="PRG 観測ステータス（dev）" collapsed={collapsed} toggle={toggle} defaultOpen>
+          <PrgReadinessReportView report={prgReport} />
+        </CollapsibleSection>
+      )}
 
       {/* ════════════════════════════════════════════════════════
           Quick Actions

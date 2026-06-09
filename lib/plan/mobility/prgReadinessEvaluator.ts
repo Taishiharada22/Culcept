@@ -25,7 +25,7 @@ import { buildMovementTolerance } from "@/lib/plan/mobility/movementTolerance";
 import { buildEnergyRhythm } from "@/lib/plan/mobility/energyRhythm";
 import { buildPlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
 
-export type PrgAxisKey = "movement_tolerance" | "energy_rhythm" | "place_affinity" | "personal_pace";
+export type PrgAxisKey = "movement_tolerance" | "energy_rhythm" | "place_affinity" | "personal_pace" | "context";
 
 export type PrgReadinessState =
   | "dormant"
