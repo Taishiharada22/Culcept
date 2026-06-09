@@ -76,6 +76,30 @@ describe("DayOutlookBanner — 仮説トーン / warning 色禁止 / unknown 非
   });
 });
 
+// ── A3 What-if reason-only 行（最大 2・copy のみ・空は沈黙・read-only） ──
+describe("DayOutlookBanner — A3 What-if reason-only", () => {
+  const A3 = ["手堅い見方では、この前後の重なりは少なめに見えます。", "積極的な見方では、後半の見通しが中程度際どくなるかもしれません。"];
+
+  it("★a3ReasonLines あり → testid + 行が出る（muted slate）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} a3ReasonLines={A3} />);
+    expect(html).toContain('data-testid="plan-day-outlook-a3"');
+    expect(html).toContain("手堅い見方では");
+    expect(html).toContain("積極的な見方では");
+    expect(html).toMatch(/plan-day-outlook-a3[^>]*text-slate-500/);
+  });
+  it("★空/未指定 → 出ない（沈黙）", () => {
+    expect(renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} />)).not.toContain("plan-day-outlook-a3");
+    expect(renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} a3ReasonLines={[]} />)).not.toContain("plan-day-outlook-a3");
+  });
+  it("★read-only（A3 行内に button/実行 UI なし・警告色なし・数字/断定なし）", () => {
+    const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} a3ReasonLines={A3} />);
+    expect(html).not.toMatch(/plan-day-outlook-a3[\s\S]{0,200}<button/);
+    for (const w of ["最適", "失敗", "危険", "壊れ", "amber", "orange", "bg-red"]) expect(html).not.toContain(w);
+    // A3 行の文言に raw 数字/% を含まない
+    for (const line of A3) expect(line).not.toMatch(/[0-9%]/);
+  });
+});
+
 describe("DayOutlookBanner — Evidence「なぜ?」disclosure", () => {
   it("なぜ? disclosure を含む（native details + summary + testid）", () => {
     const html = renderToStaticMarkup(<DayOutlookBanner rehearsal={rehearsalWith("tight")} />);

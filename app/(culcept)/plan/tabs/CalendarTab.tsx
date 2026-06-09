@@ -96,6 +96,8 @@ import { useInnerWeather } from "@/hooks/useInnerWeather";
 import { generateDayRepairCandidates, dedupeRepairCandidates, prioritizeRepairCandidates, type DayRepairKind } from "@/lib/plan/dayRehearsal/dayRepairCandidates";
 import { previewRepairSimulation, repairSimulationShortLine } from "@/lib/plan/dayRehearsal/dayRepairSimulation";
 import type { ConvergenceFactor } from "@/lib/plan/dayRehearsal/dayRehearsalTypes";
+import { previewInverseProtection, inverseProtectionReasonLine, isInverseWhatIfEnabled } from "@/lib/plan/dayRehearsal/inverseWhatIf";
+import { compareScenarios, scenarioComparisonReasonLines, isScenarioComparisonEnabled } from "@/lib/plan/dayRehearsal/scenarioComparison";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
 // Plan 月ビュー M3-a: week ⇄ month toggle（flag gating。月 grid 本体接続は M3-b）
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
@@ -326,6 +328,35 @@ export function CalendarTab({
     const densityBaseline = buildDensityBaseline(densities);
     return buildContextOutlook(buildContextModifier(snapshot, undefined, { density: densityBaseline })).reasonLine;
   }, [rehearsalInput, dayGraphByDate, todayWeather]);
+
+  // ★A3 What-if UI（flag **default OFF**・dev-only・production hard block＝既存挙動完全不変）。
+  //   reason-only・read-only・copy のみ。★rehearsal の scoring/marker/repair candidate 生成には一切影響しない（純粋 read）。
+  //   最大 2 行: comparison（中立な 3 レンズ contrast）優先・無ければ inverse（守る意味・1 行）・どちらも無ければ沈黙。
+  //   OFF/production: isXEnabled()=false → [] → banner は A3 行なし＝完全不変。
+  const a3ReasonLines = useMemo<readonly string[]>(() => {
+    if (!rehearsalInput || !dayRehearsal || dayRehearsal.viability.outlook === "unknown") return [];
+    // ① comparison（手堅い↔積極的の中立な見方の違い・両ノートで neutral・最大 2 行）
+    if (isScenarioComparisonEnabled()) {
+      const lines = scenarioComparisonReasonLines(compareScenarios(rehearsalInput));
+      if (lines.length > 0) return lines.slice(0, 2);
+    }
+    // ② 無ければ inverse what-if（最初に protect_matters になる保護を 1 つ・recovery 優先→buffer）
+    if (isInverseWhatIfEnabled()) {
+      for (let i = 0; i < rehearsalInput.steps.length; i += 1) {
+        const t = rehearsalInput.steps[i]!.transitionAfter;
+        if (!t) continue;
+        if (dayRehearsal.recoveryWindows.includes(i)) {
+          const l = inverseProtectionReasonLine(previewInverseProtection(rehearsalInput, { kind: "without_recovery_window", targetStepIndex: i }));
+          if (l) return [l];
+        }
+        if (t.bufferStatus === "sufficient") {
+          const l = inverseProtectionReasonLine(previewInverseProtection(rehearsalInput, { kind: "without_protect_buffer", targetStepIndex: i }));
+          if (l) return [l];
+        }
+      }
+    }
+    return [];
+  }, [rehearsalInput, dayRehearsal]);
 
   // ★A1-8/A1-9 dogfood shadow activation + report（dev/dogfood・flag DAY_REHEARSAL_PACE_SHADOW_ENABLED **default OFF**・production hard block）。
   //   ★実 reflection はしない（dayRehearsal は上の memo のまま）。OFF/非 dev では何もしない＝既存挙動完全不変。
@@ -713,7 +744,7 @@ export function CalendarTab({
                   <DayIndicatorBadge indicator={selectedDayIndicator} />
                 </div>
               )}
-              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} contextReason={contextReason} />
+              <DayOutlookBanner rehearsal={dayRehearsal} recoveryStepCount={recoverySteps.size} repairCandidates={repairCandidates} simulationLineByKind={repairSimulationLineByKind} contextReason={contextReason} a3ReasonLines={a3ReasonLines} />
               {/* ★A1-9 dogfood/dev 限定 shadow report（isPaceShadowActivationEnabled=flag∧非 production のときだけ・一般ユーザー非表示・raw 数値なし）。 */}
               {isPaceShadowActivationEnabled() && shadowReport && (
                 <PaceShadowReportPanel report={shadowReport} dogfoodReadiness={dogfoodReadiness} stability={dogfoodStability} />

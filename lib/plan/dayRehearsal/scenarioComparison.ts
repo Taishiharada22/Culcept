@@ -106,16 +106,16 @@ export function compareScenarios(
     return { status: "identical", protectiveNote: null, aggressiveNote: null, coherentSignals, evidence: evidenceOf(["3つの見方に十分な差がない"], [], [], ["診断レンズ間の差は弱い（仮説）"]) };
   }
 
-  // ── 手堅い側のノート（少なめに見える点） ──
+  // ── 手堅い側のノート（少なめに見える点）。★ラベルは「手堅い」を 1 つ採用（括弧で全列挙しない）。 ──
   let protectiveNote: string | null = null;
-  if (convSpread) protectiveNote = "手堅い（慎重な）見方では、この前後の重なりは少なめに見えます。";
-  else if (strainSpread) protectiveNote = "手堅い（慎重な）見方では、全体の負荷は控えめに見えます。";
-  else if (recoverySpread) protectiveNote = "手堅い（慎重な）見方では、一息つける区間が多めに見えます。";
+  if (convSpread) protectiveNote = "手堅い見方では、この前後の重なりは少なめに見えます。";
+  else if (strainSpread) protectiveNote = "手堅い見方では、全体の負荷は控えめに見えます。";
+  else if (recoverySpread) protectiveNote = "手堅い見方では、一息つける区間が多めに見えます。";
 
-  // ── 積極的側のノート（際どくなる方向・magnitude は定性語） ──
+  // ── 積極的側のノート（際どくなる方向・magnitude は定性語）。★ラベルは「積極的」を 1 つ採用。 ──
   const aggMagnitude = outlookSpread ?? (strainSpread ? magnitudeWord(aggressive.peakStrain.level) : convSpread ? magnitudeWord("high") : null);
   const aggressiveNote = aggMagnitude
-    ? `積極的（思い切った・冒険的な）見方では、後半の見通しが${aggMagnitude}際どくなるかもしれません。`
+    ? `積極的な見方では、後半の見通しが${aggMagnitude}際どくなるかもしれません。`
     : null;
 
   const basis: string[] = [];

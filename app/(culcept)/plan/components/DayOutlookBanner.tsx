@@ -37,6 +37,7 @@ export function DayOutlookBanner({
   repairCandidates = [],
   simulationLineByKind,
   contextReason = null,
+  a3ReasonLines = [],
 }: {
   rehearsal: DayRehearsal | null;
   recoveryStepCount?: number;
@@ -53,6 +54,12 @@ export function DayOutlookBanner({
    * ★これは copy のみ。viability/outlook など rehearsal の数値判定には一切影響しない。
    */
   contextReason?: string | null;
+  /**
+   * ★A3 What-if（inverse / comparison）reason-only 行（最大 2・仮説トーン・数字なし・最適案/断定なし）。
+   * flag-gated・computed は CalendarTab 側。copy のみ・rehearsal の scoring/marker/candidate 生成に影響しない。
+   * 空 → 沈黙（沈黙原則）。
+   */
+  a3ReasonLines?: readonly string[];
 }) {
   if (!rehearsal) return null;
   const outlook = rehearsal.viability.outlook;
@@ -72,6 +79,14 @@ export function DayOutlookBanner({
         <div data-testid="plan-day-outlook-context" className="mt-1 text-[11px] text-slate-500">
           <span className="text-slate-400">今日の文脈 · </span>
           {contextReason}
+        </div>
+      )}
+      {/* ★A3 What-if: inverse（守る意味）/ comparison（診断レンズ）の reason-only 行（最大 2・copy のみ・空は沈黙）。 */}
+      {a3ReasonLines.length > 0 && (
+        <div data-testid="plan-day-outlook-a3" className="mt-1 space-y-0.5 text-[11px] text-slate-500">
+          {a3ReasonLines.map((line, i) => (
+            <p key={i}>{line}</p>
+          ))}
         </div>
       )}
       {lines.length > 0 && (
