@@ -21,8 +21,8 @@ import { loadPlaceAffinitySafetyJournal, assessPlaceAffinitySafety } from "@/lib
 import { isContextModifierEnabled } from "@/lib/plan/context/contextModifier";
 import { isPersonalPaceReflectionEnabled } from "@/lib/plan/dayRehearsal/personalPaceAdapter";
 
-/** ★operator console flag（**default OFF**・dev-only）。production は hard block。 */
-export const PRG_READINESS_CONSOLE_ENABLED = false;
+/** ★operator console flag。**dogfood 有効化（2026-06-09 CEO 判断）で true**。dev/operator のみ・production hard block。 */
+export const PRG_READINESS_CONSOLE_ENABLED = true;
 
 /** /ceo に PRG readiness を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isPrgReadinessConsoleEnabled(): boolean {

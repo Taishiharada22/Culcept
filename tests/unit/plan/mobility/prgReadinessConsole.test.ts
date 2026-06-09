@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   PRG_READINESS_CONSOLE_ENABLED,
   isPrgReadinessConsoleEnabled,
@@ -7,9 +7,17 @@ import {
   buildPrgReadinessReportFromStores,
 } from "@/lib/plan/mobility/prgReadinessConsole";
 
-describe("flag / gate（dev/operator 専用・default OFF）", () => {
-  it("★default OFF・isEnabled false（flag false ゆえ常に false）", () => {
-    expect(PRG_READINESS_CONSOLE_ENABLED).toBe(false);
+describe("flag / gate（dogfood 有効化・production hard block）", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("★dogfood 有効化（flag true）", () => {
+    expect(PRG_READINESS_CONSOLE_ENABLED).toBe(true);
+  });
+  it("★非 production は ON（dev/operator）", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isPrgReadinessConsoleEnabled()).toBe(true);
+  });
+  it("★production は hard block（flag true でも OFF）", () => {
+    vi.stubEnv("NODE_ENV", "production");
     expect(isPrgReadinessConsoleEnabled()).toBe(false);
   });
 });
