@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   movementToleranceReasonForContext,
   isMovementToleranceReasonUiEnabled,
@@ -46,10 +46,18 @@ function feedbackOf(reasons: MobilityReason[]): HypothesisFeedbackStore {
 // 雨で train(low-load) に偏る観測（非雨 8 walk / 雨 4 train）→ weather:rain signal。
 const RAIN_SKEW = [...many("walk", {}, 8), ...many("train", { weatherKind: "rain" }, 4)];
 
-describe("flag / gate", () => {
-  it("★default OFF", () => {
-    expect(MOVEMENT_TOLERANCE_REASON_UI_ENABLED).toBe(false);
-    expect(isMovementToleranceReasonUiEnabled()).toBe(false); // flag false ゆえ常に false
+describe("flag / gate（dogfood 有効化・production hard block）", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("★dogfood 有効化（flag true）", () => {
+    expect(MOVEMENT_TOLERANCE_REASON_UI_ENABLED).toBe(true);
+  });
+  it("★非 production は ON", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isMovementToleranceReasonUiEnabled()).toBe(true);
+  });
+  it("★production は hard block（flag true でも OFF）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isMovementToleranceReasonUiEnabled()).toBe(false);
   });
 });
 

@@ -6,7 +6,8 @@
  *   ranking / scoring / Day Rehearsal friction には **反映しない**（読むだけ）。
  *
  * ★表示規律（CEO 制約）:
- *   - flag default **OFF** ∧ dev-only（production hard block）。flag OFF→完全不変。
+ *   - **dogfood 有効化（2026-06-09 CEO 判断）で flag=true**。gate `process.env.NODE_ENV !== "production"` により
+ *     **dev/dogfood のみ ON・production は hard block**（flag=true でも production 挙動は不変・露出は別 CEO 判断）。
  *   - ★**1 行のみ**。優先順 = 条件一致の conditional（weather>timeband>weekday）> global corroboration（fallback）。
  *     各行は自立し **融合しない**（条件が自己申告で裏づいたと誤読させない＝HONESTY 制約）。
  *   - 条件一致 = 今の文脈（今日の天気/この leg の timeband/曜日）が tolerance signal に一致した時のみ → 出すぎ防止・沈黙デフォルト。
@@ -25,11 +26,11 @@ import {
 import { buildMovementToleranceCorroboration } from "@/lib/plan/mobility/movementToleranceCorroboration";
 
 /**
- * ★Movement Tolerance reason-only UI flag（**default OFF**・dev-only）。
- * gate の `process.env.NODE_ENV !== "production"` により **dev のみ ON・production は hard block**。
- * ★ranking / scoring / Day Rehearsal friction には影響しない（reason 表示のみ）。
+ * ★Movement Tolerance reason-only UI flag。**dogfood 有効化（2026-06-09 CEO 判断）で true**。
+ * gate の `process.env.NODE_ENV !== "production"` により **dev/dogfood のみ ON・production は hard block**。
+ * ★ranking / scoring / Day Rehearsal friction には影響しない（reason 表示のみ・read-only）。rollback=`=false` 1 行。
  */
-export const MOVEMENT_TOLERANCE_REASON_UI_ENABLED = false;
+export const MOVEMENT_TOLERANCE_REASON_UI_ENABLED = true;
 
 /** 移動耐性 reason を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isMovementToleranceReasonUiEnabled(): boolean {
