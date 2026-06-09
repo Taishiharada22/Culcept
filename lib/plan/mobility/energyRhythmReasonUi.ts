@@ -20,11 +20,11 @@ import type { MobilityObservation, Timeband } from "@/lib/plan/mobility/mobility
 import { buildEnergyRhythm, energyRhythmReasonLine } from "@/lib/plan/mobility/energyRhythm";
 
 /**
- * ★Energy Rhythm reason-only UI flag（**default OFF**・dev-only）。
- * gate の `process.env.NODE_ENV !== "production"` により **dev のみ ON・production は hard block**。
- * ★ranking / scoring / Day Rehearsal には影響しない（reason 表示のみ・read-only）。
+ * ★Energy Rhythm reason-only UI flag。**dogfood 有効化（2026-06-09 CEO 判断）で true**。
+ * gate の `process.env.NODE_ENV !== "production"` により **dev/dogfood のみ ON・production は hard block**。
+ * ★ranking / scoring / Day Rehearsal には影響しない（reason 表示のみ・read-only）。rollback=`=false` 1 行。
  */
-export const ENERGY_RHYTHM_REASON_UI_ENABLED = false;
+export const ENERGY_RHYTHM_REASON_UI_ENABLED = true;
 
 /** 活動時間帯 reason を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isEnergyRhythmReasonUiEnabled(): boolean {

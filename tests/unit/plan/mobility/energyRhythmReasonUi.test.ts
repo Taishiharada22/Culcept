@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   energyRhythmReasonForTimeband,
   isEnergyRhythmReasonUiEnabled,
@@ -15,10 +15,18 @@ function many(timeband: Timeband, n: number): MobilityObservation[] {
 // 朝集中（朝8/昼2/夕1/夜1=12）: 朝 high・夕/夜 low・昼 typical
 const MORNING_HEAVY = [...many("morning", 8), ...many("afternoon", 2), ...many("evening", 1), ...many("night", 1)];
 
-describe("flag / gate", () => {
-  it("★default OFF", () => {
-    expect(ENERGY_RHYTHM_REASON_UI_ENABLED).toBe(false);
-    expect(isEnergyRhythmReasonUiEnabled()).toBe(false); // flag false ゆえ常に false
+describe("flag / gate（dogfood 有効化・production hard block）", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("★dogfood 有効化（flag true）", () => {
+    expect(ENERGY_RHYTHM_REASON_UI_ENABLED).toBe(true);
+  });
+  it("★非 production は ON", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(isEnergyRhythmReasonUiEnabled()).toBe(true);
+  });
+  it("★production は hard block（flag true でも OFF）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isEnergyRhythmReasonUiEnabled()).toBe(false);
   });
 });
 
