@@ -361,4 +361,12 @@ export const PLAN_FLAGS = {
 
   /** A1-7-35: dev-second-self の confirm/correct/reject ボタン UI（client・default OFF・dev 限定）。 */
   realityTendencyFeedbackUi: process.env.NEXT_PUBLIC_REALITY_TENDENCY_FEEDBACK_UI === "true",
+
+  /**
+   * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
+   * 設計: docs/reality-pipeline-dev-preview-design.md
+   * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。
+   *   plan を書き換えない・apply しない・通知しない・user-facing でない（NEXT_PUBLIC なし＝server-side のみ評価）。
+   */
+  realityPipelinePreview: process.env.REALITY_PIPELINE_PREVIEW === "true",
 } as const;
