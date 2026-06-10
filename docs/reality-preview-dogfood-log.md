@@ -59,3 +59,10 @@
 - **Moment policy**: 620=「沈黙(1・focus_block)」（**focus 例外なし維持**）/ 800=`window_open`「今なら「確定申告」を入れやすそうです」（**朝に出た urgent を一度だけ再提示**・excluded=0/1 が policy 作動を示す）
 - LifeOps: L3 OK / L4 OK（非断定維持）/ 新軸: escalation OK・urgent 再提示 OK
 - 安全: S1-S8 PASS・通知 0（preview VM のみ）
+
+### [2026-06-11] record 14 — A-4-c7 5層cap dry-run（標準/flood 比較・800）
+- 配線: raw cap→collector→pool cap→placement(∞)→compose(tier fitting 5/overflow retained 5+総数)→display(≤3)
+- 標準 fixture: meta rawDropped=0 poolDropped=0（cap no-op が**数で可視**＝黙って消えたものゼロ）
+- flood（10 候補・期限3+準備2+美容2menu+眉+補充2）: **tier fitting cap 実作動**＝守る4/楽5/攻め5 で頭打ち・overflow line は**総数**（攻め5件）・代表≤3・**Moment 生存**「今なら「食料品の買い物」を…」
+- 注: 現行 L-1/L-2 辞書 + collector dedup では chain 候補は最大 ~10 → **pool cap(12) は実データ規模（辞書拡張/recurring 期限）への防御**。cap が縛る挙動は helper flood test(19 件)で証明（deadline 不滅・lane floor 2）
+- 安全: S1-S8 PASS・focus 沈黙維持（620=focus_block を test 固定）・flags 群 dormant OFF 確認

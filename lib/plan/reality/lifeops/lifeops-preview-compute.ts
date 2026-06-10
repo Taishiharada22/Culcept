@@ -22,6 +22,7 @@ import { placeLifeOpsCandidatesForDay } from "./lifeops-placement";
 import { composeLifeOpsIntoDayProposals } from "./lifeops-empty-day-compose";
 import { buildLifeOpsBriefingPreview, BRIEFING_HIGHLIGHT_MAX } from "./lifeops-briefing-preview";
 import { buildLifeOpsMomentPreview, lifeOpsMomentKey } from "./lifeops-moment-preview";
+import { capRawLifeOpsInputs, capLifeOpsCandidatePool } from "./lifeops-pool-cap";
 
 // ── client DTO（唯一の通路・allowlist・§2）──
 
@@ -52,8 +53,15 @@ export interface LifeOpsPreviewClientDto {
   readonly moment: LifeOpsPreviewMomentDto;
   /** fixture 駆動の明示（実データ源未接続）。 */
   readonly fixtureNotice: true;
-  /** 重複制御の可視化（数のみ）。 */
-  readonly integrationMeta: { readonly briefingRepresentativeCount: number; readonly momentExcludedCount: number };
+  /** 重複制御 + cap dry-run の可視化（数のみ）。 */
+  readonly integrationMeta: {
+    readonly briefingRepresentativeCount: number;
+    readonly momentExcludedCount: number;
+    /** A-4-c7: raw input cap で落ちた観測数（fixture では 0）。 */
+    readonly rawDroppedCount: number;
+    /** A-4-c7: pool cap で落ちた候補数（fixture では 0・dropped は黙って消えず count で見える）。 */
+    readonly poolDroppedCount: number;
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -95,8 +103,12 @@ export interface LifeOpsPreviewComputeArgs {
 export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeOpsPreviewClientDto {
   const { world, date, nowMinute, nowMs } = args;
 
-  // fixture 縦入力 → 横 chain（placement→compose）。
-  const candidates = collectLifeOpsCandidates(args.inputs ?? fixtureLifeOpsInputs(nowMs), new Date(nowMs).toISOString());
+  // fixture 縦入力 → 横 chain（placement→compose）。A-4-c7: 5層cap を dry-run 配線
+  //   （①raw input cap=collector 入力直前 ②pool cap=placement 入力直前。fixture は cap 未満=no-op・flood test で作動証明）。
+  const raw = capRawLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs));
+  const collected = collectLifeOpsCandidates(raw.inputs, new Date(nowMs).toISOString());
+  const pooled = capLifeOpsCandidatePool(collected);
+  const candidates = pooled.pool;
   const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world });
   const edi = deriveEmptyDayInput(world, synthesizeMemory([], nowMs), { userIntent: null });
   const proposalSet = generateEmptyDay(edi);
@@ -139,6 +151,11 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
       suppression: moment.suppression,
     },
     fixtureNotice: true,
-    integrationMeta: { briefingRepresentativeCount: recComposed ? Math.min(recComposed.lifeOps.fitting.length, BRIEFING_HIGHLIGHT_MAX) : 0, momentExcludedCount: excludeKeys.length },
+    integrationMeta: {
+      briefingRepresentativeCount: recComposed ? Math.min(recComposed.lifeOps.fitting.length, BRIEFING_HIGHLIGHT_MAX) : 0,
+      momentExcludedCount: excludeKeys.length,
+      rawDroppedCount: raw.droppedCount,
+      poolDroppedCount: pooled.droppedCount,
+    },
   };
 }

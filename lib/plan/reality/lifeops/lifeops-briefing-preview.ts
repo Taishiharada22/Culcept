@@ -121,12 +121,13 @@ function buildCautions(compose: LifeOpsDayCompose): readonly string[] {
 export function buildLifeOpsBriefingPreview(compose: LifeOpsDayCompose): LifeOpsBriefingPreviewVm {
   const tiers: LifeOpsBriefingTierVm[] = compose.composed.map((c) => {
     const n = c.lifeOps.fitting.length;
+    const overflowTotal = c.lifeOps.overflowTotalCount ?? c.lifeOps.overflow.length; // A-4-c7: line は総数（保持 cap で配列を絞っても嘘をつかない）
     return {
       tier: c.tier,
       tierLabel: TIER_LABEL[c.tier],
       line: n > 0 ? `${TIER_LABEL[c.tier]}には${n}件入ります` : `${TIER_LABEL[c.tier]}は生活まわりの追加なし`,
       highlights: c.lifeOps.fitting.slice(0, BRIEFING_HIGHLIGHT_MAX).map(toHighlight),
-      overflowLine: c.lifeOps.overflow.length > 0 ? `この案では入りきらない候補が${c.lifeOps.overflow.length}件あります` : null,
+      overflowLine: overflowTotal > 0 ? `この案では入りきらない候補が${overflowTotal}件あります` : null,
     };
   });
 

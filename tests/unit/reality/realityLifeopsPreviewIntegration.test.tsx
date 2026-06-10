@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import * as fs from "fs";
 import * as path from "path";
 import { computeLifeOpsPreviewDto, fixtureLifeOpsInputs, type LifeOpsPreviewClientDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "@/app/(culcept)/plan/dev-reality-pipeline/RealityPipelinePreviewClient";
 import type { RealityPipelineEnvelope } from "@/lib/plan/reality/orchestration/reality-pipeline";
 import type { WorldState } from "@/lib/plan/reality/world-state/world-state";
@@ -147,6 +148,72 @@ describe("integration — render（operator preview に 3 VM が並ぶ）", () =
     expect(html).not.toMatch(FORBIDDEN);
     const without = renderToStaticMarkup(<RealityPipelinePreviewClient envelope={envelope} meta={meta} />);
     expect(without).not.toContain("Life Ops Preview");
+  });
+});
+
+describe("★A-4-c7 — 5層cap dry-run（fixture pipeline で cap が安全に効く）", () => {
+  const OLD = "2026-03-01T10:00:00+09:00";
+  /** 多カテゴリ flood inputs（collector 経由で pool cap を超えさせる）。 */
+  const FLOOD = {
+    deadlineObservations: [
+      { categoryId: "tax_filing", deadlineISO: "2026-06-15T00:00:00+09:00" },
+      { categoryId: "license_renewal", deadlineISO: "2026-06-30T00:00:00+09:00" },
+      { categoryId: "passport_renewal", deadlineISO: "2026-07-20T00:00:00+09:00" },
+    ],
+    upcomingEvents: [{ kind: "interview" as const, startISO: "2026-06-13T10:00:00+09:00" }],
+    cadenceObservations: [
+      { categoryId: "beauty_salon", menu: "cut" as const, lastCompletedAtISO: OLD },
+      { categoryId: "eyebrow", lastCompletedAtISO: OLD },
+      { categoryId: "nail", lastCompletedAtISO: OLD },
+      { categoryId: "eyelash", lastCompletedAtISO: OLD },
+      { categoryId: "bodywork", lastCompletedAtISO: OLD },
+      { categoryId: "dental", lastCompletedAtISO: OLD },
+      { categoryId: "groceries", lastCompletedAtISO: OLD },
+      { categoryId: "daily_necessities", lastCompletedAtISO: OLD },
+    ],
+  };
+  const floodDto = (nowMinute: number) =>
+    computeLifeOpsPreviewDto({ world: { ...ws(), nowMinute }, date: "2026-06-10", nowMinute, nowMs: NOW_MS, inputs: FLOOD });
+  it("pool cap 配線下でも deadline 代表と push 差分は残る（現行辞書では dedup により cap 超過は構造的に不発=droppedは0で可視）", () => {
+    // 注: collector の (category,menu) dedup + 現行 L-1/L-2 辞書では chain 候補は最大 ~10 件 → pool cap(12) は
+    //   **実データ規模（辞書拡張/recurring 期限）への防御**。cap が縛る挙動自体は pool-cap helper の flood test(19件) が証明。
+    const d = floodDto(800);
+    expect(d.integrationMeta.poolDroppedCount).toBe(0); // 黙って消えたものが無いことが count で見える
+    const reps = d.briefing.tiers.find((t) => t.highlights.length > 0)!.highlights.map((h) => h.label);
+    expect(reps).toContain("確定申告"); // deadline は cap 配線下でも生存
+    const pushTier = d.briefing.tiers.find((t) => t.tier === "push")!;
+    const easyTier = d.briefing.tiers.find((t) => t.tier === "easy")!;
+    expect(`${pushTier.line}|${pushTier.overflowLine ?? ""}`).not.toBe(`${easyTier.line}|${easyTier.overflowLine ?? ""}`); // easy≠push 維持
+  });
+  it("representative ≤3・各 tier line の件数 ≤ tier cap(5)・overflow line は総数表記", () => {
+    const d = floodDto(800);
+    for (const t of d.briefing.tiers) {
+      expect(t.highlights.length).toBeLessThanOrEqual(3);
+      const m = t.line.match(/には(\d+)件入ります/);
+      if (m) expect(Number(m[1])).toBeLessThanOrEqual(5);
+      if (t.overflowLine) expect(t.overflowLine).toMatch(/入りきらない候補が\d+件あります/);
+    }
+  });
+  it("cap が効いても Moment は生きている（発火 or 理由つき沈黙・crash しない）", () => {
+    const d = floodDto(800);
+    expect(d.moment.surfaced !== null || d.moment.silencedCount > 0).toBe(true);
+  });
+  it("cap が効いても focus 沈黙は維持（620=focus_block）", () => {
+    const d = floodDto(620);
+    expect(d.moment.surfaced).toBeNull();
+    expect(d.moment.suppression).toBe("focus_block");
+  });
+  it("raw input cap: 同一カテゴリ大量観測でも rawDroppedCount で刻まれ dedup で 1 候補", () => {
+    const big = Array.from({ length: 60 }, () => ({ categoryId: "tax_filing", deadlineISO: "2026-06-15T00:00:00+09:00" }));
+    const d = computeLifeOpsPreviewDto({ world: ws(), date: "2026-06-10", nowMinute: 620, nowMs: NOW_MS, inputs: { deadlineObservations: big } });
+    expect(d.integrationMeta.rawDroppedCount).toBe(10); // 60-50
+  });
+  it("実データ flag 群は dormant（default OFF・本 slice で読み取り実装なし）", () => {
+    expect(PLAN_FLAGS.lifeopsRealdataReadonly).toBe(false);
+    expect(PLAN_FLAGS.lifeopsCadenceReadonly).toBe(false);
+    expect(PLAN_FLAGS.lifeopsCalendarEventReadonly).toBe(false);
+    expect(PLAN_FLAGS.lifeopsDeadlineReadonly).toBe(false);
+    expect(PLAN_FLAGS.lifeopsFeedbackReadonly).toBe(false);
   });
 });
 

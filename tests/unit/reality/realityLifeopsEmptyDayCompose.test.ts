@@ -9,6 +9,7 @@ import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { composeLifeOpsIntoDayProposals } from "@/lib/plan/reality/lifeops/lifeops-empty-day-compose";
+import { TIER_FITTING_CAP, OVERFLOW_RETAINED_CAP } from "@/lib/plan/reality/lifeops/lifeops-pool-cap";
 import { placeLifeOpsCandidatesForDay, type LifeOpsPlacementResult, type PlacedLifeOpsCandidate } from "@/lib/plan/reality/lifeops/lifeops-placement";
 import { collectLifeOpsCandidates, type LifeOpsInputs } from "@/lib/lifeops/candidate-collector";
 import { generateEmptyDay, type EmptyDayProposalSet, type EmptyDayTier } from "@/lib/plan/reality/empty-day/empty-day-generator";
@@ -223,6 +224,59 @@ describe("compose — unplaced 透過・素材保持・summary（§4-§6）", ()
     const a = chain().compose;
     const b = chain().compose;
     expect(JSON.stringify(a.summary)).toBe(JSON.stringify(b.summary));
+  });
+});
+
+describe("★A-4-c7 — tier fitting cap / overflow retained+total（flood chain）", () => {
+  /** 多カテゴリ flood（collector 経由・~14 候補）。 */
+  function floodInputs(): LifeOpsInputs {
+    const old = "2026-03-01T10:00:00+09:00"; // 全部 well_beyond/beyond 圏
+    return {
+      deadlineObservations: [
+        { categoryId: "tax_filing", deadlineISO: "2026-06-15T00:00:00+09:00" },
+        { categoryId: "license_renewal", deadlineISO: "2026-06-30T00:00:00+09:00" },
+        { categoryId: "passport_renewal", deadlineISO: "2026-07-20T00:00:00+09:00" },
+      ],
+      upcomingEvents: [{ kind: "interview", startISO: "2026-06-13T10:00:00+09:00" }],
+      cadenceObservations: [
+        { categoryId: "beauty_salon", menu: "cut", lastCompletedAtISO: old },
+        { categoryId: "eyebrow", lastCompletedAtISO: old },
+        { categoryId: "nail", lastCompletedAtISO: old },
+        { categoryId: "eyelash", lastCompletedAtISO: old },
+        { categoryId: "bodywork", lastCompletedAtISO: old },
+        { categoryId: "dental", lastCompletedAtISO: old },
+        { categoryId: "groceries", lastCompletedAtISO: old },
+        { categoryId: "daily_necessities", lastCompletedAtISO: old },
+      ],
+    };
+  }
+  function floodChain() {
+    const world = ws();
+    const candidates = collectLifeOpsCandidates(floodInputs(), NOW_ISO);
+    const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world });
+    const edi = deriveEmptyDayInput(world, synthesizeMemory([], NOW_MS), { userIntent: null });
+    return { candidates, compose: composeLifeOpsIntoDayProposals({ proposalSet: generateEmptyDay(edi), placement, dayWindows: world.availableWindows }) };
+  }
+  it("fitting は各 tier ≤ TIER_FITTING_CAP・cap 落ちは tier_fitting_cap コードで overflow へ（deadline は落ちない）", () => {
+    const { candidates, compose } = floodChain();
+    expect(candidates.length).toBeGreaterThan(TIER_FITTING_CAP);
+    for (const c of compose.composed) {
+      expect(c.lifeOps.fitting.length).toBeLessThanOrEqual(TIER_FITTING_CAP);
+      expect(c.lifeOps.fitting.some((p) => p.candidate.dueReason.kind === "deadline")).toBe(true); // urgency 先頭=cap で落ちない
+      const capped = c.lifeOps.overflow.filter((p) => p.placementReason.includes("tier_fitting_cap"));
+      for (const p of capped) expect(p.candidate.dueReason.kind).not.toBe("deadline");
+    }
+  });
+  it("overflow 配列は ≤ OVERFLOW_RETAINED_CAP 保持・overflowTotalCount が総数（summary も総数）", () => {
+    const { compose } = floodChain();
+    for (const [i, c] of compose.composed.entries()) {
+      expect(c.lifeOps.overflow.length).toBeLessThanOrEqual(OVERFLOW_RETAINED_CAP);
+      expect(c.lifeOps.overflowTotalCount).toBeGreaterThanOrEqual(c.lifeOps.overflow.length);
+      expect(compose.summary.perTier[i].overflowCount).toBe(c.lifeOps.overflowTotalCount);
+    }
+    // flood では少なくとも push tier で総数 > 保持数（retained cap が実作動）か、総数 ≤5 で同数（両形を許容しつつ総数の整合を固定）。
+    const push = compose.composed[2];
+    expect(push.lifeOps.overflowTotalCount).toBeGreaterThan(0);
   });
 });
 

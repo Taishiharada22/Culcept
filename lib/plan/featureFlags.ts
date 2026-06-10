@@ -369,4 +369,16 @@ export const PLAN_FLAGS = {
    *   plan を書き換えない・apply しない・通知しない・user-facing でない（NEXT_PUBLIC なし＝server-side のみ評価）。
    */
   realityPipelinePreview: process.env.REALITY_PIPELINE_PREVIEW === "true",
+
+  /**
+   * A-4-c7: Life Ops 実データ read-only の flag 群（**dormant・default OFF・consumer なし**＝設計/contract のみ）。
+   *   将来 wiring: master ∧ per-source の AND + staging triple-guard + production hard block。
+   *   有効化条件: 5層cap 配線の実データ量検証 + staging 観測 ≥2 週間 + CEO 承認（docs/life-ops-realdata-readiness-a4-c7-mini-design.md）。
+   *   本 slice では**読み取りを実装しない**（flag を読む reader が存在しない）。
+   */
+  lifeopsRealdataReadonly: process.env.LIFEOPS_REALDATA_READONLY === "true",
+  lifeopsCadenceReadonly: process.env.LIFEOPS_CADENCE_READONLY === "true",
+  lifeopsCalendarEventReadonly: process.env.LIFEOPS_CALENDAR_EVENT_READONLY === "true",
+  lifeopsDeadlineReadonly: process.env.LIFEOPS_DEADLINE_READONLY === "true",
+  lifeopsFeedbackReadonly: process.env.LIFEOPS_FEEDBACK_READONLY === "true",
 } as const;

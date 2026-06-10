@@ -21,6 +21,7 @@
 
 import type { EmptyDayBlockKind, EmptyDayProposal, EmptyDayProposalSet, EmptyDayTier } from "../empty-day/empty-day-generator";
 import { lifeOpsUrgencyRank, type LifeOpsPlacementResult, type LifeOpsPlanLane, type PlacedLifeOpsCandidate } from "./lifeops-placement";
+import { TIER_FITTING_CAP, OVERFLOW_RETAINED_CAP } from "./lifeops-pool-cap";
 
 /** tier ごとの lane 累積包含（§1: 守る日でも deadline は落とさない）。 */
 const TIER_INCLUDES: Record<EmptyDayTier, ReadonlySet<LifeOpsPlanLane>> = {
@@ -33,10 +34,12 @@ const TIER_INCLUDES: Record<EmptyDayTier, ReadonlySet<LifeOpsPlanLane>> = {
 const FLEXIBLE_KINDS: ReadonlySet<EmptyDayBlockKind> = new Set<EmptyDayBlockKind>(["open", "buffer", "light_task"]);
 
 export interface ComposedTierLifeOps {
-  /** flexible 容量に収まった候補（urgency 順・window/coarseMinutes 保持）。 */
+  /** flexible 容量に収まった候補（urgency 順・window/coarseMinutes 保持・**≤ tierFittingCap**）。 */
   readonly fitting: readonly PlacedLifeOpsCandidate[];
-  /** lane 的には tier に属するが容量不足（honest・「この案では収まらない」）。 */
+  /** lane 的には tier に属するが容量/体験上限で入らない候補（honest・**保持は ≤ overflowRetainedCap**）。 */
   readonly overflow: readonly PlacedLifeOpsCandidate[];
+  /** overflow の**総数**（A-4-c7・保持 cap で配列を絞っても line は総数を言う=嘘をつかない）。省略時=overflow.length。 */
+  readonly overflowTotalCount?: number;
 }
 
 export interface ComposedDayProposal {
@@ -71,6 +74,10 @@ export interface LifeOpsComposeInput {
    * 省略時は placements が知る窓のみ（後方互換・未使用窓は発見できない）。
    */
   readonly dayWindows?: readonly { readonly startMinute: number; readonly endMinute: number }[];
+  /** A-4-c7: per-tier fitting の体験上限（既定 5・urgency 順処理ゆえ deadline が cap で落ちることは構造的に無い）。 */
+  readonly tierFittingCap?: number;
+  /** A-4-c7: overflow 配列の保持上限（既定 5・総数は overflowTotalCount が持つ＝line は嘘をつかない）。 */
+  readonly overflowRetainedCap?: number;
 }
 
 /** tier×window の flexible 容量（分）= open/buffer/light_task block 分 + 窓の未充填分。 */
@@ -115,8 +122,14 @@ export function composeLifeOpsIntoDayProposals(input: LifeOpsComposeInput): Life
     };
     const fitting: PlacedLifeOpsCandidate[] = [];
     const overflow: PlacedLifeOpsCandidate[] = [];
+    const fittingCap = input.tierFittingCap ?? TIER_FITTING_CAP; // A-4-c7 ③: 体験上限（容量とは別）
     for (const p of eligible) {
       const placedW = p.window;
+      if (fitting.length >= fittingCap) {
+        // urgency 順処理ゆえ cap で落ちるのは常に末尾（deadline は先頭群＝構造的に落ちない）。
+        overflow.push({ ...p, placementReason: [...p.placementReason, "tier_fitting_cap"] });
+        continue;
+      }
       // ① placement の窓を優先（親和性）→ ② 塞がっていれば/窓なしなら 同 tier の他窓へ（早い順）。
       if (placedW && remainingOf(placedW) >= p.coarseMinutes) {
         consume(placedW, p.coarseMinutes);
@@ -135,7 +148,10 @@ export function composeLifeOpsIntoDayProposals(input: LifeOpsComposeInput): Life
       }
       overflow.push(p); // honest（R2 block を削らない・黙って詰め込まない）＝「この案では入りきらない」（tier 差分情報）
     }
-    return { tier: proposal.tier, proposal, lifeOps: { fitting, overflow } };
+    // A-4-c7 ⑤: overflow は総数を保持しつつ、配列は上位 N 件のみ retained（R4/詳細素材・line は総数）。
+    const retainedCap = input.overflowRetainedCap ?? OVERFLOW_RETAINED_CAP;
+    const overflowTotalCount = overflow.length;
+    return { tier: proposal.tier, proposal, lifeOps: { fitting, overflow: overflow.slice(0, retainedCap), overflowTotalCount } };
   });
 
   // A-4-c4: 全候補は最低 push tier の eligible になるため「どの tier にも載らない候補」は構造的に存在しない。
@@ -148,7 +164,7 @@ export function composeLifeOpsIntoDayProposals(input: LifeOpsComposeInput): Life
     alsoAvailable,
     summary: {
       date: proposalSet.date,
-      perTier: composed.map((c) => ({ tier: c.tier, fittingCount: c.lifeOps.fitting.length, overflowCount: c.lifeOps.overflow.length })),
+      perTier: composed.map((c) => ({ tier: c.tier, fittingCount: c.lifeOps.fitting.length, overflowCount: c.lifeOps.overflowTotalCount ?? c.lifeOps.overflow.length })),
       alsoAvailableCount: alsoAvailable.length,
     },
   };
