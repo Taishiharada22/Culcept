@@ -28,7 +28,7 @@ import { buildLifeOpsMomentPreview, lifeOpsMomentKey } from "./lifeops-moment-pr
 import { capRawLifeOpsInputs, capLifeOpsCandidatePool } from "./lifeops-pool-cap";
 import { mergeCadenceIntoLifeOpsInputs } from "./lifeops-feedback-cadence-merge";
 import { listLifeOpsActionDescriptors } from "./lifeops-action-intent";
-import type { CadenceObservation } from "../../../lifeops/candidate-types";
+import type { CadenceObservation, LifeOpsCandidate } from "../../../lifeops/candidate-types";
 
 // ── client DTO（唯一の通路・allowlist・§2）──
 
@@ -53,6 +53,11 @@ export interface LifeOpsPreviewHighlightDto {
   readonly windowHint: string;
   /** A-4-c16: Morning 代表（recommended tier）のみ付与・descriptors 不能候補は省略（safe disabled）。 */
   readonly actions?: readonly LifeOpsPreviewActionDto[];
+  /**
+   * A-4-c17: 非 PII 構造キー（`{category}:{menu}`=lifeOpsMomentKey）。server action への lookup key 専用
+   *   （server は信頼せず再計算照合）。**handle ではない**（`lifeops:` prefix なし・writer DTO 非搬出は維持）。
+   */
+  readonly candidateKey?: string;
 }
 export interface LifeOpsPreviewTierDto {
   readonly tier: string;
@@ -129,9 +134,20 @@ export interface LifeOpsPreviewComputeArgs {
 }
 
 /**
- * fixture Life Ops chain → client DTO（**pure・allowlist 変換・重複制御込み**）。
+ * A-4-c17: preview model（client DTO + **Morning 代表の candidate 実体**）。
+ *   repCandidates は **server action の再計算照合専用**（client へ渡してはならない＝page は dto のみ搬出）。
+ *   DTO の rail/candidateKey と同一の reps 配列が単一ソース（zip ずれが構造的に起きない）。
  */
-export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeOpsPreviewClientDto {
+export interface LifeOpsPreviewModel {
+  readonly dto: LifeOpsPreviewClientDto;
+  /** rail を持つ唯一の集合（recommended tier 代表 ≤3）。server-side 検証専用。 */
+  readonly repCandidates: readonly LifeOpsCandidate[];
+}
+
+/**
+ * fixture Life Ops chain → preview model（**pure・allowlist 変換・重複制御込み**）。
+ */
+export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): LifeOpsPreviewModel {
   const { world, date, nowMinute, nowMs } = args;
 
   // fixture 縦入力 → 横 chain（placement→compose）。A-4-c7: 5層cap を dry-run 配線
@@ -177,7 +193,7 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
     : { surfaced: null, silencedCount: 0, suppressedReasons: [], suppression: null };
 
   // ── DTO 変換（allowlist・title→label・コード列→counts）──
-  return {
+  const dto: LifeOpsPreviewClientDto = {
     briefing: {
       headline: briefing.headline,
       tiers: briefing.tiers.map((t) => ({
@@ -189,7 +205,10 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
           phrase: h.phrase,
           windowHint: h.windowHint,
           // A-4-c16: 代表 tier（reps の実出所=recComposed.tier）のみ rail（descriptors 空=辞書外は省略・他 tier は従来形のまま）。
-          ...(recComposed && t.tier === recComposed.tier && (repActions[i]?.length ?? 0) > 0 ? { actions: repActions[i] } : {}),
+          // A-4-c17: rail と同時に candidateKey（lookup 専用・非 handle）を付与（server action が再計算照合に使う）。
+          ...(recComposed && t.tier === recComposed.tier && (repActions[i]?.length ?? 0) > 0
+            ? { actions: repActions[i], candidateKey: lifeOpsMomentKey(reps[i].candidate) }
+            : {}),
         })),
         overflowLine: t.overflowLine,
       })),
@@ -212,4 +231,12 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
       feedbackCadenceCount: feedbackCadence.length,
     },
   };
+  return { dto, repCandidates: reps.map((p) => p.candidate) };
+}
+
+/**
+ * fixture Life Ops chain → client DTO（従来 API・model の dto のみ）。
+ */
+export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeOpsPreviewClientDto {
+  return computeLifeOpsPreviewModel(args).dto;
 }

@@ -34,7 +34,11 @@ import { feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-s
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
-import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "./RealityPipelinePreviewClient";
+import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta, type LifeOpsActionResultToken } from "./RealityPipelinePreviewClient";
+import { submitLifeOpsFeedbackAction } from "./actions";
+
+/** A-4-c17: redirect token の allowlist（URL 生値を表示系へ流さない）。 */
+const LIFEOPS_FB_TOKENS = new Set(["ok", "gate_off", "duplicate_cooldown", "insert_failed", "invalid", "denied"]);
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +55,11 @@ function Disabled({ reason }: { reason: string }) {
   );
 }
 
-export default async function DevRealityPipelinePage() {
+export default async function DevRealityPipelinePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   // ① host 三重ガード（hostMode + staging allowlist + production deny）→ いずれか欠ければ notFound（production で構造的不可視）。
   if (
     !isCandidateActionsPreviewHostAllowed({
@@ -119,5 +127,18 @@ export default async function DevRealityPipelinePage() {
   //   c14: done feedback 由来 cadence のみ raw cap 前で merge（count は integrationMeta で可視・raw は client へ渡らない）。
   const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence });
 
-  return <RealityPipelinePreviewClient envelope={envelope} meta={meta} reflectionPreview={reflectionPreview} lifeOpsPreview={lifeOpsPreview} />;
+  // A-4-c17: 直前の action 結果 token（allowlist 検証・URL 生値を表示へ流さない）→ client は固定辞書で 1 行表示。
+  const fbRaw = (await searchParams)?.lifeopsFb;
+  const lifeOpsActionResult = typeof fbRaw === "string" && LIFEOPS_FB_TOKENS.has(fbRaw) ? (fbRaw as LifeOpsActionResultToken) : undefined;
+
+  return (
+    <RealityPipelinePreviewClient
+      envelope={envelope}
+      meta={meta}
+      reflectionPreview={reflectionPreview}
+      lifeOpsPreview={lifeOpsPreview}
+      feedbackAction={submitLifeOpsFeedbackAction}
+      lifeOpsActionResult={lifeOpsActionResult}
+    />
+  );
 }

@@ -63,8 +63,12 @@ describe("integration — DTO allowlist（実体を渡さない）", () => {
     for (const t of d.briefing.tiers) {
       expect(Object.keys(t).sort()).toEqual(["highlights", "line", "overflowLine", "tier", "tierLabel"].sort());
       for (const h of t.highlights) {
-        // A-4-c16: 代表 tier のみ actions（rail）を持てる。action DTO も閉集合（handle/candidate は持たない）。
-        expect([["label", "phrase", "windowHint"].sort().join(), ["actions", "label", "phrase", "windowHint"].sort().join()]).toContain(Object.keys(h).sort().join());
+        // A-4-c16/c17: 代表 tier のみ actions+candidateKey（lookup 専用・非 handle）。action DTO も閉集合。
+        expect([
+          ["label", "phrase", "windowHint"].sort().join(),
+          ["actions", "candidateKey", "label", "phrase", "windowHint"].sort().join(),
+        ]).toContain(Object.keys(h).sort().join());
+        if (h.candidateKey !== undefined) expect(h.candidateKey).not.toContain("lifeops:"); // handle 形式ではない
         for (const a of h.actions ?? []) {
           expect(Object.keys(a).sort()).toEqual(["action", "cadenceEligible", "previewOnly", "requiresConfirmation", "uiLabel"].sort());
         }
@@ -235,11 +239,15 @@ describe("integration — source contract（§5）", () => {
       expect(COMPUTE.toLowerCase()).not.toContain(banned.toLowerCase());
     }
   });
-  it("client: 追加後も fetch/onClick/useState/button なし（presentational 維持）", () => {
+  it("client: fetch/onClick/useState なし・button は server action form submit のみ（A-4-c17）", () => {
     const raw = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/dev-reality-pipeline/RealityPipelinePreviewClient.tsx"), "utf8");
     expect(raw).not.toContain("fetch(");
-    expect(raw).not.toContain("<button");
     expect(raw).not.toContain("onClick");
     expect(raw).not.toContain("useState");
+    // <button は type="submit"（form action 経由）と 1:1（任意 handler の button を作らない）。
+    const buttons = raw.split("<button").length - 1;
+    const submits = raw.split('type="submit"').length - 1;
+    expect(buttons).toBe(submits);
+    expect(raw).not.toContain('value="done"'); // done を submit value にしない（押せない契約）
   });
 });

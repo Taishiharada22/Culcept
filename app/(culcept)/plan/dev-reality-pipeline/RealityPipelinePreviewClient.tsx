@@ -34,11 +34,24 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
+/** A-4-c17: action 結果 token（page が allowlist 検証済み）→ 固定辞書文言。 */
+export type LifeOpsActionResultToken = "ok" | "gate_off" | "duplicate_cooldown" | "insert_failed" | "invalid" | "denied";
+const LIFEOPS_FB_MESSAGES: Record<LifeOpsActionResultToken, string> = {
+  ok: "記録しました（preview 限定・本線には反映されません）",
+  gate_off: "記録は実行されていません（write flag OFF・preview のみ）",
+  duplicate_cooldown: "少し前に同じ記録があります（重複防止のため書きませんでした）",
+  insert_failed: "記録できませんでした",
+  invalid: "この操作は受け付けられませんでした（候補が変わったか、無効な操作です）",
+  denied: "操作できません（operator 未ログイン）",
+};
+
 export function RealityPipelinePreviewClient({
   envelope,
   meta,
   reflectionPreview,
   lifeOpsPreview,
+  feedbackAction,
+  lifeOpsActionResult,
 }: {
   envelope: RealityPipelineEnvelope;
   meta?: RealityPipelinePreviewMeta;
@@ -46,6 +59,13 @@ export function RealityPipelinePreviewClient({
   reflectionPreview?: ReflectionPreviewClientDto;
   /** Life Ops preview 統合: briefing/moment の **DTO のみ**（fixture 入力・実体は渡らない・optional）。 */
   lifeOpsPreview?: LifeOpsPreviewClientDto;
+  /**
+   * A-4-c17: server action（page が渡す・optional）。**ある時だけ** rail の 採用/後で/不要 を form submit に昇格。
+   *   完了※ は常に押せない（cadence を動かすため確認 UI 付き別 slice まで disabled）。
+   */
+  feedbackAction?: (formData: FormData) => Promise<void>;
+  /** A-4-c17: 直前 action の結果 token（page allowlist 検証済み・固定辞書で 1 行表示）。 */
+  lifeOpsActionResult?: LifeOpsActionResultToken;
 }) {
   const redactionClean = !FORBIDDEN.test(JSON.stringify({ envelope, meta, reflectionPreview, lifeOpsPreview }));
   const rec = envelope.recommended;
@@ -121,8 +141,38 @@ export function RealityPipelinePreviewClient({
                   {t.highlights.map((h, i) => (
                     <li key={i}>
                       {h.label} — {h.phrase}（{h.windowHint}）
-                      {/* A-4-c16: action rail（表示のみ・span chip・押せない・writer/記録なし） */}
-                      {h.actions && h.actions.length > 0 && (
+                      {/* A-4-c16/c17: action rail。feedbackAction がある時だけ 採用/後で/不要 を form submit に昇格
+                          （client handler なし・server action のみ）。完了※は cadence を動かすため常に押せない（確認 UI 付き別 slice）。 */}
+                      {h.actions && h.actions.length > 0 && (feedbackAction && h.candidateKey ? (
+                        <form action={feedbackAction} className="ml-2 inline-flex items-center gap-1 align-middle" data-testid="lifeops-action-rail">
+                          <input type="hidden" name="candidateKey" value={h.candidateKey} />
+                          {h.actions.map((a) =>
+                            a.requiresConfirmation ? (
+                              <span
+                                key={a.action}
+                                aria-disabled="true"
+                                data-testid="lifeops-action-chip"
+                                data-action={a.action}
+                                className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] leading-none text-amber-800"
+                              >
+                                {a.uiLabel}※
+                              </span>
+                            ) : (
+                              <button
+                                key={a.action}
+                                type="submit"
+                                name="action"
+                                value={a.action}
+                                data-testid="lifeops-action-button"
+                                data-action={a.action}
+                                className="rounded-full border border-emerald-300 bg-white px-1.5 py-0.5 text-[9px] leading-none text-emerald-700"
+                              >
+                                {a.uiLabel}
+                              </button>
+                            ),
+                          )}
+                        </form>
+                      ) : (
                         <span className="ml-2 inline-flex items-center gap-1 align-middle" data-testid="lifeops-action-rail">
                           {h.actions.map((a) => (
                             <span
@@ -139,7 +189,7 @@ export function RealityPipelinePreviewClient({
                             </span>
                           ))}
                         </span>
-                      )}
+                      ))}
                     </li>
                   ))}
                 </ul>
@@ -155,10 +205,18 @@ export function RealityPipelinePreviewClient({
             </ul>
           )}
           {lifeOpsPreview.briefing.alsoAvailableLine && <p className="mt-1 text-[10px] text-gray-500">{lifeOpsPreview.briefing.alsoAvailableLine}</p>}
-          {/* A-4-c16: rail が 1 つでもあれば、完了の意味と no-write を 1 回だけ注記（短く・非断定） */}
+          {/* A-4-c16/c17: rail が 1 つでもあれば、完了の意味と書き込み範囲を 1 回だけ注記（短く・非断定） */}
           {lifeOpsPreview.briefing.tiers.some((t) => t.highlights.some((h) => (h.actions?.length ?? 0) > 0)) && (
             <p className="mt-1 text-[10px] text-amber-700" data-testid="lifeops-action-notice">
-              ※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。今は表示のみで、押せず・記録もしません。
+              {feedbackAction
+                ? "※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。完了はまだ押せません。採用/後で/不要の記録は preview 限定です（本線には反映されません）。"
+                : "※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。今は表示のみで、押せず・記録もしません。"}
+            </p>
+          )}
+          {/* A-4-c17: 直前 action の結果（token→固定辞書・URL 生値は表示しない） */}
+          {lifeOpsActionResult && (
+            <p className="mt-1 text-[10px] font-bold text-emerald-700" data-testid="lifeops-action-result">
+              {LIFEOPS_FB_MESSAGES[lifeOpsActionResult]}
             </p>
           )}
           <div className="mt-2 border-t border-emerald-100 pt-2">

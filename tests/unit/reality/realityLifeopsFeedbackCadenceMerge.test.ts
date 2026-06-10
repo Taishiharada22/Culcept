@@ -107,7 +107,8 @@ describe("c14 — ⑧ merge 後も 5層cap が効く（最上流契約）", () =
   });
   it("static: compute 本体で merge 呼び出しが capRawLifeOpsInputs より前（cap pipeline 最上流）", () => {
     const src = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/lifeops/lifeops-preview-compute.ts"), "utf8");
-    const body = src.slice(src.indexOf("export function computeLifeOpsPreviewDto"));
+    // A-4-c17: 本体は computeLifeOpsPreviewModel へ移動（computeLifeOpsPreviewDto は委譲）。
+    const body = src.slice(src.indexOf("export function computeLifeOpsPreviewModel"));
     const mergeAt = body.indexOf("mergeCadenceIntoLifeOpsInputs(");
     const capAt = body.indexOf("capRawLifeOpsInputs(");
     expect(mergeAt).toBeGreaterThan(-1);

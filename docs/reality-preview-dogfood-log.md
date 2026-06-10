@@ -111,3 +111,13 @@
 - 情報量の所感: 代表 3 件 × chip 4 個は 1 行内に収まり読める。tier 全部に付けると確実に縦長化する（1 箇所方針は正しい）。完了※の区別は一目で分かる
 - 安全: writer/server-only/supabase import 0・lib/lifeops 逆 import 0・対象なし時は rail/注記とも不出現で既存 preview 不変
 - GPT 13 lock 全 PASS・full suite 20430 GREEN・tsc 55
+
+### [2026-06-11] record 21 — A-4-c17 gated writer wiring（採用/後で/不要のみ・done 不可）
+- 配線: rail form submit（candidateKey+action の 2 値のみ）→ server action（host 三重ガード→preview flag→operator auth→**pure resolver**→writer gate）→ c9 writer → PRG redirect token → 固定辞書 1 行
+- **client 値を信頼しない**: server で page と同一 chain を再計算し、現在の Morning 代表に candidateKey 照合 → **server 側 candidate から c15 intent 再構築**（辞書 firewall 再通過）。陳腐化 UI は unknown_candidate で安全 reject
+- **done は二重拒否**: resolver の action allowlist {accept,later,dismiss} + intent.cadenceEligible 防御。UI 上も 完了※ は chip のまま（`value="done"` の submit が source に存在しないことを 3 test file で lock）
+- cooldown: writer 既存 guard（recent は gated read 注入・read gate OFF 時は []=縮退を許容）+ PRG で再送防止
+- 表示: ok=「記録しました（preview 限定・本線には反映されません）」等 6 token 固定辞書（URL 生値不表示）。注記は interactive 版「完了はまだ押せません。採用/後で/不要の記録は preview 限定です」
+- staging smoke: **未実施**（writer→DB は c12/c13 で実証済・server action は operator session 必須で CLI 不可・新規ロジックは pure resolver で全分岐 lock）→ 実 E2E は CEO operator dogfood を別途提案
+- 既存 lock の正当進化 4 件: c14 static order（model 関数名追従）/ c15 ⑬b（actions.ts を公認 consumer 化）/ applyReadiness・P-D render（button 全面禁止→submit のみ・done 不可規則）
+- GPT 14 lock 充足・full suite 20445 GREEN・tsc 55

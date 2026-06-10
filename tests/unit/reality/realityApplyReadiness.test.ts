@@ -97,11 +97,13 @@ describe("Apply Readiness ② no-apply guarantee — draft のみ・write/commit
     expect(page).not.toContain("PlanClient");
     expect(page).not.toMatch(/apply/i);
   });
-  it("source-contract: preview client は presentational（fetch/button/onClick/useState/write なし）", () => {
+  it("source-contract: preview client は presentational（fetch/onClick/useState/write なし・button は feedback submit のみ）", () => {
     // 注: client は免責表示テキストに「apply / PlanClient 接続なし」を含むため、語ではなく **実装の有無**で判定する。
     const client = readCode("app/(culcept)/plan/dev-reality-pipeline/RealityPipelinePreviewClient.tsx");
     expect(client).not.toContain("fetch(");
-    expect(client).not.toContain("<button");
+    // A-4-c17: button は lifeops feedback の server-action form submit のみ（plan apply/PlanClient とは別経路・done 不可）。
+    expect(client.split("<button").length - 1).toBe(client.split('type="submit"').length - 1);
+    expect(client).not.toContain('value="done"');
     expect(client).not.toContain("onClick");
     expect(client).not.toContain("useState");
     expect(client).not.toMatch(/\.insert\s*\(/);

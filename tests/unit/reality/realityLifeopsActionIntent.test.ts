@@ -137,14 +137,15 @@ describe("c15 — 非接続（⑬）と静的安全（⑭）", () => {
       expect(read(path.join("lib/lifeops", rel.toString()))).not.toContain("lifeops-action-intent");
     }
   });
-  it("⑬b UI 本線へ出ない: app/ 配下に import 0・barrel(integration/index.ts) 非 export", () => {
+  it("⑬b UI 本線へ出ない: app/ 配下の import は dev-preview server action のみ・barrel 非 export", () => {
     const offenders: string[] = [];
     for (const rel of fs.readdirSync(path.join(process.cwd(), "app"), { recursive: true }) as string[]) {
       const s = rel.toString();
       if (!/\.(ts|tsx)$/.test(s)) continue;
-      if (read(path.join("app", s)).includes("lifeops-action-intent")) offenders.push(s);
+      if (read(path.join("app", s)).includes("lifeops-action-intent")) offenders.push(s.replace(/\\/g, "/"));
     }
-    expect(offenders).toEqual([]);
+    // A-4-c17: server action（operator preview 専用・"use server"）だけが公認の consumer。UI 本線 component には出ない。
+    expect(offenders.sort()).toEqual(["(culcept)/plan/dev-reality-pipeline/actions.ts"]);
     expect(read("lib/plan/reality/integration/index.ts")).not.toContain("lifeops-action-intent");
   });
   it("⑭no DB write / no UI / no notification / no production: 禁止 token 0（comment 除外）", () => {
