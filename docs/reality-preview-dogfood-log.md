@@ -225,3 +225,11 @@
 - cleanup: ①later=対象 0 件で**冪等 path が実地で正動作**（先行削除済みでも安全）②dismiss=exact 1 件削除 → ③最終 smoke **全 0**（total/lifeops/obs/fbCad/realCad）
 - UX 違和感報告なし
 - ★**c19 観測条件 全充足**: ①実データ反映妥当性（cycle/deadline）②done→候補変化体感 ③390px ④cooldown 実挙動 ⑤action E2E（later×2/dismiss×1/done×3・accept=hold につき対象外）
+
+### [2026-06-11] record 38 — A-4-c25 production source safety / fixture kill-switch（設計+実装・deny 維持）
+- audit: fixture 注入点は**単一**（compute の `args.inputs ?? fixture`）・混入リスク=「deny 解除と同時に mainline model が無言で fixture を流す」（表示+action 再検証の両方）→ deny と**独立**の policy 層で先回り遮断
+- policy（**flag では開けない kill-switch**）: `resolveLifeOpsSourceMode`=staging→fixture_allowed／production・**不明 host・未設定→real_only（fail-safe）**。意図的に env flag 非設置（production 誤設定 1 つで嘘候補が出る footgun を排除）
+- 適用: `computeLifeOpsMainlineModel`（page/action の単一 helper）内で base inputs を選択（real_only→`{}`）。real channel（feedback 由来）はその上に merge・real 0 件→builder null=card/rail 不在・writer は既存 deny
+- ★実測 finding: real-only の単独 cycle 候補（美容院 -60d）は **push tier にのみ**入り代表（protect）は空 → card null（**保守側**）。production では「中途半端な real 1 件」より無表示が安全。代表選定 policy（sparse data 時に他 tier の候補を代表に昇格させるか）は**案 A（実 source 接続）の中心論点**として残置
+- gate 4 分離を文書化: ①card visibility（deny 解除=別 CEO gate）②source safety（**解除後も real_only 恒久**）③writer（別 CEO gate）④read flags
+- GPT 12 lock（11 case）・preview/dev は不変更 lock・reality 1422・full suite 20520 GREEN・tsc 55

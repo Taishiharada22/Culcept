@@ -14,6 +14,7 @@ import "server-only";
 import { createSupabaseWorldStateSourcePorts } from "../assembly/supabase-worldstate-source-ports";
 import { assembleWorldState } from "../assembly/world-state-assembler";
 import { computeLifeOpsPreviewModel, type LifeOpsPreviewModel } from "./lifeops-preview-compute";
+import { resolveLifeOpsSourceMode, baseLifeOpsInputsForMode } from "./lifeops-source-policy";
 import { createLifeOpsFeedbackReadonlySource } from "./lifeops-feedback-readonly-source";
 import { feedbackToCadence, type LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
 import { isLifeOpsCadenceReadAllowed, feedbackDoneToRealCadence, realCadenceToCadenceObservations } from "./lifeops-cadence-real-source";
@@ -60,11 +61,16 @@ export async function computeLifeOpsMainlineModel(
     ? realCadenceToCadenceObservations(feedbackDoneToRealCadence(observations, now.toISOString()))
     : [];
 
+  // A-4-c25: source policy（fixture kill-switch）。staging のみ fixture 可・production/不明 host は **base 候補を空に**
+  //   （real channel=feedback 由来 cadence/suppression だけが上に乗る・real 0 件なら builder が null=card 非表示）。
+  //   page 表示と action 再検証が本 helper を共有するため、偽造 candidateKey でも fixture 候補は再構築されない。
+  const sourceMode = resolveLifeOpsSourceMode({ supabaseUrl });
   const model = computeLifeOpsPreviewModel({
     world,
     date,
     nowMinute,
     nowMs,
+    inputs: baseLifeOpsInputsForMode(sourceMode),
     feedbackCadence: feedbackToCadence(observations),
     realCadence,
     doneFeedback: observations,
