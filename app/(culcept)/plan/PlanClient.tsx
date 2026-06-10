@@ -122,6 +122,8 @@ import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
+import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
+import type { LifeOpsMainlineCardDto } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpers";
 import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
 import { AddAnchorComposeContainer } from "./components/compose/AddAnchorComposeContainer";
@@ -188,11 +190,23 @@ export interface PlanClientProps {
    * 読み取り prop で渡す（PLAN_FLAGS は server-only のため client 直読み不可）。default false。
    */
   composeTimelineEnabled?: boolean;
+  /**
+   * A-4-c23: Life Ops 本線最小 card（**LIFEOPS_MAINLINE gated・server が gate 通過時のみ渡す**）。
+   *   未指定（default OFF/候補 0）→ card は render されず /plan は完全従来挙動。
+   */
+  lifeOpsCard?: LifeOpsMainlineCardDto;
+  lifeOpsAction?: (formData: FormData) => Promise<void>;
+  lifeOpsActionResult?: LifeOpsMainlineResultToken;
+  lifeOpsPendingDone?: { readonly candidateKey: string; readonly label: string };
 }
 
 export default function PlanClient({
   displayMode = "route",
   composeTimelineEnabled = false,
+  lifeOpsCard,
+  lifeOpsAction,
+  lifeOpsActionResult,
+  lifeOpsPendingDone,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -749,6 +763,12 @@ export default function PlanClient({
         onRetry={handleBannerRetry}
         onDismiss={clearCalendarQuery}
       />
+      {/* A-4-c23: Life Ops 本線最小 card（gated・props がある時だけ・既存 tab/proposals 経路に不干渉） */}
+      {lifeOpsCard && lifeOpsAction && (
+        <div className="mx-auto max-w-3xl">
+          <LifeOpsMainlineCard card={lifeOpsCard} feedbackAction={lifeOpsAction} actionResult={lifeOpsActionResult} pendingDone={lifeOpsPendingDone} />
+        </div>
+      )}
       {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小、 9a-impl Step α で useNewShell 統一) ── */}
       <header className={useNewShell ? "mx-auto mb-3 max-w-3xl" : "mx-auto mb-6 max-w-3xl"}>
         {!isPane && (

@@ -144,8 +144,11 @@ describe("c15 — 非接続（⑬）と静的安全（⑭）", () => {
       if (!/\.(ts|tsx)$/.test(s)) continue;
       if (read(path.join("app", s)).includes("lifeops-action-intent")) offenders.push(s.replace(/\\/g, "/"));
     }
-    // A-4-c17: server action（operator preview 専用・"use server"）だけが公認の consumer。UI 本線 component には出ない。
-    expect(offenders.sort()).toEqual(["(culcept)/plan/dev-reality-pipeline/actions.ts"]);
+    // A-4-c17/c23: 公認 consumer は server action 2 file のみ（preview + 本線・共に "use server"）。UI component には出ない。
+    expect(offenders.sort()).toEqual([
+      "(culcept)/plan/_actions/lifeops-feedback-mainline.ts", // A-4-c23 本線 action（intent→writer 入力変換）
+      "(culcept)/plan/dev-reality-pipeline/actions.ts",
+    ]);
     expect(read("lib/plan/reality/integration/index.ts")).not.toContain("lifeops-action-intent");
   });
   it("⑭no DB write / no UI / no notification / no production: 禁止 token 0（comment 除外）", () => {

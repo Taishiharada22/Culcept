@@ -198,3 +198,12 @@
 - UI/UX: 違和感の報告なし。**モバイル 390px は未確認**（残 gap・c23 設計時に確認）
 - ★process lesson: c21 の cleanup 未実行が翌 run の preflight で検出された=「観測 run は全 0 smoke 出力の返送で閉じる」規約が機能。以後の checklist でも final smoke 返送を必須維持
 - ★これで **Life Ops loop の全要素が実環境 E2E 済み**: 4 action write（c17b/c18b）+ cycle cadence 反映（c20）+ deadline suppression と復元（c22b）
+
+### [2026-06-11] record 34 — A-4-c23 mainline minimal card（staging gated・本線投入第一段）
+- 接続: /plan page（server）が gate 通過時のみ `computeLifeOpsMainlineModel`（**page と action の単一 helper**）→ `buildLifeOpsMainlineCardDto`（headline+代表≤3・**accept filter**・候補 0→null）→ PlanClient flat props → 最上部に「生活まわり」card。gate OFF=計算 0・props 不渡し・完全従来挙動
+- 本線 action 分離: `plan/_actions/lifeops-feedback-mainline.ts`（"use server"・gate=isLifeOpsMainlineAllowed・**accept は server 側でも常時拒否**・done は c18 PRG 2 段階共有・3 値 protocol 維持・PRG 先=/plan）。pure 部品（route/intent/writer/token/合成/suppression）は preview と共有
+- 本線文言: 「予定には追加しません」「生活提案の学習にだけ使います」「完了にすると、しばらくこの提案を控えます」軸（「preview 限定」「本線には反映されません」不使用を test 固定）。internal counts/flag 名/source 名は DTO が構造的に不持参
+- 390px: rail=flex-wrap+compact chip（wrap class を render lock・実機確認は c23b）
+- 既存 lock の公認進化 2 件: c19 dormant（consumer=page+mainline action）・c15 ⑬b（consumer=action 2 file）
+- CLI write smoke 不実施（mainline action=operator session 必須・writer/DB 経路は c12/c13/c18 実証済み・新規 DB コード 0）→ 実 E2E は c23b CEO staging 観測
+- GPT 18 lock（19 case）・reality 1410・full suite 20508 GREEN・tsc 55

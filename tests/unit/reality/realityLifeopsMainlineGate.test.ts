@@ -29,17 +29,20 @@ describe("c19 — mainline flag（default OFF・dormant）", () => {
   });
 });
 
-describe("c19 — dormant 維持（本線実装なしの構造 lock）", () => {
+describe("c19/c23 — mainline gate consumer は公認 2 file のみ（無断拡散を検出）", () => {
   const read = (rel: string) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
-  it("app/ 配下に lifeops-mainline-gate / lifeopsMainline の consumer 0（本線 UI 未接続）", () => {
+  it("app/ 配下の lifeops-mainline-gate / lifeopsMainline consumer = page + mainline action のみ（A-4-c23 で公認）", () => {
     const offenders: string[] = [];
     for (const rel of fs.readdirSync(path.join(process.cwd(), "app"), { recursive: true }) as string[]) {
       const s = rel.toString();
       if (!/\.(ts|tsx)$/.test(s)) continue;
       const src = read(path.join("app", s));
-      if (src.includes("lifeops-mainline-gate") || src.includes("lifeopsMainline")) offenders.push(s);
+      if (src.includes("lifeops-mainline-gate") || src.includes("lifeopsMainline")) offenders.push(s.replace(/\\/g, "/"));
     }
-    expect(offenders).toEqual([]); // 本線 slice（別 CEO GO）で初めて consumer が生まれる
+    expect(offenders.sort()).toEqual([
+      "(culcept)/plan/_actions/lifeops-feedback-mainline.ts", // A-4-c23 本線 server action（gate+flag）
+      "(culcept)/plan/page.tsx", // A-4-c23 本線 card の gated 合成（gate+flag）
+    ]);
   });
   it("barrel 非 export・gate は pure（DB/fetch/process.env なし）", () => {
     expect(read("lib/plan/reality/integration/index.ts")).not.toContain("lifeops-mainline-gate");
