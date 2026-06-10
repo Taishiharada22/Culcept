@@ -66,3 +66,9 @@
 - flood（10 候補・期限3+準備2+美容2menu+眉+補充2）: **tier fitting cap 実作動**＝守る4/楽5/攻め5 で頭打ち・overflow line は**総数**（攻め5件）・代表≤3・**Moment 生存**「今なら「食料品の買い物」を…」
 - 注: 現行 L-1/L-2 辞書 + collector dedup では chain 候補は最大 ~10 → **pool cap(12) は実データ規模（辞書拡張/recurring 期限）への防御**。cap が縛る挙動は helper flood test(19 件)で証明（deadline 不滅・lane floor 2）
 - 安全: S1-S8 PASS・focus 沈黙維持（620=focus_block を test 固定）・flags 群 dormant OFF 確認
+
+### [2026-06-11] record 15 — A-4-c8 feedback read-only source・staging smoke（real・counts のみ）
+- gate: smoke 限定 flag ON で許可 / production URL は常に false / default OFF 維持（test 固定）
+- real read（owner・LIMIT50）: **M1 total=0・lifeops_prefix=0** → source chain observations=**0**（write 経路未実装ゆえの honest 結果）
+- 安全: select/eq/order/limit のみ・write 0・cleanup 不要・row 内容は log 非出力（counts/shape のみ）・service_role fatal
+- 学び: 実データ第 1 段の「読める・漏れない・黙って消えない」枠組みが real DB で成立。次に意味あるデータが流れるのは lifeops feedback **write**（別 gate）以降
