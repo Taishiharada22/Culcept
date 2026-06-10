@@ -16558,3 +16558,7 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 ---
 
 [2026-06-11] [Build] 本流/横R2統合: A-4-c22b CEO Operator Smoke（deadline suppression E2E）**整備完了・CEO 実行手順で停止**（CEO/GPT GO・追加実装なし=checklist 最終化のみ・PlanClient/R4/notification/production 不接触）。checklist 更新: ①観測点の明示=preview「実データ反映（fbCad/realCad/完了済 deadline 抑制）」の **3 つ目=suppressedDeadline**（期待 0→1→0）②cleanup 後 rerender で**候補が戻る**確認（presentation suppression の証明）③体感 6 観点（消え方/不安/説明要否/他 deadline 残存の違和感/rail 情報量/390px）④報告テンプレを GPT 完了条件 14 項目に対応。done 1 件限定・exact cleanup（c18b script・action=done）・対象≠1 件なら削除せず停止。[承認: CEO/GPT c22b GO→checklist 最終化→CEO 手順提示で停止]
+
+---
+
+[2026-06-11] [Build] 本流/横R2統合: A-4-c22b CEO Operator Smoke（deadline suppression E2E）**PASS（クローズ）**。経緯: 初回 preflight で counts≠0 → abort 正動作 → check-only（read-only）で **c21 残存 row（lifeops:tax_filing/done/1 件・c21 の cleanup 未実行が原因）**と特定 → Option 1（残存 row を観測転用・**新規 write 0 件**）で実施。結果（CEO all pass + Claude 最終 smoke 全 0 確認）: 確定申告=全 tier/Moment から消滅・他 deadline 残存・実データ反映 1/1/1 → exact cleanup 1 件 → **候補復元**・0/0/0。違和感報告なし・390px 未確認（残 gap）。★process lesson: 「観測 run は全 0 smoke の返送で閉じる」規約が次 run の preflight で漏れを検出=多層防御が機能。★**Life Ops loop 全要素の実環境 E2E が完結**（4 action write + cycle cadence + deadline suppression/復元）。c19 観測条件の充足状況: ①実データ反映の妥当性=cycle/deadline 両系で確認 ②done→候補変化の体感=確認 ③390px=未 ④cooldown 実挙動=未 ⑤4 action 各2回=later1/done3・accept/dismiss 0。[承認: CEO 実行・CEO 報告+Claude 最終検証に基づき記録]

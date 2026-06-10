@@ -190,3 +190,11 @@
 ### [2026-06-11] record 32 — A-4-c22b 整備（CEO 手順で停止）
 - checklist 最終化: suppressedDeadline=「実データ反映」3 つ目の数と明示・復元 rerender（G）・体感観点 6 点・報告テンプレを GPT 14 項目対応に
 - Claude は UI 不実行（credential 原則・c17b/c18b/c21 と同形）。追加実装なし（docs のみ）
+
+### [2026-06-11] record 33 — A-4-c22b CEO operator smoke **PASS（deadline suppression E2E 完結）**
+- 経緯: 初回 A で counts≠0 → **abort 基準が正しく作動**（CEO 停止・出力返送）→ check-only で c21 残存 row（lifeops:tax_filing・done・1 件）と特定 → **Option 1**（残存 row を観測に転用・新規 write 0 件）で実施
+- 観測結果（CEO「all pass・期待通り」）: 確定申告が**全 tier/Moment から消える**・免許/パスポート残存・実データ反映 **1/1/1**（3 つ目=suppressedDeadline）→ exact cleanup（1 件）→ **候補が戻る**・実データ反映 0/0/0
+- 最終検証（Claude・read-only smoke）: total=0/lifeops=0/obs=0/fbCad=0/realCad=0 ✅
+- UI/UX: 違和感の報告なし。**モバイル 390px は未確認**（残 gap・c23 設計時に確認）
+- ★process lesson: c21 の cleanup 未実行が翌 run の preflight で検出された=「観測 run は全 0 smoke 出力の返送で閉じる」規約が機能。以後の checklist でも final smoke 返送を必須維持
+- ★これで **Life Ops loop の全要素が実環境 E2E 済み**: 4 action write（c17b/c18b）+ cycle cadence 反映（c20）+ deadline suppression と復元（c22b）
