@@ -168,3 +168,9 @@
 - gate: master∧**LIFEOPS_CADENCE_READONLY**（c7 dormant の初 wiring）∧staging∧!production・LIFEOPS_MAINLINE と独立。page と actions（照合側）が**同一の合成**を使う=表示と再検証がズレない
 - staging smoke PASS: gate 開(staging)/閉(production)・total=0/obs=0/feedbackCadence=0/**realCadence=0**（honest zero・write 0・cleanup 不要）
 - GPT 14 lock 全 PASS（17 case）・reality 1382・full suite 20480 GREEN・tsc 55
+
+### [2026-06-11] record 29 — A-4-c21 観測 run 整備（CEO 手順で停止・期待値補正あり）
+- ★事前検証で**期待値のズレを発見**: rail（押せる代表 3 件）は現 fixture では deadline 候補で占有・cadence 抑制は cycle 候補にのみ作用 → **done on deadline は「変化なし」が現仕様の正解**（c18 render dump + collector/placement urgency 順で確認）
+- → c21 の観測価値を再定義: ①loop counts 貫通（obs=1/fbCad=1/realCad=1）②done 確認 UI の体感 ③**製品 finding の体験**=「完了したのに代表に残る」違和感（deadline 完了消費 slice の必要性判断材料）。cycle の「消える体感」は fixture 調整 or deadline 消費実装後に観測
+- 整備: checklist（A-G・期待値補正 §0・390px 任意確認・報告テンプレ）。追加実装なし・cleanup は c18b の done 対応 script を再利用
+- Claude は UI 不実行（credential 原則・c17b/c18b と同形）
