@@ -73,8 +73,9 @@ export default async function PlanPage({
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
     })
   ) {
-    const { model } = await computeLifeOpsMainlineModel(supabase, auth.user.id, new Date());
-    lifeOpsCard = buildLifeOpsMainlineCardDto(model) ?? undefined; // 候補 0 → card 自体を出さない
+    const { model, sourceMode } = await computeLifeOpsMainlineModel(supabase, auth.user.id, new Date());
+    // c26: mode を渡す（real_only では sparse fallback 最大 1 件が有効・fixture_allowed は従来どおり）。候補 0 → card なし。
+    lifeOpsCard = buildLifeOpsMainlineCardDto(model, sourceMode) ?? undefined;
 
     const sp = await searchParams;
     const fbRaw = sp?.lifeopsFb;

@@ -162,6 +162,11 @@ export interface LifeOpsPreviewModel {
   readonly dto: LifeOpsPreviewClientDto;
   /** rail を持つ唯一の集合（recommended tier 代表 ≤3）。server-side 検証専用。 */
   readonly repCandidates: readonly LifeOpsCandidate[];
+  /**
+   * A-4-c26: cap/suppression 済み候補 pool（placement 入力）。**mainline の sparse fallback 選定専用**
+   *   （client へ渡してはならない・preview DTO には従来どおり不搬出）。
+   */
+  readonly pooledCandidates: readonly LifeOpsCandidate[];
 }
 
 /**
@@ -261,7 +266,7 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
       suppressedDeadlineCount: suppression.suppressedDeadlineCount,
     },
   };
-  return { dto, repCandidates: reps.map((p) => p.candidate) };
+  return { dto, repCandidates: reps.map((p) => p.candidate), pooledCandidates: pooled.pool };
 }
 
 /**

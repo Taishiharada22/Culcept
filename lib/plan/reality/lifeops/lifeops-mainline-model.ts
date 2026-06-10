@@ -14,7 +14,7 @@ import "server-only";
 import { createSupabaseWorldStateSourcePorts } from "../assembly/supabase-worldstate-source-ports";
 import { assembleWorldState } from "../assembly/world-state-assembler";
 import { computeLifeOpsPreviewModel, type LifeOpsPreviewModel } from "./lifeops-preview-compute";
-import { resolveLifeOpsSourceMode, baseLifeOpsInputsForMode } from "./lifeops-source-policy";
+import { resolveLifeOpsSourceMode, baseLifeOpsInputsForMode, type LifeOpsSourceMode } from "./lifeops-source-policy";
 import { createLifeOpsFeedbackReadonlySource } from "./lifeops-feedback-readonly-source";
 import { feedbackToCadence, type LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
 import { isLifeOpsCadenceReadAllowed, feedbackDoneToRealCadence, realCadenceToCadenceObservations } from "./lifeops-cadence-real-source";
@@ -29,6 +29,8 @@ export interface LifeOpsMainlineModelResult {
   readonly model: LifeOpsPreviewModel;
   /** writer cooldown（recent）用に呼び元へ返す（c8 gated read の出力・raw row でない）。 */
   readonly observations: readonly LifeOpsFeedbackObservation[];
+  /** A-4-c26: source mode（page の builder と action の selector が同一 mode で代表選定するために返す）。 */
+  readonly sourceMode: LifeOpsSourceMode;
 }
 
 /**
@@ -75,5 +77,5 @@ export async function computeLifeOpsMainlineModel(
     realCadence,
     doneFeedback: observations,
   });
-  return { model, observations };
+  return { model, observations, sourceMode };
 }

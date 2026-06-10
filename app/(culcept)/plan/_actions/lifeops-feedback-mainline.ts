@@ -20,7 +20,7 @@
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { computeLifeOpsMainlineModel } from "@/lib/plan/reality/lifeops/lifeops-mainline-model";
-import { routeLifeOpsMainlineActionRequest } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
+import { routeLifeOpsMainlineActionRequest, selectLifeOpsMainlineRepresentatives } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
 import { actionIntentToWriterInput } from "@/lib/plan/reality/lifeops/lifeops-action-intent";
 import { createLifeOpsFeedbackWriter, type LifeOpsFeedbackWriteClient } from "@/lib/plan/reality/lifeops/lifeops-feedback-writer";
@@ -56,10 +56,12 @@ export async function submitLifeOpsMainlineFeedbackAction(formData: FormData): P
 
   // ④ server 再計算（本線 card 表示と同一 helper＝候補集合がズレない）。
   const now = new Date();
-  const { model, observations } = await computeLifeOpsMainlineModel(supabase, user.id, now);
+  const { model, observations, sourceMode } = await computeLifeOpsMainlineModel(supabase, user.id, now);
 
   // ⑤ 本線 routing（**accept/enum 外は常時拒否**・done は confirm 不在→確認 redirect・一致時のみ write intent）。
-  const routed = routeLifeOpsMainlineActionRequest(model.repCandidates, candidateKeyRaw, actionRaw, confirmRaw);
+  //   c26: 照合集合は card 表示と同じ selector（sparse fallback 候補も press 可能＝表示と照合の断絶なし）。
+  const representatives = selectLifeOpsMainlineRepresentatives(model, sourceMode);
+  const routed = routeLifeOpsMainlineActionRequest(representatives, candidateKeyRaw, actionRaw, confirmRaw);
   if (routed.kind === "confirm_redirect") {
     redirect(`${PLAN_PATH}?lifeopsConfirm=${encodeURIComponent(routed.confirmToken)}`); // stage-1: write しない
   }

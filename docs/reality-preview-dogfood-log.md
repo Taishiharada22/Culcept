@@ -233,3 +233,11 @@
 - ★実測 finding: real-only の単独 cycle 候補（美容院 -60d）は **push tier にのみ**入り代表（protect）は空 → card null（**保守側**）。production では「中途半端な real 1 件」より無表示が安全。代表選定 policy（sparse data 時に他 tier の候補を代表に昇格させるか）は**案 A（実 source 接続）の中心論点**として残置
 - gate 4 分離を文書化: ①card visibility（deny 解除=別 CEO gate）②source safety（**解除後も real_only 恒久**）③writer（別 CEO gate）④read flags
 - GPT 12 lock（11 case）・preview/dev は不変更 lock・reality 1422・full suite 20520 GREEN・tsc 55
+
+### [2026-06-11] record 39 — A-4-c26 real source contract + sparse representative policy（案 C・deny 維持）
+- Part1 contract: `LifeOpsStructuredDeadlineSource`/`LifeOpsStructuredCadenceSource`（将来の user structured input/settings/import の単一受け口）→ 正規化（辞書 roundtrip・ISO 検証・**low confidence drop**）→ 縦 seam 型。free text field 自体が不存在=構造的排除。occurrenceKey 自動導出（`cat:menu:date`）+ typicalIntervalDays は予約 field（occurrence 厳密照合/L-9 で消費予定）
+- Part2 sparse policy（**案 C**）: `selectLifeOpsMainlineRepresentatives(model, mode)`=**page 表示と action 照合の共通 selector**。従来 reps 空 ∧ **real_only 限定**で pool から fallback **最大 1 件**（deadline 優先 daysUntil 昇順→cycle）。fixture_allowed では fallback 無効=fixture 由来 fallback を mode で構造排除
+- 低圧文言固定 2 句（deadline=「期日が近づいています。余裕があれば少しだけでも」/cycle=「そろそろの時期かもしれません。余裕があれば」・督促語なし lock）。headline は空状態文のまま=誠実
+- builder rework: items を selector candidates から直接構成（label/phrase=縦 L-8a・actions=c15 filter・key=momentKey）。fixture_allowed 出力は従来と**完全一致**（c25 JSON 等価 lock 維持）・model+=pooledCandidates（additive）
+- ★c25 finding 解消: real_only の cycle 1 件（push のみ）でも card に 1 件出る（⑪ test）。fallback 候補は action 照合にも乗る（押せるのに unknown の断絶なし）
+- GPT 18 lock（15 case）・reality 1437・full suite 20535 GREEN・tsc 55
