@@ -225,7 +225,7 @@ describe("A1-5-2-2-2c seed source — 静的安全（service_role 0 / DB write 0
     expect(SOURCE_CODE).not.toContain(".from('plan_seeds')");
   });
 
-  it("reality tree 内で plan_seeds 読取 query を持つのは seed-source.ts のみ（.from(SEED_TABLE)）", () => {
+  it("reality tree 内で plan_seeds query を持つのは公認 3 file のみ（allowlist・無断追加を検出）", () => {
     const root = path.join(process.cwd(), "lib/plan/reality");
     const files = fs.readdirSync(root, { recursive: true }) as string[];
     const offenders: string[] = [];
@@ -238,6 +238,10 @@ describe("A1-5-2-2-2c seed source — 静的安全（service_role 0 / DB write 0
         offenders.push(rel.replace(/\\/g, "/"));
       }
     }
-    expect(offenders).toEqual(["integration/seed-source.ts"]);
+    expect(offenders.sort()).toEqual([
+      "integration/consumed-seed-repository-supabase.ts", // A1-6-5d Part2 consumed reader（SEED_COLUMNS_SQL 限定・user-RLS・staging smoke PASS 済）
+      "integration/plan-seed-status-executor.ts", // A1-6-5d Part1 status-only executor（status 列のみ CAS update・user-RLS・barrel 非 export）
+      "integration/seed-source.ts",
+    ]);
   });
 });

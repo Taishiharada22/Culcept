@@ -231,7 +231,7 @@ describe("A1-5-3b-3 静的安全", () => {
     expect(CODE).toContain(".from(EVIDENCE_TABLE)");
     expect(CODE).not.toContain('.from("plan_seed_duration_evidences")');
   });
-  it("reality tree 内で evidence 読取 query を持つのは duration-evidence-source.ts のみ", () => {
+  it("reality tree 内で evidence 読取 query を持つのは公認 2 file のみ（allowlist・無断追加を検出）", () => {
     const root = path.join(process.cwd(), "lib/plan/reality");
     const files = fs.readdirSync(root, { recursive: true }) as string[];
     const offenders: string[] = [];
@@ -243,7 +243,10 @@ describe("A1-5-3b-3 静的安全", () => {
         offenders.push(rel.replace(/\\/g, "/"));
       }
     }
-    expect(offenders).toEqual(["integration/duration-evidence-source.ts"]);
+    expect(offenders.sort()).toEqual([
+      "integration/consumed-seed-repository-supabase.ts", // A1-6-5d Part2 consumed reader（DURATION_EVIDENCE_COLUMNS_SQL 限定・user-RLS・staging smoke PASS 済）
+      "integration/duration-evidence-source.ts",
+    ]);
   });
   it("barrel(integration/index.ts) が duration-evidence-source を再 export しない", () => {
     const idx = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/integration/index.ts"), "utf8");
