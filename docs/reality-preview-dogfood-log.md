@@ -35,3 +35,20 @@
 - 安全: S1-S8 = PASS
 - 残メモ: 代表 3 件が 3 案で同一（urgency 上位ゆえ自然・深刻でない）/ 楽案の件数が時刻でブレる（過去窓 skip の正しい結果・気にならない範囲）/ 美容院は窓が広い実日なら fitting に昇格する設計
 - 本線接続判断: **record 1 の hold 2 点は解消**。引き続き protocol §6 の蓄積条件（≥10 record 等）と CEO 判断待ち
+
+### [2026-06-10 夜] records 3–12 — A-4-c5 Operator Observation Run（10 シナリオ・fixture chain dump・DB 0）
+> 方法: 縦実 collector→placement→compose→briefing/moment の pure chain を scenario 別 inputs で dump（nowMs 固定・決定論）。記録は §5+§8 フォーマット簡約。
+
+**record 3｜S1 deadline 強（overdue 含む）**: HL「確定申告を先にすませると安心です。余裕があれば免許の更新も」・3 案とも 2 件で同一・Moment 沈黙(2=全代表既出)。L4 **WATCH**: overdue でも headline がエスカレーションしない（reps の phrase には「期日を過ぎています」が出る）。tier 同一は「期限だけの日は 3 案が収束する」＝自然と判断（メモ）。Moment 完全沈黙は「朝に全部言った日」として正しいが、期限日に昼の後押しゼロで良いかは**観測継続**。
+**record 4｜S2 event_prep 強（面接前日）**: HL「美容院あたりを入れると自然です」・3 案同一 3 件（前日 prep は全て protect lane）・注意 2 件（確認/見た目）が正しく出る・Moment 沈黙(3)。前日収束は「面接前日は全案が準備に寄る」＝**思想として defensible**（OK・メモ）。
+**record 5｜S3 daily_upkeep が Moment で出る日**: ★Moment 発火 `window_open`「今なら「食料品の買い物」を入れやすそうです」（代表 3=期限群の次の 1 件）。L2/L3/L9 OK。
+**record 6｜S4 push 着席（広い午後窓）**: 勾配 **2/2/3**・美容院が **push の fitting にだけ**入る（overflow でなく着席差別化）。L8 **OK の理想形**。
+**record 7｜S5 focus 中沈黙**: 620 で「沈黙(4・focus_block)」維持。L3 OK。
+**record 8｜S6 recovery 中沈黙（手組み tier・moment 層観測）**: 800 recovery block → 「沈黙(4・recovery_block)」。L3 OK。
+**record 9｜S7 候補ゼロ**: HL「今日は生活まわりで急ぎのものはなさそうです」・3 案「追加なし」・Moment 沈黙(0)。静かで正しい。L5/L6/L9 OK。
+**record 10｜S8 overflow 多（45 分窓のみ）**: ★**観測中に crash を発見**（moment の deadline fallback が window=null overflow で `p.window!` 参照）→ CEO ルールに従い停止→mini-design（窓なし＝moment の根拠なし・no_window で skip）→外科修正+lock test→**再観測 PASS**: fitting 1+「入りきらない 4-5 件」（静か・督促感なし）・Moment 沈黙(reasons=already_surfaced,no_window×2)。L9 OK。
+**record 11｜S9 3 案勾配（期限+前日面接+美容+補充）**: 4/4/4+overflow 差（easy/push に 1 件・protect なし）・★Moment 発火「今なら「資料の準備」を入れやすそうです」（非代表 4 件目）・注意 2 件。美容院が protect に入るのは「面接前日」protect 扱いの帰結（defensible・メモ）。
+**record 12｜S10 Morning 代表と Moment 非重複（明示）**: record 5 の発火候補=食料品の買い物は代表 3 件（確定申告/免許/パスポート）に**含まれない**。重複ゼロを明示確認。L2 OK。
+
+**集計（records 3–12）**: PASS 軸多数 / **WATCH 3**（overdue headline 非エスカレーション・期限日の Moment 完全沈黙の是非・L7 page 全体の縦長は継続）/ **FAIL 1→修正済**（S8 crash→no_window skip+lock test）。
+**判定**: 3VM 役割分離=成立・3 案の差=成立（収束する日は思想的に正しい収束）・Moment 発火/沈黙=自然・overflow=秘書的。**本線接続はまだ hold**（protocol §6 の実 staging 蓄積と WATCH 3 件の扱いが先）。

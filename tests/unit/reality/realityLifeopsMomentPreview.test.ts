@@ -166,6 +166,22 @@ describe("moment — deadline overflow fallback（§9）", () => {
     expect(vm.surfaced!.kind).toBe("deadline_pressure");
     expect(vm.surfaced!.phrase).toContain("期日が近い");
   });
+  it("★A-4-c5 S8 lock: window=null の deadline overflow は crash せず no_window で沈黙", () => {
+    // A-4-c4 以降 overflow は pool 未着席（window=null）を含みうる。窓がない＝moment の根拠がない。
+    const candidates = collectLifeOpsCandidates({ deadlineObservations: [{ categoryId: "license_renewal", deadlineISO: "2026-06-30T00:00:00+09:00" }] }, NOW_ISO);
+    const nullWindowOverflow: PlacedLifeOpsCandidate = {
+      candidate: candidates[0],
+      window: null,
+      placementReason: ["deadline_near", "no_window_fits"],
+      planLane: "protect",
+      coarseMinutes: 30,
+    };
+    const base = chainTier();
+    const tier: ComposedDayProposal = { ...base, lifeOps: { fitting: [], overflow: [nullWindowOverflow] } };
+    const vm = buildLifeOpsMomentPreview({ composedTier: tier, nowMinute: 800 }); // crash しないこと
+    expect(vm.surfaced).toBeNull();
+    expect(vm.suppressedReasons).toContain("no_window");
+  });
   it("deadline 以外の overflow は鳴らさない（その日の形を尊重）", () => {
     const base = chainTier("protect");
     const nonDeadlineOverflow = chainTier("push").lifeOps.fitting.filter((p) => p.candidate.dueReason.kind !== "deadline");

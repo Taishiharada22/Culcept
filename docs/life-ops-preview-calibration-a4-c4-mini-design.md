@@ -40,3 +40,19 @@
 
 ## 3. 変更ファイル
 placement（cap 再定義+`lifeOpsUrgencyRank` export）/ compose（full-pool 着席・alsoAvailable 空化）/ preview-compute（fixture+2 期限）/ 各 tests 更新+新 lock / dogfood-log（record 2=再観測）。R2 本体・R4・briefing/moment logic 本体は**不変**。
+
+---
+
+## 4. ★実データ read-only 前の必須 gate（cap 再設計・CEO 指示 2026-06-10）
+
+`DEFAULT_MAX_PLACEMENTS=∞` は **fixture/preview 限定の許容**。実データでは候補が 10〜100 件に膨らみうるため、**実データ源 read-only に進む前に以下 5 層 cap を分離して再設計すること（必須 gate）**:
+
+| cap | 層 | 目的 |
+|---|---|---|
+| raw input cap | collector 入力 | 観測行の異常量から防御（reader 側 limit と併用） |
+| candidate pool cap | collector 出力/placement 入力 | 判断材料の上限（urgency 上位 N 保持・下位は count のみ） |
+| tier fitting cap | compose per-tier | 1 案に勧める数の上限（容量とは別の体験上限） |
+| representative display cap | briefing/moment | 見せる量（既存 ≤3 を維持） |
+| overflow summary cap | briefing/moment | 「入りきらない◯件」の列挙上限（count 縮約） |
+
+→ この再設計が完了するまで**実データ源 read-only gate は開かない**。

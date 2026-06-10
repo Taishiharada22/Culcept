@@ -140,6 +140,12 @@ export function buildLifeOpsMomentPreview(input: LifeOpsMomentPreviewInput): Lif
   if (!surfaced) {
     for (const p of composedTier.lifeOps.overflow) {
       if (p.candidate.dueReason.kind !== "deadline") continue; // 他 kind の overflow は鳴らさない（その日の形を尊重）
+      if (p.window === null) {
+        // A-4-c4 以降 overflow は window=null（pool 未着席→tier 着席失敗）を含みうる。
+        // 窓がない＝moment の根拠がない（alsoAvailable と同原則）→ 鳴らさない（A-4-c5 S8 観測で発見した crash の修正）。
+        reasons.push("no_window");
+        continue;
+      }
       if (exclude.has(lifeOpsMomentKey(p.candidate))) {
         reasons.push("already_surfaced");
         continue;
