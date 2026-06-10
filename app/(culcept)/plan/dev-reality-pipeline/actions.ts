@@ -29,6 +29,11 @@ import { actionIntentToWriterInput } from "@/lib/plan/reality/lifeops/lifeops-ac
 import { createLifeOpsFeedbackWriter, type LifeOpsFeedbackWriteClient } from "@/lib/plan/reality/lifeops/lifeops-feedback-writer";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
 import { lifeOpsFeedbackHandle, feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
+import {
+  isLifeOpsCadenceReadAllowed,
+  feedbackDoneToRealCadence,
+  realCadenceToCadenceObservations,
+} from "@/lib/plan/reality/lifeops/lifeops-cadence-real-source";
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
@@ -84,7 +89,15 @@ export async function submitLifeOpsFeedbackAction(formData: FormData): Promise<v
     supabaseUrl,
   });
   const recentObservations = await feedbackSource.readObservations(); // gate OFF → []（cooldown 縮退を許容・PRG が再送防止）
-  const model = computeLifeOpsPreviewModel({ world, date, nowMinute, nowMs, feedbackCadence: feedbackToCadence(recentObservations) });
+  // A-4-c20: page 表示と同一の real cadence 合成（gate も同一）＝「現在の代表」の照合が表示とズレない。
+  const realCadence = isLifeOpsCadenceReadAllowed({
+    master: PLAN_FLAGS.lifeopsRealdataReadonly,
+    cadence: PLAN_FLAGS.lifeopsCadenceReadonly,
+    supabaseUrl,
+  })
+    ? realCadenceToCadenceObservations(feedbackDoneToRealCadence(recentObservations, now.toISOString()))
+    : [];
+  const model = computeLifeOpsPreviewModel({ world, date, nowMinute, nowMs, feedbackCadence: feedbackToCadence(recentObservations), realCadence });
 
   // ⑥ routing（pure・A-4-c18: done は 2 段階＝confirm 不在なら write せず確認へ・偽造/陳腐化は reject）。
   const routed = routeLifeOpsActionRequest(model.repCandidates, candidateKeyRaw, actionRaw, confirmRaw);

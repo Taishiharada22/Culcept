@@ -27,6 +27,7 @@ import { buildLifeOpsBriefingPreview, BRIEFING_HIGHLIGHT_MAX } from "./lifeops-b
 import { buildLifeOpsMomentPreview, lifeOpsMomentKey } from "./lifeops-moment-preview";
 import { capRawLifeOpsInputs, capLifeOpsCandidatePool } from "./lifeops-pool-cap";
 import { mergeCadenceIntoLifeOpsInputs } from "./lifeops-feedback-cadence-merge";
+import { countCadenceKeyConflicts } from "./lifeops-cadence-real-source";
 import { listLifeOpsActionDescriptors } from "./lifeops-action-intent";
 import type { CadenceObservation, LifeOpsCandidate } from "../../../lifeops/candidate-types";
 
@@ -91,6 +92,10 @@ export interface LifeOpsPreviewClientDto {
     readonly poolDroppedCount: number;
     /** A-4-c14: caller 注入の done feedback 由来 cadence 件数（**数のみ**・default OFF/0 件なら 0）。 */
     readonly feedbackCadenceCount: number;
+    /** A-4-c20: real cadence 合成層由来の件数（**数のみ**・default OFF/0 件なら 0）。 */
+    readonly realCadenceCount: number;
+    /** A-4-c20: feedback と real の同 key・異 ISO 衝突数（**数のみ**・latest 勝ちで解決済みの観測値）。 */
+    readonly cadenceSourceConflictCount: number;
   };
 }
 
@@ -131,6 +136,12 @@ export interface LifeOpsPreviewComputeArgs {
    *   省略/0 件 → merge は同一参照 no-op＝挙動完全不変。compute 自体は pure のまま（read しない）。
    */
   readonly feedbackCadence?: readonly CadenceObservation[];
+  /**
+   * A-4-c20: real cadence 合成層の出力（中間 DTO→変換済み・confidence=low は上流で足切り済み）。
+   *   feedbackCadence の**後**・capRaw の**前**に merge（latest 勝ち=結合的なので順序で結果は変わらない）。
+   *   省略/0 件 → no-op。同 key 衝突は `cadenceSourceConflictCount` で観測（counts のみ）。
+   */
+  readonly realCadence?: readonly CadenceObservation[];
 }
 
 /**
@@ -153,8 +164,13 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
   // fixture 縦入力 → 横 chain（placement→compose）。A-4-c7: 5層cap を dry-run 配線
   //   （①raw input cap=collector 入力直前 ②pool cap=placement 入力直前。fixture は cap 未満=no-op・flood test で作動証明）。
   // A-4-c14: done feedback 由来 cadence を **raw cap より前**に merge（最上流契約・0 件は no-op）。
+  // A-4-c20: real cadence 合成層を feedback の後・cap の前に merge（latest 勝ち・衝突は count で観測）。
   const feedbackCadence = args.feedbackCadence ?? [];
-  const mergedInputs = mergeCadenceIntoLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs), feedbackCadence);
+  const realCadence = args.realCadence ?? [];
+  const mergedInputs = mergeCadenceIntoLifeOpsInputs(
+    mergeCadenceIntoLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs), feedbackCadence),
+    realCadence,
+  );
   const raw = capRawLifeOpsInputs(mergedInputs);
   const collected = collectLifeOpsCandidates(raw.inputs, new Date(nowMs).toISOString());
   const pooled = capLifeOpsCandidatePool(collected);
@@ -229,6 +245,8 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
       rawDroppedCount: raw.droppedCount,
       poolDroppedCount: pooled.droppedCount,
       feedbackCadenceCount: feedbackCadence.length,
+      realCadenceCount: realCadence.length,
+      cadenceSourceConflictCount: countCadenceKeyConflicts(feedbackCadence, realCadence),
     },
   };
   return { dto, repCandidates: reps.map((p) => p.candidate) };

@@ -31,6 +31,11 @@ import { computeReflectionPreviewDto } from "@/lib/plan/reality/permission/refle
 import { computeLifeOpsPreviewDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
 import { feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
+import {
+  isLifeOpsCadenceReadAllowed,
+  feedbackDoneToRealCadence,
+  realCadenceToCadenceObservations,
+} from "@/lib/plan/reality/lifeops/lifeops-cadence-real-source";
 import { parseLifeOpsDoneConfirmToken } from "@/lib/plan/reality/lifeops/lifeops-action-request";
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
@@ -122,11 +127,22 @@ export default async function DevRealityPipelinePage({
     feedback: PLAN_FLAGS.lifeopsFeedbackReadonly,
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
   });
-  const feedbackCadence = feedbackToCadence(await feedbackSource.readObservations());
+  const feedbackObservations = await feedbackSource.readObservations();
+  const feedbackCadence = feedbackToCadence(feedbackObservations);
+
+  // A-4-c20: real cadence 合成層（**新規 DB query 0**＝今日の feed は上記 c8 read の observations を再利用）。
+  //   gate: master ∧ LIFEOPS_CADENCE_READONLY ∧ staging ∧ !production（default OFF → []）。LIFEOPS_MAINLINE とは独立。
+  const realCadence = isLifeOpsCadenceReadAllowed({
+    master: PLAN_FLAGS.lifeopsRealdataReadonly,
+    cadence: PLAN_FLAGS.lifeopsCadenceReadonly,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+  })
+    ? realCadenceToCadenceObservations(feedbackDoneToRealCadence(feedbackObservations, now.toISOString()))
+    : [];
 
   // Life Ops preview 統合: **fixture 入力**（実データ源未接続）+ 既読 world から briefing/moment DTO（allowlist）。
-  //   c14: done feedback 由来 cadence のみ raw cap 前で merge（count は integrationMeta で可視・raw は client へ渡らない）。
-  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence });
+  //   c14: done feedback 由来 cadence / c20: real cadence 合成層を raw cap 前で merge（counts は integrationMeta）。
+  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence, realCadence });
 
   // A-4-c17: 直前の action 結果 token（allowlist 検証・URL 生値を表示へ流さない）→ client は固定辞書で 1 行表示。
   const sp = await searchParams;

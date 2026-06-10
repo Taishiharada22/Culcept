@@ -160,3 +160,11 @@
 - writer 再利用=可（pure 部変更 0・gate 差し替え版を plan/_actions へ移設する設計）・server 再計算=同 computeLifeOpsPreviewModel で本線でも維持可・3 値方式（candidateKey+action+confirm）維持可
 - 推奨順序: **hold → c20=cadence real read 接続 → c21=実データ operator 観測（5 条件・5-7 セッション）→ c22=本線最小 card**
 - full suite 20463 GREEN（※断続 flake 2 回/本日 8 run・再現せず・lifeops 外と推定・watch）・tsc 55
+
+### [2026-06-11] record 28 — A-4-c20 cadence real read-only wiring（合成層・staging smoke PASS）
+- source audit（migrations 全走査）: 採用=**feedback_done のみ**（M1 lifeops done・c11 CHECK 済・辞書 firewall）。不採用=calendar_events（event_type が CHECK なし自由 TEXT=free text 推定と同類で禁止系）・habit/routine/visit 系 table（**存在しない**）・wear_events（domain 不一致）・localStorage 系（server 不可読）・stargazer completion_rate（別領域）
+- 実装=**合成層**: `LifeOpsCadenceRealObservation{categoryId,menu,lastCompletedAtISO,confidence,source,freshness}` → 出口で辞書 roundtrip 再検証 → CadenceObservation。**confidence=low は流さない**（足切りは confidence のみ・freshness=L-2 spec×3 境界の観測 metadata）。**新規 DB query 0**（今日の feed は既存 c8 read の observations 再利用＝読む column 増えない）
+- merge: inputs→merge(feedback・c14 不変更)→merge(real)→capRaw（latest 勝ち=結合的）。meta += realCadenceCount / cadenceSourceConflictCount（同 key 異 ISO の観測）
+- gate: master∧**LIFEOPS_CADENCE_READONLY**（c7 dormant の初 wiring）∧staging∧!production・LIFEOPS_MAINLINE と独立。page と actions（照合側）が**同一の合成**を使う=表示と再検証がズレない
+- staging smoke PASS: gate 開(staging)/閉(production)・total=0/obs=0/feedbackCadence=0/**realCadence=0**（honest zero・write 0・cleanup 不要）
+- GPT 14 lock 全 PASS（17 case）・reality 1382・full suite 20480 GREEN・tsc 55
