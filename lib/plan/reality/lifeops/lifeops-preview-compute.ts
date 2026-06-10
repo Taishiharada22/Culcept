@@ -85,6 +85,8 @@ export interface LifeOpsPreviewComputeArgs {
   readonly date: string;
   readonly nowMinute: number;
   readonly nowMs: number;
+  /** 観測/test 用の入力差し替え（省略時=既定 fixture・page は渡さない＝挙動不変・実データ源では**ない**）。 */
+  readonly inputs?: LifeOpsInputs;
 }
 
 /**
@@ -94,18 +96,23 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
   const { world, date, nowMinute, nowMs } = args;
 
   // fixture 縦入力 → 横 chain（placement→compose）。
-  const candidates = collectLifeOpsCandidates(fixtureLifeOpsInputs(nowMs), new Date(nowMs).toISOString());
+  const candidates = collectLifeOpsCandidates(args.inputs ?? fixtureLifeOpsInputs(nowMs), new Date(nowMs).toISOString());
   const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world });
   const edi = deriveEmptyDayInput(world, synthesizeMemory([], nowMs), { userIntent: null });
   const proposalSet = generateEmptyDay(edi);
   const compose = composeLifeOpsIntoDayProposals({ proposalSet, placement, dayWindows: world.availableWindows });
   void date;
 
-  // briefing VM → 代表 key を moment の excludeKeys に（§3: 朝言ったことを今もう一度言わない）。
+  // briefing VM → 代表 key を moment の excludeKeys に（朝言ったことを今もう一度言わない）。
+  // A-4-c6 policy: **overdue / due-today（daysUntil ≤ 0）の deadline だけは exclude しない**＝昼に一度だけそっと出してよい
+  //   （期限を逃す実害 > 1 回の再提示。「一度だけ」は caller が発火後に同 excludeKeys 機構へ key を足す運用・focus/recovery 沈黙は例外なし）。
   const briefing = buildLifeOpsBriefingPreview(compose);
   const recTier = compose.recommended ?? "easy";
   const recComposed = compose.composed.find((c) => c.tier === recTier) ?? compose.composed[0];
-  const excludeKeys = (recComposed ? recComposed.lifeOps.fitting.slice(0, BRIEFING_HIGHLIGHT_MAX) : []).map((p) => lifeOpsMomentKey(p.candidate));
+  const isUrgentDeadline = (p: { candidate: { dueReason: { kind: string; overdue?: boolean; daysUntilDeadline?: number } } }) =>
+    p.candidate.dueReason.kind === "deadline" && (p.candidate.dueReason.overdue === true || (p.candidate.dueReason.daysUntilDeadline ?? 99) <= 0);
+  const reps = recComposed ? recComposed.lifeOps.fitting.slice(0, BRIEFING_HIGHLIGHT_MAX) : [];
+  const excludeKeys = reps.filter((p) => !isUrgentDeadline(p)).map((p) => lifeOpsMomentKey(p.candidate));
   const moment = recComposed
     ? buildLifeOpsMomentPreview({ composedTier: recComposed, nowMinute, excludeKeys })
     : { surfaced: null, silencedCount: 0, suppressedReasons: [], suppression: null };

@@ -20,8 +20,8 @@ import { deriveEmptyDayInput } from "@/lib/plan/reality/world-state/world-state-
 import { synthesizeMemory } from "@/lib/plan/reality/learning/memory-synthesis";
 import type { WorldState } from "@/lib/plan/reality/world-state/world-state";
 
-// 断定語（恒久禁止）と PII 系 FORBIDDEN。
-const ASSERTIVE = /すべき|べきです|やるべき|必ず|しなければ|してください/;
+// 断定語（恒久禁止・A-4-c6 で「今すぐ」追加）と PII 系 FORBIDDEN。
+const ASSERTIVE = /すべき|べきです|やるべき|必ず|今すぐ|しなければ|してください/;
 const FORBIDDEN = /seed_?ref|utterance|personality|trait|@[a-z]|\b\d{10,}\b|[0-9a-f]{8}-[0-9a-f]{4}/i;
 const NOW_ISO = "2026-06-10T09:00:00+09:00";
 const NOW_MS = Date.parse(NOW_ISO);
@@ -67,6 +67,18 @@ describe("briefing — headline（朝の一言・非断定）", () => {
     expect(vm.headline).toContain("確定申告"); // L-1 辞書 label
     expect(vm.headline).toMatch(/安心です/);
     expect(vm.headline).not.toMatch(ASSERTIVE);
+  });
+  it("★A-4-c6: overdue あり → headline が一段だけ強くなる（事実明示+低圧・督促語なし）", () => {
+    const vm = buildLifeOpsBriefingPreview(chainCompose({ inputs: { deadlineObservations: [{ categoryId: "tax_filing", deadlineISO: "2026-06-09T00:00:00+09:00" }] } })); // 昨日期限=overdue
+    expect(vm.headline).toContain("期日を過ぎています");
+    expect(vm.headline).toContain("少しだけでも触れると安心です");
+    expect(vm.headline).not.toMatch(/先にすませると/); // 通常文言より一段強い別文
+    expect(vm.headline).not.toMatch(ASSERTIVE); // 必ず/今すぐ/しなければ 等なし
+  });
+  it("★A-4-c6: overdue なし → 通常文言のまま（escalation しない方向も lock）", () => {
+    const vm = buildLifeOpsBriefingPreview(chainCompose());
+    expect(vm.headline).not.toContain("期日を過ぎています");
+    expect(vm.headline).toMatch(/先にすませると安心です/);
   });
   it("候補ゼロの日: 静かな一言（急ぎのものはなさそうです）", () => {
     const vm = buildLifeOpsBriefingPreview(chainCompose({ inputs: { cadenceObservations: [], upcomingEvents: [], deadlineObservations: [] } }));

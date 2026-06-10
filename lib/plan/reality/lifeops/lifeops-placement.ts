@@ -76,8 +76,8 @@ export function lifeOpsUrgencyRank(c: LifeOpsCandidate): number {
   return 200 + (PHASE_RANK[d.phase] ?? 4);
 }
 
-/** §3: lane（既存信号のみ: kind / daysUntilEvent / cyclePhase / L-1 group / health_sensitive / phase）。 */
-function laneOf(c: LifeOpsCandidate): LifeOpsPlanLane {
+/** §3: lane（既存信号のみ: kind / daysUntilEvent / cyclePhase / L-1 group / health_sensitive / phase）。pool cap の lane 多様性 floor にも使う（export）。 */
+export function lifeOpsLaneOf(c: LifeOpsCandidate): LifeOpsPlanLane {
   const d = c.dueReason;
   if (d.kind === "deadline") return "protect";
   if (d.kind === "event_prep") {
@@ -133,7 +133,7 @@ export function placeLifeOpsCandidatesForDay(input: LifeOpsPlacementInput): Life
   const placed: PlacedLifeOpsCandidate[] = [];
   const unplaced: PlacedLifeOpsCandidate[] = [];
   for (const c of ordered) {
-    const lane = laneOf(c);
+    const lane = lifeOpsLaneOf(c);
     const need = requiredMinutes(c, travel); // 全経路で coarseMinutes として保持（compose が同じ値を使う）
     const reasons: string[] = [laneReason(c, lane)];
     if (placed.length >= cap) {

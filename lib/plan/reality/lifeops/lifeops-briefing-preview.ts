@@ -83,6 +83,11 @@ function buildHeadline(compose: LifeOpsDayCompose): string {
       : "今日は生活まわりで急ぎのものはなさそうです";
   }
   const titleOf = (p: PlacedLifeOpsCandidate) => toHighlight(p).title;
+  // A-4-c6: overdue は一段だけ強く（事実明示 + 低圧の後押し・督促語/「今すぐ」/「必ず」は使わない＝test 固定）。
+  const overdue = fitting.find((p) => p.candidate.dueReason.kind === "deadline" && p.candidate.dueReason.overdue);
+  if (overdue) {
+    return `「${titleOf(overdue)}」は期日を過ぎています。今日は少しだけでも触れると安心です`;
+  }
   const deadline = fitting.find((p) => p.candidate.dueReason.kind === "deadline");
   if (deadline) {
     const other = fitting.find((p) => p !== deadline);

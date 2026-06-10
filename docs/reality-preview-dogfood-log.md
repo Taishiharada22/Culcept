@@ -52,3 +52,10 @@
 
 **集計（records 3–12）**: PASS 軸多数 / **WATCH 3**（overdue headline 非エスカレーション・期限日の Moment 完全沈黙の是非・L7 page 全体の縦長は継続）/ **FAIL 1→修正済**（S8 crash→no_window skip+lock test）。
 **判定**: 3VM 役割分離=成立・3 案の差=成立（収束する日は思想的に正しい収束）・Moment 発火/沈黙=自然・overflow=秘書的。**本線接続はまだ hold**（protocol §6 の実 staging 蓄積と WATCH 3 件の扱いが先）。
+
+### [2026-06-10 夜] record 13 — A-4-c6 hardening 検証（overdue day・620/800）
+- 入力: tax_filing 期限=昨日（overdue 1 件のみ）・標準 2 窓
+- **escalation**: HL「「確定申告」は期日を過ぎています。今日は少しだけでも触れると安心です」（一段強い・督促語なし）
+- **Moment policy**: 620=「沈黙(1・focus_block)」（**focus 例外なし維持**）/ 800=`window_open`「今なら「確定申告」を入れやすそうです」（**朝に出た urgent を一度だけ再提示**・excluded=0/1 が policy 作動を示す）
+- LifeOps: L3 OK / L4 OK（非断定維持）/ 新軸: escalation OK・urgent 再提示 OK
+- 安全: S1-S8 PASS・通知 0（preview VM のみ）
