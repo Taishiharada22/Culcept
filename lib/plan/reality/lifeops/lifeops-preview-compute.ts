@@ -28,6 +28,8 @@ import { buildLifeOpsMomentPreview, lifeOpsMomentKey } from "./lifeops-moment-pr
 import { capRawLifeOpsInputs, capLifeOpsCandidatePool } from "./lifeops-pool-cap";
 import { mergeCadenceIntoLifeOpsInputs } from "./lifeops-feedback-cadence-merge";
 import { countCadenceKeyConflicts } from "./lifeops-cadence-real-source";
+import { applyLifeOpsCompletionSuppression } from "./lifeops-completion-suppression";
+import type { LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
 import { listLifeOpsActionDescriptors } from "./lifeops-action-intent";
 import type { CadenceObservation, LifeOpsCandidate } from "../../../lifeops/candidate-types";
 
@@ -96,6 +98,8 @@ export interface LifeOpsPreviewClientDto {
     readonly realCadenceCount: number;
     /** A-4-c20: feedback と real の同 key・異 ISO 衝突数（**数のみ**・latest 勝ちで解決済みの観測値）。 */
     readonly cadenceSourceConflictCount: number;
+    /** A-4-c22: done により presentation suppression された deadline 候補数（**数のみ**・cleanup で 0 に戻る）。 */
+    readonly suppressedDeadlineCount: number;
   };
 }
 
@@ -142,6 +146,11 @@ export interface LifeOpsPreviewComputeArgs {
    *   省略/0 件 → no-op。同 key 衝突は `cadenceSourceConflictCount` で観測（counts のみ）。
    */
   readonly realCadence?: readonly CadenceObservation[];
+  /**
+   * A-4-c22: done feedback（c8 DTO・gated read の出力を caller が注入）。**deadline 候補の presentation suppression** に
+   *   使う（collector 後・pool cap 前・done のみ・occurrence window 照合で stale done 無視）。省略/0 件 → no-op。
+   */
+  readonly doneFeedback?: readonly LifeOpsFeedbackObservation[];
 }
 
 /**
@@ -173,7 +182,9 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
   );
   const raw = capRawLifeOpsInputs(mergedInputs);
   const collected = collectLifeOpsCandidates(raw.inputs, new Date(nowMs).toISOString());
-  const pooled = capLifeOpsCandidatePool(collected);
+  // A-4-c22: deadline completion suppression（collector 後・pool cap 前＝Morning/Moment/全 tier が同一の抑制済み集合を見る）。
+  const suppression = applyLifeOpsCompletionSuppression({ candidates: collected, doneFeedback: args.doneFeedback ?? [], nowMs });
+  const pooled = capLifeOpsCandidatePool(suppression.candidates);
   const candidates = pooled.pool;
   const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world });
   const edi = deriveEmptyDayInput(world, synthesizeMemory([], nowMs), { userIntent: null });
@@ -247,6 +258,7 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
       feedbackCadenceCount: feedbackCadence.length,
       realCadenceCount: realCadence.length,
       cadenceSourceConflictCount: countCadenceKeyConflicts(feedbackCadence, realCadence),
+      suppressedDeadlineCount: suppression.suppressedDeadlineCount,
     },
   };
   return { dto, repCandidates: reps.map((p) => p.candidate) };

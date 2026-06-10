@@ -142,7 +142,8 @@ export default async function DevRealityPipelinePage({
 
   // Life Ops preview 統合: **fixture 入力**（実データ源未接続）+ 既読 world から briefing/moment DTO（allowlist）。
   //   c14: done feedback 由来 cadence / c20: real cadence 合成層を raw cap 前で merge（counts は integrationMeta）。
-  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence, realCadence });
+  //   c22: 同じ gated read の observations を deadline completion suppression にも注入（新規 query/flag なし）。
+  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence, realCadence, doneFeedback: feedbackObservations });
 
   // A-4-c17: 直前の action 結果 token（allowlist 検証・URL 生値を表示へ流さない）→ client は固定辞書で 1 行表示。
   const sp = await searchParams;

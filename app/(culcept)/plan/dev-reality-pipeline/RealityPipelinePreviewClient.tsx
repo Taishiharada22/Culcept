@@ -259,6 +259,11 @@ export function RealityPipelinePreviewClient({
               <p className="mt-1 text-[10px] text-gray-500">{lifeOpsPreview.moment.surfaced.cautions.join(" / ")}</p>
             )}
             <Row k="重複制御（朝の代表→今は除外）" v={`代表 ${lifeOpsPreview.integrationMeta.briefingRepresentativeCount} 件を除外（${lifeOpsPreview.integrationMeta.momentExcludedCount}）`} />
+            {/* A-4-c22: 実データ反映の観測点（counts のみ・key/label 非表示） */}
+            <Row
+              k="実データ反映（fbCad / realCad / 完了済 deadline 抑制）"
+              v={`${lifeOpsPreview.integrationMeta.feedbackCadenceCount} / ${lifeOpsPreview.integrationMeta.realCadenceCount} / ${lifeOpsPreview.integrationMeta.suppressedDeadlineCount}`}
+            />
           </div>
         </section>
       )}

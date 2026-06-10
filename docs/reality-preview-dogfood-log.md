@@ -174,3 +174,15 @@
 - → c21 の観測価値を再定義: ①loop counts 貫通（obs=1/fbCad=1/realCad=1）②done 確認 UI の体感 ③**製品 finding の体験**=「完了したのに代表に残る」違和感（deadline 完了消費 slice の必要性判断材料）。cycle の「消える体感」は fixture 調整 or deadline 消費実装後に観測
 - 整備: checklist（A-G・期待値補正 §0・390px 任意確認・報告テンプレ）。追加実装なし・cleanup は c18b の done 対応 script を再利用
 - Claude は UI 不実行（credential 原則・c17b/c18b と同形）
+
+### [2026-06-11] record 30 — A-4-c21 CEO observation run **PASS（product finding 確定）**
+- CEO 実行（screenshot 確認済み）: flags ON で preview 表示・rail=確定申告/免許/パスポート（deadline 3 件・期待値補正どおり）・done flow 成功（ok_done 文言表示）・counts 貫通
+- ★finding 確定: **done を打っても deadline 候補は残る**（現仕様の正解だが「完了したのに残る」不信が本線では致命的）→ c22=deadline completion consumption へ
+
+### [2026-06-11] record 31 — A-4-c22 deadline completion suppression（presentation・preview only）
+- c21 finding への応答: done feedback → **同 key の deadline 候補だけ**を collector 後・pool cap 前で presentation suppression（Morning/Moment/全 tier が同一の抑制済み集合＝ズレ構造的に不可能・source/DB 不変更＝cleanup で自動復元）
+- **stale done 防御=occurrence window 照合**: 窓開始（deadline−leadDays）以降の done のみ有効。去年の tax done は今年の候補を消せない（永久抑制が構造的に不可能・test 固定）
+- 対象=kind==="deadline" のみ（cycle は c14/c20 cadence の担当・event_prep/unknown 素通し＝二重処理禁止）。accept/later/dismiss 不使用・辞書 roundtrip 再検証
+- 配線: 新 flag なし（既存 gated read の observations 再利用・query 増えない）。page+actions 同一注入。meta+=suppressedDeadlineCount（数のみ）。client に観測行「実データ反映（fbCad/realCad/完了済 deadline 抑制）」追加
+- 統合 lock: fixture+done(tax)→確定申告が全 tier から消える・免許/パスポート残存・count=1・doneFeedback=[] で DTO 完全一致（復元）
+- c22b checklist 作成（CEO 観測: 消える→1/1/1→cleanup→戻る）。GPT 14 lock 13 case・reality 1395・full 20493 GREEN・tsc 55

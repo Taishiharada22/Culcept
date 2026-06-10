@@ -97,7 +97,16 @@ export async function submitLifeOpsFeedbackAction(formData: FormData): Promise<v
   })
     ? realCadenceToCadenceObservations(feedbackDoneToRealCadence(recentObservations, now.toISOString()))
     : [];
-  const model = computeLifeOpsPreviewModel({ world, date, nowMinute, nowMs, feedbackCadence: feedbackToCadence(recentObservations), realCadence });
+  // c22: 表示と同一の suppression 注入（done 済み deadline は照合側でも代表から外れる＝候補集合がズレない）。
+  const model = computeLifeOpsPreviewModel({
+    world,
+    date,
+    nowMinute,
+    nowMs,
+    feedbackCadence: feedbackToCadence(recentObservations),
+    realCadence,
+    doneFeedback: recentObservations,
+  });
 
   // ⑥ routing（pure・A-4-c18: done は 2 段階＝confirm 不在なら write せず確認へ・偽造/陳腐化は reject）。
   const routed = routeLifeOpsActionRequest(model.repCandidates, candidateKeyRaw, actionRaw, confirmRaw);
