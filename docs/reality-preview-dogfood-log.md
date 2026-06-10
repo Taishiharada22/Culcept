@@ -93,3 +93,12 @@
 - staging read-only smoke（c8 拡張・counts のみ・write 0・cleanup 不要）: total=0 / lifeops=0 / observations=0 / **cadence=0**（c13 cleanup 後の honest zero・merge no-op 経路を real で確認）
 - 10 lock 充足: ①④done 変換/最新のみ・②③accept/dismiss/later 不使用（c13 既存）・⑤PII firewall（c8 既存）・⑥⑦二重識別**双方向**（⑦新規）・⑧cap 最上流+flood 併用・⑨compute 反映・⑩0 件不変（JSON 完全一致）
 - meta: integrationMeta.feedbackCadenceCount（数のみ）追加。安全: write 0・UI/通知 0・production hard block・raw row 非搬出
+
+### [2026-06-11] record 19 — A-4-c15 action intent contract（pure・UI/write 非接続）
+- 逆向き配線の contract 完成: `LifeOpsCandidate`(category+menu のみ読む)→`buildLifeOpsActionIntent`/`listLifeOpsActionDescriptors`→`actionIntentToWriterInput`→c9 writer 入力（**writer は呼ばない**）
+- 意味論: 採用=accept/adoption・完了=done/completion・後で=later/deferral・不要=dismiss/non_adoption（c13 mirror・signal/sourceKind は c9 共有定数から導出＝第二の正本なし）
+- **cadenceEligible=done のみ**・done は `requiresExplicitConfirmation=true`（誤タップ→cadence 歪み防止・自動 done の経路なし）
+- availability: 辞書 valid→4 action 固定順[採用,完了,後で,不要]・辞書外/enum 外 menu/区切り汚染→null/[]（c8 parse roundtrip firewall 再利用）
+- safety: intent は閉集合 field のみ。candidate の placeQuery「美容室 渋谷 ○○」を餌にした混入検査で不出を test 固定
+- boundary: **縦 card-presenter には接続せず**（条件付き許可を辞退・縦は横非依存を静的 lock）。app/ import 0・barrel 非 export
+- GPT 14 lock 全 PASS・full suite 20419 GREEN・tsc 55
