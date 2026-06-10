@@ -6,7 +6,8 @@
  * 役割: placement 済み Life Ops 候補（`LifeOpsPlacementResult`）を、既存 R2 の 3 案（守る/楽/攻める・
  *   `EmptyDayProposalSet`）に **pure に混ぜる**。tier ごとに lane を**累積包含**（protect⊆easy⊆push）し、
  *   tier の **flexible 容量**（open/buffer/light_task block + 窓の未充填分）に urgency 順で充当する。
- *   容量不足は **honest overflow**（黙って詰め込まない・R2 block を削らない）。
+ *   placement の窓が当該 tier で塞がっていても **同 tier の他窓へ refit**（refit_in_tier・30 分の期限タスクが
+ *   180 分の open を横目に溢れない）。それでも容量不足は **honest overflow**（黙って詰め込まない・R2 block を削らない）。
  *
  * 厳守:
  *   - `generateEmptyDay` / proposal / blocks は **無改変・同一参照**（R2 の責務を壊さない）。
@@ -63,6 +64,12 @@ export interface LifeOpsDayCompose {
 export interface LifeOpsComposeInput {
   readonly proposalSet: EmptyDayProposalSet;
   readonly placement: LifeOpsPlacementResult;
+  /**
+   * その日の全窓（WorldState.availableWindows）。**tier 内 window refit** に使う＝placement の窓が当該 tier で
+   * 塞がっていても、同 tier の他窓の flexible 残量に収め直す（30 分の期限タスクが 180 分の open を横目に溢れない）。
+   * 省略時は placements が知る窓のみ（後方互換・未使用窓は発見できない）。
+   */
+  readonly dayWindows?: readonly { readonly startMinute: number; readonly endMinute: number }[];
 }
 
 /** tier×window の flexible 容量（分）= open/buffer/light_task block 分 + 窓の未充填分。 */
@@ -83,23 +90,44 @@ export function composeLifeOpsIntoDayProposals(input: LifeOpsComposeInput): Life
   const placedOnly = placement.placements.filter((p) => p.window !== null);
   const alsoAvailable = placement.placements.filter((p) => p.window === null);
 
+  // refit に使う窓の宇宙（dayWindows 優先・なければ placements が知る窓のみ）。
+  const knownWindows = (input.dayWindows ?? [...new Map(placedOnly.map((p) => [`${p.window!.startMinute}-${p.window!.endMinute}`, p.window!])).values()])
+    .slice()
+    .sort((a, b) => a.startMinute - b.startMinute);
+
   const composed: ComposedDayProposal[] = proposalSet.proposals.map((proposal) => {
     const include = TIER_INCLUDES[proposal.tier];
     const eligible = placedOnly.filter((p) => include.has(p.planLane)); // placement の urgency 順を保持
-    // window 別 flexible 残量（同一窓の多重充当は残量内のみ）。
+    // window 別 flexible 残量（同一窓の多重充当は残量内のみ・tier ごとに独立）。
     const remainingByWindow = new Map<string, number>();
+    const remainingOf = (w: { startMinute: number; endMinute: number }): number => {
+      const key = `${w.startMinute}-${w.endMinute}`;
+      const r = remainingByWindow.get(key);
+      return r ?? flexibleCapacity(proposal, w.startMinute, w.endMinute);
+    };
+    const consume = (w: { startMinute: number; endMinute: number }, min: number): void => {
+      remainingByWindow.set(`${w.startMinute}-${w.endMinute}`, remainingOf(w) - min);
+    };
     const fitting: PlacedLifeOpsCandidate[] = [];
     const overflow: PlacedLifeOpsCandidate[] = [];
     for (const p of eligible) {
-      const w = p.window!;
-      const key = `${w.startMinute}-${w.endMinute}`;
-      const remaining = remainingByWindow.get(key) ?? flexibleCapacity(proposal, w.startMinute, w.endMinute);
-      if (remaining >= p.coarseMinutes) {
-        remainingByWindow.set(key, remaining - p.coarseMinutes);
+      const placedW = p.window!;
+      // ① placement の窓を優先（親和性）→ ② 塞がっていれば同 tier の他窓へ refit（早い順）。
+      if (remainingOf(placedW) >= p.coarseMinutes) {
+        consume(placedW, p.coarseMinutes);
         fitting.push(p);
-      } else {
-        overflow.push(p); // honest（R2 block を削らない・黙って詰め込まない）
+        continue;
       }
+      const alt = knownWindows.find(
+        (w) => !(w.startMinute === placedW.startMinute && w.endMinute === placedW.endMinute) && remainingOf(w) >= p.coarseMinutes,
+      );
+      if (alt) {
+        consume(alt, p.coarseMinutes);
+        // wrapper のみ差替（candidate は embedded 同一参照のまま）・refit を理由コードで明示。
+        fitting.push({ ...p, window: { startMinute: alt.startMinute, endMinute: alt.endMinute, meaning: null }, placementReason: [...p.placementReason, "refit_in_tier"] });
+        continue;
+      }
+      overflow.push(p); // honest（R2 block を削らない・黙って詰め込まない）
     }
     return { tier: proposal.tier, proposal, lifeOps: { fitting, overflow } };
   });

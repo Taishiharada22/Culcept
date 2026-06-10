@@ -53,7 +53,7 @@ function chain() {
   const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world, maxPlacements: 10 });
   const edi = deriveEmptyDayInput(world, synthesizeMemory([], NOW_MS), { userIntent: null });
   const proposalSet = generateEmptyDay(edi);
-  return { world, candidates, placement, proposalSet, compose: composeLifeOpsIntoDayProposals({ proposalSet, placement }) };
+  return { world, candidates, placement, proposalSet, compose: composeLifeOpsIntoDayProposals({ proposalSet, placement, dayWindows: world.availableWindows }) };
 }
 
 describe("compose — 3案への累積包含（§1）", () => {
@@ -131,6 +131,36 @@ describe("compose — 容量と honest overflow（§2・手組み fixture）", (
     const r = composeLifeOpsIntoDayProposals({ proposalSet: fixtureProposalSet("open"), placement: two });
     expect(r.composed[0].lifeOps.fitting.length).toBe(1); // 90 は入る・+100 は 180-90=90 に入らない
     expect(r.composed[0].lifeOps.overflow.length).toBe(1);
+  });
+  it("★refit: placement の窓が tier で塞がっていても、同 tier の他窓（open）へ収め直す（refit_in_tier）", () => {
+    // 朝窓 600-660 は focus_work 占有・午後窓 780-960 は open 180 分。30 分の deadline を朝窓に placement した状況。
+    const ps: EmptyDayProposalSet = {
+      date: "2026-06-10",
+      proposals: (["protect", "easy", "push"] as EmptyDayTier[]).map((tier) => ({
+        tier,
+        blocks: [
+          { startMinute: 600, endMinute: 660, kind: "focus_work", band: "neutral", memoryLeaning: null } as never,
+          { startMinute: 780, endMinute: 960, kind: "open", band: "neutral", memoryLeaning: null } as never,
+        ],
+        activeMinutes: 0,
+        restMinutes: 0,
+        strain: "low" as const,
+      })),
+      recommended: null,
+    };
+    const candidates = collectLifeOpsCandidates({ deadlineObservations: [{ categoryId: "tax_filing", deadlineISO: "2026-06-15T00:00:00+09:00" }] }, NOW_ISO);
+    const placement: LifeOpsPlacementResult = {
+      placements: [{ candidate: candidates[0], window: { startMinute: 600, endMinute: 660, meaning: null }, placementReason: ["deadline_near"], planLane: "protect", coarseMinutes: 30 }],
+      placedCount: 1,
+      unplacedCount: 0,
+    };
+    const r = composeLifeOpsIntoDayProposals({ proposalSet: ps, placement, dayWindows: [{ startMinute: 600, endMinute: 660 }, { startMinute: 780, endMinute: 960 }] });
+    const protect = r.composed[0];
+    expect(protect.lifeOps.overflow.length).toBe(0); // 溢れない
+    expect(protect.lifeOps.fitting.length).toBe(1);
+    expect(protect.lifeOps.fitting[0].window!.startMinute).toBe(780); // 午後 open へ refit
+    expect(protect.lifeOps.fitting[0].placementReason).toContain("refit_in_tier");
+    expect(protect.lifeOps.fitting[0].candidate).toBe(candidates[0]); // candidate は同一参照のまま
   });
 });
 
