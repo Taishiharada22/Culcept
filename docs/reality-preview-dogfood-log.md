@@ -140,3 +140,10 @@
 - 防御: 1 クリック write 経路は構造的に不存在（route pure 関数で全分岐 lock）・不正 confirm/陳腐化 key→reject・戻る=plain link（write 経路なし）・confirm field は確認 block の 1 箇所のみ（HTML lock）・handle 非露出継続
 - **staging done smoke PASS**（c13 script 再実行・GPT 12 条件）: before total=0/lifeops=0 → done/completion/lifeops 1 行 write=ok → lifeops=1・obs=1・parse 一致・**cadence=1・drift<1s** → cleanup→0・total 不変・counts log のみ
 - full suite: 1 回 flake（再現せず・以後 2 連続 GREEN 20459 PASS/0 fail）・tsc 55
+
+### [2026-06-11] record 25 — A-4-c18b CEO done dogfood（UI 成功・cleanup script 修正）
+- CEO 報告: before 0/0/0 → **完了※→確認表示→confirm→preview 限定成功表示** → after-write lifeops=1/obs=1/**cadence=1**（done flow E2E 成功）
+- ★cleanup 不具合発見: CEO 指定 `LIFEOPS_DOGFOOD_CLEANUP_ACTION=done` を script が未読（旧名 `LIFEOPS_DOGFOOD_ACTION` のみ）+ done が c17b スコープの enum で拒否 → matched 0 で done row 残存（confirm 削除は未実行=安全側に倒れた）
+- 修正: 正式名 `LIFEOPS_DOGFOOD_CLEANUP_ACTION` 対応（旧名 fallback 後方互換・既定 later）+ allow enum に done 追加（c18b 正式化）
+- check-only 再実行（read-only）: **matched=1・handle=lifeops:tax_filing**（CEO の done row を exact 特定）→ 削除コマンドを CEO へ返却・delete は未実行
+- full suite 20459 GREEN・tsc 55

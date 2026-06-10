@@ -1,20 +1,21 @@
 #!/usr/bin/env tsx
 /**
- * Life Ops — A-4-c17b Operator Dogfood Exact Cleanup（**check→confirm 二段・1 行限定・広範囲 DELETE 禁止**）
+ * Life Ops — A-4-c17b/c18b Operator Dogfood Exact Cleanup（**check→confirm 二段・1 行限定・広範囲 DELETE 禁止**）
  *
- * 役割: CEO operator dogfood（UI から accept|later|dismiss を 1 回）で書かれた **lifeops 行 1 件だけ**を
+ * 役割: CEO operator dogfood（UI から 1 action を 1 回）で書かれた **lifeops 行 1 件だけ**を
  *   exact 条件で削除して 0 に戻す。既定は **check-only**（削除しない・counts/handle のみ表示）。
  *   実削除は LIFEOPS_DOGFOOD_CLEANUP_CONFIRM=1 を追加した時だけ。
  *
- * exact 条件（GPT c17b 指定の最小集合 + 実測 handle の完全一致）:
+ * exact 条件（GPT 指定の最小集合 + 実測 handle の完全一致）:
  *   owner-RLS（dedicated test user で sign-in）∧ handle LIKE 'lifeops:%' ∧ source_kind='lifeops'
- *   ∧ action=対象 action（accept|later|dismiss・**done は拒否**）∧ acted_at >= 窓開始（既定 now-6h）
+ *   ∧ action=対象 action（**later|accept|dismiss|done**・A-4-c18b で done 対応）∧ acted_at >= 窓開始（既定 now-6h）
  *   → 一致 1 件のときのみ、その実測 handle に **eq 完全一致**で DELETE。0 件=何もしない（冪等 PASS）。
  *   2 件以上=**削除せず停止**（CEO 判断へ）。
  *
  * 実行（check）: LIFEOPS_DOGFOOD_CLEANUP_GO=1 NODE_OPTIONS="--conditions=react-server" npx tsx scripts/lifeops-feedback-dogfood-cleanup.ts
  * 実行（delete）: 上記 + LIFEOPS_DOGFOOD_CLEANUP_CONFIRM=1
- * 任意: LIFEOPS_DOGFOOD_ACTION=later（既定）| accept | dismiss / LIFEOPS_DOGFOOD_SINCE_ISO=<ISO>（既定 now-6h）
+ * 任意: LIFEOPS_DOGFOOD_CLEANUP_ACTION=later（既定）| accept | dismiss | done
+ *   （A-4-c18b 正式名。旧名 LIFEOPS_DOGFOOD_ACTION も後方互換で読む）/ LIFEOPS_DOGFOOD_SINCE_ISO=<ISO>（既定 now-6h）
  *
  * 安全: staging allowlist(hjcr…)・本番 denylist(aljav…) fatal・service_role fatal・GO 必須・
  *   log は counts/handle（辞書 enum のみ＝非 PII）/boolean のみ（full row/user_id/raw 非出力）。
@@ -38,13 +39,16 @@ const SB_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const PROJECT_REF = process.env.STAGING_SUPABASE_PROJECT_REF ?? "";
 const EMAIL = process.env.STAGING_USER_A_EMAIL ?? "";
 const PASSWORD = process.env.STAGING_USER_A_PASSWORD ?? "";
-const ACTION = process.env.LIFEOPS_DOGFOOD_ACTION ?? "later";
+// A-4-c18b: 正式名 LIFEOPS_DOGFOOD_CLEANUP_ACTION（旧名 LIFEOPS_DOGFOOD_ACTION は後方互換 fallback）・既定 later。
+const ACTION = process.env.LIFEOPS_DOGFOOD_CLEANUP_ACTION ?? process.env.LIFEOPS_DOGFOOD_ACTION ?? "later";
 const SINCE_ISO = process.env.LIFEOPS_DOGFOOD_SINCE_ISO ?? new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
 
 function preflight(): void {
   if (!GO) fatal("GO 未設定（LIFEOPS_DOGFOOD_CLEANUP_GO=1）。");
   if (process.env.NODE_ENV === "production") fatal("NODE_ENV=production 不可。");
-  if (!["accept", "later", "dismiss"].includes(ACTION)) fatal(`action='${ACTION}' は対象外（accept|later|dismiss のみ・done は c17b 対象外）。`);
+  if (!["accept", "later", "dismiss", "done"].includes(ACTION)) {
+    fatal(`action='${ACTION}' は対象外（later|accept|dismiss|done のみ・A-4-c18b で done 対応）。`);
+  }
   if (Number.isNaN(Date.parse(SINCE_ISO))) fatal("LIFEOPS_DOGFOOD_SINCE_ISO が不正 ISO。");
   for (const [k, v] of [["URL", SB_URL], ["ANON", SB_ANON], ["REF", PROJECT_REF], ["EMAIL", EMAIL], ["PW", PASSWORD]]) if (!v) fatal(`Missing ${k}`);
   if (/service_role/i.test(SB_ANON)) fatal("anon key に service_role 混入。");
@@ -55,7 +59,7 @@ function preflight(): void {
   const ref = host.match(/^([a-z0-9]+)\.supabase\.(co|in)$/)?.[1];
   if (ref === PRODUCTION_PROJECT_REF) fatal("PRODUCTION GUARD: host 本番。");
   if (ref !== STAGING_PROJECT_REF) fatal("STAGING GUARD: host ref 不一致。");
-  log(`▶ target = staging host ${host}（c17b dogfood cleanup・action=${ACTION}・since=${SINCE_ISO}・mode=${CONFIRM ? "DELETE" : "check-only"}）`);
+  log(`▶ target = staging host ${host}（c17b/c18b dogfood cleanup・action=${ACTION}・since=${SINCE_ISO}・mode=${CONFIRM ? "DELETE" : "check-only"}）`);
 }
 
 async function countLifeops(sb: ReturnType<typeof createClient>): Promise<number> {
