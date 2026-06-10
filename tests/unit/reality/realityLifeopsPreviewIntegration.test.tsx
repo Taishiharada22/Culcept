@@ -248,6 +248,8 @@ describe("integration — source contract（§5）", () => {
     const buttons = raw.split("<button").length - 1;
     const submits = raw.split('type="submit"').length - 1;
     expect(buttons).toBe(submits);
-    expect(raw).not.toContain('value="done"'); // done を submit value にしない（押せない契約）
+    // A-4-c18: done は 2 段階契約（stage-2 の confirm field が存在し、write 経路は確認 block のみ）。
+    expect(raw).toContain('name="confirm"');
+    expect(raw).toContain("lifeops-done-confirm");
   });
 });

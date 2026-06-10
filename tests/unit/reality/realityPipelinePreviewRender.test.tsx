@@ -104,9 +104,10 @@ describe("P-D source contract — presentational / no apply / no fetch", () => {
   const src = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/dev-reality-pipeline/RealityPipelinePreviewClient.tsx"), "utf8");
   it("fetch / onClick / useState を持たない（button は A-4-c17 feedback submit のみ・apply 経路なし）", () => {
     expect(src).not.toContain("fetch(");
-    // A-4-c17: button は lifeops feedback の server-action form submit のみ（apply/PlanClient とは別経路・done 不可）。
+    // A-4-c17/c18: button は lifeops feedback の server-action form submit のみ（apply/PlanClient とは別経路）。
+    //   done は 2 段階契約（confirm field が存在＝1 クリック write 経路なし）。
     expect(src.split("<button").length - 1).toBe(src.split('type="submit"').length - 1);
-    expect(src).not.toContain('value="done"');
+    expect(src).toContain('name="confirm"');
     expect(src).not.toContain("onClick");
     expect(src).not.toContain("useState");
   });

@@ -34,10 +34,11 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-/** A-4-c17: action 結果 token（page が allowlist 検証済み）→ 固定辞書文言。 */
-export type LifeOpsActionResultToken = "ok" | "gate_off" | "duplicate_cooldown" | "insert_failed" | "invalid" | "denied";
+/** A-4-c17/c18: action 結果 token（page が allowlist 検証済み）→ 固定辞書文言。 */
+export type LifeOpsActionResultToken = "ok" | "ok_done" | "gate_off" | "duplicate_cooldown" | "insert_failed" | "invalid" | "denied";
 const LIFEOPS_FB_MESSAGES: Record<LifeOpsActionResultToken, string> = {
   ok: "記録しました（preview 限定・本線には反映されません）",
+  ok_done: "完了を記録しました（次回の提案周期に影響します。preview 限定・本線には反映されません）",
   gate_off: "記録は実行されていません（write flag OFF・preview のみ）",
   duplicate_cooldown: "少し前に同じ記録があります（重複防止のため書きませんでした）",
   insert_failed: "記録できませんでした",
@@ -52,6 +53,7 @@ export function RealityPipelinePreviewClient({
   lifeOpsPreview,
   feedbackAction,
   lifeOpsActionResult,
+  pendingDone,
 }: {
   envelope: RealityPipelineEnvelope;
   meta?: RealityPipelinePreviewMeta;
@@ -66,6 +68,11 @@ export function RealityPipelinePreviewClient({
   feedbackAction?: (formData: FormData) => Promise<void>;
   /** A-4-c17: 直前 action の結果 token（page allowlist 検証済み・固定辞書で 1 行表示）。 */
   lifeOpsActionResult?: LifeOpsActionResultToken;
+  /**
+   * A-4-c18: done 確認状態（page が token parse + **現在の rail に実在検証済み**の時だけ渡す）。
+   *   これがある時のみ確認 block を表示。stage-2 form だけが confirm field を持つ（rail には無い＝1 クリック write 不能）。
+   */
+  pendingDone?: { readonly candidateKey: string; readonly label: string };
 }) {
   const redactionClean = !FORBIDDEN.test(JSON.stringify({ envelope, meta, reflectionPreview, lifeOpsPreview }));
   const rec = envelope.recommended;
@@ -141,22 +148,24 @@ export function RealityPipelinePreviewClient({
                   {t.highlights.map((h, i) => (
                     <li key={i}>
                       {h.label} — {h.phrase}（{h.windowHint}）
-                      {/* A-4-c16/c17: action rail。feedbackAction がある時だけ 採用/後で/不要 を form submit に昇格
-                          （client handler なし・server action のみ）。完了※は cadence を動かすため常に押せない（確認 UI 付き別 slice）。 */}
+                      {/* A-4-c16/c17/c18: action rail。feedbackAction がある時だけ form submit に昇格（client handler なし・server action のみ）。
+                          完了※は **stage-1**（confirm field を持たない form＝押しても write されず確認状態へ redirect）。 */}
                       {h.actions && h.actions.length > 0 && (feedbackAction && h.candidateKey ? (
                         <form action={feedbackAction} className="ml-2 inline-flex items-center gap-1 align-middle" data-testid="lifeops-action-rail">
                           <input type="hidden" name="candidateKey" value={h.candidateKey} />
                           {h.actions.map((a) =>
                             a.requiresConfirmation ? (
-                              <span
+                              <button
                                 key={a.action}
-                                aria-disabled="true"
-                                data-testid="lifeops-action-chip"
+                                type="submit"
+                                name="action"
+                                value={a.action}
+                                data-testid="lifeops-action-stage1"
                                 data-action={a.action}
                                 className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] leading-none text-amber-800"
                               >
                                 {a.uiLabel}※
-                              </span>
+                              </button>
                             ) : (
                               <button
                                 key={a.action}
@@ -209,7 +218,7 @@ export function RealityPipelinePreviewClient({
           {lifeOpsPreview.briefing.tiers.some((t) => t.highlights.some((h) => (h.actions?.length ?? 0) > 0)) && (
             <p className="mt-1 text-[10px] text-amber-700" data-testid="lifeops-action-notice">
               {feedbackAction
-                ? "※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。完了はまだ押せません。採用/後で/不要の記録は preview 限定です（本線には反映されません）。"
+                ? "※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。完了は確認をはさみます（1 回押しでは記録されません）。記録は preview 限定です（本線には反映されません）。"
                 : "※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。今は表示のみで、押せず・記録もしません。"}
             </p>
           )}
@@ -218,6 +227,31 @@ export function RealityPipelinePreviewClient({
             <p className="mt-1 text-[10px] font-bold text-emerald-700" data-testid="lifeops-action-result">
               {LIFEOPS_FB_MESSAGES[lifeOpsActionResult]}
             </p>
+          )}
+          {/* A-4-c18: done 明示確認 block（stage-2 form だけが confirm field を持つ・戻る=plain link で write 経路なし） */}
+          {pendingDone && feedbackAction && (
+            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2" data-testid="lifeops-done-confirm">
+              <p className="text-[11px] font-bold text-amber-800">「{pendingDone.label}」を完了として記録しますか？</p>
+              <p className="mt-0.5 text-[10px] text-amber-700">次回の提案周期に影響します。preview 限定です。本線には反映されません。</p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <form action={feedbackAction} className="inline-flex">
+                  <input type="hidden" name="candidateKey" value={pendingDone.candidateKey} />
+                  <input type="hidden" name="confirm" value={`done:${pendingDone.candidateKey}`} />
+                  <button
+                    type="submit"
+                    name="action"
+                    value="done"
+                    data-testid="lifeops-done-confirm-submit"
+                    className="rounded-full border border-amber-400 bg-amber-100 px-2 py-0.5 text-[10px] font-bold leading-none text-amber-900"
+                  >
+                    記録する
+                  </button>
+                </form>
+                <a href="/plan/dev-reality-pipeline" data-testid="lifeops-done-confirm-cancel" className="text-[10px] text-gray-500 underline">
+                  戻る
+                </a>
+              </div>
+            </div>
           )}
           <div className="mt-2 border-t border-emerald-100 pt-2">
             <Row k="Moment（今この瞬間・cap 1）" v={lifeOpsPreview.moment.surfaced ? lifeOpsPreview.moment.surfaced.phrase : `沈黙（silenced ${lifeOpsPreview.moment.silencedCount}${lifeOpsPreview.moment.suppression ? `・${lifeOpsPreview.moment.suppression}` : ""}）`} />

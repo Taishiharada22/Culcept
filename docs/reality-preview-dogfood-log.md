@@ -128,3 +128,15 @@
 - 対象 action=**later**（GPT 推奨に同意: 意味最軽量・cadence 影響なし・cleanup 漏れ時の学習歪み最小）
 - check-mode 実走（read-only）: staging guard PASS・signed in（…42d0）・before lifeops=0・matched 0 件 → 冪等 PASS（script の実 DB 動作を削除なしで実証）
 - full suite 20445 GREEN・tsc 55
+
+### [2026-06-11] record 23 — A-4-c17b CEO operator dogfood 実施結果（**PASS**・CEO 実行）
+- before: lifeops=0/obs=0/cadence=0 → rail 表示 OK・**完了※押せず**・「後で」を 1 回 → UI 結果=preview 限定・本線未反映文言 → after-write: lifeops=1/obs=1/**cadence=0** → cleanup 対象 1 件→削除成功 → after: 全て 0
+- credential/full row/user_id/DB id/raw の共有なし（CEO 報告）
+- ★UI→server action→writer→DB→read-after-write→cleanup の **controlled E2E が実環境で完結**（non-cadence action・done 不可のまま）
+
+### [2026-06-11] record 24 — A-4-c18 done confirmation（PRG 2 段階）+ staging done smoke PASS
+- 方式比較→**PRG 2 段階 confirm token 採用**（c17 PRG と整合・stateless・client 無状態維持。専用ページ=gate 複製で過剰／client state=useState lock 違反で不採用）
+- flow: rail 完了※=stage-1 button（**confirm field なし form→押しても write されず** `?lifeopsConfirm=done:{key}` へ PRG）→ page が token parse+**現在 rail 実在検証**で pendingDone 注入 → 確認 block「『◯◯』を完了として記録しますか？／次回の提案周期に影響します。preview 限定です。本線には反映されません。／[記録する][戻る]」→ stage-2（confirm 完全一致 ∧ 候補再照合）だけ write → ok_done
+- 防御: 1 クリック write 経路は構造的に不存在（route pure 関数で全分岐 lock）・不正 confirm/陳腐化 key→reject・戻る=plain link（write 経路なし）・confirm field は確認 block の 1 箇所のみ（HTML lock）・handle 非露出継続
+- **staging done smoke PASS**（c13 script 再実行・GPT 12 条件）: before total=0/lifeops=0 → done/completion/lifeops 1 行 write=ok → lifeops=1・obs=1・parse 一致・**cadence=1・drift<1s** → cleanup→0・total 不変・counts log のみ
+- full suite: 1 回 flake（再現せず・以後 2 連続 GREEN 20459 PASS/0 fail）・tsc 55

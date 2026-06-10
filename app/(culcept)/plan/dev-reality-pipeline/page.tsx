@@ -31,14 +31,15 @@ import { computeReflectionPreviewDto } from "@/lib/plan/reality/permission/refle
 import { computeLifeOpsPreviewDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
 import { feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
+import { parseLifeOpsDoneConfirmToken } from "@/lib/plan/reality/lifeops/lifeops-action-request";
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta, type LifeOpsActionResultToken } from "./RealityPipelinePreviewClient";
 import { submitLifeOpsFeedbackAction } from "./actions";
 
-/** A-4-c17: redirect token の allowlist（URL 生値を表示系へ流さない）。 */
-const LIFEOPS_FB_TOKENS = new Set(["ok", "gate_off", "duplicate_cooldown", "insert_failed", "invalid", "denied"]);
+/** A-4-c17/c18: redirect token の allowlist（URL 生値を表示系へ流さない）。 */
+const LIFEOPS_FB_TOKENS = new Set(["ok", "ok_done", "gate_off", "duplicate_cooldown", "insert_failed", "invalid", "denied"]);
 
 export const dynamic = "force-dynamic";
 
@@ -128,8 +129,19 @@ export default async function DevRealityPipelinePage({
   const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence });
 
   // A-4-c17: 直前の action 結果 token（allowlist 検証・URL 生値を表示へ流さない）→ client は固定辞書で 1 行表示。
-  const fbRaw = (await searchParams)?.lifeopsFb;
-  const lifeOpsActionResult = typeof fbRaw === "string" && LIFEOPS_FB_TOKENS.has(fbRaw) ? (fbRaw as LifeOpsActionResultToken) : undefined;
+  const sp = await searchParams;
+  const fbRaw = sp?.lifeopsFb;
+  let lifeOpsActionResult = typeof fbRaw === "string" && LIFEOPS_FB_TOKENS.has(fbRaw) ? (fbRaw as LifeOpsActionResultToken) : undefined;
+
+  // A-4-c18: done 確認 token（stage-1 redirect 由来）。parse → **現在の DTO rail に実在する時だけ** pendingDone を注入
+  //   （server-rendered 検証・実在しない=陳腐化/偽造 → 確認 block を出さず invalid 表示）。
+  const confirmKey = parseLifeOpsDoneConfirmToken(sp?.lifeopsConfirm);
+  let pendingDone: { candidateKey: string; label: string } | undefined;
+  if (confirmKey) {
+    const hit = lifeOpsPreview.briefing.tiers.flatMap((t) => t.highlights).find((h) => h.candidateKey === confirmKey);
+    if (hit) pendingDone = { candidateKey: confirmKey, label: hit.label };
+    else lifeOpsActionResult = lifeOpsActionResult ?? "invalid";
+  }
 
   return (
     <RealityPipelinePreviewClient
@@ -139,6 +151,7 @@ export default async function DevRealityPipelinePage({
       lifeOpsPreview={lifeOpsPreview}
       feedbackAction={submitLifeOpsFeedbackAction}
       lifeOpsActionResult={lifeOpsActionResult}
+      pendingDone={pendingDone}
     />
   );
 }

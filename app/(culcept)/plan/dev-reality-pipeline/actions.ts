@@ -9,7 +9,8 @@
  *   結果は PRG（redirect + query token）で固定辞書表示（本線保存と誤解させない）。
  *
  * 厳守:
- *   - **done（completion）は常時拒否**（resolver の action allowlist + cadenceEligible 二重防御・確認 UI 付き別 slice まで）。
+ *   - **done は 2 段階のみ**（A-4-c18: confirm 不在→write せず確認 redirect・confirm 一致+候補再照合の時だけ write。
+ *     1 クリック write 経路は構造的に不存在・自動 done なし）。accept/later/dismiss は c17 resolver（不変更）。
  *   - gate stack: host 三重ガード → REALITY_PIPELINE_PREVIEW → operator auth → action allowlist → 候補照合 →
  *     writer gate（master ∧ LIFEOPS_FEEDBACK_WRITE ∧ staging ∧ !production）。**production は flag ON でも常に false**。
  *   - handle/categoryId/menu を client から受けない（candidateKey + action の 2 値のみ・lookup 専用）。
@@ -23,7 +24,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { createSupabaseWorldStateSourcePorts } from "@/lib/plan/reality/assembly/supabase-worldstate-source-ports";
 import { assembleWorldState } from "@/lib/plan/reality/assembly/world-state-assembler";
 import { computeLifeOpsPreviewModel } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
-import { resolveLifeOpsActionRequest } from "@/lib/plan/reality/lifeops/lifeops-action-request";
+import { routeLifeOpsActionRequest } from "@/lib/plan/reality/lifeops/lifeops-action-request";
 import { actionIntentToWriterInput } from "@/lib/plan/reality/lifeops/lifeops-action-intent";
 import { createLifeOpsFeedbackWriter, type LifeOpsFeedbackWriteClient } from "@/lib/plan/reality/lifeops/lifeops-feedback-writer";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
@@ -37,7 +38,7 @@ const FIXTURE_CONTEXT = { energy: { value: 0.6, source: "fixture" }, weather: { 
 
 const PAGE_PATH = "/plan/dev-reality-pipeline";
 
-function exit(token: "ok" | "gate_off" | "duplicate_cooldown" | "insert_failed" | "invalid" | "denied"): never {
+function exit(token: "ok" | "ok_done" | "gate_off" | "duplicate_cooldown" | "insert_failed" | "invalid" | "denied"): never {
   redirect(`${PAGE_PATH}?lifeopsFb=${token}`);
 }
 
@@ -64,9 +65,10 @@ export async function submitLifeOpsFeedbackAction(formData: FormData): Promise<v
   } = await supabase.auth.getUser();
   if (!user) exit("denied");
 
-  // ④ client 生値（信頼しない・lookup 専用の 2 値のみ）。
+  // ④ client 生値（信頼しない・lookup/確認専用の 3 値のみ。handle/category/menu/writer DTO は受けない）。
   const candidateKeyRaw = formData.get("candidateKey");
   const actionRaw = formData.get("action");
+  const confirmRaw = formData.get("confirm"); // A-4-c18: done の明示確認 token（stage-1 では不在）
 
   // ⑤ server 再計算（page と同一 chain: real anchors world + fixture context + gated feedbackCadence）。
   const now = new Date();
@@ -84,9 +86,13 @@ export async function submitLifeOpsFeedbackAction(formData: FormData): Promise<v
   const recentObservations = await feedbackSource.readObservations(); // gate OFF → []（cooldown 縮退を許容・PRG が再送防止）
   const model = computeLifeOpsPreviewModel({ world, date, nowMinute, nowMs, feedbackCadence: feedbackToCadence(recentObservations) });
 
-  // ⑥ 照合 + intent 再構築（pure resolver・done/偽造/陳腐化はここで reject）。
-  const resolved = resolveLifeOpsActionRequest(model.repCandidates, candidateKeyRaw, actionRaw);
-  if (!resolved.ok) exit("invalid");
+  // ⑥ routing（pure・A-4-c18: done は 2 段階＝confirm 不在なら write せず確認へ・偽造/陳腐化は reject）。
+  const routed = routeLifeOpsActionRequest(model.repCandidates, candidateKeyRaw, actionRaw, confirmRaw);
+  if (routed.kind === "confirm_redirect") {
+    redirect(`${PAGE_PATH}?lifeopsConfirm=${encodeURIComponent(routed.confirmToken)}`); // stage-1: **write しない**
+  }
+  if (routed.kind === "reject") exit("invalid");
+  const resolved = { intent: routed.intent };
 
   // ⑦ writer（gate: master ∧ write ∧ staging ∧ !production・cooldown guard・fail-open）。
   const writer = createLifeOpsFeedbackWriter(supabase as unknown as LifeOpsFeedbackWriteClient, user.id, {
@@ -100,5 +106,5 @@ export async function submitLifeOpsFeedbackAction(formData: FormData): Promise<v
     actedAtMs: Date.parse(o.actedAtISO),
   }));
   const result = await writer.writeFeedback(actionIntentToWriterInput(resolved.intent, now.toISOString()), { recent, nowMs });
-  exit(result.written ? "ok" : result.reason);
+  exit(result.written ? (resolved.intent.action === "done" ? "ok_done" : "ok") : result.reason);
 }

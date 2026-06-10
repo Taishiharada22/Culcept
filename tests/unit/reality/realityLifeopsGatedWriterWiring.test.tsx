@@ -134,16 +134,17 @@ describe("c17 — render contract（③・押せるのは 3 action だけ）", (
       <RealityPipelinePreviewClient envelope={envelope} meta={meta} lifeOpsPreview={model().dto} feedbackAction={noopAction} lifeOpsActionResult={result} />,
     );
 
-  it("採用/後で/不要 が submit button・③完了※は chip（button 化されない）", () => {
+  it("採用/後で/不要 が submit button・③完了※は stage-1（rail に confirm field なし＝1 クリック write 不能）", () => {
     const h = html();
     for (const v of ["accept", "later", "dismiss"]) expect(h).toContain(`value="${v}"`);
-    expect(h).not.toContain('value="done"');
     expect(h).toContain("完了※");
+    expect(h).toContain("lifeops-action-stage1"); // A-4-c18: done は stage-1 button（確認へ遷移するだけ）
+    expect(h).not.toContain('name="confirm"'); // rail の form は confirm を持たない（write 経路は確認 block のみ）
+    expect(h).not.toContain("lifeops-done-confirm"); // pendingDone なし → 確認 block 不在
     expect(h).toContain("lifeops-action-button");
     expect(h).toContain('name="candidateKey"'); // lookup key（hidden）
     expect(h).not.toContain("lifeops:"); // ④handle は HTML にも出ない
-    expect(h).toContain("完了はまだ押せません"); // interactive 注記
-    expect(h).toContain("採用/後で/不要の記録は preview 限定です");
+    expect(h).toContain("完了は確認をはさみます（1 回押しでは記録されません）"); // interactive 注記
   });
   it("結果 token → 固定辞書 1 行（本線保存と誤解させない文言）", () => {
     expect(html("ok")).toContain("記録しました（preview 限定・本線には反映されません）");
@@ -178,7 +179,7 @@ describe("c17 — 静的安全（⑨⑩・配線位置）", () => {
       "isCandidateActionsPreviewHostAllowed",
       "PLAN_FLAGS.realityPipelinePreview",
       "auth.getUser",
-      "resolveLifeOpsActionRequest",
+      "routeLifeOpsActionRequest", // A-4-c18: done 2 段階対応で resolve→route へ（resolve は route 内部で委譲継続）
       "createLifeOpsFeedbackWriter",
       "PLAN_FLAGS.lifeopsFeedbackWrite",
       "redirect(",
