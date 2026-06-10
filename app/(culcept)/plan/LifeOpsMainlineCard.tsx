@@ -85,8 +85,13 @@ export function LifeOpsMainlineCard({
         ※完了は実際に終わった時だけ。予定には追加せず、次回以降の提案調整に使います。
       </p>
 
+      {/* A-4-c24: 成功（ok/ok_done）だけ成功色。duplicate/invalid 等は amber・非 bold＝過剰な成功表示を出さない */}
       {actionResult && (
-        <p className="mt-1 text-[11px] font-bold text-emerald-700" data-testid="lifeops-mainline-result">
+        <p
+          className={`mt-1 text-[11px] ${actionResult === "ok" || actionResult === "ok_done" ? "font-bold text-emerald-700" : "text-amber-700"}`}
+          data-testid="lifeops-mainline-result"
+          data-result-kind={actionResult === "ok" || actionResult === "ok_done" ? "success" : "notice"}
+        >
           {MAINLINE_MESSAGES[actionResult]}
         </p>
       )}

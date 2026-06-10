@@ -207,3 +207,13 @@
 - 既存 lock の公認進化 2 件: c19 dormant（consumer=page+mainline action）・c15 ⑬b（consumer=action 2 file）
 - CLI write smoke 不実施（mainline action=operator session 必須・writer/DB 経路は c12/c13/c18 実証済み・新規 DB コード 0）→ 実 E2E は c23b CEO staging 観測
 - GPT 18 lock（19 case）・reality 1410・full suite 20508 GREEN・tsc 55
+
+### [2026-06-11] record 35 — A-4-c23b CEO staging observation **PASS（本線 card 初観測）**
+- /plan 本線で「生活まわり」card 表示 OK・rail=後で/不要/完了※のみ（採用なし）・preview 語なし・done confirmation flow OK・after-write counts OK・**done 後に対象候補が消えた**・cleanup exact 1 件・after 全 0・**候補復元 OK**・**mobile 390px 期待通り**・production/notification/R4/push 全て 0
+- ★c19 観測条件の 390px が充足。残 gap=cooldown 実挙動・later/dismiss の本線 E2E（→c24）
+
+### [2026-06-11] record 36 — A-4-c24 mainline hardening 整備（audit + polish・CEO 観測手順で停止）
+- audit 8 点: later/dismiss 経路=実装済み E2E 未観測／cooldown=writer guard（同 handle×action 10 分・recent は gated read 注入・**2 件以上 write は構造的に不可**）+PRG 再送防止／cleanup script=later|dismiss 対応済み／390px=c23b 実機 OK 済み／文言=妥当
+- ★polish 1 件実装: result 行を token 種別で色分け — **ok/ok_done のみ成功色（emerald・bold）**・duplicate/gate_off/invalid/denied/failed は **amber・非 bold（data-result-kind="notice"）**＝「過剰な成功表示を出さない」への直接対応。render contract test 3 case 追加
+- CEO 観測手順（A=later／B=dismiss／C=cooldown 連打）整備: 各 action 後 cleanup（ACTION 差替）・C は「2 回目が重複文言（amber）・obs=1 のまま・cleanup 対象 1 件」自体が cooldown の証明。done は今回不使用
+- full suite 20509 GREEN・tsc 55

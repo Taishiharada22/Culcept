@@ -123,6 +123,22 @@ describe("c23 — render contract（⑪⑫⑮・本線文言）", () => {
       expect(h).not.toMatch(BANNED_WORDS);
     }
   });
+  it("★A-4-c24: 成功（ok/ok_done）だけ成功色・duplicate/invalid 等は notice 扱い（過剰な成功表示を出さない）", () => {
+    for (const token of ["ok", "ok_done"] as const) {
+      const h = render({ actionResult: token });
+      expect(h).toContain('data-result-kind="success"');
+      expect(h).toMatch(/data-result-kind="success"[^>]*>|text-emerald-700/);
+    }
+    for (const token of ["duplicate_cooldown", "gate_off", "invalid", "denied", "insert_failed"] as const) {
+      const h = render({ actionResult: token });
+      expect(h).toContain('data-result-kind="notice"');
+      const resultTag = h.slice(h.indexOf('data-testid="lifeops-mainline-result"') - 200, h.indexOf('data-testid="lifeops-mainline-result"') + 50);
+      expect(resultTag).toContain("text-amber-700");
+      expect(resultTag).not.toContain("font-bold");
+      expect(resultTag).not.toContain("text-emerald-700");
+    }
+    expect(render({ actionResult: "duplicate_cooldown" })).toContain("少し前に同じ記録があります（重複防止のため記録しませんでした）");
+  });
   it("⑧done 確認 block（pendingDone 時のみ・stage-2 form だけ confirm field・戻る=/plan link）", () => {
     const c = card();
     const withPending = render({ pendingDone: { candidateKey: c.items[0].candidateKey, label: c.items[0].label } });
