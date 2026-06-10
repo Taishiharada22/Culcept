@@ -156,3 +156,148 @@ CEO の問い「AI が要 = 誰でも到達できる」への正面回答。LLM 
 - 技術: arXiv 2603.07670（agent memory survey・実在確認済）/ 2603.17787 / 2601.01321 / 2506.14453（Active Inference DT）/ 2603.22083 / SensorPersona 2604.06204 / Anthropic effective context engineering / Apple WWDC26 / Google Personal Intelligence
 - 競合: Lifestack / rivva / Temporal.day / Sunsama / Motion / Reclaim / Morgen / Rise Science / Bee (Amazon) / TimeTree / Dot 終了 (TechCrunch 2025-09) / Clockwise 終了 (2026-03)
 - 内部: `lib/stargazer/alterHomeAdapter.ts:158,8048` / `lib/stargazer/hdmPhase.ts` / `lib/stargazer/weightCalibration.ts` / `supabase/migrations/20260430110100_plan_drift_events.sql` / `supabase/migrations/20260502100000_alter_morning_plan_history.sql` / `docs/decision-log.md:200` / `docs/a3-soft-connection-mini-design.md` / `docs/dogfood-operation-plan.md` / `docs/phase-b-readiness-gate.md` / `docs/prm-alter-bridge-design.md` / `docs/stargazer-human-os-design.md`（DRAFT・承認チェック未完に注意）
+
+受け取りました。これは戦略判断なので、外部リサーチ（JITAI研究・エージェントメモリ/デジタルツイン研究・競合製品）と内部調査（既存コードベース資産・戦略ドキュメント整合）を並列で走らせて、その上で私の見解をまとめます。まず作業開始確認をしてから、リサーチエージェント5体を投入します。
+
+リサーチ完了です。外部 3 系統（介入科学・技術ランドスケープ・競合 18 プロダクト）+ 内部 2 系統（コード資産・戦略文書）を回し、評価レポートを [docs/reality-gradient-engine-assessment.md](docs/reality-gradient-engine-assessment.md) としてコミットしました（`4e2fe864`）。以下が私の考えです。
+
+---
+
+## 結論から
+
+**GPT 案は方向として正しい。ただし「未知の発明」ではなく、その約 6 割は君のリポジトリに既に存在する。** 本当に新しくて、世界に存在しなくて、君にしか作れないのは別の場所にある — **「毎晩採点される AI」（答え合わせループ）と「人格が物理定数になる力学」** だ。そして Alter の /plan 常駐には賛成。ただし push 型にすると、君自身が 5/23 に GPT との合議で確定した決定と正面衝突する。
+
+---
+
+## 1. まず一番大事な事実 — GPT は君のコードベースを知らずに提案している
+
+GPT が「発明すべき」と言ったものと既存資産の対応:
+
+| GPT の概念 | 既に存在するもの |
+|---|---|
+| Reality Field（内部状態変数） | `ForceBalance` 8 次元 + `DailyGuidanceFrame`（time_budget / energy_level / hard_constraints / desire_direction…）— [alterHomeAdapter.ts:158](lib/stargazer/alterHomeAdapter.ts:158), [:8048](lib/stargazer/alterHomeAdapter.ts:8048) |
+| Collapse Predictor | Human OS **Layer 4: Early Warning**（設計済）+ PRG「今日のあなたなら」補正（**dogfood 運用 2 日目**） |
+| Intervention Vector | `ActionShape` 8 形 + P5 Reality Anchoring + 横エンジン R4（silence-by-default cap1） |
+| Counterfactual Simulator | P4 実装済（未ロールアウト）+ **A3 What-if が dogfood ON — Reality Diff の v0 はもう走っている** |
+| Correction Gradient | `weightCalibration.ts` + Reaction Learning（W5） |
+| Permission Boundary | HDM Phase 0-5 × TrustLevel = 介入権限の階段（CEO 承認済の北極星） |
+| 予測 vs 実績の記録 | `alter_morning_plan_history` + `plan_drift_events`（predicted/actual 定義済）— **🔴 ただしループが閉じていない** |
+
+つまり「Reality Gradient Engine」は新エンジンの発明ではなく、**PRG + A3 + Phase B + HDM の束ね直しと命名**。君は GPT に言われる 4 ヶ月前からこれを作っていた。これは悪い話じゃない — 「俺の直感と外部の知能が独立に同じ場所に収束した」という、方向の正しさの強い証拠だと思う。
+
+## 2. 外部リサーチが言っていること（要点だけ）
+
+**介入科学**: 「状態の脆弱性・好機・受容性」は JITAI として 2014 年から学術定義済み。決定的なのは HeartSteps の事実 — 文脈適応介入の効果は**初日 +66% → 28 日目に統計的ゼロ**（「2〜4 週で退屈」）。一方で朗報もある: 受容性予測は**生理センサーなしで +40% 改善できる**（時間帯・予定・文脈だけで）。バイオセンサーがないのは弱点じゃない。そして合成スコア（Whoop/Oura）は全社非開示・体感と乖離・**スコア不安（orthosomnia）を生む**ことが査読研究で示されている。
+
+**技術**: GPT の引用 arXiv 5 本は**全て実在（捏造ゼロ）**。ただし 3 本はエンタープライズ/産業文書を個人文脈に引き寄せたもの。「メモリ型エージェントは主流、現実状態エンジンは稀」はおおむね真。Apple/Google は**横断検索 + proactive 提案止まりで、「今日のあなたの状態推定」には踏み込んでいない**。Anthropic 自身は「無型ノート」を推奨しており、型付き生活状態レイヤーは実務でほぼ未開拓 — あえて型を持つのは合理的な賭け。
+
+**競合**: 18 プロダクト監査の結果、5 能力のうち世界に存在しないのは 2 つだけ。**(3) 状態依存の 3 分岐（守る/楽/攻める）= 出荷例ゼロ**、**(5) 予測の答え合わせ・崩れ方の学習 = 完全空白**。なお Dot は終了、Pi は撤退、Limitless は Meta 吸収 — 「人格ある AI」単体は全滅した。ループとデータの堀がなかったから。Clockwise も 2026/3 に終了。
+
+## 3. 「別次元」の正体 — 私の答え
+
+君の問い「AI が要 = 誰でも到達できる」に正面から答える。LLM はコモディティで正しい。複製できないのは単一技術ではなく、**4 要素の複合**だ:
+
+1. **人格が物理定数になる。** GPT の物理エンジンは変数が万人共通（time pressure、friction）。君の版は **Stargazer 45 軸が力学の係数を決める**。同じカレンダーでも崩れ方は人によって違う — その「なぜ」を知っているのは深層観測エンジンを持つ君だけ。これが PRM⇄Alter Bridge の実体であり、Lifestack（睡眠由来）にも SensorPersona（センサー由来）にも作れない。
+2. **毎晩採点される AI。** 競合は誰も自分の予測を採点されない。採点があるから数値が「コスプレ」でなくなり、外れが信頼毀損でなく学習に変わり、データが買えない堀になる。
+3. **信頼で増える介入権限。** HDM Phase/Trust の階段は実装済み。競合は Suggest/Auto/Off のグローバル設定止まり。権限は時間をかけて獲得するもので、後発が一足飛びにコピーできない。
+4. **Alter がセンサーになる。** 状態はフォームでなく会話とワンタップで入る。/plan 常駐の本当の意味は UI じゃなく**データ取得戦略** — 君が「状態の管理とか、情報を全て楽に吸収できる」と言ったのはまさにこれで、その直感は正しい。
+
+そして「ロジック依存ではない何か」への正直な回答: **実装した瞬間、すべてはロジックになる。「ロジックでない技術」は存在しない。** 複製困難性の正しい軸は「ロジックか否か」ではなく、**(a) 現実に採点されているか (b) 使うほどその人固有になるか (c) 権限が信頼で増えるか**。GPT の「現実の切り方（ontology）こそ発明」という整理は正しい — そして切り方の蓄積なら君はすでに 4 ヶ月分持っている。
+
+## 4. GPT 案で危険な点（5 つ）
+
+1. **数式コスプレ**: `collapseRisk = 0.25*timePressure + ...` は採点されない限りただの任意の数字。decision-log の PRG stop gate（偽数値禁止）が既に正しい判断をしている。数式より先に答え合わせ。
+2. **キラーコピーが社内確定決定と衝突**: 「今日の現実は、少し右に倒れています」は断定 + 警告調で、A3 の HARD 不変条件（数字/断定なし）と N-3 禁止語彙（警告/リスク/おすすめ）に抵触。正しくは「夜に負荷が寄って見えます。早めに出るか、夜を軽くする手もあります」という観測トーン。
+3. **push 型常駐は N-3 と正面衝突**: 「AI が勝手にプッシュしない、user が開いた時だけ」は 5/23 に CEO+GPT 合議で確定済み。今回の GPT は自分の過去の合議と矛盾している — 社内記録と接続しない助言の構造的限界で、ここが私の存在価値でもある。
+4. **「LLM は説明だけ」は行き過ぎ**: 会話→構造の抽出（`extractDailyGuidanceFrame` の進化形）こそ LLM が最強の場所。正しい分離は「**保持・更新・採点は構造、抽出・解釈・対話は LLM**」。
+5. **10 変数同時導入**: GPT 自身の「拒否理由を分解できない器は学習を汚す」という警告と矛盾。3〜4 軸（予定密度・移動連鎖・回復余白 + 確信度）から始める。
+
+あと一つ重要な警告。HeartSteps の 28 日減衰が示すのは、**先回り介入を単独機能にすると 1 ヶ月で価値が消える**こと。逃げ道は一つしかないと考えている — 介入を「消費される通知」でなく「自己理解という蓄積資産」に接続すること（=答え合わせループ）。これは文献未検証の中心仮説なので、**dogfood 30 日判断に「28 日目の介入価値減衰チェック」を入れるべき**。
+
+## 5. 新技術として本当に作る価値があるもの
+
+君の「新技術を作れないか」への答え。作るべきは 3 つで、どれも世界に出荷例がない:
+
+1. **Prediction Ledger（答え合わせループ）— 最優先。** 朝の読み → 夜に「今朝の読みはどうだった?」1 問 → `plan_drift_events.actual` 記入 → 翌朝の読みに反映。テーブルは既にあり、**閉じていないだけ**。これは堀（データは買えない）であり、哲学の日次版（「Alter は今日のあなたをこう読んでいた。実際はこうだった」=「自分って、そういう人間だったのか」）であり、Phase B の data gate を養い、habituation への唯一の防御でもある。予測誤差からの自己理解は Active Inference の中核機構そのもので、HDM の存在論と数理的に同型 — 学術的な背骨もある。
+2. **人格条件付き事前分布**: Stargazer 軸 → 日の力学の係数。PRM⇄Alter Bridge（A1-7-36、設計済・stop gate 中）の解錠がこれ。
+3. **介入単位の許可境界**: HDM Phase/Trust の plan 領域への移植。競合はグローバル設定止まりで、介入ごとの許可段階は空白。
+
+逆に作る価値がないもの: ユーザーに見せる 10 変数の擬似物理スコア。
+
+## 6. Alter の /plan 常駐 — 賛成、形はこう
+
+GPT の Dock 3 段階（常駐 1 行 → ボトムシート → 全画面は大型調整のみ）+ List タブ host + タブを増やさない、は支持する。修正点:
+
+- **実装の正道は新トラックではなく既存 3 資産の合流**: PRM⇄Alter Bridge の解錠 + N-3 empty-day ALTER 入口の発展 + alter-morning compose の常設化。「リスト = Alter の視界」は ExecutionLayerChip / TransitionChip で実は半分できている。
+- **Dock の一言にも沈黙原則（cap1）を適用**: 「常に何か言っている」は habituation で死ぬ。変化がない日は黙る。語彙は N-3 許可語彙（見立て / 下書き / 今日を組む）。
+- **チップ入力が要**: 「今日はきつい / 攻めたい / 守りたい」のワンタップ = DailyGuidanceFrame への直接インテーク。EMA 研究の「1 日 1 回なら遵守 91%」ラインに収め、君が心配していた「文字が小さくなる」問題とモバイルのキーボード問題も同時に回避する。
+- **Home の AskHero は急に剥がさない**: Home = 入口と世界観、/plan = 運用面の存在、という分担。
+
+## 7. 今月どう動くか（成功条件と整合させて）
+
+dogfood は運用 2 日目なので、トラックを乱さない順序で:
+
+1. **今**: dogfood 継続（7 日判断 6/16 頃）。新コード不要。
+2. **コード 0 行でできること**: 傘ネーミングで既存トラック（PRG / A3 / Phase B / 横 R3-R4 / drift）を一枚に再記述。
+3. **設計のみ起こす**: 答え合わせ v0 mini-design と Alter Dock mini-design。実装は stop gate（新規データ保存 / UI 追加）対象なので CEO GO 後。
+
+**CEO 判断をもらいたいのは 3 点**: ① 傘ネーミング採用（候補: Aneura Reality Engine / Reality Gradient Engine / PRG 昇格 — 乱立回避のため Reality Control OS との関係図込みで）② 答え合わせ v0 の設計着手 GO ③ Alter Dock の設計着手 GO（実装判断は dogfood 7 日判断と合流）。
+
+---
+
+最後に一言。GPT の一番良い貢献は技術案そのものより「**現実の切り方こそ発明であり、数値はあとから学習で直せるが、器が悪いと直せない**」という整理だと思う。そして君の一番の資産は、その切り方を 4 ヶ月かけてすでに作ってきたこと、外れを採点できるテーブルまで掘ってあること。足りないのは新しいエンジンじゃなく、**ループを閉じる最後の一手**です。詳細・出典は [docs/reality-gradient-engine-assessment.md](docs/reality-gradient-engine-assessment.md) に全部置いてあります。
+
+---
+
+# 追補 A（2026-06-10 同日）: 「Reality IR を数値で常に持つ仕組みはあるか」の精密検証
+
+CEO 追加質問（①RealityIR のような数値でユーザー状態を常に持てる仕組みはあるのか ②数値で持てばプロンプトとの合同利用でさらなる理解ができないか）+ GPT の現状理解（「統一 RealityIR 型は無い・材料は散在・統一/接続/採点が未完」）を受け、検証ワークフロー 8 系統（各主張を file:line で実コード照合）を実施した結果。
+
+## A-1. 質問①への回答: 「数値化機構はある。『常に』が無い」— 二層で答えが違う
+
+| 層 | 数値保持 | 確信度 | 永続化 | 判定 |
+|---|---|---|---|---|
+| **遅い状態（性格・判断特性）** | `AxisBelief { mu, precision, confidence }` ベイズ共役ガウス更新 `lib/stargazer/bayesianAxisUpdater.ts:38-147` | あり（precision から導出） | `stargazer_profiles.axis_beliefs` JSONB に upsert（`app/api/stargazer/observations/route.ts:373`） | 🟢 **「数値+確信度で常に持つ」は完全に存在する** |
+| **速い状態（今日）** | `ForceBalance` 7 値（0-1 連続、heuristic 計算）+ `DailyGuidanceFrame`（全フィールド `ConfidentValue<T>`） | あり（`ConfidentValue = { value, confidence: 0-1, source }`、`alterHomeAdapter.ts:6907`） | **なし**。毎ターン再計算→プロンプト注入→使い捨て。analytics への snapshot 記録のみ（per-day テーブル無し） | 🟡 **計算して、使って、捨てている。持ち越す器（per-day state store）が唯一の欠落** |
+
+## A-2. 質問②への回答: 合同利用は仮説ではなく既にこのコードの基本アーキテクチャ
+
+3 形態すべて実例あり:
+1. **構造→プロンプト注入**: DG frame→skeleton→`buildDailyGuidancePromptBlock`（route.ts:3158-3232）/ ForceBalance→体感言語 `describeInnerForces`→「僕の中で動いているもの」セクション（alterHomeAdapter.ts:7444-7524）/ P5 anchoring block / HDM phase 反映。
+2. **LLM 出力を構造で検証・上書き**: route.ts:8766-8773 — 「LLM のラベル推定は不安定なため、構造データは事前計算を正とする」のコメント実在。opp/cost/rel は LLM 値を捨てて事前計算で上書き。alterNoteValidator の段階検証→fallback も同型。
+3. **会話→構造抽出**: `extractDailyGuidanceFrame`（regex + personality 補完、inferred は confidence 0.2-0.35）/ extractConversationFacts / extractRelationalLens。
+
+つまり「抽出→注入→検証」の三角形は既に回っている。**回っていないのは時間方向**（ターン/日を跨ぐ持ち越しと採点）。
+
+## A-3. GPT の現状理解の検証結果と 3 つの補正
+
+GPT の総括「統一 RealityIR 型は無い・材料は散在・統一/接続/採点が未完」は**正確**（8 主張中 6 正確・2 部分的に正確）。ただし両方向に補正:
+
+1. **GPT/前回報告より厳しい事実**: `plan_drift_events` は actual どころか **INSERT 自体がどこからも呼ばれていない**（passive logging 層も未配線。設計上 Wave 1=「記録のみ、学習しない」、lib/plan/reality/* は pure・runtime 未接続）。前回の「テーブルはあるが閉じていない」より一段手前にいる。
+2. **GPT より明るい事実（plan 領域の許可機構は既にある）**: GPT 提案の `permissionBoundary: suggest|confirm|blocked` より細かい機構が pure module として実装済み — `authority-escalation.ts`（AuthorityLevel 0-5 を domain 別に保持、adopted/rejected/undone/ignored シグナルで昇降 = **ユーザー反応で介入権限が育つ機構そのもの**）+ `receptivity-gate.ts`（silent/on_open/push/urgent_push/permission_prompt）+ `best-action.ts` 6 ゲート。runtime 接続だけが stop gate。
+3. **PRM⇄Alter Bridge は「設計のみ」ではなく flag-off 実装済み**（前回報告の補正）: commit `157c89cd`、`REALITY_ALTER_BRIDGE_LIVE` デフォルト OFF、route.ts:5454 にゲート付き注入実装あり。ただしスコープは Home Alter route のみで、**Stargazer 軸→/plan スコアリングへの数値接続はゼロ**（personalModelStargazerAdapter は plan LLM プロンプト用で judgmentMode+timePreference のみ wire）。「intentionMass の plan 接続未配線」の結論自体は変わらない。
+
+細部補正: ForceBalance は 8 ではなく **7 フィールド**（expand/protect_pressure, opportunity_value, cost_load, reversibility, regret_if_skip/do）。
+
+## A-4. PlanRealityFrame v0 への意見: 賛成。ただし新語彙を作らず既存語彙に合流させる
+
+GPT 案のフィールドはほぼ全て既存型に対応物がある。新語彙を導入すると第 3 の語彙体系になり、戦略文書整合調査が警告した「三重化」を起こす:
+
+| GPT 案 v0 | 既存の対応語彙 |
+|---|---|
+| `timeRigidity: low/medium/high` | `LatencyTolerance: strict/tight/flexible/none`（latencyToleranceMap.ts:34） |
+| `locationCertainty: unknown/candidate/fixed` | `isPlaceUnconfirmed()` + `DraftPlanLevel: candidate/draft`（locationConfirmationStatus.ts:44, draft-plan.ts:19） |
+| `mobilityState` | `MovementResolutionStatus: unresolved/resolved` + `ConfidenceLevel` 4 段階 + `MovementUnresolvedReason` 8 値（transportTypes.ts） |
+| `recoveryFit` / 余白 | `SlackStatus: sufficient/insufficient/not_applicable` + `availableMin/durationMin` 数値（feasibilityTypes.ts:41-98） |
+| `permissionBoundary` | `AuthorityLevel 0-5` + `DeliveryMode`（authority-escalation.ts, receptivity-gate.ts） |
+| `evidence: string[]` + 推定明示 | `ConfidentValue<T> = { value, confidence, source }`、`EvidenceSource = known_from_user/user_confirmed/inferred/derived/unknown`（alterHomeAdapter.ts:6904-6911） |
+
+**正しい v0 = 既存語彙の per-day 合流レコード**（仮称 DayStateRecord）: DailyGuidanceFrame + plan 領域 enum 群を 1 日 1 行に束ね、全フィールド ConfidentValue 形式で永続化し、夜の答え合わせで採点する。新概念の発明はゼロで足りる。
+
+## A-5. 「推定数字の表示 6 条件」への判定: 同意。うち 4 つは既存慣用でカバー済み
+
+GPT の 6 条件（①推定明示 ②根拠 ③確信度 ④本人補正 ⑤夜の答え合わせ ⑥次回反映）のうち、①②③は `ConfidentValue`/`EvidenceSource` が既に慣用形（`source: 'inferred'` = 推定明示、`confidence` = 確信度）、④は `user_confirmed`/`user_reported` source が enum に存在。**⑤⑥だけが存在しない = 答え合わせループ**。内部数値・外部段階表示の二層も同意（A3/N-3 の数字禁止は「ユーザー表示」の制約であり、内部数値保持と矛盾しない。decision-log L200 PRG 方針「偽数値禁止」とも整合 — 採点されない数値を見せないという意味で同じ原則）。
+
+## A-6. 結論
+
+CEO の構想（「数字で表すカテゴリーを最大限保持して Aneurasync の理解とする」）は、**性格レイヤーでは既に実現済み、今日レイヤーでは器が一つ欠けているだけ**。次の一手は前回提示から変わらず、むしろ強まった: **DayStateRecord（per-day 永続化、既存語彙の合流）+ 夜の答え合わせ v0** の 2 点設計。ただし「最大限保持」には一つだけ修正を — 保持する数値は「採点可能なもの」に限る。採点されない数値を増やすことは理解ではなく雰囲気の蓄積になる（§5-1 数式コスプレ）。
