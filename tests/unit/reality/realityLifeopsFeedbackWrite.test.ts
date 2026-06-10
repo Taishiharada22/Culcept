@@ -18,7 +18,7 @@ import {
   type LifeOpsFeedbackWriteIntent,
 } from "@/lib/plan/reality/lifeops/lifeops-feedback-write";
 import { createLifeOpsFeedbackWriter, type LifeOpsFeedbackWriteClient } from "@/lib/plan/reality/lifeops/lifeops-feedback-writer";
-import { m1RowsToLifeOpsFeedback, lifeOpsFeedbackHandle } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
+import { m1RowsToLifeOpsFeedback, lifeOpsFeedbackHandle, feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
 import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
@@ -51,15 +51,24 @@ describe("c9 — row builder（contract 値・read roundtrip）", () => {
       expires_at: null,
     });
   });
-  it("signal map は既存 M1 規約 mirror（accept→adoption / dismiss→non_adoption / later→deferral）", () => {
-    expect(LIFEOPS_FEEDBACK_SIGNAL).toEqual({ accept: "adoption", dismiss: "non_adoption", later: "deferral" });
+  it("signal map（M1 規約 mirror + ★c13 done→completion）", () => {
+    expect(LIFEOPS_FEEDBACK_SIGNAL).toEqual({ accept: "adoption", dismiss: "non_adoption", later: "deferral", done: "completion" });
     expect(buildLifeOpsFeedbackWriteRow(intent({ action: "dismiss" })).signal).toBe("non_adoption");
     expect(buildLifeOpsFeedbackWriteRow(intent({ action: "later" })).signal).toBe("deferral");
+    expect(buildLifeOpsFeedbackWriteRow(intent({ action: "done" })).signal).toBe("completion");
   });
-  it("★roundtrip: 書いた row を c8 read adapter に通すと同一観測に戻る（二重識別 source_kind も通過）", () => {
+  it("★roundtrip(accept/adoption): row → c8 → 同一観測・**cadence には入らない**", () => {
     const row = buildLifeOpsFeedbackWriteRow(intent());
     const obs = m1RowsToLifeOpsFeedback([{ handle: row.handle, action: row.action, acted_at: row.acted_at, source_kind: row.source_kind }]);
     expect(obs).toEqual([{ categoryId: "beauty_salon", menu: "cut", action: "accept", actedAtISO: "2026-06-11T10:00:00+09:00" }]);
+    expect(feedbackToCadence(obs)).toEqual([]); // 採用は完了ではない（c13）
+  });
+  it("★roundtrip(done/completion): row → c8 → 観測 → **cadence 1 件**（唯一の正式ソース）", () => {
+    const row = buildLifeOpsFeedbackWriteRow(intent({ action: "done" }));
+    expect(row.signal).toBe("completion");
+    const obs = m1RowsToLifeOpsFeedback([{ handle: row.handle, action: row.action, acted_at: row.acted_at, source_kind: row.source_kind }]);
+    expect(obs).toEqual([{ categoryId: "beauty_salon", menu: "cut", action: "done", actedAtISO: "2026-06-11T10:00:00+09:00" }]);
+    expect(feedbackToCadence(obs)).toEqual([{ categoryId: "beauty_salon", menu: "cut", lastCompletedAtISO: "2026-06-11T10:00:00+09:00" }]);
   });
   it("row に自由文/PII の経路がない（enum builder のみ・FORBIDDEN 不一致）", () => {
     expect(JSON.stringify(buildLifeOpsFeedbackWriteRow(intent({ categoryId: "tax_filing", menu: null })))).not.toMatch(FORBIDDEN);

@@ -74,3 +74,12 @@ CEO 推奨は `action=done / signal=completion` だが、本 smoke は **`action
 - **理由①（contract）**: c9 writer の DTO は `accept|dismiss|later`（§3: `done` は cadence 正式ソースとして**将来 action**＝proxy 退役 slice で writer/reader 同時対応と契約済）。smoke の目的は **c9 writer の実 DB 検証**ゆえ writer の実契約で書くのが正。
 - **理由②（決定的）**: c8 reader は現在 `done` を **drop する lock 済み**（c10）→ done で書くと read-after-write の `observations=1` が**構造的に達成不能**。
 - **理由③**: c11 で解消した blocker は `source_kind='lifeops'` であり accept row で**確実に行使**される。`done/completion` の DDL 受理は c11 POST（constraint def）で証明済み＝insert での再証明は不要。
+
+---
+
+## 10. A-4-c13 done/completion 正式対応（2026-06-11・完了）
+
+- **意味論の完成**: `accept`=採用(intent)・`done`=完了(事実)・`dismiss`=不要・`later`=後で。**cadence を動かせるのは done のみ**（§3 の将来欄を現行化）。
+- 変更: c9 action union+=done / SIGNAL+=done→completion / c8 ACTIONS+=done / **`feedbackToTentativeCadence`（accept proxy）を削除＝退役**→`feedbackToCadence`（done のみ）に置換（production caller ゼロを確認の上）。
+- roundtrip を**別々に lock**: accept/adoption→観測一致∧**cadence 0 件** / done/completion→観測一致∧**cadence 1 件**。dismiss/later は cadence 不使用維持。二重識別・episodic 防御・production block は不変。
+- **staging smoke（c13 条件版）FULL PASS**: before lifeops=0→done row 1 件 insert→observations=1（action=done）→**cadence 1 件・lastCompletedAtISO=送信時刻（<1s）**→cleanup（handle+source_kind+action=done）→lifeops=0・total 不変。

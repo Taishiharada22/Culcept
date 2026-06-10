@@ -13,7 +13,7 @@ import {
   lifeOpsFeedbackHandle,
   parseLifeOpsFeedbackHandle,
   m1RowsToLifeOpsFeedback,
-  feedbackToTentativeCadence,
+  feedbackToCadence,
   isLifeOpsFeedbackReadAllowed,
 } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
@@ -61,9 +61,9 @@ describe("c8 — M1 rows → 観測（enum + ISO のみ）", () => {
     ]);
     expect(obs.map((o) => `${o.categoryId}:${o.action}`)).toEqual(["groceries:accept", "eyebrow:later"]);
   });
-  it("★A-4-c10 lock: action='done' は現 c8 では読まない（migration 後も・done 対応は将来 slice で proxy 退役と同時）", () => {
+  it("★A-4-c13: action='done' を正式に読む（completion semantics・proxy 退役と同時に対応）", () => {
     const obs = m1RowsToLifeOpsFeedback([{ handle: "lifeops:groceries", action: "done", acted_at: "2026-06-11T09:00:00+09:00", source_kind: "lifeops" }]);
-    expect(obs).toEqual([]);
+    expect(obs).toEqual([{ categoryId: "groceries", menu: null, action: "done", actedAtISO: "2026-06-11T09:00:00+09:00" }]);
   });
   it("出力 JSON に自由文/PII が混ざらない（FORBIDDEN 不一致）", () => {
     const obs = m1RowsToLifeOpsFeedback([...rows, { handle: "lifeops:utterance personality 09099998888", action: "accept", acted_at: "2026-06-05T00:00:00+09:00" }]);
@@ -72,19 +72,26 @@ describe("c8 — M1 rows → 観測（enum + ISO のみ）", () => {
   });
 });
 
-describe("c8 — tentative cadence（accept=完了 proxy・明示）", () => {
+describe("★A-4-c13 — cadence は done のみ（accept-proxy 退役）", () => {
   const obs = m1RowsToLifeOpsFeedback([
-    { handle: "lifeops:beauty_salon:cut", action: "accept", acted_at: "2026-05-01T10:00:00+09:00" },
-    { handle: "lifeops:beauty_salon:cut", action: "accept", acted_at: "2026-06-01T10:00:00+09:00" }, // 同 key 最新
-    { handle: "lifeops:groceries", action: "dismiss", acted_at: "2026-06-02T10:00:00+09:00" }, // dismiss は cadence に使わない
-    { handle: "lifeops:eyebrow", action: "later", acted_at: "2026-06-03T10:00:00+09:00" }, // later も使わない
+    { handle: "lifeops:beauty_salon:cut", action: "accept", acted_at: "2026-06-05T10:00:00+09:00" }, // 採用 intent → cadence 不使用
+    { handle: "lifeops:beauty_salon:cut", action: "done", acted_at: "2026-05-01T10:00:00+09:00" },
+    { handle: "lifeops:beauty_salon:cut", action: "done", acted_at: "2026-06-01T10:00:00+09:00" }, // 同 key 最新 done
+    { handle: "lifeops:groceries", action: "dismiss", acted_at: "2026-06-02T10:00:00+09:00" }, // 不要 → 不使用
+    { handle: "lifeops:eyebrow", action: "later", acted_at: "2026-06-03T10:00:00+09:00" }, // 後で → 不使用
   ]);
-  it("accept のみ・key ごと最新 1 件 → CadenceObservation", () => {
-    const cad = feedbackToTentativeCadence(obs);
+  it("done のみ・key ごと最新 1 件 → CadenceObservation（後日の accept があっても無視）", () => {
+    const cad = feedbackToCadence(obs);
     expect(cad).toEqual([{ categoryId: "beauty_salon", menu: "cut", lastCompletedAtISO: "2026-06-01T10:00:00+09:00" }]);
   });
-  it("accept ゼロ → []（候補化しすぎない）", () => {
-    expect(feedbackToTentativeCadence(m1RowsToLifeOpsFeedback([{ handle: "lifeops:groceries", action: "dismiss", acted_at: "2026-06-02T10:00:00+09:00" }]))).toEqual([]);
+  it("accept だけ（done ゼロ）→ []（採用しただけで完了扱いにしない＝周期学習を歪めない）", () => {
+    expect(feedbackToCadence(m1RowsToLifeOpsFeedback([{ handle: "lifeops:groceries", action: "accept", acted_at: "2026-06-02T10:00:00+09:00" }]))).toEqual([]);
+  });
+  it("dismiss/later だけ → []", () => {
+    expect(feedbackToCadence(m1RowsToLifeOpsFeedback([
+      { handle: "lifeops:groceries", action: "dismiss", acted_at: "2026-06-02T10:00:00+09:00" },
+      { handle: "lifeops:eyebrow", action: "later", acted_at: "2026-06-03T10:00:00+09:00" },
+    ]))).toEqual([]);
   });
 });
 

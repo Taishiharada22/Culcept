@@ -27,13 +27,14 @@ export function lifeOpsFeedbackHandle(categoryId: LifeOpsCategoryId, menu: Beaut
 }
 
 const MENUS: ReadonlySet<string> = new Set(["cut", "color", "treatment"]);
-const ACTIONS: ReadonlySet<string> = new Set(["accept", "dismiss", "later"]);
+const ACTIONS: ReadonlySet<string> = new Set(["accept", "dismiss", "later", "done"]); // A-4-c13: done 正式対応
 
 /** 中間 DTO（enum + ISO のみ・自由文なし）。 */
 export interface LifeOpsFeedbackObservation {
   readonly categoryId: LifeOpsCategoryId;
   readonly menu: BeautyMenu | null;
-  readonly action: "accept" | "dismiss" | "later";
+  /** accept=採用(intent) / done=完了(事実・cadence の唯一の正式ソース) / dismiss=不要 / later=後で。 */
+  readonly action: "accept" | "dismiss" | "later" | "done";
   readonly actedAtISO: string;
 }
 
@@ -78,13 +79,14 @@ export function m1RowsToLifeOpsFeedback(rows: readonly LifeOpsFeedbackSourceRow[
 }
 
 /**
- * feedback → **tentative** cadence（accept のみ・key ごと最新 1 件）。
- *   ★accept=「完了」の **proxy**（採用≒実施の暫定仮定・確定完了シグナルは将来 slice）。dismiss/later は cadence に使わない。
+ * feedback → cadence（**done のみ・key ごと最新 1 件**）。A-4-c13 で accept-proxy を**退役**。
+ *   ★cadence（前回完了日）を動かしてよいのは **done=「やった/完了」（事実）だけ**。
+ *   accept=採用（intent）/ dismiss=不要 / later=後で は **cadence に使わない**（採用しただけで完了扱いにすると周期学習が歪む）。
  */
-export function feedbackToTentativeCadence(observations: readonly LifeOpsFeedbackObservation[]): readonly CadenceObservation[] {
+export function feedbackToCadence(observations: readonly LifeOpsFeedbackObservation[]): readonly CadenceObservation[] {
   const latest = new Map<string, LifeOpsFeedbackObservation>();
   for (const o of observations) {
-    if (o.action !== "accept") continue;
+    if (o.action !== "done") continue; // done 以外は cadence を動かさない（accept proxy は c13 で退役）
     const key = `${o.categoryId}:${o.menu ?? ""}`;
     const prev = latest.get(key);
     if (!prev || Date.parse(o.actedAtISO) > Date.parse(prev.actedAtISO)) latest.set(key, o);

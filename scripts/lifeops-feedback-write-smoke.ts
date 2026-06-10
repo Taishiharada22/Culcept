@@ -1,11 +1,11 @@
 #!/usr/bin/env tsx
 /**
- * Life Ops — A-4-c12 1-row Staging Write Smoke（**insert 1 行のみ→read-after-write→cleanup→0**・production 0）
+ * Life Ops — A-4-c12/c13 1-row Staging Write Smoke（**insert 1 行のみ→read-after-write→cleanup→0**・production 0）
  *
  * 役割: A-4-c9 writer を **初めて実 staging DB に 1 件だけ**通し、A-4-c8 reader chain で read-after-write
  *   （lifeops_prefix=1 / observations=1 / parse OK）を確認し、**当該 1 行だけ**を cleanup して 0 に戻す。
- *   row = `lifeops:beauty_salon:cut` / action=accept / signal=adoption / source_kind=lifeops
- *   （done でない理由は c9 doc §9: writer contract が accept|dismiss|later・c8 は done を drop する lock 済み）。
+ *   row = `lifeops:beauty_salon:cut` / **action=done / signal=completion** / source_kind=lifeops（A-4-c13 正式対応後）。
+ *   read-after-write で observations=1 に加え **feedbackToCadence=1 件**（done が唯一の cadence ソース）を確認する。
  *
  * 実行: LIFEOPS_FEEDBACK_WRITE_SMOKE_GO=1 LIFEOPS_REALDATA_READONLY=true LIFEOPS_FEEDBACK_WRITE=true \
  *   LIFEOPS_FEEDBACK_READONLY=true NODE_OPTIONS="--conditions=react-server" npx tsx scripts/lifeops-feedback-write-smoke.ts
@@ -22,6 +22,7 @@ import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/de
 import { createLifeOpsFeedbackWriter, type LifeOpsFeedbackWriteClient } from "@/lib/plan/reality/lifeops/lifeops-feedback-writer";
 import { isLifeOpsFeedbackWriteAllowed } from "@/lib/plan/reality/lifeops/lifeops-feedback-write";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
+import { feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import { PRM_LEARNING_EVENTS_TABLE } from "@/lib/plan/reality/learning/supabase-prm-learning-event-repository";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
@@ -52,7 +53,7 @@ function preflight(): void {
   const ref = host.match(/^([a-z0-9]+)\.supabase\.(co|in)$/)?.[1];
   if (ref === PRODUCTION_PROJECT_REF) fatal("PRODUCTION GUARD: host 本番。");
   if (ref !== STAGING_PROJECT_REF) fatal("STAGING GUARD: host ref 不一致。");
-  log(`▶ target = staging host ${host}（A-4-c12 1-row write smoke）`);
+  log(`▶ target = staging host ${host}（A-4-c12/c13 1-row write smoke）`);
 }
 
 async function countWhere(sb: ReturnType<typeof createClient>, like: string | null): Promise<number> {
@@ -84,15 +85,16 @@ async function main(): Promise<void> {
   log(`▶ before: total=${beforeTotal} lifeops_prefix=${beforeLifeops}`);
   if (beforeLifeops !== 0) fatal("before lifeops_prefix ≠ 0 → insert せず停止（CEO 判断へ）。");
 
-  // ── 1 row insert（c9 writer 経由・action=accept/signal=adoption/source_kind=lifeops）──
+  // ── 1 row insert（c9 writer 経由・action=done/signal=completion/source_kind=lifeops・A-4-c13）──
   const writer = createLifeOpsFeedbackWriter(sb as unknown as LifeOpsFeedbackWriteClient, userId, env);
-  const result = await writer.writeFeedback({ categoryId: "beauty_salon", menu: "cut", action: "accept", actedAtISO: new Date().toISOString() });
+  const sentISO = new Date().toISOString();
+  const result = await writer.writeFeedback({ categoryId: "beauty_salon", menu: "cut", action: "done", actedAtISO: sentISO });
   log(`▶ write: written=${result.written} reason=${result.reason}`);
   if (!result.written) {
     // CHECK 未拡張なら insert_failed（row 未作成＝cleanup 不要）。機能的証明の失敗として停止。
     fatal(`writer 失敗（reason=${result.reason}）→ row 未作成のため cleanup 不要・停止。`);
   }
-  pass = ok(result.reason === "ok", "insert: writer 経由で 1 行のみ（CHECK 拡張の機能的証明=lifeops 受理）") && pass;
+  pass = ok(result.reason === "ok", "insert: writer 経由で 1 行のみ（done/completion/lifeops の機能的証明）") && pass;
 
   // ── read-after-write ──
   const afterInsertLifeops = await countWhere(sb, "lifeops:%");
@@ -101,7 +103,13 @@ async function main(): Promise<void> {
   const obs = await source.readObservations();
   pass = ok(obs.length === 1, `c8 adapter: observations=1（実測 ${obs.length}）`) && pass;
   if (obs.length === 1) {
-    pass = ok(obs[0].categoryId === "beauty_salon" && obs[0].menu === "cut" && obs[0].action === "accept", "parse: category/menu/action が roundtrip 一致") && pass;
+    pass = ok(obs[0].categoryId === "beauty_salon" && obs[0].menu === "cut" && obs[0].action === "done", "parse: category/menu/action=done が roundtrip 一致") && pass;
+    const cad = feedbackToCadence(obs);
+    pass = ok(cad.length === 1, `★cadence: done → CadenceObservation 1 件（実測 ${cad.length}）`) && pass;
+    if (cad.length === 1) {
+      const drift = Math.abs(Date.parse(cad[0].lastCompletedAtISO) - Date.parse(sentISO));
+      pass = ok(cad[0].categoryId === "beauty_salon" && cad[0].menu === "cut" && drift < 1000, "cadence: lastCompletedAtISO が送信時刻と一致（<1s）") && pass;
+    }
   }
 
   // ── cleanup（exact row のみ: handle+source_kind+action の 3 条件・owner-RLS 内）──
@@ -110,9 +118,9 @@ async function main(): Promise<void> {
     .delete()
     .eq("handle", SMOKE_HANDLE)
     .eq("source_kind", "lifeops")
-    .eq("action", "accept");
+    .eq("action", "done");
   if (del.error) {
-    fatal(`cleanup 失敗: ${del.error.message} → 残存条件: handle='${SMOKE_HANDLE}' AND source_kind='lifeops' AND action='accept'（CEO 判断へ・広範囲 DELETE はしない）。`);
+    fatal(`cleanup 失敗: ${del.error.message} → 残存条件: handle='${SMOKE_HANDLE}' AND source_kind='lifeops' AND action='done'（CEO 判断へ・広範囲 DELETE はしない）。`);
   }
   const afterTotal = await countWhere(sb, null);
   const afterLifeops = await countWhere(sb, "lifeops:%");

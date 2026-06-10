@@ -79,3 +79,9 @@
 - **write: written=true**（=CHECK 拡張の機能的証明・lifeops 受理）→ **read-after-write: lifeops_prefix=1・c8 observations=1・parse roundtrip 一致** → **cleanup: lifeops=0・total=0=before**（既存 M1 不干渉・3 条件 eq の exact 削除）
 - ★**実バグ発見→修正→lock**（smoke の価値）: c9 writer が `captured_at: null` を明示送信→PostgREST は明示 null で DEFAULT を使わず **NOT NULL 違反**で insert_failed（fail-open が正しく作動・row 未作成で停止）。修正=payload から captured_at を**省略**（DB DEFAULT NOW()）+ fake-client lock test 追加
 - log: counts/boolean/stage のみ（full row/user_id/raw 非出力）・PII 0・production 0
+
+### [2026-06-11] record 17 — A-4-c13 done/completion staging smoke（real・FULL PASS）
+- 変更後初の done 経路: row=`lifeops:beauty_salon:cut` / **action=done / signal=completion** / source_kind=lifeops
+- gate 開(staging)/閉(production)・before total=0/lifeops=0 → **write=ok** → observations=1（action=done）→ **★cadence=1 件・lastCompletedAtISO=送信時刻と一致(<1s)** → cleanup(3 条件 eq・action=done)→lifeops=0・total=0=before
+- 意味論: **accept は cadence 0 件**（採用≠完了・unit lock）・done だけが「前回完了日」を動かす
+- log: counts/boolean のみ・PII 0・production 0
