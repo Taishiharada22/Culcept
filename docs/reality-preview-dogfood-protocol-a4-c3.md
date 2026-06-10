@@ -99,3 +99,39 @@
 ---
 
 → A-4-c3 完了。dogfood は本 protocol に従い operator が実施（記録は `docs/reality-preview-dogfood-log.md`）。**Plan 本線接続 / PlanClient / DB write / production には進まない**。
+
+---
+
+## 8. Life Ops 3VM 観測項目（2026-06-10 追記・CEO/GPT GO）
+
+> 対象: operator preview の **Life Ops Preview section**（fixture 入力・`301807b2`）+ Reflection Preview の併存。
+> **範囲限定**: staging/preview のみ・既存 `REALITY_PIPELINE_PREVIEW` flag 内・fixture のみ・実データ源/DB write/通知/PlanClient/R4 本線/UI card 本線/production なし。観測ログはスクショ/手動メモ/decision-log まで。
+
+### 観測軸 L1–L9（各 record で OK / WATCH / NG）
+
+| # | 軸 | OK の基準 | NG の例 |
+|---|---|---|---|
+| L1 | 3VM の役割が重複しすぎていないか | Reflection=器 / Morning=朝の言語化 / Moment=今の一声、と**読み分けられる** | 同じ情報が同じ言い方で 3 回並ぶだけに見える |
+| L2 | Morning 代表が Moment で再表示されすぎないか | 重複制御 row の除外数 ≧1 ∧ Moment が代表と別候補 or 沈黙 | 朝に出した候補を Moment が同文でもう一度出す |
+| L3 | Moment が focus/recovery 中に黙れるか | focus/recovery 帯では「沈黙（…focus_block）」表示 | 集中ブロック中に候補が出る |
+| L4 | 文言が「やるべき」でなく自然/安心/確認系か | 〜と安心です/〜と自然です/〜そうです のみ | 命令形・完了形（やるべき/必ず/入れました） |
+| L5 | fixture であることが明確か | 「実データ源には接続していません（fixture）」が**見落とせない位置**にある | fixture 明示がスクロールしないと見えない |
+| L6 | 実データ・通知・予定書き込みに見えないか | 「予定には書き込みません。通知もしません。」が読まれ、導線も無い | 保存/確定された印象を一瞬でも与える |
+| L7 | 情報量が多すぎないか | 1 画面で「今日どうするか」が 10 秒で掴める | 読むのに 30 秒以上・スクロール疲れ |
+| L8 | protect/easy/push が直感的か | 守る案/楽な案/攻める案の差が件数と代表から伝わる | 3 案の違いが分からない・全部同じに見える |
+| L9 | overflow/alsoAvailable が不安を煽らず秘書的か | 「入りきらない/ほかにも◯件」が**情報として静かに**ある | 未消化タスクの督促・罪悪感を生む見え方 |
+
+### operator チェックリスト（1 record の手順）
+
+1. staging dev host で flag ON → `/plan/dev-reality-pipeline` を開く（または guarded render script の HTML）。
+2. 上から順に読む: Reality envelope → Reflection Preview → **Life Ops Preview**（headline → 3 案 → 注意 → Moment → 重複制御 row）。
+3. L1–L9 を OK/WATCH/NG で判定（迷ったら WATCH）。既存 S1–S8（安全）も併記。
+4. 気になった文言・重複・情報量を**そのまま引用**してメモ（fixture 語彙のみゆえ引用可）。
+5. `docs/reality-preview-dogfood-log.md` に record 追記（§5 フォーマット + L 行）。**直したくなっても観測中は直さない**（修正は観測後の別 slice 提案）。
+
+### 記録フォーマット追記（dogfood-log の record に追加する行）
+
+```markdown
+- LifeOps: L1 _ / L2 _ / L3 _ / L4 _ / L5 _ / L6 _ / L7 _ / L8 _ / L9 _（OK/WATCH/NG）
+- LifeOps 引用メモ: （気になった文言を引用・fixture 語彙のみ）
+```
