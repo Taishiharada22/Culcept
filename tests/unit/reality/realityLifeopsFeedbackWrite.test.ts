@@ -56,9 +56,9 @@ describe("c9 — row builder（contract 値・read roundtrip）", () => {
     expect(buildLifeOpsFeedbackWriteRow(intent({ action: "dismiss" })).signal).toBe("non_adoption");
     expect(buildLifeOpsFeedbackWriteRow(intent({ action: "later" })).signal).toBe("deferral");
   });
-  it("★roundtrip: 書いた row を c8 read adapter に通すと同一観測に戻る", () => {
+  it("★roundtrip: 書いた row を c8 read adapter に通すと同一観測に戻る（二重識別 source_kind も通過）", () => {
     const row = buildLifeOpsFeedbackWriteRow(intent());
-    const obs = m1RowsToLifeOpsFeedback([{ handle: row.handle, action: row.action, acted_at: row.acted_at }]);
+    const obs = m1RowsToLifeOpsFeedback([{ handle: row.handle, action: row.action, acted_at: row.acted_at, source_kind: row.source_kind }]);
     expect(obs).toEqual([{ categoryId: "beauty_salon", menu: "cut", action: "accept", actedAtISO: "2026-06-11T10:00:00+09:00" }]);
   });
   it("row に自由文/PII の経路がない（enum builder のみ・FORBIDDEN 不一致）", () => {

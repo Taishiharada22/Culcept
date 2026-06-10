@@ -53,6 +53,18 @@ describe("c8 — M1 rows → 観測（enum + ISO のみ）", () => {
     const obs = m1RowsToLifeOpsFeedback(rows);
     expect(obs.map((o) => `${o.categoryId}:${o.action}`)).toEqual(["eyebrow:later", "beauty_salon:accept", "groceries:dismiss"]);
   });
+  it("★A-4-c10 二重識別: source_kind が与えられ 'lifeops' でない行は prefix が合っても drop", () => {
+    const obs = m1RowsToLifeOpsFeedback([
+      { handle: "lifeops:groceries", action: "accept", acted_at: "2026-06-11T09:00:00+09:00", source_kind: "seed_explicit" }, // 偽装/バグ行 → drop
+      { handle: "lifeops:groceries", action: "accept", acted_at: "2026-06-11T10:00:00+09:00", source_kind: "lifeops" }, // 正規（migration 後の実 row 形）
+      { handle: "lifeops:eyebrow", action: "later", acted_at: "2026-06-11T11:00:00+09:00" }, // source_kind 未指定（legacy/fake）→ prefix のみで可
+    ]);
+    expect(obs.map((o) => `${o.categoryId}:${o.action}`)).toEqual(["groceries:accept", "eyebrow:later"]);
+  });
+  it("★A-4-c10 lock: action='done' は現 c8 では読まない（migration 後も・done 対応は将来 slice で proxy 退役と同時）", () => {
+    const obs = m1RowsToLifeOpsFeedback([{ handle: "lifeops:groceries", action: "done", acted_at: "2026-06-11T09:00:00+09:00", source_kind: "lifeops" }]);
+    expect(obs).toEqual([]);
+  });
   it("出力 JSON に自由文/PII が混ざらない（FORBIDDEN 不一致）", () => {
     const obs = m1RowsToLifeOpsFeedback([...rows, { handle: "lifeops:utterance personality 09099998888", action: "accept", acted_at: "2026-06-05T00:00:00+09:00" }]);
     expect(JSON.stringify(obs)).not.toMatch(FORBIDDEN);

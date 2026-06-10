@@ -42,6 +42,11 @@ export interface LifeOpsFeedbackSourceRow {
   readonly handle: string;
   readonly action: string;
   readonly acted_at: string;
+  /**
+   * A-4-c10 二重識別: 与えられた場合は `'lifeops'` のみ通す（handle prefix との **AND**・CEO 方針）。
+   *   未指定（legacy/fake row）は prefix のみで判定（後方互換）。CHECK 拡張 migration 後の実 row は常に持つ。
+   */
+  readonly source_kind?: string;
 }
 
 /** handle → {categoryId, menu}（**辞書 firewall**・不一致は null=drop）。 */
@@ -64,6 +69,7 @@ export function m1RowsToLifeOpsFeedback(rows: readonly LifeOpsFeedbackSourceRow[
   for (const r of rows) {
     const parsed = parseLifeOpsFeedbackHandle(r.handle);
     if (!parsed) continue; // 非 lifeops / 辞書外 → 黙って drop（PII を出力に入れない）
+    if (r.source_kind !== undefined && r.source_kind !== "lifeops") continue; // 二重識別（prefix ∧ source_kind・c10）
     if (!ACTIONS.has(r.action)) continue;
     if (Number.isNaN(Date.parse(r.acted_at))) continue;
     out.push({ categoryId: parsed.categoryId, menu: parsed.menu, action: r.action as LifeOpsFeedbackObservation["action"], actedAtISO: r.acted_at });

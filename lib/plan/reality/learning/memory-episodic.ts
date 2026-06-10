@@ -40,5 +40,10 @@ export function learningEventToEpisodicMemory(row: PrmLearningEventReadRow): Mem
 
 /** 複数 M1 row → episodic MemoryItem[]（**action 不正な row は skip**＝防御・DB CHECK 前提だが loose row 耐性）。 */
 export function learningEventsToEpisodicMemory(rows: readonly PrmLearningEventReadRow[]): readonly MemoryItem[] {
-  return rows.filter((r) => isValidActionKind(r.action as CandidateActionKind)).map(learningEventToEpisodicMemory);
+  return rows
+    // A-4-c10 先回り防御: Life Ops feedback 行（handle 'lifeops:' namespace・将来 write・CHECK 拡張 migration 後）は
+    //   plan-seed 文脈の episodic memory に**混入させない**（Life Ops 側は専用 adapter（c8）が読む・migration 前でも無害な additive filter）。
+    .filter((r) => !r.handle.startsWith("lifeops:"))
+    .filter((r) => isValidActionKind(r.action as CandidateActionKind))
+    .map(learningEventToEpisodicMemory);
 }

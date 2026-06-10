@@ -62,4 +62,11 @@ describe("R1-4 learningEventsToEpisodicMemory", () => {
     expect(out).toHaveLength(2);
     expect(out.every((m) => m.kind === "episodic")).toBe(true);
   });
+  it("★A-4-c10 先回り防御: handle 'lifeops:' 行は episodic 化しない（Life Ops は専用 adapter が読む）", () => {
+    const out = learningEventsToEpisodicMemory([
+      row({ action: "accept" }),
+      row({ action: "accept", handle: "lifeops:beauty_salon:cut" }), // 将来の Life Ops feedback 行 → 混入させない
+    ]);
+    expect(out).toHaveLength(1);
+  });
 });
