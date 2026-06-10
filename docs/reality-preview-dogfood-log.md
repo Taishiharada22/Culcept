@@ -217,3 +217,11 @@
 - ★polish 1 件実装: result 行を token 種別で色分け — **ok/ok_done のみ成功色（emerald・bold）**・duplicate/gate_off/invalid/denied/failed は **amber・非 bold（data-result-kind="notice"）**＝「過剰な成功表示を出さない」への直接対応。render contract test 3 case 追加
 - CEO 観測手順（A=later／B=dismiss／C=cooldown 連打）整備: 各 action 後 cleanup（ACTION 差替）・C は「2 回目が重複文言（amber）・obs=1 のまま・cleanup 対象 1 件」自体が cooldown の証明。done は今回不使用
 - full suite 20509 GREEN・tsc 55
+
+### [2026-06-11] record 37 — A-4-c24 CEO 観測 **PASS（later/dismiss/cooldown E2E 完結・c19 観測条件 全充足）**
+- A later: 文言 OK・obs=1・**fbCad=0/realCad=0**（cadence 不影響を実証）→ cleanup → 0
+- B dismiss: 同上 → cleanup → 0
+- C cooldown: 1 回目=記録（成功色）・2 回目=**重複文言（amber・非成功色＝c24 polish が実地で機能）**・obs=1 のまま。**DB 側証拠: later 行がちょうど 1 件**（連打でも 2 件目が書かれない）
+- cleanup: ①later=対象 0 件で**冪等 path が実地で正動作**（先行削除済みでも安全）②dismiss=exact 1 件削除 → ③最終 smoke **全 0**（total/lifeops/obs/fbCad/realCad）
+- UX 違和感報告なし
+- ★**c19 観測条件 全充足**: ①実データ反映妥当性（cycle/deadline）②done→候補変化体感 ③390px ④cooldown 実挙動 ⑤action E2E（later×2/dismiss×1/done×3・accept=hold につき対象外）
