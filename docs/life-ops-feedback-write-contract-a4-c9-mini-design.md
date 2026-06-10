@@ -65,3 +65,12 @@
 
 ## 8. 実装ファイル
 pure `lifeops-feedback-write.ts`（intent/row builder/SIGNAL map/cooldown guard/gate）・server-only `lifeops-feedback-writer.ts`（gate-first・insert のみ・fail-open）・featureFlags（+1 dormant）・tests（roundtrip/gate/cooldown/fake-client query 数/source-contract）。
+
+---
+
+## 9. A-4-c12 1-row Write Smoke の action 整合（2026-06-11）
+
+CEO 推奨は `action=done / signal=completion` だが、本 smoke は **`action=accept / signal=adoption / source_kind=lifeops`** で実施する。
+- **理由①（contract）**: c9 writer の DTO は `accept|dismiss|later`（§3: `done` は cadence 正式ソースとして**将来 action**＝proxy 退役 slice で writer/reader 同時対応と契約済）。smoke の目的は **c9 writer の実 DB 検証**ゆえ writer の実契約で書くのが正。
+- **理由②（決定的）**: c8 reader は現在 `done` を **drop する lock 済み**（c10）→ done で書くと read-after-write の `observations=1` が**構造的に達成不能**。
+- **理由③**: c11 で解消した blocker は `source_kind='lifeops'` であり accept row で**確実に行使**される。`done/completion` の DDL 受理は c11 POST（constraint def）で証明済み＝insert での再証明は不要。

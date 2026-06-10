@@ -67,8 +67,11 @@ export function createLifeOpsFeedbackWriter(client: LifeOpsFeedbackWriteClient, 
         return { written: false, reason: "duplicate_cooldown" }; // query 0
       }
       const row = buildLifeOpsFeedbackWriteRow(intent);
+      // A-4-c12 実バグ修正: PostgREST は明示 null で DEFAULT を使わない → NOT NULL の captured_at は
+      //   **payload から省略**して DB DEFAULT NOW() を効かせる（c12 smoke が NOT NULL 違反で発見）。
+      const { captured_at: _omitForDbDefault, ...payload } = row;
       try {
-        const res = await client.from(PRM_LEARNING_EVENTS_TABLE).insert([{ ...row, user_id: userId }]);
+        const res = await client.from(PRM_LEARNING_EVENTS_TABLE).insert([{ ...payload, user_id: userId }]);
         if (res.error) return { written: false, reason: "insert_failed" }; // fail-open（throw しない）
         return { written: true, reason: "ok" };
       } catch {

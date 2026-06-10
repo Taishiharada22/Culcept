@@ -72,3 +72,10 @@
 - real read（owner・LIMIT50）: **M1 total=0・lifeops_prefix=0** → source chain observations=**0**（write 経路未実装ゆえの honest 結果）
 - 安全: select/eq/order/limit のみ・write 0・cleanup 不要・row 内容は log 非出力（counts/shape のみ）・service_role fatal
 - 学び: 実データ第 1 段の「読める・漏れない・黙って消えない」枠組みが real DB で成立。次に意味あるデータが流れるのは lifeops feedback **write**（別 gate）以降
+
+### [2026-06-11] record 16 — A-4-c12 1-row staging write smoke（real・FULL PASS）
+- 前提: c11 で CHECK 拡張 staging apply 済（CEO 実行）。row = `lifeops:beauty_salon:cut` / accept / adoption / lifeops（done でない理由=c9 doc §9: writer contract+c8 が done を drop する lock）
+- gate: staging+flags で開 / production URL 常に閉 / before total=0・lifeops=0
+- **write: written=true**（=CHECK 拡張の機能的証明・lifeops 受理）→ **read-after-write: lifeops_prefix=1・c8 observations=1・parse roundtrip 一致** → **cleanup: lifeops=0・total=0=before**（既存 M1 不干渉・3 条件 eq の exact 削除）
+- ★**実バグ発見→修正→lock**（smoke の価値）: c9 writer が `captured_at: null` を明示送信→PostgREST は明示 null で DEFAULT を使わず **NOT NULL 違反**で insert_failed（fail-open が正しく作動・row 未作成で停止）。修正=payload から captured_at を**省略**（DB DEFAULT NOW()）+ fake-client lock test 追加
+- log: counts/boolean/stage のみ（full row/user_id/raw 非出力）・PII 0・production 0

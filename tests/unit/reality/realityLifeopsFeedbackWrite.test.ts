@@ -127,6 +127,7 @@ describe("c9 — server-only writer（fake client・insert 回数を観測）", 
     expect(payload.user_id).toBe("user-1");
     expect(payload.handle).toBe("lifeops:beauty_salon:cut");
     expect(payload.source_kind).toBe("lifeops");
+    expect("captured_at" in payload).toBe(false); // ★c12 実バグ lock: 明示 null は DEFAULT を使わない→省略で DB NOW()
   });
   it("insert error → throw せず reason=insert_failed（fail-open）", async () => {
     const c = { inserts: 0, payloads: [] as Record<string, unknown>[][] };
