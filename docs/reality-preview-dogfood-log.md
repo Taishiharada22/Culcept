@@ -241,3 +241,12 @@
 - builder rework: items を selector candidates から直接構成（label/phrase=縦 L-8a・actions=c15 filter・key=momentKey）。fixture_allowed 出力は従来と**完全一致**（c25 JSON 等価 lock 維持）・model+=pooledCandidates（additive）
 - ★c25 finding 解消: real_only の cycle 1 件（push のみ）でも card に 1 件出る（⑪ test）。fallback 候補は action 照合にも乗る（押せるのに unknown の断絶なし）
 - GPT 18 lock（15 case）・reality 1437・full suite 20535 GREEN・tsc 55
+
+### [2026-06-11] record 40 — A-4-c27 structured source storage contract / migration draft（apply なし）
+- audit: 既存 table なし→新規。M1 の owner RLS/naming/per-table trigger を踏襲しつつ、**編集可能な設定系**として owner UPDATE policy を許可（M1 append-only との意図的差分）
+- schema 判断: **1 table**（source_type 判別+per-type shape CHECK=deadline 行に cadence 列が混ざれない）。**category_id=TEXT+app 層辞書 validation**（辞書拡張ごとの CHECK migration 負債を回避・roundtrip は c26 normalizer が必須経路）・**menu=安定 3 値なので DB CHECK 併用**（非対称は意図的）
+- forbidden column（free_text/title/note/memo/description/place_query/url/raw/source_ref/calendar_title/event_name/store_name/location_name）は**列として不存在**＝static test で恒久 lock。表示名は辞書から導出
+- reader contract: column-restricted（select 列固定・**user_id/id を DTO に出さない**）→ row→c26 DTO（active のみ・enum 検証・shape 違反 drop）→ normalizer（辞書/ISO 最終防壁・二重実装しない）
+- gate: 新 dormant flag `LIFEOPS_STRUCTURED_SOURCE_READONLY`（master∧structured∧staging∧!prod・default OFF）。**consumer 0**（app/ 参照 0 を lock・table 未 apply で実 read 経路なし・query 0 構造的）
+- rollback: clean DROP を migration 末尾に同梱。database.types は apply slice で gen 予約
+- GPT 14 lock（13 case）・full suite 20548 GREEN・tsc 55

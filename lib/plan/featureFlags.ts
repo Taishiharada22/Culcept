@@ -394,4 +394,11 @@ export const PLAN_FLAGS = {
    *   production 解禁は deny 解除の**別 CEO gate**（二段階）。本 slice では UI/接続を実装しない。
    */
   lifeopsMainline: process.env.LIFEOPS_MAINLINE === "true",
+
+  /**
+   * A-4-c27: Life Ops 構造化 source（`lifeops_structured_sources`・**draft 未 apply**）の read-only flag
+   *   （**dormant・default OFF・consumer なし**）。将来 wiring: master ∧ 本 flag ∧ staging ∧ production deny。
+   *   有効化条件: staging migration apply（別 CEO GO）+ reader 接続 slice。
+   */
+  lifeopsStructuredSourceReadonly: process.env.LIFEOPS_STRUCTURED_SOURCE_READONLY === "true",
 } as const;
