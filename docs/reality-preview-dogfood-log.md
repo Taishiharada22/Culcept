@@ -186,3 +186,7 @@
 - 配線: 新 flag なし（既存 gated read の observations 再利用・query 増えない）。page+actions 同一注入。meta+=suppressedDeadlineCount（数のみ）。client に観測行「実データ反映（fbCad/realCad/完了済 deadline 抑制）」追加
 - 統合 lock: fixture+done(tax)→確定申告が全 tier から消える・免許/パスポート残存・count=1・doneFeedback=[] で DTO 完全一致（復元）
 - c22b checklist 作成（CEO 観測: 消える→1/1/1→cleanup→戻る）。GPT 14 lock 13 case・reality 1395・full 20493 GREEN・tsc 55
+
+### [2026-06-11] record 32 — A-4-c22b 整備（CEO 手順で停止）
+- checklist 最終化: suppressedDeadline=「実データ反映」3 つ目の数と明示・復元 rerender（G）・体感観点 6 点・報告テンプレを GPT 14 項目対応に
+- Claude は UI 不実行（credential 原則・c17b/c18b/c21 と同形）。追加実装なし（docs のみ）

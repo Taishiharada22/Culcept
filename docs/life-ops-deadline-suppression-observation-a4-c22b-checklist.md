@@ -8,7 +8,11 @@
 ## 0. 今回の期待値（c21 との違い）
 c22 で deadline completion suppression が入ったため、**done した deadline 候補（例: 確定申告）は rerender 後に全 tier から消えるのが正解**。
 他の deadline（免許/パスポート）と cycle 候補は残る。観測点は preview 下部の counts 行
-「**実データ反映（fbCad / realCad / 完了済 deadline 抑制）**」= 期待 `1 / 1 / 1`。cleanup 後は候補が**自動的に戻る**（source 不変更の証明）。
+「**実データ反映（fbCad / realCad / 完了済 deadline 抑制）**」— **3 つ目の数 = suppressedDeadline**。期待 `1 / 1 / 1`。
+cleanup 後は候補が**自動的に戻る**（presentation suppression＝source 不変更の証明）。
+
+体感メモの観点（短文で可）: 消える挙動は自然か／突然消えて不安にならないか／「この件の提案はしばらく控えます」系の説明が必要か／
+**他の deadline が残ることに違和感はないか**／rail の情報量は多すぎないか／（任意）390px で崩れないか。
 
 ## 1. 手順（A→G・repo root）
 
@@ -49,12 +53,13 @@ NODE_OPTIONS="--conditions=react-server" npx tsx scripts/lifeops-feedback-dogfoo
 ## 2. Abort 基準
 A≠0 ／ C で counts 行が見えない ／ D で確定申告が**消えない** or 他 deadline まで消える ／ F check≠1 件 → 停止して出力返送。
 
-## 3. 報告テンプレート
+## 3. 報告テンプレート（GPT 完了条件 1-14 に対応）
 ```
-A before: 全て0
-C: 実データ反映=0/0/0 → done on 確定申告
-D rerender: 確定申告=消えた / 免許・パスポート=残存 / 実データ反映=1/1/1 / 体感=…/ 390px=…
-E after: lifeops=1/obs=1/fbCad=1/realCad=1
-F cleanup: check=1件 → delete後 lifeops=0
-G restore: 確定申告=戻った / 実データ反映=0/0/0 / smoke 全て0
+A before(smoke): lifeops=0 / obs=0 / fbCad=0 / realCad=0（UI 実データ反映=0/0/0）
+C: done した候補=◯◯（deadline 系）
+D rerender: 対象=消えた(代表/全 tier/Moment) / 他 deadline=残存 / 実データ反映=1/1/1（3つ目=suppressedDeadline）
+   体感: 消え方=… / 不安=… / 説明欲しい?=… / 他が残る違和感=… / rail 情報量=… / 390px=確認した・していない
+E after(smoke): lifeops=1 / obs=1 / fbCad=1 / realCad=1
+F cleanup: check=1件(handle=…) → delete 後 lifeops=0
+G restore: 対象候補=戻った / 実データ反映=0/0/0 / smoke 全て0
 ```
