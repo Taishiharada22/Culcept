@@ -381,4 +381,9 @@ export const PLAN_FLAGS = {
   lifeopsCalendarEventReadonly: process.env.LIFEOPS_CALENDAR_EVENT_READONLY === "true",
   lifeopsDeadlineReadonly: process.env.LIFEOPS_DEADLINE_READONLY === "true",
   lifeopsFeedbackReadonly: process.env.LIFEOPS_FEEDBACK_READONLY === "true",
+  /**
+   * A-4-c9: Life Ops feedback **write**（read とは独立・**dormant・default OFF・未配線**）。
+   *   実 write は M1 CHECK 拡張 migration（source_kind+='lifeops'）+ CEO write GO が前提。
+   */
+  lifeopsFeedbackWrite: process.env.LIFEOPS_FEEDBACK_WRITE === "true",
 } as const;
