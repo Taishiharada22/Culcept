@@ -11,14 +11,14 @@ Stage 0: **pure 関数 4 本 + 型 + fixture テストのみ**を実装する。
 | 関数 | 入力 | 出力 | 契約 § |
 |---|---|---|---|
 | `buildDayStateRecord()` | facts 入力（anchors / dayIndicators / shift / weather / DayGraph 由来値）+ 既存シグナル（moodCode / bodyEcho / socialBandwidth / **estimatedWalkLevel?**〔dayConditions 由来 optional〕）+ **heartHint?**〔HDM 由来 optional input。import 禁止〕+ 軸事前分布（flag OFF 時は無効） | `DayStateRecordV0`（estimatesFrozen 凍結含む） | 設計書 §3 |
-| `gradeNightCheck()` | `DayStateRecordV0` + Night Check 回答（dayFelt / planVerdict / driftSelections） | verdicts + carryOverOut + 翌日 prior 補正値 | 設計書 §4-5 |
-| `deriveMomentState()` | `DayStateRecordV0` + DayGraph + 現在時刻（**引数で渡す**。Date.now 直呼びは fixture を壊すので注入） | MomentState（保存しない導出値） | 設計書 §2.1 |
+| `gradeNightCheck()` | `DayStateRecordV0` + Night Check 回答（dayFelt / planVerdict / driftSelections） | `NightCheckGradeV0`（下記。**戻り値型も凍結済み**） | 設計書 §4-5 |
+| `deriveMomentState()` | `DayStateRecordV0` + DayGraph + 現在時刻（**引数で渡す**。Date.now 直呼びは fixture を壊すので注入） | `MomentStateV0`（**設計書 §2.1 で 14 フィールド凍結済み**。勝手な増減禁止） | 設計書 §2.1 |
 | `buildAlterBatteryViewModel()` | `DayStateRecordV0`（+ MomentState） | `AlterBatteryViewModel` | visual-contract §4 |
 
 ## 実装規律（HARD）
 
 1. **新規ファイルのみ**: `lib/plan/dayState/` 配下（dayStateTypes.ts / buildDayStateRecord.ts / gradeNightCheck.ts / deriveMomentState.ts / buildAlterBatteryViewModel.ts / `__tests__/`）。既存ファイルの変更は **import される側を一切変更しない**（型 import のみ可）。
-2. **型は必ず `import type` のみ**（TS の型 import はコンパイル時に消去され runtime 依存ゼロ — alterHomeAdapter.ts が巨大でも安全）。**export 済みを確認した型（2026-06-11 grep 証跡）**: `EvidenceSource`（alterHomeAdapter.ts:6904 export type）/ `ConfidentValue`（:6907 export interface）/ `DailyGuidanceMode`（:8039 export type）/ `DailyGuidanceFrame`（:8048 export interface）/ `TimeBucket`（dayGraphTypes.ts:56 export type）/ `ActivityMoodCode`（intent.ts:104 export type）/ `DayConditions`（lib/alter-morning/types.ts:621 export interface。estimatedWalkLevel?: "low"|"medium"|"high" は :633）/ `DensityLevel`（contextModifier.ts:73 export type）/ `ObservationStateInput`（stateWeighting.ts:17 export interface）。energy_level / social_bandwidth の値 union は単独 export が無いため **indexed access type で取得**する: `DailyGuidanceFrame["energy_level"]["value"]` 等（literal の再宣言禁止）。`import type` で解決できない型が出たら契約差し戻し。新設は設計書 §3.1 の 4 enum のみ。
+2. **型は必ず `import type` のみ**（TS の型 import はコンパイル時に消去され runtime 依存ゼロ — alterHomeAdapter.ts が巨大でも安全）。**export 済みを確認した型（2026-06-11 grep 証跡）**: `EvidenceSource`（alterHomeAdapter.ts:6904 export type）/ `ConfidentValue`（:6907 export interface）/ `DailyGuidanceMode`（:8039 export type）/ `DailyGuidanceFrame`（:8048 export interface）/ `TimeBucket`（dayGraphTypes.ts:56 export type）/ `ActivityMoodCode`（intent.ts:104 export type）/ `DayConditions`（lib/alter-morning/types.ts:621 export interface。estimatedWalkLevel?: "low"|"medium"|"high" は :633）/ `DensityLevel`（contextModifier.ts:73 export type）/ `WeatherCondition`（weatherService.ts: sunny/cloudy/rainy/snowy）/ `LatencyTolerance`（latencyToleranceMap.ts:34。fixed 判定 = strict|tight）/ `ObservationStateInput`（stateWeighting.ts:17 export interface）。energy_level / social_bandwidth の値 union は単独 export が無いため **indexed access type で取得**する: `DailyGuidanceFrame["energy_level"]["value"]` 等（literal の再宣言禁止）。`import type` で解決できない型が出たら契約差し戻し。新設は設計書 §3.1 の 4 enum のみ。
 3. **採点方向の fixture 必須**: over = 見立てが実際より高かった → prior 下げ / under = 低かった → 上げ。**方向検証ケースをテストに必ず含める**（設計書 HIGH-1 の再発防止。dayFelt↔帯の対応表 §4.3 を全行カバー）。
    **dayFeasibility の 9 ケース行列も必須**（actual 写像: as_seen→likely_steady / partial_drift→mixed / major_drift→likely_fragile。順序: likely_steady > mixed > likely_fragile）:
    | 凍結見立て \ actual | as_seen | partial_drift | major_drift |
@@ -28,10 +28,30 @@ Stage 0: **pure 関数 4 本 + 型 + fixture テストのみ**を実装する。
    | likely_fragile | **under** | **under** | match |
    （凍結 unknown は採点対象外・記録のみ）
 4. **凍結の fixture 必須**: 本人補正後も estimatesFrozen が不変であること / user_confirmed 由来の凍結値が match 率系列から除外されること（§3.3 凍結の規律）。
-5. **軸係数は flag 構造だけ用意**: `WIRE_DAY_STATE_PRIORS = false` 既定（Stage D。personalModelStargazerAdapter の Stage C は先約あり）。belief への書き戻し禁止。confidence 閾値は bodyLens 3 段（<0.2 不使用 / 0.2-0.5 半係数 / ≥0.5 通常）。
-6. HDM heart 状態（heartIntegration.ts）の利用は **read-only・confidence 0.3 上限**（emotionalReserve の参考材料。設計書 §3.3）。
-7. **「3」の取り違え禁止**: 人体 3 系統（focusReserve/emotionalReserve/energyLevel）≠ 採点 3 対象（energyLevel/recoveryNeed/dayFeasibility）。重なるのは energyLevel のみ。脳・心は Night Check で採点しない（設計書 §4.3 冒頭注記）。
-8. テストは既存規約（vitest）に従う。`npx tsc` は `--max-old-space-size=8192` 必須。
+5. **MomentState の fixture 必須**: ①timeBucket 境界（特に late_night 23:00-05:00 跨ぎ = 夜勤日）②departureDeadline の null 正直性（resolved 移動 segment なし → null。分数の捏造禁止）③currentMode 遷移（open→pre_event→in_event→post_event）④timePressure / interventionWindow の閾値境界（15/45 分）⑤isNightCheckWindow の 17:00 / 05:00 境界。
+6. **軸係数は flag 構造だけ用意**: `WIRE_DAY_STATE_PRIORS = false` 既定（Stage D。personalModelStargazerAdapter の Stage C は先約あり）。belief への書き戻し禁止。confidence 閾値は bodyLens 3 段（<0.2 不使用 / 0.2-0.5 半係数 / ≥0.5 通常）。
+7. HDM heart 状態（heartIntegration.ts）の利用は **read-only・confidence 0.3 上限**（emotionalReserve の参考材料。設計書 §3.3）。
+8. **「3」の取り違え禁止**: 人体 3 系統（focusReserve/emotionalReserve/energyLevel）≠ 採点 3 対象（energyLevel/recoveryNeed/dayFeasibility）。重なるのは energyLevel のみ。脳・心は Night Check で採点しない（設計書 §4.3 冒頭注記）。
+9. テストは既存規約（vitest）に従う。`npx tsc` は `--max-old-space-size=8192` 必須。
+
+## 凍結済み戻り値型（補足）
+
+```ts
+// gradeNightCheck() の戻り値（v0.2 凍結）
+type NightCheckGradeV0 = {
+  verdicts: NightCheckResultV0["verdicts"];
+  carryOverOut: NonNullable<DayStateRecordV0["carryOverOut"]>;
+  nextDayPriorAdjustments: Array<{
+    field: "energyLevel" | "recoveryNeed" | "dayFeasibility";
+    contextKey: string;          // 同条件キー = shift 種別 × density 帯（例 "shift_night|packed"）
+    direction: "raise" | "lower";
+    confidenceDelta: number;     // match 時 +0.1 等（内部値・非表示）
+  }>;
+};
+// 消費規律: nextDayPriorAdjustments / carryOverOut を「翌日の見立て」に使うのは
+// Stage 3（B1 gate）。v0 では record に保存される（Stage 1 では localStorage）のみで、
+// buildDayStateRecord は B1 解錠まで前日分を読まない。
+```
 
 ## Reality Graph 境界（Session A で実装するもの / しないもの）
 
