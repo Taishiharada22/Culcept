@@ -62,7 +62,13 @@ describe("integration — DTO allowlist（実体を渡さない）", () => {
     expect(Object.keys(d.briefing).sort()).toEqual(["alsoAvailableLine", "cautions", "headline", "tiers"].sort());
     for (const t of d.briefing.tiers) {
       expect(Object.keys(t).sort()).toEqual(["highlights", "line", "overflowLine", "tier", "tierLabel"].sort());
-      for (const h of t.highlights) expect(Object.keys(h).sort()).toEqual(["label", "phrase", "windowHint"].sort());
+      for (const h of t.highlights) {
+        // A-4-c16: 代表 tier のみ actions（rail）を持てる。action DTO も閉集合（handle/candidate は持たない）。
+        expect([["label", "phrase", "windowHint"].sort().join(), ["actions", "label", "phrase", "windowHint"].sort().join()]).toContain(Object.keys(h).sort().join());
+        for (const a of h.actions ?? []) {
+          expect(Object.keys(a).sort()).toEqual(["action", "cadenceEligible", "previewOnly", "requiresConfirmation", "uiLabel"].sort());
+        }
+      }
     }
     expect(Object.keys(d.moment).sort()).toEqual(["silencedCount", "suppression", "surfaced"].sort());
   });

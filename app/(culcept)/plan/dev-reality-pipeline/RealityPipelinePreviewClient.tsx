@@ -121,6 +121,25 @@ export function RealityPipelinePreviewClient({
                   {t.highlights.map((h, i) => (
                     <li key={i}>
                       {h.label} — {h.phrase}（{h.windowHint}）
+                      {/* A-4-c16: action rail（表示のみ・span chip・押せない・writer/記録なし） */}
+                      {h.actions && h.actions.length > 0 && (
+                        <span className="ml-2 inline-flex items-center gap-1 align-middle" data-testid="lifeops-action-rail">
+                          {h.actions.map((a) => (
+                            <span
+                              key={a.action}
+                              aria-disabled="true"
+                              data-testid="lifeops-action-chip"
+                              data-action={a.action}
+                              className={`rounded-full border px-1.5 py-0.5 text-[9px] leading-none ${
+                                a.requiresConfirmation ? "border-amber-300 bg-amber-50 text-amber-800" : "border-gray-200 bg-gray-50 text-gray-500"
+                              }`}
+                            >
+                              {a.uiLabel}
+                              {a.requiresConfirmation ? "※" : ""}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -136,6 +155,12 @@ export function RealityPipelinePreviewClient({
             </ul>
           )}
           {lifeOpsPreview.briefing.alsoAvailableLine && <p className="mt-1 text-[10px] text-gray-500">{lifeOpsPreview.briefing.alsoAvailableLine}</p>}
+          {/* A-4-c16: rail が 1 つでもあれば、完了の意味と no-write を 1 回だけ注記（短く・非断定） */}
+          {lifeOpsPreview.briefing.tiers.some((t) => t.highlights.some((h) => (h.actions?.length ?? 0) > 0)) && (
+            <p className="mt-1 text-[10px] text-amber-700" data-testid="lifeops-action-notice">
+              ※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。今は表示のみで、押せず・記録もしません。
+            </p>
+          )}
           <div className="mt-2 border-t border-emerald-100 pt-2">
             <Row k="Moment（今この瞬間・cap 1）" v={lifeOpsPreview.moment.surfaced ? lifeOpsPreview.moment.surfaced.phrase : `沈黙（silenced ${lifeOpsPreview.moment.silencedCount}${lifeOpsPreview.moment.suppression ? `・${lifeOpsPreview.moment.suppression}` : ""}）`} />
             {lifeOpsPreview.moment.surfaced && lifeOpsPreview.moment.surfaced.cautions.length > 0 && (

@@ -27,14 +27,32 @@ import { buildLifeOpsBriefingPreview, BRIEFING_HIGHLIGHT_MAX } from "./lifeops-b
 import { buildLifeOpsMomentPreview, lifeOpsMomentKey } from "./lifeops-moment-preview";
 import { capRawLifeOpsInputs, capLifeOpsCandidatePool } from "./lifeops-pool-cap";
 import { mergeCadenceIntoLifeOpsInputs } from "./lifeops-feedback-cadence-merge";
+import { listLifeOpsActionDescriptors } from "./lifeops-action-intent";
 import type { CadenceObservation } from "../../../lifeops/candidate-types";
 
 // ── client DTO（唯一の通路・allowlist・§2）──
 
+/**
+ * A-4-c16: 代表候補の action rail（**表示のみ・押せない・記録しない**）。
+ *   field は閉集合（uiLabel/action/cadenceEligible/requiresConfirmation/previewOnly）。
+ *   **handle は writer 用内部 DTO のため UI preview に出さない**（intent→本 DTO 変換で落とす・test lock）。
+ */
+export interface LifeOpsPreviewActionDto {
+  readonly uiLabel: string;
+  readonly action: string;
+  /** done のみ true（cadence=前回完了日を動かす意味を持つ）。 */
+  readonly cadenceEligible: boolean;
+  /** done のみ true（誤タップ→cadence 歪み防止・確認 UI を義務付ける契約）。 */
+  readonly requiresConfirmation: boolean;
+  /** 本 slice は no-write 表示専用（押せる UI/writer 配線は別 gate）。 */
+  readonly previewOnly: true;
+}
 export interface LifeOpsPreviewHighlightDto {
   readonly label: string;
   readonly phrase: string;
   readonly windowHint: string;
+  /** A-4-c16: Morning 代表（recommended tier）のみ付与・descriptors 不能候補は省略（safe disabled）。 */
+  readonly actions?: readonly LifeOpsPreviewActionDto[];
 }
 export interface LifeOpsPreviewTierDto {
   readonly tier: string;
@@ -141,6 +159,19 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
     p.candidate.dueReason.kind === "deadline" && (p.candidate.dueReason.overdue === true || (p.candidate.dueReason.daysUntilDeadline ?? 99) <= 0);
   const reps = recComposed ? recComposed.lifeOps.fitting.slice(0, BRIEFING_HIGHLIGHT_MAX) : [];
   const excludeKeys = reps.filter((p) => !isUrgentDeadline(p)).map((p) => lifeOpsMomentKey(p.candidate));
+
+  // A-4-c16: Morning 代表（recommended tier）だけに action rail を付与（表示のみ・writer 不呼出）。
+  //   briefing VM の highlights は同じ fitting.slice(0, BRIEFING_HIGHLIGHT_MAX) 由来 → index zip は構造整合。
+  //   handle は intent から**落とす**（writer 用内部 DTO・UI preview 非搬出）。descriptors 不能（辞書外）は省略。
+  const repActions: ReadonlyArray<readonly LifeOpsPreviewActionDto[]> = reps.map((p) =>
+    listLifeOpsActionDescriptors(p.candidate).map((d) => ({
+      uiLabel: d.uiLabel,
+      action: d.intent.action,
+      cadenceEligible: d.intent.cadenceEligible,
+      requiresConfirmation: d.intent.requiresExplicitConfirmation,
+      previewOnly: true as const,
+    })),
+  );
   const moment = recComposed
     ? buildLifeOpsMomentPreview({ composedTier: recComposed, nowMinute, excludeKeys })
     : { surfaced: null, silencedCount: 0, suppressedReasons: [], suppression: null };
@@ -153,7 +184,13 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
         tier: t.tier,
         tierLabel: t.tierLabel,
         line: t.line,
-        highlights: t.highlights.map((h) => ({ label: h.title, phrase: h.phrase, windowHint: h.windowHint })),
+        highlights: t.highlights.map((h, i) => ({
+          label: h.title,
+          phrase: h.phrase,
+          windowHint: h.windowHint,
+          // A-4-c16: 代表 tier（reps の実出所=recComposed.tier）のみ rail（descriptors 空=辞書外は省略・他 tier は従来形のまま）。
+          ...(recComposed && t.tier === recComposed.tier && (repActions[i]?.length ?? 0) > 0 ? { actions: repActions[i] } : {}),
+        })),
         overflowLine: t.overflowLine,
       })),
       cautions: briefing.cautions,

@@ -102,3 +102,12 @@
 - safety: intent は閉集合 field のみ。candidate の placeQuery「美容室 渋谷 ○○」を餌にした混入検査で不出を test 固定
 - boundary: **縦 card-presenter には接続せず**（条件付き許可を辞退・縦は横非依存を静的 lock）。app/ import 0・barrel 非 export
 - GPT 14 lock 全 PASS・full suite 20419 GREEN・tsc 55
+
+### [2026-06-11] record 20 — A-4-c16 action rail no-write 表示（preview・押せない）
+- 接続位置: **Morning 代表（recommended tier の highlights ≤3）だけ**に rail。Moment/他 tier へは広げず（縦長化確認が先・rail を持つ tier はちょうど 1 つを test 固定）
+- DTO: `LifeOpsPreviewActionDto{uiLabel, action, cadenceEligible, requiresConfirmation, previewOnly:true}`。**handle は writer 用内部 DTO のため UI 非搬出**（JSON lock）
+- 表示: chip rail `採用 完了※ 後で 不要`（span のみ・button/onClick/form/a なし・aria-disabled）。完了だけ amber+※ で視覚区別
+- 注記（1 回だけ・短く・非断定）: 「※完了は実際に終わった時だけ（次回の提案周期に影響）。自動では完了になりません。今は表示のみで、押せず・記録もしません。」
+- 情報量の所感: 代表 3 件 × chip 4 個は 1 行内に収まり読める。tier 全部に付けると確実に縦長化する（1 箇所方針は正しい）。完了※の区別は一目で分かる
+- 安全: writer/server-only/supabase import 0・lib/lifeops 逆 import 0・対象なし時は rail/注記とも不出現で既存 preview 不変
+- GPT 13 lock 全 PASS・full suite 20430 GREEN・tsc 55
