@@ -26,3 +26,12 @@
   - 【L7】Life Ops section 単体は 10 秒で掴める。page 全体（envelope+Reflection+LifeOps）は operator 用として許容だが縦に長い（user-facing にはこのままでは情報過多）。
 - 修正すべき heuristic（**観測中は直さない・後続 slice 提案**）: ①Moment 発火観測手段（評価 tier を選べる観測軸 or 代表数>1 fixture）②easy/push の差が出る fixture/cap 調整（push lane が cap に食われない placement か fixture 多様化）③tier 間で窓ヒントが違う理由の一言説明
 - 本線接続判断: hold（L8 の 3 案無差別と Moment 発火未観測を解消してから）
+
+### [2026-06-10 夜] record 2 — A-4-c4 calibration 後の再観測（fixture・575/620/800）
+- 修正内容: placement cap=pool 安全弁化（∞）・compose full-pool per-tier 着席（seated_in_tier）・fixture 期限+2（免許/パスポート）
+- 表示確認: headline「…余裕があれば「免許の更新」も入れられそうです」（2 件言及に進化）/ 守る4件・楽5-6件・攻め5件+「入りきらない2件」/ also=null（tier overflow へ移住）
+- **★Moment 発火を初観測（800）**: window_open「今なら「食料品の買い物」を入れやすそうです」＝朝の代表 3 件（確定申告/免許/パスポート）除外後の **4 件目が昼にそっと出る**意図 UX。620=focus_block 沈黙維持・575=代表 exclude+窓外で沈黙（正しい）
+- LifeOps: L1 OK / L2 **OK**（発火例+非重複を同時観測）/ L3 OK / L4 OK / L5 OK / L6 OK / L7 WATCH（楽6件 line は多め・presentation は代表3で抑制済）/ L8 **OK**（counts+overflow line で 3 案の差が見える・美容院が push 差分として可視）/ L9 OK（「この案では入りきらない」は静か）
+- 安全: S1-S8 = PASS
+- 残メモ: 代表 3 件が 3 案で同一（urgency 上位ゆえ自然・深刻でない）/ 楽案の件数が時刻でブレる（過去窓 skip の正しい結果・気にならない範囲）/ 美容院は窓が広い実日なら fitting に昇格する設計
+- 本線接続判断: **record 1 の hold 2 点は解消**。引き続き protocol §6 の蓄積条件（≥10 record 等）と CEO 判断待ち

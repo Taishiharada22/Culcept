@@ -57,14 +57,19 @@ export const HOME_TASK_MIN = 30;
 export const OUTING_BASE_MIN = 60;
 /** 片道移動 buffer 既定（分・mobility placeholder 不在時）。 */
 export const DEFAULT_TRAVEL_BUFFER_MIN = 15;
-/** 既定の 1 日配置上限。 */
-export const DEFAULT_MAX_PLACEMENTS = 3;
+/**
+ * 既定の pool 上限（**安全弁・実質非拘束**）。
+ * A-4-c4 再定義: cap は「1 日に勧める数（presentation）」ではなく **候補 pool の安全弁**。
+ *   1 日の自然な上限は ①窓の物理容量 ②tier 別 flexible 容量（compose） ③briefing 代表 ≤3 が三重に担保する。
+ *   旧値 3 は pool を tier 分配前に削り、urgency 下位の push lane を殺していた（observation record 1 L8）。
+ */
+export const DEFAULT_MAX_PLACEMENTS = Number.POSITIVE_INFINITY;
 
 /** cycle phase の緊急度（小さいほど先）。 */
 const PHASE_RANK: Record<string, number> = { well_beyond: 0, beyond_typical: 1, nearing: 2, within_typical: 3, unknown: 4 };
 
-/** §2: urgencyRank（昇順=先に配置）。deadline(overdue 最優先) < event_prep < cycle。 */
-function urgencyRank(c: LifeOpsCandidate): number {
+/** §2: urgencyRank（昇順=先に配置）。deadline(overdue 最優先) < event_prep < cycle。compose の per-tier 着席順にも使う（export）。 */
+export function lifeOpsUrgencyRank(c: LifeOpsCandidate): number {
   const d = c.dueReason;
   if (d.kind === "deadline") return d.overdue ? -1000 : d.daysUntilDeadline;
   if (d.kind === "event_prep") return 100 + d.daysUntilEvent;
@@ -122,7 +127,7 @@ export function placeLifeOpsCandidatesForDay(input: LifeOpsPlacementInput): Life
   // urgency 安定 sort（同 rank は collector の dedup 済み順を保持）。
   const ordered = input.candidates
     .map((c, i) => ({ c, i }))
-    .sort((a, b) => urgencyRank(a.c) - urgencyRank(b.c) || a.i - b.i)
+    .sort((a, b) => lifeOpsUrgencyRank(a.c) - lifeOpsUrgencyRank(b.c) || a.i - b.i)
     .map((x) => x.c);
 
   const placed: PlacedLifeOpsCandidate[] = [];

@@ -58,7 +58,11 @@ export interface LifeOpsPreviewClientDto {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** fixture LifeOpsInputs（nowMs 相対・決定論・実データ源未接続）。 */
+/**
+ * fixture LifeOpsInputs（nowMs 相対・決定論・実データ源未接続）。
+ * A-4-c4: 期限を 3 件に増強（license +20d/lead30・passport +50d/lead60）→ recommended(protect) の fitting が
+ *   代表数(3) を超え、**「朝は上位 3 件・昼に 4 件目をそっと出す」Moment 発火が観測可能**になる（logic 不変・fixture のみ）。
+ */
 export function fixtureLifeOpsInputs(nowMs: number): LifeOpsInputs {
   const iso = (deltaDays: number) => new Date(nowMs + deltaDays * DAY_MS).toISOString();
   return {
@@ -67,7 +71,11 @@ export function fixtureLifeOpsInputs(nowMs: number): LifeOpsInputs {
       { categoryId: "groceries", lastCompletedAtISO: iso(-10) },
     ],
     upcomingEvents: [{ kind: "interview", startISO: iso(3) }],
-    deadlineObservations: [{ categoryId: "tax_filing", deadlineISO: iso(5) }],
+    deadlineObservations: [
+      { categoryId: "tax_filing", deadlineISO: iso(5) },
+      { categoryId: "license_renewal", deadlineISO: iso(20) },
+      { categoryId: "passport_renewal", deadlineISO: iso(50) },
+    ],
   };
 }
 

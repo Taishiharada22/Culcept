@@ -102,9 +102,10 @@ describe("briefing — 3案要約（protect/easy/push）", () => {
 });
 
 describe("briefing — overflow / alsoAvailable（§4・honest）", () => {
-  it("placement cap=1 → alsoAvailableLine が件数つきで出る", () => {
+  it("★A-4-c4: pool cap=1 でも候補は tier へ着席し alsoAvailableLine は null（情報は tier overflow へ移住）", () => {
     const vm = buildLifeOpsBriefingPreview(chainCompose({ maxPlacements: 1 }));
-    expect(vm.alsoAvailableLine).toMatch(/ほかにも候補が\d+件あります/);
+    expect(vm.alsoAvailableLine).toBeNull();
+    expect(vm.tiers.some((t) => t.highlights.length > 0)).toBe(true); // 候補は消えていない
   });
   it("unplaced 0 → alsoAvailableLine は null", () => {
     const vm = buildLifeOpsBriefingPreview(chainCompose({ inputs: { cadenceObservations: [], upcomingEvents: [], deadlineObservations: [{ categoryId: "tax_filing", deadlineISO: "2026-06-15T00:00:00+09:00" }] } }));

@@ -7,7 +7,8 @@
  *   `EmptyDayProposalSet`）に **pure に混ぜる**。tier ごとに lane を**累積包含**（protect⊆easy⊆push）し、
  *   tier の **flexible 容量**（open/buffer/light_task block + 窓の未充填分）に urgency 順で充当する。
  *   placement の窓が当該 tier で塞がっていても **同 tier の他窓へ refit**（refit_in_tier・30 分の期限タスクが
- *   180 分の open を横目に溢れない）。それでも容量不足は **honest overflow**（黙って詰め込まない・R2 block を削らない）。
+ *   180 分の open を横目に溢れない）。**A-4-c4: pool は full**（raw 窓で未着席の候補も per-tier で着席試行=seated_in_tier・
+ *   tier 別 flexible 容量が正）。それでも容量不足は **honest overflow**（黙って詰め込まない・R2 block を削らない・tier 差分情報）。
  *
  * 厳守:
  *   - `generateEmptyDay` / proposal / blocks は **無改変・同一参照**（R2 の責務を壊さない）。
@@ -19,7 +20,7 @@
  */
 
 import type { EmptyDayBlockKind, EmptyDayProposal, EmptyDayProposalSet, EmptyDayTier } from "../empty-day/empty-day-generator";
-import type { LifeOpsPlacementResult, LifeOpsPlanLane, PlacedLifeOpsCandidate } from "./lifeops-placement";
+import { lifeOpsUrgencyRank, type LifeOpsPlacementResult, type LifeOpsPlanLane, type PlacedLifeOpsCandidate } from "./lifeops-placement";
 
 /** tier ごとの lane 累積包含（§1: 守る日でも deadline は落とさない）。 */
 const TIER_INCLUDES: Record<EmptyDayTier, ReadonlySet<LifeOpsPlanLane>> = {
@@ -87,17 +88,21 @@ function flexibleCapacity(proposal: EmptyDayProposal, windowStart: number, windo
  */
 export function composeLifeOpsIntoDayProposals(input: LifeOpsComposeInput): LifeOpsDayCompose {
   const { proposalSet, placement } = input;
-  const placedOnly = placement.placements.filter((p) => p.window !== null);
-  const alsoAvailable = placement.placements.filter((p) => p.window === null);
+  // A-4-c4: **full pool**（window 有無を問わず）を per-tier 着席させる。raw 窓の placement は仮置き・tier 別 flexible 容量が正。
+  const pool = placement.placements
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => lifeOpsUrgencyRank(a.p.candidate) - lifeOpsUrgencyRank(b.p.candidate) || a.i - b.i) // global urgency（deadline が常に先＝3 案から消えない）
+    .map((x) => x.p);
+  const placedOnly = pool.filter((p) => p.window !== null);
 
-  // refit に使う窓の宇宙（dayWindows 優先・なければ placements が知る窓のみ）。
+  // 着席に使う窓の宇宙（dayWindows 優先・なければ placements が知る窓のみ）。
   const knownWindows = (input.dayWindows ?? [...new Map(placedOnly.map((p) => [`${p.window!.startMinute}-${p.window!.endMinute}`, p.window!])).values()])
     .slice()
     .sort((a, b) => a.startMinute - b.startMinute);
 
   const composed: ComposedDayProposal[] = proposalSet.proposals.map((proposal) => {
     const include = TIER_INCLUDES[proposal.tier];
-    const eligible = placedOnly.filter((p) => include.has(p.planLane)); // placement の urgency 順を保持
+    const eligible = pool.filter((p) => include.has(p.planLane));
     // window 別 flexible 残量（同一窓の多重充当は残量内のみ・tier ごとに独立）。
     const remainingByWindow = new Map<string, number>();
     const remainingOf = (w: { startMinute: number; endMinute: number }): number => {
@@ -111,26 +116,31 @@ export function composeLifeOpsIntoDayProposals(input: LifeOpsComposeInput): Life
     const fitting: PlacedLifeOpsCandidate[] = [];
     const overflow: PlacedLifeOpsCandidate[] = [];
     for (const p of eligible) {
-      const placedW = p.window!;
-      // ① placement の窓を優先（親和性）→ ② 塞がっていれば同 tier の他窓へ refit（早い順）。
-      if (remainingOf(placedW) >= p.coarseMinutes) {
+      const placedW = p.window;
+      // ① placement の窓を優先（親和性）→ ② 塞がっていれば/窓なしなら 同 tier の他窓へ（早い順）。
+      if (placedW && remainingOf(placedW) >= p.coarseMinutes) {
         consume(placedW, p.coarseMinutes);
         fitting.push(p);
         continue;
       }
       const alt = knownWindows.find(
-        (w) => !(w.startMinute === placedW.startMinute && w.endMinute === placedW.endMinute) && remainingOf(w) >= p.coarseMinutes,
+        (w) => !(placedW && w.startMinute === placedW.startMinute && w.endMinute === placedW.endMinute) && remainingOf(w) >= p.coarseMinutes,
       );
       if (alt) {
         consume(alt, p.coarseMinutes);
-        // wrapper のみ差替（candidate は embedded 同一参照のまま）・refit を理由コードで明示。
-        fitting.push({ ...p, window: { startMinute: alt.startMinute, endMinute: alt.endMinute, meaning: null }, placementReason: [...p.placementReason, "refit_in_tier"] });
+        // wrapper のみ差替（candidate は embedded 同一参照のまま）・理由コードで明示（refit=窓移動 / seated=pool 未着席→tier で着席）。
+        const code = placedW ? "refit_in_tier" : "seated_in_tier";
+        fitting.push({ ...p, window: { startMinute: alt.startMinute, endMinute: alt.endMinute, meaning: null }, placementReason: [...p.placementReason, code] });
         continue;
       }
-      overflow.push(p); // honest（R2 block を削らない・黙って詰め込まない）
+      overflow.push(p); // honest（R2 block を削らない・黙って詰め込まない）＝「この案では入りきらない」（tier 差分情報）
     }
     return { tier: proposal.tier, proposal, lifeOps: { fitting, overflow } };
   });
+
+  // A-4-c4: 全候補は最低 push tier の eligible になるため「どの tier にも載らない候補」は構造的に存在しない。
+  //   旧 alsoAvailable（placement 段階の leftovers）の情報は **tier 別 overflow に移住**。field は互換のため残置（常に []）。
+  const alsoAvailable: readonly PlacedLifeOpsCandidate[] = [];
 
   return {
     composed,

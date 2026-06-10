@@ -165,26 +165,49 @@ describe("compose — 容量と honest overflow（§2・手組み fixture）", (
 });
 
 describe("compose — unplaced 透過・素材保持・summary（§4-§6）", () => {
-  it("placement unplaced（cap_exceeded）は alsoAvailable へそのまま透過", () => {
+  it("★A-4-c4: pool cap の unplaced も per-tier 着席（seated_in_tier）・alsoAvailable は常に []", () => {
     const world = ws();
     const candidates = collectLifeOpsCandidates(fakeInputs(), NOW_ISO);
-    const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world, maxPlacements: 1 });
+    const placement = placeLifeOpsCandidatesForDay({ candidates, worldState: world, maxPlacements: 1 }); // pool 安全弁を意図的に絞る
+    expect(placement.unplacedCount).toBeGreaterThan(0);
     const edi = deriveEmptyDayInput(world, synthesizeMemory([], NOW_MS), { userIntent: null });
-    const r = composeLifeOpsIntoDayProposals({ proposalSet: generateEmptyDay(edi), placement });
-    expect(r.alsoAvailable.length).toBe(placement.unplacedCount);
-    expect(r.alsoAvailable.some((p) => p.placementReason.includes("cap_exceeded"))).toBe(true);
-    expect(r.summary.alsoAvailableCount).toBe(placement.unplacedCount);
+    const r = composeLifeOpsIntoDayProposals({ proposalSet: generateEmptyDay(edi), placement, dayWindows: world.availableWindows });
+    // pool 段階で window=null だった候補が tier で着席する（情報は tier に移住・捨てない）。
+    const seated = r.composed.flatMap((c) => c.lifeOps.fitting).filter((p) => p.placementReason.includes("seated_in_tier"));
+    expect(seated.length).toBeGreaterThan(0);
+    expect(r.alsoAvailable).toEqual([]); // 旧 alsoAvailable は引退（常に []・field は互換残置）
+    expect(r.summary.alsoAvailableCount).toBe(0);
   });
-  it("R4/Briefing 素材（window/dueReason/placeQuery/riskFlags/coarseMinutes）を欠落させない", () => {
+  it("R4/Briefing 素材（window/dueReason/riskFlags/coarseMinutes）を欠落させない（fitting=窓必須・overflow=窓 null 可）", () => {
     const { compose } = chain();
     for (const c of compose.composed) {
-      for (const p of [...c.lifeOps.fitting, ...c.lifeOps.overflow]) {
-        expect(p.window).not.toBeNull();
+      for (const p of c.lifeOps.fitting) {
+        expect(p.window).not.toBeNull(); // 着席=窓確定
         expect(typeof p.window!.startMinute).toBe("number");
+      }
+      for (const p of [...c.lifeOps.fitting, ...c.lifeOps.overflow]) {
         expect(p.candidate.dueReason).toBeDefined();
         expect(p.candidate.riskFlags).toBeDefined();
         expect(p.coarseMinutes).toBeGreaterThan(0);
       }
+    }
+  });
+  it("★A-4-c4 #4/#6: easy≠push（push lane 候補が cap で消えず、push の fitting/overflow に現れる）", () => {
+    const { compose } = chain();
+    const byTier = Object.fromEntries(compose.composed.map((c) => [c.tier, c]));
+    const pushAll = [...byTier.push.lifeOps.fitting, ...byTier.push.lifeOps.overflow];
+    const easyAll = [...byTier.easy.lifeOps.fitting, ...byTier.easy.lifeOps.overflow];
+    // push lane 候補（美容院）は push tier に必ず現れる（fitting か overflow＝差分表示）・easy には現れない。
+    expect(pushAll.some((p) => p.planLane === "push")).toBe(true);
+    expect(easyAll.some((p) => p.planLane === "push")).toBe(false);
+    // 集合として easy≠push（件数 or 構成が異なる）。
+    const sig = (xs: typeof pushAll) => xs.map((p) => `${p.candidate.category}:${p.window ? "f" : "o"}`).join("|");
+    expect(sig(pushAll)).not.toBe(sig(easyAll));
+  });
+  it("★A-4-c4 #5: deadline は 3 案すべての fitting に着席（urgency 先頭・消えない）", () => {
+    const { compose } = chain();
+    for (const c of compose.composed) {
+      expect(c.lifeOps.fitting.some((p) => p.candidate.dueReason.kind === "deadline")).toBe(true);
     }
   });
   it("summary は counts のみ（redaction-trivial・FORBIDDEN 不一致）", () => {
