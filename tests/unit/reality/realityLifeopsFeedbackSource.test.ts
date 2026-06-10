@@ -61,6 +61,13 @@ describe("c8 — M1 rows → 観測（enum + ISO のみ）", () => {
     ]);
     expect(obs.map((o) => `${o.categoryId}:${o.action}`)).toEqual(["groceries:accept", "eyebrow:later"]);
   });
+  it("★A-4-c14 二重識別の逆向き: prefix≠lifeops は source_kind='lifeops' でも drop（双方向 AND）", () => {
+    const obs = m1RowsToLifeOpsFeedback([
+      { handle: "seed:opaque-from-plan-track", action: "done", acted_at: "2026-06-11T09:00:00+09:00", source_kind: "lifeops" }, // 偽装/バグ行 → drop
+      { handle: "lifeops:groceries", action: "done", acted_at: "2026-06-11T10:00:00+09:00", source_kind: "lifeops" }, // 正規
+    ]);
+    expect(obs.map((o) => `${o.categoryId}:${o.action}`)).toEqual(["groceries:done"]);
+  });
   it("★A-4-c13: action='done' を正式に読む（completion semantics・proxy 退役と同時に対応）", () => {
     const obs = m1RowsToLifeOpsFeedback([{ handle: "lifeops:groceries", action: "done", acted_at: "2026-06-11T09:00:00+09:00", source_kind: "lifeops" }]);
     expect(obs).toEqual([{ categoryId: "groceries", menu: null, action: "done", actedAtISO: "2026-06-11T09:00:00+09:00" }]);

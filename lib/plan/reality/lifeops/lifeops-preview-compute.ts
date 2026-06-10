@@ -11,6 +11,9 @@
  * 厳守: pure（IO/DB/fetch/Date.now なし・nowMs/nowMinute は caller）・通知/本線接続なし・
  *   重複制御の既定契約=「朝言ったことを今もう一度言わない」（briefing 代表→moment exclude）・
  *   DTO field は `label`（title を使わない＝client 自己 redaction regex と整合）。
+ *
+ * A-4-c14: done feedback 由来 cadence は caller（page gated read・default OFF）が `feedbackCadence` で注入し、
+ *   **raw input cap より前**に merge（cap pipeline 最上流）。compute 自体は pure を維持＝read しない。
  */
 
 import { collectLifeOpsCandidates, type LifeOpsInputs } from "../../../lifeops/candidate-collector";
@@ -23,6 +26,8 @@ import { composeLifeOpsIntoDayProposals } from "./lifeops-empty-day-compose";
 import { buildLifeOpsBriefingPreview, BRIEFING_HIGHLIGHT_MAX } from "./lifeops-briefing-preview";
 import { buildLifeOpsMomentPreview, lifeOpsMomentKey } from "./lifeops-moment-preview";
 import { capRawLifeOpsInputs, capLifeOpsCandidatePool } from "./lifeops-pool-cap";
+import { mergeCadenceIntoLifeOpsInputs } from "./lifeops-feedback-cadence-merge";
+import type { CadenceObservation } from "../../../lifeops/candidate-types";
 
 // ── client DTO（唯一の通路・allowlist・§2）──
 
@@ -61,6 +66,8 @@ export interface LifeOpsPreviewClientDto {
     readonly rawDroppedCount: number;
     /** A-4-c7: pool cap で落ちた候補数（fixture では 0・dropped は黙って消えず count で見える）。 */
     readonly poolDroppedCount: number;
+    /** A-4-c14: caller 注入の done feedback 由来 cadence 件数（**数のみ**・default OFF/0 件なら 0）。 */
+    readonly feedbackCadenceCount: number;
   };
 }
 
@@ -95,6 +102,12 @@ export interface LifeOpsPreviewComputeArgs {
   readonly nowMs: number;
   /** 観測/test 用の入力差し替え（省略時=既定 fixture・page は渡さない＝挙動不変・実データ源では**ない**）。 */
   readonly inputs?: LifeOpsInputs;
+  /**
+   * A-4-c14: done feedback 由来 cadence（c13 `feedbackToCadence` 出力）。caller（page の gated read）が注入し、
+   *   **capRawLifeOpsInputs より前**に inputs.cadenceObservations へ merge する（cap pipeline 最上流契約）。
+   *   省略/0 件 → merge は同一参照 no-op＝挙動完全不変。compute 自体は pure のまま（read しない）。
+   */
+  readonly feedbackCadence?: readonly CadenceObservation[];
 }
 
 /**
@@ -105,7 +118,10 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
 
   // fixture 縦入力 → 横 chain（placement→compose）。A-4-c7: 5層cap を dry-run 配線
   //   （①raw input cap=collector 入力直前 ②pool cap=placement 入力直前。fixture は cap 未満=no-op・flood test で作動証明）。
-  const raw = capRawLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs));
+  // A-4-c14: done feedback 由来 cadence を **raw cap より前**に merge（最上流契約・0 件は no-op）。
+  const feedbackCadence = args.feedbackCadence ?? [];
+  const mergedInputs = mergeCadenceIntoLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs), feedbackCadence);
+  const raw = capRawLifeOpsInputs(mergedInputs);
   const collected = collectLifeOpsCandidates(raw.inputs, new Date(nowMs).toISOString());
   const pooled = capLifeOpsCandidatePool(collected);
   const candidates = pooled.pool;
@@ -156,6 +172,7 @@ export function computeLifeOpsPreviewDto(args: LifeOpsPreviewComputeArgs): LifeO
       momentExcludedCount: excludeKeys.length,
       rawDroppedCount: raw.droppedCount,
       poolDroppedCount: pooled.droppedCount,
+      feedbackCadenceCount: feedbackCadence.length,
     },
   };
 }

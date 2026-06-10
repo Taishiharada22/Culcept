@@ -4,7 +4,8 @@
  *
  * 役割: gate（master ∧ feedback ∧ staging ∧ !production）+ 既存 M1 reader + 辞書 firewall adapter の chain を
  *   real staging で 1 回だけ確認する。**row 内容は log に出さない**（counts と boolean shape のみ・PII 不出力）。
- *   期待: 現行 M1 に lifeops prefix row は 0（write 経路未実装）→ total≥0・lifeops=0 が honest 結果。
+ *   期待: lifeops 行は c12/c13 smoke で cleanup 済み → total≥0・lifeops=0・cadence=0 が honest 結果。
+ *   A-4-c14: feedbackToCadence の件数検証を追加（done のみ変換・counts のみ・write 0 のまま）。
  *
  * 実行: LIFEOPS_FEEDBACK_SMOKE_GO=1 LIFEOPS_REALDATA_READONLY=true LIFEOPS_FEEDBACK_READONLY=true \
  *   NODE_OPTIONS="--conditions=react-server" npx tsx scripts/lifeops-feedback-readonly-smoke.ts
@@ -17,7 +18,7 @@ import { config as loadDotenv } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
-import { isLifeOpsFeedbackReadAllowed } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
+import { isLifeOpsFeedbackReadAllowed, feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
@@ -76,11 +77,16 @@ async function main(): Promise<void> {
   // 2) source chain（gate→reader→firewall adapter）
   const src = createLifeOpsFeedbackReadonlySource(sb as unknown as PrmLearningEventReadClient, userId, env);
   const obs = await src.readObservations();
-  log(`▶ source chain: observations=${obs.length}（期待: lifeops write 未実装ゆえ 0）`);
+  log(`▶ source chain: observations=${obs.length}（期待: c12/c13 cleanup 済みゆえ 0）`);
   pass = ok(obs.length === lifeopsRows || obs.length <= lifeopsRows, "adapter: firewall 済み観測数 ≤ lifeops prefix 行数（自由文は不通過）") && pass;
-  pass = ok(obs.every((o) => typeof o.categoryId === "string" && ["accept", "dismiss", "later"].includes(o.action)), "shape: enum + ISO のみ") && pass;
+  pass = ok(obs.every((o) => typeof o.categoryId === "string" && ["accept", "dismiss", "later", "done"].includes(o.action)), "shape: enum + ISO のみ（c13: done 含む）") && pass;
 
-  log(`\n${pass ? "✅ PASS" : "❌ FAIL"} — A-4-c8 feedback read-only smoke（write 0・cleanup 不要・production 0）`);
+  // 3) ★A-4-c14: cadence merge 入口（done のみ→CadenceObservation・counts のみ・row 内容非出力）
+  const cad = feedbackToCadence(obs);
+  log(`▶ cadence: feedbackCadence=${cad.length}（期待: 0＝honest zero・merge は no-op）`);
+  pass = ok(cad.length <= obs.length, "cadence: done のみ変換（observations 以下・accept/dismiss/later は不使用）") && pass;
+
+  log(`\n${pass ? "✅ PASS" : "❌ FAIL"} — A-4-c8/c14 feedback read-only smoke（write 0・cleanup 不要・production 0）`);
   await sb.auth.signOut();
   process.exit(pass ? 0 : 1);
 }

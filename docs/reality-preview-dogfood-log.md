@@ -85,3 +85,11 @@
 - gate 開(staging)/閉(production)・before total=0/lifeops=0 → **write=ok** → observations=1（action=done）→ **★cadence=1 件・lastCompletedAtISO=送信時刻と一致(<1s)** → cleanup(3 条件 eq・action=done)→lifeops=0・total=0=before
 - 意味論: **accept は cadence 0 件**（採用≠完了・unit lock）・done だけが「前回完了日」を動かす
 - log: counts/boolean のみ・PII 0・production 0
+
+### [2026-06-11] record 18 — A-4-c14 feedback→cadence merge + staging read-only smoke（real・PASS）
+- merge 配線: done feedback→c8 source→feedbackToCadence→**mergeCadenceIntoLifeOpsInputs（capRaw の直前=cap 最上流・static test 固定）**→collector→…→preview DTO。compute は pure 維持（page が gated read で注入・default OFF→[]→挙動完全不変）
+- merge 規則: key=categoryId:menu・**lastCompletedAtISO 新しい方が勝つ**（done 事実>古い宣言・null は日付に負ける）・union・0 件は同一参照 no-op
+- ★製品挙動の核を test 固定: 宣言 -60d で due（美容院 出現）でも **done(-5d) merge で候補が静かに消える**＝「done を打てばもう急かさない」。逆に raw row なしで feedback だけから候補出現（⑨）
+- staging read-only smoke（c8 拡張・counts のみ・write 0・cleanup 不要）: total=0 / lifeops=0 / observations=0 / **cadence=0**（c13 cleanup 後の honest zero・merge no-op 経路を real で確認）
+- 10 lock 充足: ①④done 変換/最新のみ・②③accept/dismiss/later 不使用（c13 既存）・⑤PII firewall（c8 既存）・⑥⑦二重識別**双方向**（⑦新規）・⑧cap 最上流+flood 併用・⑨compute 反映・⑩0 件不変（JSON 完全一致）
+- meta: integrationMeta.feedbackCadenceCount（数のみ）追加。安全: write 0・UI/通知 0・production hard block・raw row 非搬出

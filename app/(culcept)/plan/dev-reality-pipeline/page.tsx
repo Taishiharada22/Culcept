@@ -29,6 +29,9 @@ import { synthesizeMemory } from "@/lib/plan/reality/learning/memory-synthesis";
 import { runRealityPipeline } from "@/lib/plan/reality/orchestration/reality-pipeline";
 import { computeReflectionPreviewDto } from "@/lib/plan/reality/permission/reflection-preview-compute";
 import { computeLifeOpsPreviewDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
+import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
+import { feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
+import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "./RealityPipelinePreviewClient";
@@ -103,8 +106,18 @@ export default async function DevRealityPipelinePage() {
   // A-4-c: 既読 (world, memoryItems) から **新規 read なし**で reflection preview DTO を計算（A-4-c0 allowlist・組めない日は null）。
   const reflectionPreview = computeReflectionPreviewDto({ world, memoryItems, date, nowMs }) ?? undefined;
 
-  // Life Ops preview 統合: **fixture 入力**（実データ源未接続）+ 既読 world から briefing/moment DTO（allowlist・新規 read なし）。
-  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs });
+  // A-4-c14: done feedback 由来 cadence の gated read（read-only・owner-RLS・select のみ）。
+  //   flags default OFF → source は query せず [] → merge は no-op＝既定挙動完全不変。production は gate で常に false。
+  const feedbackSource = createLifeOpsFeedbackReadonlySource(supabase as unknown as PrmLearningEventReadClient, user.id, {
+    master: PLAN_FLAGS.lifeopsRealdataReadonly,
+    feedback: PLAN_FLAGS.lifeopsFeedbackReadonly,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+  });
+  const feedbackCadence = feedbackToCadence(await feedbackSource.readObservations());
+
+  // Life Ops preview 統合: **fixture 入力**（実データ源未接続）+ 既読 world から briefing/moment DTO（allowlist）。
+  //   c14: done feedback 由来 cadence のみ raw cap 前で merge（count は integrationMeta で可視・raw は client へ渡らない）。
+  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs, feedbackCadence });
 
   return <RealityPipelinePreviewClient envelope={envelope} meta={meta} reflectionPreview={reflectionPreview} lifeOpsPreview={lifeOpsPreview} />;
 }
