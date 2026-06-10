@@ -75,12 +75,14 @@ describe("P-B real read 配線（owner-RLS・anchors + M1/M3）", () => {
   });
 });
 
-describe("P-C/A-4-c client へ渡す payload は envelope + meta + reflection DTO のみ（実体を渡さない）", () => {
-  it("RealityPipelinePreviewClient に envelope + meta + reflectionPreview(DTO) を渡す", () => {
+describe("P-C/A-4-c client へ渡す payload は envelope + meta + reflection/lifeOps DTO のみ（実体を渡さない）", () => {
+  it("RealityPipelinePreviewClient に envelope + meta + reflectionPreview + lifeOpsPreview(DTO) を渡す", () => {
     expect(PAGE_CODE).toContain("<RealityPipelinePreviewClient");
     expect(PAGE_CODE).toMatch(/envelope=\{envelope\}/);
     expect(PAGE_CODE).toMatch(/meta=\{meta\}/);
     expect(PAGE_CODE).toMatch(/reflectionPreview=\{reflectionPreview\}/);
+    expect(PAGE_CODE).toMatch(/lifeOpsPreview=\{lifeOpsPreview\}/);
+    expect(PAGE_CODE).toContain("computeLifeOpsPreviewDto"); // fixture 入力 compute（新規 read なし）
   });
   it("reflection は computeReflectionPreviewDto（既読 world/memoryItems・新規 read なし）で計算", () => {
     expect(PAGE_CODE).toContain("computeReflectionPreviewDto");

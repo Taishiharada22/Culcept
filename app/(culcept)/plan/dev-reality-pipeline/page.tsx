@@ -28,6 +28,7 @@ import { assembleMemoryItems } from "@/lib/plan/reality/assembly/memory-assemble
 import { synthesizeMemory } from "@/lib/plan/reality/learning/memory-synthesis";
 import { runRealityPipeline } from "@/lib/plan/reality/orchestration/reality-pipeline";
 import { computeReflectionPreviewDto } from "@/lib/plan/reality/permission/reflection-preview-compute";
+import { computeLifeOpsPreviewDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "./RealityPipelinePreviewClient";
@@ -102,5 +103,8 @@ export default async function DevRealityPipelinePage() {
   // A-4-c: 既読 (world, memoryItems) から **新規 read なし**で reflection preview DTO を計算（A-4-c0 allowlist・組めない日は null）。
   const reflectionPreview = computeReflectionPreviewDto({ world, memoryItems, date, nowMs }) ?? undefined;
 
-  return <RealityPipelinePreviewClient envelope={envelope} meta={meta} reflectionPreview={reflectionPreview} />;
+  // Life Ops preview 統合: **fixture 入力**（実データ源未接続）+ 既読 world から briefing/moment DTO（allowlist・新規 read なし）。
+  const lifeOpsPreview = computeLifeOpsPreviewDto({ world, date, nowMinute, nowMs });
+
+  return <RealityPipelinePreviewClient envelope={envelope} meta={meta} reflectionPreview={reflectionPreview} lifeOpsPreview={lifeOpsPreview} />;
 }

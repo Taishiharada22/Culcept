@@ -12,6 +12,7 @@
  */
 import type { RealityPipelineEnvelope } from "@/lib/plan/reality/orchestration/reality-pipeline";
 import type { ReflectionPreviewClientDto } from "@/lib/plan/reality/permission/reflection-preview-dto";
+import type { LifeOpsPreviewClientDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
 
 /** envelope に無い count（page が WorldState/synthesis から渡す・fixture test が渡す）。 */
 export interface RealityPipelinePreviewMeta {
@@ -37,13 +38,16 @@ export function RealityPipelinePreviewClient({
   envelope,
   meta,
   reflectionPreview,
+  lifeOpsPreview,
 }: {
   envelope: RealityPipelineEnvelope;
   meta?: RealityPipelinePreviewMeta;
   /** A-4-c: reflection preview の **DTO のみ**（A-4-c0 allowlist・実体は渡らない・optional）。 */
   reflectionPreview?: ReflectionPreviewClientDto;
+  /** Life Ops preview 統合: briefing/moment の **DTO のみ**（fixture 入力・実体は渡らない・optional）。 */
+  lifeOpsPreview?: LifeOpsPreviewClientDto;
 }) {
-  const redactionClean = !FORBIDDEN.test(JSON.stringify({ envelope, meta, reflectionPreview }));
+  const redactionClean = !FORBIDDEN.test(JSON.stringify({ envelope, meta, reflectionPreview, lifeOpsPreview }));
   const rec = envelope.recommended;
   const r = envelope.reasoning;
   const t = envelope.surfacedTrigger;
@@ -100,6 +104,45 @@ export function RealityPipelinePreviewClient({
             </ul>
           )}
           <p className="mt-1 text-[10px] text-gray-400">すべて動かせる候補（suggestion）・エンジン推論。未確定。</p>
+        </section>
+      )}
+
+      {/* Life Ops Preview 統合（fixture 入力・観測のみ・操作要素を置かない・完了語を使わない） */}
+      {lifeOpsPreview && (
+        <section className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 px-4 py-3" data-testid="lifeops-preview">
+          <h2 className="text-[12px] font-bold text-emerald-800">Life Ops Preview（fixture 入力・観測のみ）</h2>
+          <p className="mt-1 text-[10px] text-gray-500">実データ源には接続していません（fixture）。予定には書き込みません。通知もしません。</p>
+          <p className="mt-2 text-[12px] text-gray-800">{lifeOpsPreview.briefing.headline}</p>
+          {lifeOpsPreview.briefing.tiers.map((t) => (
+            <div key={t.tier} className="mt-2">
+              <Row k={t.tierLabel} v={t.line} />
+              {t.highlights.length > 0 && (
+                <ul className="mt-1 list-disc pl-4 text-[11px] text-gray-700">
+                  {t.highlights.map((h, i) => (
+                    <li key={i}>
+                      {h.label} — {h.phrase}（{h.windowHint}）
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {t.overflowLine && <p className="mt-1 text-[10px] text-amber-700">{t.overflowLine}</p>}
+            </div>
+          ))}
+          {lifeOpsPreview.briefing.cautions.length > 0 && (
+            <ul className="mt-2 list-disc pl-4 text-[10px] text-gray-500">
+              {lifeOpsPreview.briefing.cautions.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          )}
+          {lifeOpsPreview.briefing.alsoAvailableLine && <p className="mt-1 text-[10px] text-gray-500">{lifeOpsPreview.briefing.alsoAvailableLine}</p>}
+          <div className="mt-2 border-t border-emerald-100 pt-2">
+            <Row k="Moment（今この瞬間・cap 1）" v={lifeOpsPreview.moment.surfaced ? lifeOpsPreview.moment.surfaced.phrase : `沈黙（silenced ${lifeOpsPreview.moment.silencedCount}${lifeOpsPreview.moment.suppression ? `・${lifeOpsPreview.moment.suppression}` : ""}）`} />
+            {lifeOpsPreview.moment.surfaced && lifeOpsPreview.moment.surfaced.cautions.length > 0 && (
+              <p className="mt-1 text-[10px] text-gray-500">{lifeOpsPreview.moment.surfaced.cautions.join(" / ")}</p>
+            )}
+            <Row k="重複制御（朝の代表→今は除外）" v={`代表 ${lifeOpsPreview.integrationMeta.briefingRepresentativeCount} 件を除外（${lifeOpsPreview.integrationMeta.momentExcludedCount}）`} />
+          </div>
         </section>
       )}
 
