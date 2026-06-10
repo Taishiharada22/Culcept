@@ -12,8 +12,8 @@
 
 ## HARD 制約
 
-1. **触ってはいけない**: PlanClient.tsx（タブ配線は Stage 1 で契約管理側が実施）/ グローバルナビ / FlowTab・CalendarTab・MapTab / 全 API route / supabase / localStorage / featureFlags。
-2. **データは mock のみ**: 下の fixture（または `lib/plan/dayState/__mocks__/` に置く同等物）を props で受け取る。fetch・hook 接続禁止。
+1. **触ってはいけない**: PlanClient.tsx（タブ配線は Stage 1 で契約管理側が実施）/ グローバルナビ / FlowTab・CalendarTab・MapTab / 既存の全 API route / supabase / localStorage / featureFlags。**例外として下記 preview ページ 1 枚のみ新設可**。
+2. **データは mock のみ**: 下の fixture を **`app/(culcept)/plan/components/alter/__mocks__/`** に置いて props で受け取る（**`lib/plan/dayState/` 配下には置かない** — Session A の領域と混ぜない）。fetch・hook 接続禁止。
 3. **禁止表示**（visual-contract §7 のチェックリストを regression として使う）: N-3 禁止 9 語 / 見立てへの % ・数値 / 「今日の開始残量」/ 断定形 / 赤色警告 / 偽データ（睡眠時間等）/ streak・比較。
 4. **再利用優先**: GlassCard(gradient) / GlassButton(gradient) / FadeInView / TimelineSpine 3 カラム / FollowUpChip パターン / sticky header・breathe-md・max-w-3xl 規約（visual-contract §5 の file:line 参照）。新 UI ライブラリ導入禁止。
 5. UI ラベルは日本語（CLAUDE.md）。ダークモード対象外。
@@ -53,9 +53,16 @@ export const MOCK_ALTER_BATTERY_VM: AlterBatteryViewModel = {
 // unknown 状態の検証用に brain.band="unknown" / visualFill 0 の variant も必ず作って描画確認すること
 ```
 
+## Preview 方法（確定）
+
+- **`app/(culcept)/plan/dev-alter-tab/page.tsx` を 1 枚だけ新設**し、mock fixture で `AlterTabBody` を直接 render する。
+- リポジトリ既存の dev preview 前例（`dev-shift-fixture` / `dev-reality-pipeline` / `dev-second-self` 等 7 枚）と同じ**ガード規約**に従う: dev host フラグ等が欠ければ `notFound()`（NODE_ENV だけに頼らない三重ガードは `app/(culcept)/plan/dev-reality-pipeline/page.tsx` 冒頭コメント参照）。
+- どこからもリンクしない。PlanClient・ナビは不変。closeout 時に削除 or 残置を判断事項として記録。
+- **preview のために PlanClient を変更することは禁止**（タブ配線したくなったら契約差し戻し）。
+
 ## Definition of Done
 
-- 全コンポーネントが mock のみで描画され、preview で確認できる（モバイル幅 ~390px 基準・max-w-3xl）
+- 全コンポーネントが mock のみで描画され、dev-alter-tab preview ページで確認できる（モバイル幅 ~390px 基準・max-w-3xl）
 - unknown 状態・補正シート開閉・Night Check 5 チップ・チップ列・CTA 2 つが表示上機能（コールバックはモック）
 - visual-contract §7 チェックリスト全項目 PASS（スクリーンショット付き closeout）
 - 参照画像と並べた差分メモ（意図的に再現していない要素: 上下タブ / % / 開始残量、を明記）

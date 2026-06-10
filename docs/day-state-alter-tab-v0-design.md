@@ -6,7 +6,7 @@
 - 前提資料: `docs/reality-gradient-engine-assessment.md`（追補 A 含む）/ 土台精査ワークフロー 7 系統（2026-06-11、file:line 検証済み）
 - 答える問い: CEO 質問 a)（性格と身体）、b-1〜b-8（実装判断粒度の 8 問）、c)（1分単位の状態 / Reality Graph）
 - 改訂: 2026-06-11 敵対的レビュー反映済み（HIGH 2 件 = 採点方向の統一・予測凍結の導入 / MED 8 件 / LOW 7 件）
-- **改訂 v0.1（2026-06-11 同日・CEO/GPT 監査反映）**: ①人体 4 部位 → **3 系統バッテリー（脳=集中 / 心臓=心の余力 / 体=体力）+ 周辺カード**へ転換（外出耐性は人体水位から周辺カードへ移動）②estimates を再構成（emotionalReserve / outingTolerance / dayFeasibility 追加、socialBandwidth は導出入力へ降格）③ミニ Composer を v0 に復帰（チャット欄は残す = CEO 構想）④Reality Graph 全体図を追加（§2.4）⑤採点 3 系統化（夜の主問 2 + followup 1、部位タップ補正は採点補助と明文化）⑥5 段量子化フィルは固定仕様にしない（visualFill 連続・数字非表示は維持）。UI 詳細は `docs/alter-tab-visual-contract.md`、分担は `docs/handoff-session-a-logic.md` / `docs/handoff-session-b-ui.md` に分冊
+- **改訂 v0.1（2026-06-11 同日・CEO/GPT 監査反映）**: ①人体 4 部位 → **3 系統バッテリー（脳=集中 / 心臓=心の余力 / 体=体力）+ 周辺カード**へ転換（外出耐性は人体水位から周辺カードへ移動）②estimates を再構成（emotionalReserve / outingTolerance / dayFeasibility 追加、socialBandwidth は導出入力へ降格）③ミニ Composer を v0 に復帰（チャット欄は残す = CEO 構想）④Reality Graph 全体図を追加（§2.4）⑤採点対象を 3 つに確定（夜の主問 2 + followup 1、部位タップ補正は採点補助と明文化。※人体 3 系統とは別の 3 — §4.3 冒頭注記）⑥5 段量子化フィルは固定仕様にしない（visualFill 連続・数字非表示は維持）。UI 詳細は `docs/alter-tab-visual-contract.md`、分担は `docs/handoff-session-a-logic.md` / `docs/handoff-session-b-ui.md` に分冊
 
 ---
 
@@ -224,8 +224,8 @@ type EvidenceTag =
 |---|---|---|
 | energyLevel（体バッテリー） | ①本人タップ/moodCode（user_confirmed 0.9）②shift.isNightShift=true → "low"（inferred 0.5）③前日 carryOver（B1 解錠後）④なし → "unknown"（0） | |
 | focusReserve（脳バッテリー） | ①本人補正のみ確度高。②proxy: largestFreeBlockMin ≥ 90 かつ density ≠ packed → "medium"（inferred **0.3 上限**）③なし → "unknown" | 弱いことを仕様として明記 |
-| emotionalReserve（心臓バッテリー・v0.1 新設） | ①bodyEcho.chest（user 入力: tight→low / open→high / normal→medium。user_confirmed 0.85）②moodCode・DayState.emotion（tired/anxious/frustrated → low 寄り。inferred 0.4）③対人予定密度（DayConditions.withWhom / DayState.social の many_people 連続。inferred **0.3 上限**）④HDM heart 状態（psychologicalCapacity / emotionalLoad — `lib/stargazer/heartIntegration.ts:30-60` を **read-only 参考**。対話文脈由来のため 0.3 上限・belief 書き戻し禁止）⑤なし → "unknown" | 弱い前提を仕様化 |
-| outingTolerance（外出耐性・v0.1 新設） | combine: travelChainMin（多いほど低）× weather（雨/猛暑で低）× shift 疲労 × socialBandwidth 信号（solo_preferred は対人外出のみ低）× estimatedWalkLevel × 本人補正。**socialBandwidth 単独で決めない**（GPT 指摘 1 対応） | 入力数に応じ 0.3-0.6 |
+| emotionalReserve（心臓バッテリー・v0.1 新設） | ①bodyEcho.chest（user 入力: tight→low / open→high / normal→medium。user_confirmed 0.85）②moodCode・DayState.emotion（tired/anxious/frustrated → low 寄り。inferred 0.4）③対人予定密度（DayConditions.withWhom / DayState.social の many_people 連続。inferred **0.3 上限**）④HDM heart 状態（psychologicalCapacity / emotionalLoad）— **optional input（heartHint?）として受領**。Stage 0 の pure 関数は `heartIntegration.ts` を import しない（依存を濃くしない。値は将来の呼び出し側が渡す）。対話文脈由来のため 0.3 上限・belief 書き戻し禁止⑤なし → "unknown" | 弱い前提を仕様化 |
+| outingTolerance（外出耐性・v0.1 新設） | combine: travelChainMin（多いほど低）× weather（雨/猛暑で低）× shift 疲労 × socialBandwidth 信号（solo_preferred は対人外出のみ低）× estimatedWalkLevel（morning plan の `dayConditions.estimatedWalkLevel`〔lib/alter-morning/types.ts:633、optional〕を **optional input として受領**。無い日は combine から除外して重み再正規化。**勝手な歩行量推定は禁止**）× 本人補正。**socialBandwidth 単独で決めない**（GPT 指摘 1 対応） | 入力数に応じ 0.3-0.6 |
 | dayFeasibility（成立見込み・v0.1 新設） | facts のみから: density=packed ∧ travelChainMin 大 ∧ eveningSlackMin<60 → "likely_fragile" / sparse ∧ 余白充分 → "likely_steady" / 中間 → "mixed" | 0.4-0.6（事実由来でやや高め） |
 | recoveryNeed | energyLevel ∈ {low, depleted} → "high"。eveningSlackMin < 60 で 1 段階上げ | energyLevel の confidence × 0.8 |
 | dailyMode | resolveDailyMode（既存）に facts を渡す | 入力の min confidence |
@@ -253,6 +253,8 @@ type EvidenceTag =
 | ユーザー表示 | **見立て・予測への数値付与は禁止**（%・score・確率・残量数値。A3 HARD 不変条件と同じ線）。時刻（HH:MM）と予定構造由来の分数は事実表示として許可するが、推定所要（estimatedDurationMin 由来）を数値で出すときは帯語（「移動が多め」）を優先する（MED-1 対応）。5 段帯 + 根拠語 + 「見立て」バッジ | 「からだの余力: やや少なめ（見立て）」 |
 
 ### 4.3 採点対象の確定リスト
+
+**まぎらわしい 2 つの「3」の区別（誤読防止）**: 人体 3 系統 = focusReserve / emotionalReserve / energyLevel（脳・心・体）。採点 3 対象 = energyLevel / recoveryNeed / dayFeasibility（体力・回復必要度・成立見込み）。**重なるのは energyLevel だけ**であり、脳・心を Night Check で採点することはない（タップ補正のみ）。
 
 **over/under の規約（HIGH-1 対応・本書全体で唯一の定義）**: 採点は常に「凍結見立て vs 実際」で表現する。
 - **over = 見立てが実際より高かった（過大見積もり）** → 翌日の同条件 prior を 1 段下げる
@@ -494,7 +496,7 @@ v0 は「記録 + 翌日の 1 段補正」まで: §4.3 の規約に従い、**o
 3. **`docs/handoff-session-a-logic.md`** = Session A（Reality Logic / State Engine）への引き継ぎ書 — pure 関数 4 本 + fixture のみ
 4. **`docs/handoff-session-b-ui.md`** = Session B（Alter Tab UI / Layout）への引き継ぎ書 — mock ViewModel 読み取りのみ・ロジック再定義禁止
 
-セッション分担の規律: 本セッション = 契約凍結のみ（実装しない）。Session A は型と純関数（UI/CSS/保存なし）、Session B は AlterTabBody 配下のみ（PlanClient のタブ配線・ロジック定義・保存に触れない）。両者は本書と visual-contract を読み取り専用の契約として扱い、**契約変更が必要になったら実装せず本セッション系（契約管理）に差し戻す**。
+セッション分担の規律（CEO 決定 2026-06-11 改訂): **Session A は本セッション（契約凍結セッション）が継続実行する。Session B のみ別セッション**。Session A は型と純関数（UI/CSS/保存なし）、Session B は AlterTabBody 配下のみ（PlanClient のタブ配線・ロジック定義・保存に触れない）。両者は本書と visual-contract を読み取り専用の契約として扱い、**契約変更が必要になったら実装せず本セッション系（契約管理）に差し戻す**。
 
 ### 10.2 最小 dogfood 検証（Stage 1、7-14 日）
 
