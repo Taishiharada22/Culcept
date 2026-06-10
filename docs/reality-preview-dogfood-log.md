@@ -121,3 +121,10 @@
 - staging smoke: **未実施**（writer→DB は c12/c13 で実証済・server action は operator session 必須で CLI 不可・新規ロジックは pure resolver で全分岐 lock）→ 実 E2E は CEO operator dogfood を別途提案
 - 既存 lock の正当進化 4 件: c14 static order（model 関数名追従）/ c15 ⑬b（actions.ts を公認 consumer 化）/ applyReadiness・P-D render（button 全面禁止→submit のみ・done 不可規則）
 - GPT 14 lock 充足・full suite 20445 GREEN・tsc 55
+
+### [2026-06-11] record 22 — A-4-c17b operator dogfood 整備（Claude は UI 不実行・CEO 手順で停止）
+- 判断: **Claude は UI dogfood を実行しない**。operator ログインに credential 入力が必要で、browser tool 経由だと secret が transcript に露出（=「secrets 管理は CEO のみ」原則違反）。GO の指示どおり整備して停止
+- 整備物: ①checklist doc（preflight 12 項目対応表・手順 A-G・abort 基準・報告テンプレ）②cleanup script（**check→confirm 二段**・exact 条件=owner-RLS∧lifeops:%∧source_kind∧action∧acted_at窓∧一致1件時のみ実測 handle eq 削除・0件=冪等PASS・2件以上=削除せず fatal）③before/after counts は既存 c8 readonly smoke を再利用（lifeops/observations/cadence を一括出力）
+- 対象 action=**later**（GPT 推奨に同意: 意味最軽量・cadence 影響なし・cleanup 漏れ時の学習歪み最小）
+- check-mode 実走（read-only）: staging guard PASS・signed in（…42d0）・before lifeops=0・matched 0 件 → 冪等 PASS（script の実 DB 動作を削除なしで実証）
+- full suite 20445 GREEN・tsc 55
