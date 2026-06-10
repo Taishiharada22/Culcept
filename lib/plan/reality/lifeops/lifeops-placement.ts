@@ -32,6 +32,8 @@ export interface PlacedLifeOpsCandidate {
   /** 安定コードの配置理由（redacted・raw なし）。 */
   readonly placementReason: readonly string[];
   readonly planLane: LifeOpsPlanLane;
+  /** placement が見積もった粗い必要分（在宅 30/外出 60+往復・compose が同じ値を使い再計算ドリフトを防ぐ）。 */
+  readonly coarseMinutes: number;
 }
 
 export interface LifeOpsPlacementResult {
@@ -127,20 +129,20 @@ export function placeLifeOpsCandidatesForDay(input: LifeOpsPlacementInput): Life
   const unplaced: PlacedLifeOpsCandidate[] = [];
   for (const c of ordered) {
     const lane = laneOf(c);
+    const need = requiredMinutes(c, travel); // 全経路で coarseMinutes として保持（compose が同じ値を使う）
     const reasons: string[] = [laneReason(c, lane)];
     if (placed.length >= cap) {
-      unplaced.push({ candidate: c, window: null, placementReason: [...reasons, "cap_exceeded"], planLane: lane });
+      unplaced.push({ candidate: c, window: null, placementReason: [...reasons, "cap_exceeded"], planLane: lane, coarseMinutes: need });
       continue;
     }
-    const need = requiredMinutes(c, travel);
     reasons.push(c.placeQuery === null ? "home_doable" : "needs_outing_window", "coarse_duration");
     const slot = slots.find((s) => s.remaining >= need);
     if (!slot) {
-      unplaced.push({ candidate: c, window: null, placementReason: [...reasons, "no_window_fits"], planLane: lane });
+      unplaced.push({ candidate: c, window: null, placementReason: [...reasons, "no_window_fits"], planLane: lane, coarseMinutes: need });
       continue;
     }
     slot.remaining -= need; // 同一窓は残量内のみ多重配置可
-    placed.push({ candidate: c, window: slot.window, placementReason: reasons, planLane: lane });
+    placed.push({ candidate: c, window: slot.window, placementReason: reasons, planLane: lane, coarseMinutes: need });
   }
 
   return {
