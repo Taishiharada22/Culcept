@@ -1,0 +1,66 @@
+# Handoff: Session B — Alter Tab UI / Layout（mock 試作）
+
+- 日付: 2026-06-11 / 発行: 契約凍結セッション（claude/xenodochial-chatelet-0023b2）
+- 前提: CEO が Session B 起動を承認していること（設計書 §10.4-3）
+- 読むべき契約（読み取り専用・変更禁止）: ①`docs/alter-tab-visual-contract.md`（視覚正本 — 全節）②`docs/day-state-alter-tab-v0-design.md` §7（タブ構成）・§9（人体バッテリー）
+
+## ミッション
+
+`AlterTabBody` 配下のコンテンツ領域を **mock ViewModel のみで**試作する。ロジックの再定義禁止・保存禁止・実データ接続禁止。
+
+作るコンポーネント（visual-contract §5 の新規リスト）: AlterTabBody / AlterHeader / HumanBatteryCard / HumanBatteryFigure（SVG プレースホルダー可・3 系統の液体表現）/ BatteryCallout / RealityContextCards / TodayFlowStrip / NightCheckCard / AlterChatPreview / AlterQuickReplies / AlterCtaRow / AlterInputBar
+
+## HARD 制約
+
+1. **触ってはいけない**: PlanClient.tsx（タブ配線は Stage 1 で契約管理側が実施）/ グローバルナビ / FlowTab・CalendarTab・MapTab / 全 API route / supabase / localStorage / featureFlags。
+2. **データは mock のみ**: 下の fixture（または `lib/plan/dayState/__mocks__/` に置く同等物）を props で受け取る。fetch・hook 接続禁止。
+3. **禁止表示**（visual-contract §7 のチェックリストを regression として使う）: N-3 禁止 9 語 / 見立てへの % ・数値 / 「今日の開始残量」/ 断定形 / 赤色警告 / 偽データ（睡眠時間等）/ streak・比較。
+4. **再利用優先**: GlassCard(gradient) / GlassButton(gradient) / FadeInView / TimelineSpine 3 カラム / FollowUpChip パターン / sticky header・breathe-md・max-w-3xl 規約（visual-contract §5 の file:line 参照）。新 UI ライブラリ導入禁止。
+5. UI ラベルは日本語（CLAUDE.md）。ダークモード対象外。
+6. ミニ Composer は**見た目のみ**（送信はモックコールバック。実接続は Stage 1）。
+
+## mock fixture（コピーして使用可）
+
+```ts
+export const MOCK_ALTER_BATTERY_VM: AlterBatteryViewModel = {
+  battery: {
+    brain: { label: "集中の余力", band: "low",    visualFill: 0.34, confidence: "low",
+             source: "見立て", evidence: ["予定が密", "判断が多め"], correctable: true },
+    heart: { label: "心の余力",   band: "medium", visualFill: 0.55, confidence: "medium",
+             source: "見立て", evidence: ["夜の余白あり", "人と会う予定少なめ"], correctable: true },
+    body:  { label: "からだの余力", band: "low",  visualFill: 0.42, confidence: "medium",
+             source: "見立て", evidence: ["夜勤明け", "移動が多め"], correctable: true },
+  },
+  contextCards: {
+    outingTolerance: { label: "外出耐性", band: "low", text: "軽めなら動けそう",
+                       evidence: ["移動が多め", "雨なし"], correctable: true },
+    eveningSlack:    { label: "夜の余白", text: "2.5h 確保できそう", evidence: ["20:30以降が空き"] },
+    sleep:           { label: "睡眠", band: "unknown", text: "まだ読めていません" },
+    yesterdayLoad:   { label: "昨日の負荷", band: "high" },
+    recoveryQuality: { label: "回復の質", band: "unknown" },
+    carryOver:       { label: "明日への持ち越し", band: "low" },
+    feasibility:     { label: "今日の成立見込み", band: "high", text: "大きく崩れにくい見立てです" }, // likely_steady→high 写像（visual-contract §4）
+  },
+  flowTimeline: { segments: [
+    { kind: "event",  startHHMM: "10:00", endHHMM: "11:30", label: "カフェ" },
+    { kind: "travel", startHHMM: "13:30", endHHMM: "14:00" },
+    { kind: "event",  startHHMM: "14:00", endHHMM: "16:00", label: "予定" },
+    { kind: "gap",    startHHMM: "20:30", endHHMM: "23:00", isEveningSlack: true },
+  ] },
+  alterMessage: "今日は夜を軽くすると全体が安定して見えます。",
+  quickReplies: ["元気", "少し疲れた", "眠い", "集中したい", "外出は軽め"],
+};
+// unknown 状態の検証用に brain.band="unknown" / visualFill 0 の variant も必ず作って描画確認すること
+```
+
+## Definition of Done
+
+- 全コンポーネントが mock のみで描画され、preview で確認できる（モバイル幅 ~390px 基準・max-w-3xl）
+- unknown 状態・補正シート開閉・Night Check 5 チップ・チップ列・CTA 2 つが表示上機能（コールバックはモック）
+- visual-contract §7 チェックリスト全項目 PASS（スクリーンショット付き closeout）
+- 参照画像と並べた差分メモ（意図的に再現していない要素: 上下タブ / % / 開始残量、を明記）
+- closeout doc（`docs/alter-tab-ui-mock-closeout.md`）
+
+## 契約変更が必要になったら
+
+ViewModel の形・語彙・構成を変えたくなったら、**実装せず** closeout に「契約差し戻し事項」として記録して停止（正本は契約凍結セッションが管理）。
