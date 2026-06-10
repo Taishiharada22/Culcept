@@ -386,4 +386,12 @@ export const PLAN_FLAGS = {
    *   実 write は M1 CHECK 拡張 migration（source_kind+='lifeops'）+ CEO write GO が前提。
    */
   lifeopsFeedbackWrite: process.env.LIFEOPS_FEEDBACK_WRITE === "true",
+
+  /**
+   * A-4-c19: Life Ops **本線 surface**（/plan への接続・**dormant・default OFF・consumer なし**＝設計のみ）。
+   *   将来 wiring: 本 flag ∧ staging allowlist ∧ production deny（`isLifeOpsMainlineAllowed`）∧ planRouteLive。
+   *   有効化条件（docs/life-ops-mainline-readiness-a4-c19-design.md）: 実データ源接続 + operator 観測条件充足 + CEO GO。
+   *   production 解禁は deny 解除の**別 CEO gate**（二段階）。本 slice では UI/接続を実装しない。
+   */
+  lifeopsMainline: process.env.LIFEOPS_MAINLINE === "true",
 } as const;

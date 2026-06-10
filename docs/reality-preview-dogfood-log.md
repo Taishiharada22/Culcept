@@ -147,3 +147,16 @@
 - 修正: 正式名 `LIFEOPS_DOGFOOD_CLEANUP_ACTION` 対応（旧名 fallback 後方互換・既定 later）+ allow enum に done 追加（c18b 正式化）
 - check-only 再実行（read-only）: **matched=1・handle=lifeops:tax_filing**（CEO の done row を exact 特定）→ 削除コマンドを CEO へ返却・delete は未実行
 - full suite 20459 GREEN・tsc 55
+
+### [2026-06-11] record 26 — A-4-c18b CEO done dogfood **PASS（クローズ）**
+- 最終結果（CEO/GPT 確認）: before 0/0/0 → 完了※→確認表示→confirm→preview 限定成功表示 → after-write lifeops=1/obs=1/**cadence=1** → cleanup（source_kind=lifeops ∧ action=done・exact 1 件削除）成功 → after 0/0/0
+- production 0・PII log 0・full row log 0
+- ★done 確認 flow（PRG 2 段階）の実環境 E2E が CEO 操作で完結。**Life Ops feedback loop（4 action 全て）が operator preview で実証済み**になった
+
+### [2026-06-11] record 27 — A-4-c19 mainline readiness / integration design（設計のみ・本線実装なし）
+- read-only audit 所見: /plan=PlanClient 3 tab（Calendar/Flow/Map・List は旧 unit 別 flag）・提案表示は localStorage proposals chips のみ・**Morning Briefing/Moment の本線 surface は存在しない**・★preview 入力は fixture のまま（実データ源未接続が最大 gap）
+- 設計判断: 最初の surface=**PlanClient 上部の独立『生活まわり』card（案 C・当日 Morning 代表のみ）**・VM は Morning 代表のみ（3 案 summary/Moment 不持込）・rail=**後で/不要/完了※の 3 つ（「採用」は本線 hold＝予定に入った誤解・seed 化未決）**・文言軸=「予定には書き込みません」・done 直後に「提案をしばらく控えます」1 行（候補消滅の体感ケア）
+- gate 具体化（dormant）: `PLAN_FLAGS.lifeopsMainline`（LIFEOPS_MAINLINE・default OFF・consumer 0）+ `isLifeOpsMainlineAllowed`（mainline∧planRouteLive∧staging∧!production・**二段階解禁=production deny 解除は別 CEO gate**）+ dormant 構造 lock test（app/ consumer 0・barrel 非 export）
+- writer 再利用=可（pure 部変更 0・gate 差し替え版を plan/_actions へ移設する設計）・server 再計算=同 computeLifeOpsPreviewModel で本線でも維持可・3 値方式（candidateKey+action+confirm）維持可
+- 推奨順序: **hold → c20=cadence real read 接続 → c21=実データ operator 観測（5 条件・5-7 セッション）→ c22=本線最小 card**
+- full suite 20463 GREEN（※断続 flake 2 回/本日 8 run・再現せず・lifeops 外と推定・watch）・tsc 55
