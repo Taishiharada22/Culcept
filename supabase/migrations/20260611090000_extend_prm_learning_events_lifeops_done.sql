@@ -1,7 +1,11 @@
 -- ════════════════════════════════════════════════════════════════════════
 -- A-4-c10: prm_learning_events CHECK 拡張（Life Ops feedback + 完了 action）【**DRAFT・未 apply**】
 --
--- ★status: **draft / staging・production とも未 apply**。apply は CEO GO 必須（write smoke の前提 gate）。
+-- ★status: **staging apply 済（2026-06-11・A-4-c11・CEO が Dashboard SQL Editor で実行）/ production 未**。
+--   PRE: 3 CHECK が想定名・narrow 許容値・before_count=0・新値 row 0 を確認 → APPLY success →
+--   POST: action+=done / signal+=completion / source_kind+=lifeops・conname 不変・after_count=0（不変）。
+--   ⚠️ SQL Editor 実行ゆえ supabase_migrations history には未記録（`db push` 時は本 file が再実行されうるが、
+--      DROP IF EXISTS + 同一 superset ADD ゆえ冪等＝安全）。production apply は別 CEO GO（write smoke=A-4-c12 も別 GO）。
 -- 設計: docs/life-ops-m1-check-extension-a4-c10-mini-design.md / A-4-c9 write contract
 --
 -- 目的（additive のみ・既存値/既存 row は全て有効のまま）:
