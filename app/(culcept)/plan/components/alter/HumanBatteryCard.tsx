@@ -32,12 +32,18 @@ function Connector({
   fromPx,
   toCenterOffset,
   dotClass,
+  lineClass = "border-slate-300/90",
+  glow,
 }: {
   side: "left" | "right";
   top: number;
   fromPx: number;
   toCenterOffset: number;
   dotClass: string;
+  /** 系統色の点線（視認性強化・B12） */
+  lineClass?: string;
+  /** 端点ドットのソフトグロー色 */
+  glow?: string;
 }) {
   const style: React.CSSProperties =
     side === "left"
@@ -45,8 +51,11 @@ function Connector({
       : { right: fromPx, width: `calc(50% - ${fromPx + toCenterOffset}px)`, top };
   return (
     <div className="pointer-events-none absolute" style={style} aria-hidden="true">
-      <div className="border-t-[1.5px] border-dotted border-slate-300/90" />
-      <span className={`absolute top-[-2.5px] h-[6px] w-[6px] rounded-full ${dotClass} ${side === "left" ? "right-[-3px]" : "left-[-3px]"}`} />
+      <div className={`border-t-[1.5px] border-dotted ${lineClass}`} />
+      <span
+        className={`absolute top-[-2.5px] h-[6px] w-[6px] rounded-full ring-1 ring-white ${dotClass} ${side === "left" ? "right-[-3px]" : "left-[-3px]"}`}
+        style={glow ? { boxShadow: `0 0 6px ${glow}` } : undefined}
+      />
     </div>
   );
 }
@@ -88,9 +97,9 @@ export function HumanBatteryCard({
         />
 
         {/* コネクタ（3 系統のみ。脳: 左上 → 頭 / 心: 左中 → 胸 / 外出は周辺で接続なし。体: 右 → 胴） */}
-        <Connector side="left" top={23} fromPx={86} toCenterOffset={12} dotClass="bg-violet-400" />
-        <Connector side="left" top={116} fromPx={86} toCenterOffset={15} dotClass="bg-rose-300" />
-        <Connector side="right" top={64} fromPx={86} toCenterOffset={14} dotClass="bg-sky-400" />
+        <Connector side="left" top={23} fromPx={86} toCenterOffset={12} dotClass="bg-violet-400" lineClass="border-violet-300/80" glow="rgba(139,92,246,0.7)" />
+        <Connector side="left" top={116} fromPx={86} toCenterOffset={15} dotClass="bg-rose-400" lineClass="border-rose-300/80" glow="rgba(244,114,182,0.7)" />
+        <Connector side="right" top={64} fromPx={86} toCenterOffset={14} dotClass="bg-sky-400" lineClass="border-sky-300/80" glow="rgba(56,189,248,0.7)" />
 
         {/* 左列: 集中の余力 / 心の余力 / 外出耐性 */}
         <BatteryCallout zoneKey="brain" zone={battery.brain} pct={known(battery.brain) ? meterPct.brain : undefined} onTap={onZoneTap} className="absolute left-0 top-0 z-10 w-[90px]" />

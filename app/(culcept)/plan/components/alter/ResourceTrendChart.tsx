@@ -44,6 +44,14 @@ function linePath(points: Array<{ t: string; v: number }>): string {
     .join(" ");
 }
 
+/** ライン下の面（over.png の柔らかいエリアフィル） */
+function areaPath(points: Array<{ t: string; v: number }>): string {
+  if (points.length === 0) return "";
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${linePath(points)} L${xOf(last.t).toFixed(1)},${(H - PAD_B).toFixed(1)} L${xOf(first.t).toFixed(1)},${(H - PAD_B).toFixed(1)} Z`;
+}
+
 const X_TICKS = ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"];
 
 export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
@@ -83,6 +91,16 @@ export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-1.5 w-full" role="img" aria-label="体力・集中・負荷の推移予測">
+        <defs>
+          <linearGradient id="rtc-energy" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.18} />
+            <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="rtc-focus" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.12} />
+            <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
+          </linearGradient>
+        </defs>
         {/* y グリッド + ラベル */}
         {[0, 25, 50, 75, 100].map((g) => (
           <g key={g}>
@@ -107,6 +125,10 @@ export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
             {trend.nowMarker}
           </text>
         </g>
+
+        {/* エリアフィル（体力・集中の柔らかい面） */}
+        <path d={areaPath(focus)} fill="url(#rtc-focus)" />
+        <path d={areaPath(energy)} fill="url(#rtc-energy)" />
 
         {/* ライン + 時間ごとのデータ点 ・（over.png 準拠） */}
         <path d={linePath(load)} fill="none" stroke="#fb923c" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />

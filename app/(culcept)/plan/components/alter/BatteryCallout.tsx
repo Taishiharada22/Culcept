@@ -26,7 +26,7 @@ const ZONE_CHIP_BG: Record<ZoneKey, string> = {
 };
 
 const cardBase =
-  "rounded-xl border border-white bg-white/92 px-1.5 py-1.5 text-left shadow-[0_4px_14px_rgba(99,102,241,0.14)] backdrop-blur-md";
+  "rounded-xl border border-white bg-white/95 px-1.5 py-1.5 text-left shadow-[0_6px_20px_rgba(99,102,241,0.18)] ring-1 ring-indigo-50/70 backdrop-blur-md";
 
 function MitateBadge() {
   return (

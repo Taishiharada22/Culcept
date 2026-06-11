@@ -45,6 +45,9 @@ export function StateBackgroundPanel({ stateBg }: { stateBg: AlterScreenViewMode
             <span className="text-[9px] font-medium text-slate-500">睡眠</span>
             <span className="ml-auto text-[14px] font-bold tabular-nums text-slate-800">{stateBg.sleep.value}</span>
           </div>
+          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-gradient-to-r from-indigo-300 to-blue-400" style={{ width: `${stateBg.sleep.barPct}%` }} />
+          </div>
           <div className="mt-0.5 text-right text-[8.5px] text-slate-400">{stateBg.sleep.note}</div>
         </div>
         <div className={cell}>

@@ -28,7 +28,7 @@ export interface AlterScreenViewModel {
   meterPct: { brain: number; heart: number; body: number; outing: number };
   /** 状態の背景 4 セル（1 枠に内包） */
   stateBg: {
-    sleep: { value: string; band: Band; note: string };
+    sleep: { value: string; band: Band; note: string; barPct: number };
     yesterdayLoad: { pct: number; note: string };
     recoveryQuality: { pct: number; note: string };
     stamina: { value: string; note: string };
@@ -89,7 +89,7 @@ export function buildScreenViewModel(
     base,
     meterPct,
     stateBg: {
-      sleep: { value: "5.8h", band: "low", note: "やや少なめ" },
+      sleep: { value: "5.8h", band: "low", note: "やや少なめ", barPct: 70 },
       yesterdayLoad: { pct: 72, note: "高め" },
       recoveryQuality: { pct: 64, note: "ふつう" },
       stamina: { value: "高い", note: "持久力タイプ" },
