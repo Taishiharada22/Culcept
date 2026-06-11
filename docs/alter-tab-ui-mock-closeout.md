@@ -183,6 +183,10 @@ B3 対応: 色面/halo によるコントラスト確保・水位視認性（白
 - visual-contract §2/§3 の正本改訂（% 解禁・グラフ追加・「今日の流れ」→「リソース推移予測」置換）を契約管理セッションで反映要。
 - 旧 `TodayFlowStrip.tsx` / `RealityContextCards.tsx` の `StateBackgroundColumn`・`ContextCardGrid` は superseded（未使用・将来削除可）。
 
+## 7.10 B5 — 器と液体の役割分離（commit `fcb3d1dc`）
+
+CEO B5 指示: ①心臓 → 胸の左上（xPct 45.5 / yPct 18.5）②「今日のリソース推移予測」→「**今日の推移予測**」+ 全系列に時間ごとのデータ点 ・ ③**ヘッダー削除**（Alter / ライブ / あなたの現実を制御する / 右の設定ボタン。`AlterHeader.tsx` は superseded・未使用）④「消えかけた発光体」問題への対応 — **ベース人体 = 器 / 色は液体レイヤーのみ**の役割分離: base alpha 3.6 で芯出し・blur 減・drop-shadow 霧除去・blur なし斜めガラス光沢 / 背面プレートをラベンダー〜ブルーグレーに深化 / body 液体 = 上淡シアン→下濃青 + 水面ライン + 直下ハイライト / brain 液体 = 上淡ラベンダー紫→下濃青紫 + 白い水面ライン + 光の縁 / 星雲 glow 減光。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
