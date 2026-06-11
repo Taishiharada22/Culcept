@@ -16630,3 +16630,7 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 ---
 
 [2026-06-11] [Build] 本流/横R2統合: A-4-c34b finding fix **完了（実効 source mode 導入）**。CEO 観測「カードで出ない」の根因=c25 設計の盲点（staging fixture が代表占有×cycle は push のみ×fallback は real_only 限定）。fix: `resolveEffectiveLifeOpsSourceMode`=**構造化 source ≥1 で実効 real_only（fixture 退役）**・安全方向のみ・production 恒久 real_only 不変・未登録 staging は従来どおり（c25 ⑪ JSON 等価 lock 継続 green）。mainline model 一箇所の変更で builder fallback/action 照合が自動整合。lock=policy 4 分岐+CEO シナリオ再現（眉 -35d→fallback card「眉」低圧・fixture 不出）。検証: full suite **20582 GREEN**・tsc **55**。意図的挙動変更の明示: 登録済みユーザーの staging card は **fixture 混在をやめ登録分のみ**（=production-with-data の正確な preview）。[承認: CEO 観測報告→根因特定→外科 fix→再現 lock→commit]
+
+---
+
+[2026-06-11] [Build] 本流/横R2統合: A-4-c34b CEO Smoke **PASS（クローズ・fix 後「文句なしで成功」・cleanup 委任実行で全 0）**。実効 mode fix（b259fe44）後の再実行で登録 cadence が card に表示。cleanup 棚卸しで本線 UI 実証を追加確認: **cadence occurrence 正形式**（eyebrow:cadence / beauty_salon:cut:cadence）・compound picker 実動作。委任 cleanup: structured 2+feedback 2 を exact 削除→最終 smoke 全 0。★**入力系（期限+周期）の本線 staging E2E 完結**＝c35（production read-only visibility 設計）の前提充足。[承認: CEO PASS 報告→Claude 検証・棚卸し・cleanup→全 0]

@@ -313,3 +313,9 @@
 - mainline model が実効 mode で base inputs/返却 sourceMode を決定 → builder の fallback も action 照合も自動整合（単一 helper の利得）
 - lock: policy matrix 4 分岐＋**CEO シナリオ再現 test**（staging+眉登録(-35d)→fixture 不出・fallback で card に「眉」1 件・低圧文言）
 - full suite 20582 GREEN・tsc 55。CEO は同じ手順の C-D 再実行で眉が出るはず（card は登録分のみ表示に変わる=意図どおり）
+
+### [2026-06-11] record 50 — A-4-c34b CEO smoke **PASS（fix 後再実行・「文句なしで成功」・cleanup は Claude 委任実行）**
+- CEO 再実行: 実効 mode fix 後、card に登録 cadence が表示（「文句なしで成功」）。rail 操作（later/dismiss）まで実施した形跡（feedback 2 行）
+- ★cleanup 棚卸しで確認できた本線 UI 実証 2 点: ①**cadence occurrence も正形式**（`eyebrow:cadence`/`beauty_salon:cut:cadence`・UI 経由・`::` なし）②美容院カットの compound picker（cadenceOption→split→辞書 roundtrip）も実動作
+- cleanup（委任実行）: structured cadence 2 件（eyebrow/beauty_salon:cut）+ feedback 2 件（later/dismiss・tax_filing）を exact 削除 → **最終 smoke 全 0**（total/lifeops/structured/normalized）
+- ★入力系（期限+周期）の本線 staging E2E が完結 = production read-only visibility 設計（c35）の前提が全て揃った
