@@ -407,4 +407,15 @@ export const PLAN_FLAGS = {
    *   実 write は staging write smoke（別 GO・mini-design §1-10 計画）→ UI 入力 slice が前提。production は gate で常に false。
    */
   lifeopsStructuredSourceWrite: process.env.LIFEOPS_STRUCTURED_SOURCE_WRITE === "true",
+
+  /**
+   * A-4-c35: production 段階解禁 flags（**全て dormant・default OFF・consumer なし**＝Release Gate Matrix の具体化のみ）。
+   *   将来 wiring: `isLifeOpsProductionStageAllowed`（production URL ∧ stage flag ∧ **user allowlist**）を段階ごとに
+   *   別 CEO GO で配線（P2 read → P3 input+structured write → P4 feedback write・P5 一般開放は allowlist 条項撤去の別改修）。
+   *   前提: production schema apply（別 slice）。source safety（real_only 恒久）は何段階でも解禁対象外。
+   */
+  lifeopsProdReadVisibility: process.env.LIFEOPS_PROD_READ_VISIBILITY === "true",
+  lifeopsProdInputUi: process.env.LIFEOPS_PROD_INPUT_UI === "true",
+  lifeopsProdStructuredWrite: process.env.LIFEOPS_PROD_STRUCTURED_WRITE === "true",
+  lifeopsProdFeedbackWrite: process.env.LIFEOPS_PROD_FEEDBACK_WRITE === "true",
 } as const;

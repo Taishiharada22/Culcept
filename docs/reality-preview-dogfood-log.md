@@ -319,3 +319,12 @@
 - ★cleanup 棚卸しで確認できた本線 UI 実証 2 点: ①**cadence occurrence も正形式**（`eyebrow:cadence`/`beauty_salon:cut:cadence`・UI 経由・`::` なし）②美容院カットの compound picker（cadenceOption→split→辞書 roundtrip）も実動作
 - cleanup（委任実行）: structured cadence 2 件（eyebrow/beauty_salon:cut）+ feedback 2 件（later/dismiss・tax_filing）を exact 削除 → **最終 smoke 全 0**（total/lifeops/structured/normalized）
 - ★入力系（期限+周期）の本線 staging E2E が完結 = production read-only visibility 設計（c35）の前提が全て揃った
+
+### [2026-06-11] record 51 — A-4-c35 production release gate matrix（設計+dormant 基盤・production 操作なし）
+- A-F 分離を設計書化: A schema readiness（lifeops_structured_sources は production 未 apply・prm_learning_events の prod 状態は CEO 確認要）／B read visibility／C input UI／D structured write／E feedback write／F rollback
+- **Plan C 採用**（CEO 推奨に同意）: P1 schema apply→P2 allowlist read→P3 allowlist input+structured write→P4 allowlist full→P5 一般開放（allowlist 条項撤去=別改修）。各段階=別 CEO gate
+- dormant 実装: `isLifeOpsProductionStageAllowed`=**production URL ∧ stage flag ∧ user allowlist の AND**（allowlist 空=全 false=事故で全開しない・staging では常に false=既存 gate 群の領分）+ prod stage flags 4 種（default OFF）+ allowlist CSV parser。**既存 G1-G9 は不変更・consumer 0 lock**
+- 恒久条項の再 lock: source safety は flag 非依存（process.env 不在 static）＝fixture は何段階でも production 不可
+- observability=counts-only（アプリ logging 追加せず・SQL Editor counts+既存 dashboard）。rollback=stage flag OFF 即時/allowlist per-user/migration DROP は最後の手段
+- production schema apply checklist（c36 素材）を設計書 §7 に同梱
+- GPT 10 lock（9 case）・full suite 20591 GREEN・tsc 55
