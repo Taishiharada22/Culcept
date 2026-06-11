@@ -198,6 +198,17 @@ CEO/GPT 指摘「輪郭が途切れ途切れ・プルプル / 内部が半透明
 
 **残（微調整）**: 頭部の紫が小さめ（頭ゾーンが小） / 腕融合で over.png の腕分離は未再現 / 液体レベルの厳密一致は未調整。
 
+## 7.12 CEO 透過アセット採用（B7・commit `6aafbd23`）
+
+B6（自前 flood-fill）を revert 後、CEO が `human-body-base.png` / `body-mask.png` / `brain-mask.png` を**正しく透過処理**して提供 → 採用（keying 廃止）。CEO 優先順位:
+- **A 器をはっきり**: clean alpha を直接シルエットに（連続輪郭・内部均一）。CEO の陰影 RGB を保持 + クールトーン + dest-in で市松排除 + rim 焼き込み。背景に溶けない器に。
+- **B 頭の紫やり直し**: ゾーンを新アセット実測（頭 3-16% / 肩 17% / 脚〜99%）へ更新 + 頭部に紫ヘイロー（radial gradient・brainFill 連動）で集中の余力の主役感。液体は濃い紫（下濃上淡 + 白い水面ライン）。
+- **C/D 存在感/分離**: 背面ラベンダープレート強化（rgba 0.62→0.78・密度上げ）。星雲 glow 減光。
+- heart を胸の左上（44/22）へ。
+- パイプライン教訓: cleanMask PNG を `.raw()` 再読込すると多 channel 化 → bbox index は `info.channels` stride 必須。
+
+**残（CEO 次点）**: 周辺カードの配置/磨き込み・dotted connector 視認性（人体ほど深刻でない）。頭部の濃淡微調整。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
