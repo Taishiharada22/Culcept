@@ -87,17 +87,33 @@ function reasonText(d: DueReason): string {
     return d.daysUntilNext === 0 ? `${d.recurrenceLabel}・今日です` : `${d.recurrenceLabel}・あと${d.daysUntilNext}日です`;
   }
   if (d.kind === "habit") {
-    // 低圧（責めない）。やるべき/遅れ/未達/サボ は出さない。
-    if (d.phase === "ease_in") return "軽めに1回入れると、今週の流れを戻しやすいです";
-    if (d.phase === "restart") return "少し空きましたね。短めに再開すると自然です";
-    return "今日は5分だけでも、戻るきっかけになります"; // gentle_restart
+    // 低圧（責めない）。やるべき/遅れ/未達/サボ は出さない。neuron（taxonomy 定数 label）があれば精緻化。
+    const approach = d.neuron?.approachLabel;
+    const unit = d.neuron?.unitLabel;
+    if (d.phase === "ease_in") {
+      return approach ? `${approach}を軽めに1回入れると、今週の流れを戻しやすいです` : "軽めに1回入れると、今週の流れを戻しやすいです";
+    }
+    if (d.phase === "restart") {
+      return unit ? `少し空きましたね。${unit}だけの再開でも自然です` : "少し空きましたね。短めに再開すると自然です";
+    }
+    return unit ? `今日は${unit}だけでも、戻るきっかけになります` : "今日は5分だけでも、戻るきっかけになります"; // gentle_restart
   }
   return d.overdue ? "期日を過ぎています" : `期日まで${d.daysUntilDeadline}日です`; // deadline
 }
 
-/** event_prep のみ「◯日前が自然」を出す（recommendedLeadDays）。 */
+/** evidence → 低圧の根拠文（補足行・責めない）。 */
+const HABIT_EVIDENCE_NOTE: Record<string, string> = {
+  recent_success: "最近うまくいった流れがあります",
+  recent_struggle: "最近は詰まりやすかったので、軽くで十分です",
+  sustained_streak: "これまでの積み重ねがあります",
+  long_pause: "間が空くのは自然なことです",
+};
+
+/** 補足行: event_prep=「◯日前が自然」/ habit=evidence 根拠文（あれば）。 */
 function timingHint(d: DueReason): string | null {
-  return d.kind === "event_prep" ? `${d.recommendedLeadDays}日前が自然です` : null;
+  if (d.kind === "event_prep") return `${d.recommendedLeadDays}日前が自然です`;
+  if (d.kind === "habit" && d.neuron?.evidenceKind) return HABIT_EVIDENCE_NOTE[d.neuron.evidenceKind] ?? null;
+  return null;
 }
 
 /** 表示順/強調用の緊急度。 */

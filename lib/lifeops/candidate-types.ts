@@ -61,6 +61,19 @@ export interface RecurringDueReason {
   readonly recurrenceLabel: string; // 「毎月」「毎年」（表示用・事実）
 }
 
+/** 根拠 slot（growth 共通 evidence dimension の valueId と一致・低圧の根拠文の素）。 */
+export type GrowthEvidenceKind = "recent_success" | "recent_struggle" | "sustained_streak" | "long_pause";
+
+/**
+ * habit 候補に載せる neuron 文脈（**3 slot のみ**・全て taxonomy 定数由来＝free text/PII 流入不可）。
+ *   domain/purpose/level/friction 等の詳細は将来 GrowthProfile 側（候補には載せない）。
+ */
+export interface HabitNeuronContext {
+  readonly approachLabel: string | null; // method/mode/practice_type/output の名詞 label（「復習」「ストレッチ」等）
+  readonly unitLabel: string | null; // unit の label（「5分」「1セット」等）
+  readonly evidenceKind: GrowthEvidenceKind | null;
+}
+
 /** 習慣（成長/学習）の due 根拠（週目標に対するペース・低圧）。phase は候補化される 3 つのみ。 */
 export interface HabitDueReason {
   readonly kind: "habit";
@@ -68,6 +81,8 @@ export interface HabitDueReason {
   readonly weeklyTarget: number;
   readonly doneThisWeek: number;
   readonly remaining: number;
+  /** neuron 文脈（taxonomy 検証済のみ・無ければ省略＝従来文言）。判定には影響しない。 */
+  readonly neuron?: HabitNeuronContext;
 }
 
 /** due 根拠の union（周期 / イベント前 / 期限 / 繰り返し / 習慣）。 */

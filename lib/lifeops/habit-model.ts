@@ -13,6 +13,7 @@
  */
 
 import { getCategorySpec } from "./category-model";
+import { buildHabitNeuronContext, type NeuronSelection } from "./growth-neuron";
 import type { LifeOpsCandidate } from "./candidate-types";
 
 /** 習慣の注入状態。 */
@@ -22,6 +23,8 @@ export interface HabitObservation {
   readonly doneThisWeek: number; // 今週の実績
   readonly daysSinceLast: number | null; // 前回からの日数（null=記録なし）
   readonly weekElapsedRatio: number; // 0..1（週の経過: 月曜0→日曜1）
+  /** neuron 枝の構造化選択（valueId 参照のみ・taxonomy 外は drop）。判定に影響しない（文言文脈のみ）。 */
+  readonly neuronSelections?: readonly NeuronSelection[];
 }
 
 export type HabitPhase = "met" | "on_track" | "ease_in" | "restart" | "gentle_restart";
@@ -65,6 +68,7 @@ export function generateHabitCandidates(observations: readonly HabitObservation[
     if (status.phase === "met" || status.phase === "on_track") continue; // 出さない（narrowing）
     const cat = getCategorySpec(obs.categoryId);
     if (!cat) continue; // L-1 未定義
+    const neuron = buildHabitNeuronContext(obs.categoryId, obs.neuronSelections ?? []); // taxonomy 検証済のみ
     out.push({
       category: cat.id,
       menu: null,
@@ -74,6 +78,7 @@ export function generateHabitCandidates(observations: readonly HabitObservation[
         weeklyTarget: obs.weeklyTarget,
         doneThisWeek: obs.doneThisWeek,
         remaining: status.remaining,
+        ...(neuron ? { neuron } : {}), // 無ければ省略＝従来文言（後方互換）
       },
       suggestedWindow: null,
       placeQuery: cat.placeQueryHint,
