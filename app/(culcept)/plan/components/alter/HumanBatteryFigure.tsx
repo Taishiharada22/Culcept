@@ -34,7 +34,7 @@ export interface HumanBatteryFigureProps {
 // body.png 内のゾーン境界 — _processAssets.mjs が crop 後フレームで機械算出した値を転記する
 //（手動目測の禁止。再生成時はパイプライン出力 "ZONES(crop後・転記用)" と同期させること）
 const HEAD_TOP_PCT = 0.5;
-const NECK_PCT = 12.5; // 頭部の水の下端 = 顎と首の中間（B16: 11%は顎より上すぎ・14%は首。間をとる）
+const NECK_PCT = 12.7; // 頭部の水の下端 = 顎と首の中間（B17・CEO 微調整: 12.5→12.7）
 const BODY_TOP_PCT = 17.5; // 肩（体ゾーンの上端）
 const HEART_CENTER = { xPct: 46, yPct: 24 }; // 胸（CEO 指示: 右上=ビューア左上へ補正）
 const FEET_PCT = 99.4;
