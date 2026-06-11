@@ -66,7 +66,10 @@ lib/lifeops の import は **`./` 同一 dir のみ**（横エンジン/外部/R
 ## 13. working tree clean
 closeout 時点で clean（本 doc commit 後も clean）。
 
-## 14. 再開後に行う残り作業（全網羅・漏れなし）
+## 14. ゲート解除後 / 本流接続後 / 再開時に進める残作業（全網羅・漏れなし）
+
+> 表現補正（2026-06-12 CEO）: 本節は「production 後に進める内容」**ではない**。正確には **「ゲート解除後 / 本流接続後 / 再開時に進める残作業」**。
+> 特に **§14-H（小さな pure 残り）は production 後を待たず、CEO の再開指示があれば local-only で着手可能**（実データ/UI/外部に触れないため）。A〜G は各々のゲート（実データ=CEO・横R2=本流・UI=世界観・外部=API キー/課金・通信=最厳格・production=承認）に依存。
 ### A. 実データ源接続（CEO ゲート）
 1. lastCompletedAt 収集（美容/買い物/家事・L0 記録 or 横蒸留） 2. upcoming events（構造化入力 or 共有予定・calendar title 推定は却下済） 3. 期日/引き落とし日/更新日入力（事務） 4. habit 実績（doneThisWeek/daysSinceLast） 5. 関係日付（誕生日/記念日/最終接点）構造化入力・contact import（ゲート） 6. **Tier A 実蒸留 pipeline**（相手の wishlist/later/habit/plan/style/consumable→DesireSignal。consent 基盤は /plan coalter ペア側） 7. 偵察結果キャプチャ（post-meeting 構造化入力） 8. L-9 完了イベント実収集→`personalizeCadenceSpec` を L-3 に自動配線。
 ### B. 横 R2/R4 本流接続（本流セッション）
@@ -85,4 +88,11 @@ closeout 時点で clean（本 doc commit 後も clean）。
 35. casual_checkin / shared_plan_followup の候補化 36. seasonal_gift の具体日 preset（お中元/お歳暮/母父の日） 37. gift 実カタログ injected 契約（ProductDescriptor 拡張 DTO） 38. E2E: 偵察→scouting_result→gift 循環テスト 39. growth neuron×gift の橋（相手の habit→gift signal は Tier A 蒸留に含む）。
 
 ---
-**判定: Life Ops 縦トラック closeout 完了。** 縦の pure 提案層（6 群・7 時間構造・collector 単一出口・permission・presenter・gift intelligence）は完成・凍結。以降の全作業は §14 の通りゲート/本流/再開時 slice に整理済み。
+**判定: Life Ops 縦トラック closeout 完了・freeze。** 縦の pure 提案層（6 群・7 時間構造・collector 単一出口・permission・presenter・gift intelligence）は完成・凍結。以降の全作業は §14（ゲート解除後/本流接続後/再開時）に整理済み。
+
+## 15. freeze 後の分岐（2026-06-12 CEO・このセッションは追加実装しない）
+1. **A-4 本流側**で横R2 / Morning Briefing / Moment Trigger / Plan 配置へ接続（§14-B・別セッション）。
+2. **production gate 解除後**に実データ / DB / UI / notification / 外部API へ進む（§14-A/C/D/E/G）。
+3. **CEO 判断で §14-H の小さな pure 残りだけ別 slice で再開**（local-only・production 前でも可）。
+4. **いったん別トラックへ移る**。
+→ 本縦セッションはここで freeze。次の入力でいずれの分岐かを CEO が指示。
