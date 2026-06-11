@@ -17,6 +17,7 @@ import { generateLifeOpsCandidates } from "./candidate-engine";
 import { generateEventPrepCandidates, generateOneshotPrepCandidates, type UpcomingEvent } from "./event-preparation";
 import { generateDeadlineCandidates, type DeadlineObservation } from "./deadline-engine";
 import { generateRecurringCandidates, type RecurringObservation } from "./recurrence-model";
+import { generateHabitCandidates, type HabitObservation } from "./habit-model";
 import type { CadenceObservation, LifeOpsCandidate } from "./candidate-types";
 
 /** 縦の入力（全て注入・calendar/実データ源 非接触）。 */
@@ -25,6 +26,7 @@ export interface LifeOpsInputs {
   readonly upcomingEvents?: readonly UpcomingEvent[];
   readonly deadlineObservations?: readonly DeadlineObservation[];
   readonly recurringObservations?: readonly RecurringObservation[];
+  readonly habitObservations?: readonly HabitObservation[];
 }
 
 /** dedup key（category × menu）。 */
@@ -42,14 +44,16 @@ export function collectLifeOpsCandidates(inputs: LifeOpsInputs, nowISO: string):
   const events = inputs.upcomingEvents ?? [];
   const deadlineObs = inputs.deadlineObservations ?? [];
   const recurringObs = inputs.recurringObservations ?? [];
+  const habitObs = inputs.habitObservations ?? [];
 
-  // 優先順位: deadline（期限・逃すと実害）→ recurring（毎月の引き落とし等）→ event 前倒し → one-shot 準備 → 周期
+  // 優先順位: deadline → recurring → event 前倒し → one-shot → 周期 → habit（低圧ゆえ末尾）
   const ordered: readonly LifeOpsCandidate[] = [
     ...generateDeadlineCandidates(deadlineObs, nowISO),
     ...generateRecurringCandidates(recurringObs, nowISO),
     ...generateEventPrepCandidates(events, cadenceObs, nowISO),
     ...generateOneshotPrepCandidates(events, nowISO),
     ...generateLifeOpsCandidates(cadenceObs, nowISO),
+    ...generateHabitCandidates(habitObs),
   ];
 
   const seen = new Set<string>();

@@ -20,17 +20,17 @@ const COSMETIC = ["beauty_salon", "eyebrow", "nail", "eyelash", "hair_removal", 
 
 describe("L-1 カテゴリ模型 — 構造", () => {
   it("各 spec は label 非空・id は辞書 key と一致・group は既定群", () => {
-    const GROUPS = new Set(["body_appearance", "pre_event_prep", "daily_upkeep", "money_admin"]); // L-1 で spec 定義済の群
+    const GROUPS = new Set(["body_appearance", "pre_event_prep", "daily_upkeep", "money_admin", "growth"]); // L-1 で spec 定義済の群
     for (const s of listCategories()) {
       expect(GROUPS.has(s.group)).toBe(true);
       expect(s.label.length).toBeGreaterThan(0);
       expect(LIFE_OPS_CATEGORY_MODEL[s.id]).toBe(s);
     }
   });
-  it("辞書と一覧は同数（26 = 身体外見10 + 予定前準備5 + 生活維持5 + 事務6・重複なし）", () => {
+  it("辞書と一覧は同数（31 = 身体外見10 + 予定前準備5 + 生活維持5 + 事務6 + 成長5・重複なし）", () => {
     const ids = listCategories().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(26);
+    expect(ids).toHaveLength(31);
     expect(Object.keys(LIFE_OPS_CATEGORY_MODEL)).toHaveLength(ids.length);
   });
   it("defaultMaxLevelHint は L0–L5 のいずれか", () => {
@@ -97,7 +97,8 @@ describe("L-1 helper — runtime 防御", () => {
     expect(listByGroup("pre_event_prep")).toHaveLength(5);
     expect(listByGroup("daily_upkeep")).toHaveLength(5); // 補充2 + 家事(洗濯/掃除/ゴミ出し)3
     expect(listByGroup("money_admin")).toHaveLength(6); // deadline 3 + recurring 3
-    expect(listByGroup("relationship")).toEqual([]); // 未定義群
+    expect(listByGroup("growth")).toHaveLength(5); // 筋トレ/勉強/読書/週次レビュー/スキル練習
+    expect(listByGroup("relationship")).toEqual([]); // 未定義群（関係は未着手）
   });
   it("cyclic: 身体外見メンテ=true / 予定前準備・事務=false / 生活維持は混在(補充・洗濯掃除=true・ゴミ出し=false)", () => {
     for (const s of listByGroup("body_appearance")) expect(s.cyclic).toBe(true);

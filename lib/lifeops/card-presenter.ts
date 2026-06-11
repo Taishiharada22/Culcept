@@ -86,6 +86,12 @@ function reasonText(d: DueReason): string {
   if (d.kind === "recurring") {
     return d.daysUntilNext === 0 ? `${d.recurrenceLabel}・今日です` : `${d.recurrenceLabel}・あと${d.daysUntilNext}日です`;
   }
+  if (d.kind === "habit") {
+    // 低圧（責めない）。やるべき/遅れ/未達/サボ は出さない。
+    if (d.phase === "ease_in") return "軽めに1回入れると、今週の流れを戻しやすいです";
+    if (d.phase === "restart") return "少し空きましたね。短めに再開すると自然です";
+    return "今日は5分だけでも、戻るきっかけになります"; // gentle_restart
+  }
   return d.overdue ? "期日を過ぎています" : `期日まで${d.daysUntilDeadline}日です`; // deadline
 }
 

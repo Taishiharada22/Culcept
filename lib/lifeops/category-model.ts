@@ -61,12 +61,21 @@ export type MoneyAdminCategoryId =
   | "card_payment" // カードの引き落とし（recurring 毎月）
   | "subscription_review"; // サブスクの見直し（recurring 毎月）
 
+/** 成長・仕事・学習群（A.6 群 6・habit）。cadence でなく週目標/連続性（habit-model）。 */
+export type GrowthCategoryId =
+  | "workout" // 筋トレ
+  | "study" // 勉強
+  | "reading" // 読書
+  | "weekly_review" // 週次レビュー
+  | "skill_practice"; // スキル練習
+
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
 export type LifeOpsCategoryId =
   | BodyAppearanceCategoryId
   | PreEventPrepCategoryId
   | DailyUpkeepCategoryId
-  | MoneyAdminCategoryId;
+  | MoneyAdminCategoryId
+  | GrowthCategoryId;
 
 /**
  * 既定実行レベル上限の **ヒント**（A.5 L0–L5 の段階）。**正本ではない**:
@@ -156,8 +165,20 @@ const MONEY_ADMIN: readonly LifeOpsCategorySpec[] = [
   { id: "subscription_review", group: "money_admin", label: "サブスクの見直し", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
+/**
+ * 成長・仕事・学習群（A.6 群6・habit）。**habit-model 管理**（cadence でない＝cyclic=false）。L1（低圧・通知）。
+ *   neuron 枝（将来）: 各カテゴリに sub-topic/目的/難易度を持たせ、ユーザー状態認知で根拠付き提案へ。
+ */
+const GROWTH: readonly LifeOpsCategorySpec[] = [
+  { id: "workout", group: "growth", label: "筋トレ", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "study", group: "growth", label: "勉強", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "reading", group: "growth", label: "読書", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "weekly_review", group: "growth", label: "週次レビュー", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "skill_practice", group: "growth", label: "スキル練習", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+];
+
 /** 全カテゴリ（群横断・定義順）。 */
-const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN];
+const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN, ...GROWTH];
 
 /** カテゴリ id → spec（正本辞書）。 */
 export const LIFE_OPS_CATEGORY_MODEL: Record<LifeOpsCategoryId, LifeOpsCategorySpec> = Object.fromEntries(

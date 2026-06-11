@@ -61,8 +61,17 @@ export interface RecurringDueReason {
   readonly recurrenceLabel: string; // 「毎月」「毎年」（表示用・事実）
 }
 
-/** due 根拠の union（周期 / イベント前 / 期限 / 繰り返し）。 */
-export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason | RecurringDueReason;
+/** 習慣（成長/学習）の due 根拠（週目標に対するペース・低圧）。phase は候補化される 3 つのみ。 */
+export interface HabitDueReason {
+  readonly kind: "habit";
+  readonly phase: "ease_in" | "restart" | "gentle_restart";
+  readonly weeklyTarget: number;
+  readonly doneThisWeek: number;
+  readonly remaining: number;
+}
+
+/** due 根拠の union（周期 / イベント前 / 期限 / 繰り返し / 習慣）。 */
+export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason | RecurringDueReason | HabitDueReason;
 
 /** §4 candidate（縦⇄横 seam・横が配置/trigger/場所解決する入力）。 */
 export interface LifeOpsCandidate {
