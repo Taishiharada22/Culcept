@@ -76,3 +76,16 @@ APPLY: Success（or エラー全文）
 POST-1〜6: 列数=… / forbidden=0行 / rls=…+4policies / CHECK=…件 / trigger=… / row_count=…
 POST-7: （PRE-3 と同形）
 ```
+
+---
+
+## §8 ★A-4-c36 PRE 実行 finding（2026-06-11・CEO 実行）— APPLY 中止
+PRE-1 結果: **table_exists=true / trigger_fn=1 / policy=4 / index=1**。
+→ `lifeops_structured_sources` は **production に既に存在**（数は c28 migration 出力と完全一致＝過去の `db push --linked` 等で適用済みの可能性大）。
+→ bundle abort 条件「table_exists=true は予期せぬ既存→列突合・不一致なら停止」に該当 → **APPLY 実行せず停止**。
+→ 次手: 既存 table の audit（§9・列 13/forbidden/CHECK/RLS/policy/**row_count**/prm prerequisite）で draft 完全一致を確認。
+   一致 ∧ row_count=0 → P1 は既に充足（apply 不要）。不一致 or row_count>0 → 深掘り（後者は実データ稼働中＝rollback 禁止）。
+
+## §9 既存 table audit（CEO 実行・apply の代わり・read-only）
+APPLY を実行せず、以下を実行して結果貼付（POST-1〜6 と同形だが「既存物の検証」として）:
+（A 列一覧 / B forbidden 0 行 / C RLS+4policy / D CHECK 7 種 / E trigger 1 / F **row_count** / G prm PRE-2〜4）
