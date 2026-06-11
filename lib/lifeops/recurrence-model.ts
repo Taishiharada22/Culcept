@@ -17,10 +17,11 @@ import type { LifeOpsCandidate } from "./candidate-types";
 
 export type RecurrencePhase = "unknown" | "upcoming" | "within_lead";
 
-/** 繰り返し定義（毎月 or 毎年）。 */
+/** 繰り返し定義（毎月 / 毎年 / 毎週曜日）。 */
 export type Recurrence =
   | { readonly kind: "monthly"; readonly dayOfMonth: number } // 1-31（月末超は当月末にクランプ）
-  | { readonly kind: "annual"; readonly month: number; readonly day: number }; // month 1-12
+  | { readonly kind: "annual"; readonly month: number; readonly day: number } // month 1-12
+  | { readonly kind: "weekly"; readonly weekdays: readonly number[] }; // 0=日..6=土（ゴミ出し等）
 
 /** 注入観測（日付は per-user 実データ＝注入）。 */
 export interface RecurringObservation {
@@ -36,8 +37,8 @@ export interface RecurringStatus {
 
 const MS_PER_DAY = 86_400_000;
 
-/** MVP 事務 recurring の leadDays（毎月）。 */
-const RECURRING_LEAD_DAYS: Record<string, number> = { rent: 3, card_payment: 3, subscription_review: 7 };
+/** MVP recurring の leadDays（事務 毎月 + ゴミ出し 毎週）。 */
+const RECURRING_LEAD_DAYS: Record<string, number> = { rent: 3, card_payment: 3, subscription_review: 7, garbage: 1 };
 export function getRecurringLeadDays(categoryId: string): number | undefined {
   return RECURRING_LEAD_DAYS[categoryId];
 }
@@ -69,12 +70,22 @@ function nextOccurrenceMs(recurrence: Recurrence, nowDate: number): number | nul
     const nm = m === 11 ? 0 : m + 1;
     return Date.UTC(ny, nm, Math.min(D, daysInMonth(ny, nm)));
   }
-  const M = recurrence.month;
-  const D = recurrence.day;
-  if (!Number.isInteger(M) || M < 1 || M > 12 || !Number.isInteger(D) || D < 1 || D > 31) return null;
-  const thisYear = Date.UTC(y, M - 1, Math.min(D, daysInMonth(y, M - 1)));
-  if (thisYear >= nowDate) return thisYear;
-  return Date.UTC(y + 1, M - 1, Math.min(D, daysInMonth(y + 1, M - 1)));
+  if (recurrence.kind === "annual") {
+    const M = recurrence.month;
+    const D = recurrence.day;
+    if (!Number.isInteger(M) || M < 1 || M > 12 || !Number.isInteger(D) || D < 1 || D > 31) return null;
+    const thisYear = Date.UTC(y, M - 1, Math.min(D, daysInMonth(y, M - 1)));
+    if (thisYear >= nowDate) return thisYear;
+    return Date.UTC(y + 1, M - 1, Math.min(D, daysInMonth(y + 1, M - 1)));
+  }
+  // weekly: now(当日含む)から 0..6 日先で最初に該当曜日になる日
+  const wds = recurrence.weekdays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  if (wds.length === 0) return null;
+  for (let k = 0; k <= 6; k++) {
+    const cand = nowDate + k * MS_PER_DAY;
+    if (wds.includes(new Date(cand).getUTCDay())) return cand;
+  }
+  return null; // 到達不能（wds 非空）
 }
 
 /** 次発生日の ISO（pure・debug/表示用）。 */
@@ -118,7 +129,7 @@ export function generateRecurringCandidates(
         kind: "recurring",
         daysUntilNext: status.daysUntilNext,
         leadDays: status.leadDays,
-        recurrenceLabel: obs.recurrence.kind === "monthly" ? "毎月" : "毎年",
+        recurrenceLabel: obs.recurrence.kind === "monthly" ? "毎月" : obs.recurrence.kind === "annual" ? "毎年" : "毎週",
       },
       suggestedWindow: null,
       placeQuery: cat.placeQueryHint,

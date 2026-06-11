@@ -44,10 +44,13 @@ export type PreEventPrepCategoryId =
   | "ticket_hotel_check" // チケット・宿の確認
   | "belongings_check"; // 持ち物の確認
 
-/** 生活維持群（A.6 群 2・補充系）。消費ペースの補充周期を持つ（cyclic=true）。家事/ゴミ出し/不定期は後続。 */
+/** 生活維持群（A.6 群 2）。補充系(cadence) + 家事(cadence) + ゴミ出し(weekly recurring)。 */
 export type DailyUpkeepCategoryId =
-  | "groceries" // 食料品の買い物
-  | "daily_necessities"; // 日用品の補充
+  | "groceries" // 食料品の買い物（cadence）
+  | "daily_necessities" // 日用品の補充（cadence）
+  | "laundry" // 洗濯（cadence）
+  | "cleaning" // 掃除（cadence）
+  | "garbage"; // ゴミ出し（weekly recurring）
 
 /** お金・契約・事務群（A.6 群 4）。期限もの（deadline）+ 繰り返し（recurring 毎月）。 */
 export type MoneyAdminCategoryId =
@@ -133,6 +136,10 @@ const PRE_EVENT_PREP: readonly LifeOpsCategorySpec[] = [
 const DAILY_UPKEEP: readonly LifeOpsCategorySpec[] = [
   { id: "groceries", group: "daily_upkeep", label: "食料品の買い物", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "スーパー", mvp: false },
   { id: "daily_necessities", group: "daily_upkeep", label: "日用品の補充", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "ドラッグストア", mvp: false },
+  // 家事（通知/リマインド L1）。洗濯/掃除=cadence・ゴミ出し=weekly recurring。
+  { id: "laundry", group: "daily_upkeep", label: "洗濯", cyclic: true, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "cleaning", group: "daily_upkeep", label: "掃除", cyclic: true, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "garbage", group: "daily_upkeep", label: "ゴミ出し", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
 /**

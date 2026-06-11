@@ -55,6 +55,9 @@ const MVP_CADENCES: readonly CadenceSpec[] = [
   // 生活維持・補充系（消費ペース＝前回購入からの経過。食料品は数日・日用品は約2週間）
   { categoryId: "groceries", menu: null, typicalIntervalDays: 4, nearingRatio: 0.8, beyondRatio: 1.0 },
   { categoryId: "daily_necessities", menu: null, typicalIntervalDays: 14, nearingRatio: 0.8, beyondRatio: 1.0 },
+  // 家事（前回からの経過。洗濯は数日・掃除は週1）
+  { categoryId: "laundry", menu: null, typicalIntervalDays: 3, nearingRatio: 0.8, beyondRatio: 1.0 },
+  { categoryId: "cleaning", menu: null, typicalIntervalDays: 7, nearingRatio: 0.8, beyondRatio: 1.0 },
 ];
 
 /** cadence key（"beauty_salon:cut" / "eyebrow"）。 */

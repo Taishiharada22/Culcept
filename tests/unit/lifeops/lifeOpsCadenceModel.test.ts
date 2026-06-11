@@ -15,9 +15,9 @@ import {
 const cut = getCadenceSpec("beauty_salon", "cut")!; // typical 42
 
 describe("L-2 cadence 定数 / key", () => {
-  it("MVP は 5 件（美容 3 + 生活維持補充 2）", () => {
+  it("MVP は 7 件（美容 3 + 生活維持 補充2 + 家事 洗濯掃除2）", () => {
     const keys = listMvpCadences().map((s) => cadenceKey(s.categoryId, s.menu)).sort();
-    expect(keys).toEqual(["beauty_salon:color", "beauty_salon:cut", "daily_necessities", "eyebrow", "groceries"]);
+    expect(keys).toEqual(["beauty_salon:color", "beauty_salon:cut", "cleaning", "daily_necessities", "eyebrow", "groceries", "laundry"]);
   });
   it("補充 cadence: 食料品4日・日用品14日", () => {
     expect(getCadenceSpec("groceries")!.typicalIntervalDays).toBe(4);

@@ -76,6 +76,31 @@ describe("generateRecurringCandidates", () => {
   it("空→空", () => expect(generateRecurringCandidates([], NOW)).toEqual([]));
 });
 
+describe("Recurrence weekly（曜日固定・ゴミ出し）", () => {
+  const nowDow = new Date(Date.parse(NOW)).getUTCDay(); // NOW の曜日（0=日..6=土）
+  const weekly = (weekdays: number[]): Recurrence => ({ kind: "weekly", weekdays });
+  it("当日曜日→0日・翌日曜日→1日", () => {
+    expect(computeRecurringStatus(1, weekly([nowDow]), NOW).daysUntilNext).toBe(0);
+    expect(computeRecurringStatus(1, weekly([(nowDow + 1) % 7]), NOW).daysUntilNext).toBe(1);
+  });
+  it("複数曜日→最も近い日", () => {
+    expect(computeRecurringStatus(1, weekly([(nowDow + 5) % 7, (nowDow + 2) % 7]), NOW).daysUntilNext).toBe(2);
+  });
+  it("weekdays 空/不正→null(unknown)", () => {
+    expect(computeRecurringStatus(1, weekly([]), NOW).phase).toBe("unknown");
+    expect(computeRecurringStatus(1, weekly([9]), NOW).phase).toBe("unknown");
+  });
+  it("garbage(lead1): 翌日の曜日→within_lead候補・recurrenceLabel 毎週", () => {
+    const out = generateRecurringCandidates([{ categoryId: "garbage", recurrence: weekly([(nowDow + 1) % 7]) }], NOW);
+    expect(out).toHaveLength(1);
+    expect(out[0].category).toBe("garbage");
+    if (out[0].dueReason.kind === "recurring") expect(out[0].dueReason.recurrenceLabel).toBe("毎週");
+  });
+  it("garbage: 3日先の曜日→upcoming(lead1超)→skip", () => {
+    expect(generateRecurringCandidates([{ categoryId: "garbage", recurrence: weekly([(nowDow + 3) % 7]) }], NOW)).toEqual([]);
+  });
+});
+
 describe("collector に recurring 合流", () => {
   it("recurringObservations が候補に出る（deadline の後・event/cycle と共存）", () => {
     const out = collectLifeOpsCandidates(

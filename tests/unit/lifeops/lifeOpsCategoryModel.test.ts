@@ -27,10 +27,10 @@ describe("L-1 カテゴリ模型 — 構造", () => {
       expect(LIFE_OPS_CATEGORY_MODEL[s.id]).toBe(s);
     }
   });
-  it("辞書と一覧は同数（23 = 身体外見10 + 予定前準備5 + 生活維持2 + 事務6・重複なし）", () => {
+  it("辞書と一覧は同数（26 = 身体外見10 + 予定前準備5 + 生活維持5 + 事務6・重複なし）", () => {
     const ids = listCategories().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(23);
+    expect(ids).toHaveLength(26);
     expect(Object.keys(LIFE_OPS_CATEGORY_MODEL)).toHaveLength(ids.length);
   });
   it("defaultMaxLevelHint は L0–L5 のいずれか", () => {
@@ -92,18 +92,20 @@ describe("L-1 helper — runtime 防御", () => {
     expect(getCategorySpec("")).toBeUndefined();
     expect(isHealthSensitive("unknown_xyz")).toBe(false);
   });
-  it("listByGroup: body_appearance=10 / pre_event_prep=5 / daily_upkeep=2 / money_admin=3 / 未定義群は空", () => {
+  it("listByGroup: body_appearance=10 / pre_event_prep=5 / daily_upkeep=5 / money_admin=6 / 未定義群は空", () => {
     expect(listByGroup("body_appearance")).toHaveLength(10);
     expect(listByGroup("pre_event_prep")).toHaveLength(5);
-    expect(listByGroup("daily_upkeep")).toHaveLength(2);
+    expect(listByGroup("daily_upkeep")).toHaveLength(5); // 補充2 + 家事(洗濯/掃除/ゴミ出し)3
     expect(listByGroup("money_admin")).toHaveLength(6); // deadline 3 + recurring 3
     expect(listByGroup("relationship")).toEqual([]); // 未定義群
   });
-  it("cyclic: 身体外見メンテ/生活維持=true（周期）/ 予定前準備/事務=false（one-shot/期限）", () => {
+  it("cyclic: 身体外見メンテ=true / 予定前準備・事務=false / 生活維持は混在(補充・洗濯掃除=true・ゴミ出し=false)", () => {
     for (const s of listByGroup("body_appearance")) expect(s.cyclic).toBe(true);
-    for (const s of listByGroup("daily_upkeep")) expect(s.cyclic).toBe(true);
     for (const s of listByGroup("pre_event_prep")) expect(s.cyclic).toBe(false);
     for (const s of listByGroup("money_admin")) expect(s.cyclic).toBe(false);
+    expect(getCategorySpec("laundry")!.cyclic).toBe(true);
+    expect(getCategorySpec("groceries")!.cyclic).toBe(true);
+    expect(getCategorySpec("garbage")!.cyclic).toBe(false); // weekly recurring
   });
   it("daily_upkeep（買い物/日用品）は L2・placeQuery あり・risk なし", () => {
     const groceries = getCategorySpec("groceries")!;
