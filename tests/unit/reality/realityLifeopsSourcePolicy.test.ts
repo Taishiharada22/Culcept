@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
-import { resolveLifeOpsSourceMode, baseLifeOpsInputsForMode } from "@/lib/plan/reality/lifeops/lifeops-source-policy";
+import { resolveLifeOpsSourceMode, resolveEffectiveLifeOpsSourceMode, baseLifeOpsInputsForMode } from "@/lib/plan/reality/lifeops/lifeops-source-policy";
 import { computeLifeOpsPreviewModel } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
 import { buildLifeOpsMainlineCardDto, routeLifeOpsMainlineActionRequest } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
@@ -53,6 +53,12 @@ describe("c25 — source mode（fail-safe・flag では開けない）", () => {
     expect(resolveLifeOpsSourceMode({ supabaseUrl: undefined })).toBe("real_only");
     expect(baseLifeOpsInputsForMode("fixture_allowed")).toBeUndefined(); // compute 既定 fixture
     expect(baseLifeOpsInputsForMode("real_only")).toEqual({}); // base 候補 0
+  });
+  it("★c34b: 実効 mode=構造化 source があれば real_only（fixture 退役・**安全方向のみ**＝real_only からは動かない）", () => {
+    expect(resolveEffectiveLifeOpsSourceMode("fixture_allowed", true)).toBe("real_only"); // 登録済み staging → real のみで組む
+    expect(resolveEffectiveLifeOpsSourceMode("fixture_allowed", false)).toBe("fixture_allowed"); // 未登録 staging → 従来どおり
+    expect(resolveEffectiveLifeOpsSourceMode("real_only", true)).toBe("real_only"); // production は恒久 real_only
+    expect(resolveEffectiveLifeOpsSourceMode("real_only", false)).toBe("real_only");
   });
 });
 

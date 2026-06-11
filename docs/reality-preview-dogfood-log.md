@@ -306,3 +306,10 @@
 - PRG に lifeopsSrcType 追加（allowlist 検証）→ type 別文言（周期=「同じ周期は…」「前回の日付を…」・deadline 側不変 lock）。occurrence=c32 形式（eyebrow:cadence・:: なし）
 - cleanup script に TYPE param（deadline|cadence）追加。c34b CEO smoke checklist は報告で提示（Claude は UI 不実行）
 - GPT 18 lock（更新+新規 4 block）・reality 1482・full suite 20580 GREEN・tsc 55
+
+### [2026-06-11] record 49 — A-4-c34b finding「card に眉が出ない」→ 実効 mode fix
+- CEO 報告「カードで出ない」の根因: **バグでなく c25 設計の盲点** — staging=fixture_allowed では fixture deadline が代表（rail）を占有・登録 cycle は push tier のみ（c25 実測）・sparse fallback は real_only 限定で不発 → 登録済みユーザーの staging card が「production-with-data の preview」にならない（c33b の deadline は fixture と同 tier で緊急度勝ちしたため偶然見えていた）
+- fix: `resolveEffectiveLifeOpsSourceMode(urlMode, hasRealStructured)` — **構造化 source が 1 件でもあれば実効 real_only（その人に対して fixture 退役）**。安全方向のみ（real_only からは動かない・production 恒久 real_only 不変）。fixture は「未登録の空状態 dogfood 素材」に役割限定
+- mainline model が実効 mode で base inputs/返却 sourceMode を決定 → builder の fallback も action 照合も自動整合（単一 helper の利得）
+- lock: policy matrix 4 分岐＋**CEO シナリオ再現 test**（staging+眉登録(-35d)→fixture 不出・fallback で card に「眉」1 件・低圧文言）
+- full suite 20582 GREEN・tsc 55。CEO は同じ手順の C-D 再実行で眉が出るはず（card は登録分のみ表示に変わる=意図どおり）

@@ -37,3 +37,15 @@ export function resolveLifeOpsSourceMode(env: { readonly supabaseUrl: string | u
 export function baseLifeOpsInputsForMode(mode: LifeOpsSourceMode): LifeOpsInputs | undefined {
   return mode === "fixture_allowed" ? undefined : {};
 }
+
+/**
+ * A-4-c34b fix: **実効 mode**（「ユーザーが構造化 source を 1 件でも登録したら real データのみで組む」）。
+ *   c34b finding: staging（fixture_allowed）では fixture deadline が代表を占有し、登録した cycle（push tier のみ）が
+ *   card に出ない + sparse fallback も real_only 限定で不発 → 登録済みユーザーの staging card が
+ *   「production-with-data の preview」にならない盲点。fix=構造化 source があれば fixture を**その人に対してだけ**退役。
+ *   - 安全方向のみ: real_only へは行くが fixture_allowed へは行かない（production は URL 由来で恒久 real_only のまま）。
+ *   - fixture は「source 未登録の空状態 dogfood 素材」に役割を限定（未登録 staging は従来どおり）。
+ */
+export function resolveEffectiveLifeOpsSourceMode(urlMode: LifeOpsSourceMode, hasRealStructuredSource: boolean): LifeOpsSourceMode {
+  return hasRealStructuredSource ? "real_only" : urlMode;
+}

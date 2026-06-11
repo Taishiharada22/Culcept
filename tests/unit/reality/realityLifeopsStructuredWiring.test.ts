@@ -16,6 +16,8 @@ import {
   type LifeOpsStructuredSourceRow,
   type LifeOpsStructuredSourcesTable,
 } from "@/lib/plan/reality/lifeops/lifeops-structured-storage";
+import { resolveEffectiveLifeOpsSourceMode } from "@/lib/plan/reality/lifeops/lifeops-source-policy";
+import { LIFEOPS_SPARSE_FALLBACK_PHRASE } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { structuredDeadlinesToObservations, structuredCadenceToObservations } from "@/lib/plan/reality/lifeops/lifeops-structured-source";
 import type { WorldState } from "@/lib/plan/reality/world-state/world-state";
 import type { DeadlineObservation } from "@/lib/lifeops/deadline-engine";
@@ -92,6 +94,27 @@ describe("c29 — model helper / smoke / 型（配線 static）", () => {
     expect(src).toContain("structuredCadenceToObservations");
     expect(src).toContain("structuredDeadlines,");
     expect(src).toContain("structuredCadence,");
+    expect(src).toContain("resolveEffectiveLifeOpsSourceMode"); // ★c34b: 実効 mode（登録済み→fixture 退役）
+  });
+  it("★c34b 再現: staging（fixture_allowed）+ 登録 cadence（眉）→ 実効 real_only → fallback で card に眉が出る", () => {
+    // CEO smoke の実シナリオ: fixture が代表を占有して眉が出なかった盲点の修正を、本物の経路で lock。
+    const split = rowsToStructuredSources([
+      deadlineRow({ source_type: "cadence", category_id: "eyebrow", menu: null, due_at: null, last_completed_at: iso(-35) }),
+    ]);
+    const structuredCadence = structuredCadenceToObservations(split.cadences);
+    const effective = resolveEffectiveLifeOpsSourceMode("fixture_allowed", structuredCadence.length > 0);
+    expect(effective).toBe("real_only"); // fixture 退役
+    const m = computeLifeOpsPreviewModel({
+      world: ws(), date: "2026-06-10", nowMinute: 800, nowMs: NOW_MS,
+      inputs: {}, // 実効 real_only の base（mainline model と同じ式）
+      structuredCadence,
+    });
+    expect(JSON.stringify(m.dto)).not.toContain("確定申告"); // fixture は出ない
+    const card = buildLifeOpsMainlineCardDto(m, effective);
+    expect(card).not.toBeNull();
+    expect(card!.items.length).toBe(1);
+    expect(card!.items[0].label).toBe("眉"); // 28d 周期×35d 経過=beyond → fallback 代表
+    expect(card!.items[0].phrase).toBe(LIFEOPS_SPARSE_FALLBACK_PHRASE.cycle); // 低圧文言
   });
   it("smoke script: c29 structured section（gate matrix + normalized counts・counts のみ）", () => {
     const src = read("scripts/lifeops-feedback-readonly-smoke.ts");

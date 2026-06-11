@@ -14,7 +14,12 @@ import "server-only";
 import { createSupabaseWorldStateSourcePorts } from "../assembly/supabase-worldstate-source-ports";
 import { assembleWorldState } from "../assembly/world-state-assembler";
 import { computeLifeOpsPreviewModel, type LifeOpsPreviewModel } from "./lifeops-preview-compute";
-import { resolveLifeOpsSourceMode, baseLifeOpsInputsForMode, type LifeOpsSourceMode } from "./lifeops-source-policy";
+import {
+  resolveLifeOpsSourceMode,
+  resolveEffectiveLifeOpsSourceMode,
+  baseLifeOpsInputsForMode,
+  type LifeOpsSourceMode,
+} from "./lifeops-source-policy";
 import { createLifeOpsFeedbackReadonlySource } from "./lifeops-feedback-readonly-source";
 import { feedbackToCadence, type LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
 import { isLifeOpsCadenceReadAllowed, feedbackDoneToRealCadence, realCadenceToCadenceObservations } from "./lifeops-cadence-real-source";
@@ -80,7 +85,11 @@ export async function computeLifeOpsMainlineModel(
   // A-4-c25: source policy（fixture kill-switch）。staging のみ fixture 可・production/不明 host は **base 候補を空に**
   //   （real channel=feedback 由来 cadence/suppression+構造化 source だけが上に乗る・real 0 件なら builder が null=card 非表示）。
   //   page 表示と action 再検証が本 helper を共有するため、偽造 candidateKey でも fixture 候補は再構築されない。
-  const sourceMode = resolveLifeOpsSourceMode({ supabaseUrl });
+  // A-4-c34b fix: 構造化 source が 1 件でもあれば **実効 real_only**（fixture 退役）— staging で fixture deadline が
+  //   代表を占有して登録 cycle が出ない盲点を解消（sparse fallback も実効 mode で正しく発動・production は恒久 real_only のまま）。
+  const urlMode = resolveLifeOpsSourceMode({ supabaseUrl });
+  const hasRealStructuredSource = structuredDeadlines.length > 0 || structuredCadence.length > 0;
+  const sourceMode = resolveEffectiveLifeOpsSourceMode(urlMode, hasRealStructuredSource);
   const model = computeLifeOpsPreviewModel({
     world,
     date,
