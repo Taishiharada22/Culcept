@@ -44,9 +44,17 @@ export interface LifeOpsStructuredCadenceSource {
   readonly confidence: LifeOpsCadenceConfidence;
 }
 
-/** occurrenceKey の自動導出（`{categoryId}:{menu}:{dueAt 日付部}`・非 PII 構造キー）。 */
+/**
+ * occurrenceKey の自動導出（`{categoryId}:{menu}:{dueAt 日付部}`・非 PII 構造キー）。
+ *   ★A-4-c30 finding の恒久対応: **due date 由来で deterministic**（now/smoke 開始時刻/created_at を使わない）。
+ */
 export function deriveLifeOpsOccurrenceKey(categoryId: LifeOpsCategoryId, menu: BeautyMenu | null, dueAtISO: string): string {
   return `${categoryId}:${menu ?? ""}:${dueAtISO.slice(0, 10)}`;
+}
+
+/** cadence 用 occurrenceKey（occurrence 概念がないため固定 suffix・deterministic）。 */
+export function deriveLifeOpsCadenceOccurrenceKey(categoryId: LifeOpsCategoryId, menu: BeautyMenu | null): string {
+  return `${categoryId}:${menu ?? ""}:cadence`;
 }
 
 function dictValid(categoryId: LifeOpsCategoryId, menu: BeautyMenu | null): boolean {

@@ -401,4 +401,10 @@ export const PLAN_FLAGS = {
    *   有効化条件: staging migration apply（別 CEO GO）+ reader 接続 slice。
    */
   lifeopsStructuredSourceReadonly: process.env.LIFEOPS_STRUCTURED_SOURCE_READONLY === "true",
+
+  /**
+   * A-4-c31: Life Ops 構造化 source の **write**（read とは独立・**dormant・default OFF・呼び出し元なし**）。
+   *   実 write は staging write smoke（別 GO・mini-design §1-10 計画）→ UI 入力 slice が前提。production は gate で常に false。
+   */
+  lifeopsStructuredSourceWrite: process.env.LIFEOPS_STRUCTURED_SOURCE_WRITE === "true",
 } as const;

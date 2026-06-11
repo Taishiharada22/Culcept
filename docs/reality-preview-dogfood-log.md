@@ -262,3 +262,16 @@
 - meta += structuredDeadlineCount/structuredCadenceCount（数のみ）。full chain lock: fake row→正規化→real_only card に「確定申告」/fallback「美容院」・flood 60→rawDropped=10・0 件 no-op（JSON 一致）・latest 勝ち
 - **staging smoke PASS（新 table への初実 query）**: gate 開(staging)/閉(production)・deadlines=0/cadences=0/normalized 0＝honest zero・write 0・cleanup 不要 → reader/RLS/columns が実 DB で機能
 - c29 21 case + 既存 c27 13 case・full suite 20556 GREEN・tsc 55
+
+### [2026-06-11] record 43 — A-4-c30 manual structured source seed smoke **PASS（full real loop 成立）**
+- CEO 実行: precheck 全 0 → INSERT（deadline/tax_filing/due 2026-06-25/high/active）→ smoke: structured deadlines=1/normalized=1 → **/plan card 表示・done flow 期待通り** → after done: lifeops=1/obs=1/fbCad=1/realCad=1/structured=1 → feedback cleanup exact 1 → structured cleanup exact 1 → final 全 0
+- ★**fixture でない本物の structured source → /plan card → done → 学習/抑制 → cleanup 復元の full real loop が初成立**
+- ★finding（c31 で固定）: 手動 INSERT の occurrence_key が smoke 開始時刻由来（`tax_filing:2026-06-11T01:37:00Z`）になっていた。c26 の deterministic helper（due date 由来）は存在するが manual SQL が経由しなかった → **全 write を pure builder 経由に強制する writer contract が必要**（=c31）
+
+### [2026-06-11] record 44 — A-4-c31 structured source input contract + writer gate（実 write なし）
+- ★c30 finding 恒久対応: **occurrence_key は builder が常に自動生成**（deadline=`{cat}:{menu?}:{dueDate}`・cadence=`{cat}:{menu?}:cadence`・now/Date.now 不存在を source level で lock）→ 呼び元が渡す口がない=手書き時刻値の混入が構造的に不可能
+- input contract: 構造化値のみ（free text/user_id/id field 不存在・偽装 prop は builder が不透過）。validation=辞書 roundtrip+ISO+DB CHECK 同 shape（dueDate 必須/last か interval/interval∈(0,730] 整数）。confidence='high'・status='active' 固定
+- writer skeleton（server-only・**呼び出し元 0=dormant**）: gate（master∧LIFEOPS_STRUCTURED_SOURCE_WRITE∧staging∧!prod・新 dormant flag）→validate→duplicate guard（同 type+category+menu+occurrence の active 既存→already_exists・existing は呼び元注入=隠れ read なし）→insert 1 件・fail-open。payload=row+user_id のみ（id/created_at/updated_at 不含=c12 教訓）
+- update 方針=insert のみ（期日変更は archive→新 insert を将来方針）。DB unique index は設計のみ（partial unique・別 slice）。staging write smoke は**計画のみ**（mini-design §1-10・occurrence 回帰検証込み・実行は別 GO）
+- roundtrip lock: writer payload→c27 reader DTO→正規化可能（write と read contract の整合）
+- GPT 16 lock（11 case）・full suite 20567 GREEN・tsc 55
