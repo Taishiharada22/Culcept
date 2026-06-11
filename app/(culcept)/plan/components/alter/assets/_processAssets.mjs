@@ -102,7 +102,12 @@ async function keyBody() {
   // ② rim を上に重ねる
   const rimLayer = await sharp({ create: { width: w, height: h, channels: 3, background: "#f3f5ff" } }).png().toBuffer();
   const rimRGBA = await sharp(rimLayer).joinChannel(rimAlphaPng).png().toBuffer();
-  const composedBody = await sharp(fillRGBA).composite([{ input: rimRGBA, blend: "over" }]).png().toBuffer();
+  // rim を重ねた後、最終 alpha を cleanMask に強制再結合する。
+  // （'over' 合成は rim の「輪郭の外側半分」の alpha を出力に追加してしまう = シルエット外の
+  //   ゴースト輪郭の正体。rim は輪郭内側の発色効果のみに限定する）
+  const composedRaw = await sharp(fillRGBA).composite([{ input: rimRGBA, blend: "over" }]).png().toBuffer();
+  const composedRGB = await sharp(composedRaw).removeAlpha().png().toBuffer();
+  const composedBody = await sharp(composedRGB).joinChannel(cleanMask).png().toBuffer();
   // ③ 決定論的 bbox crop（alpha>20）。PNG 再読込が多 channel 化するため stride を考慮。
   const mr = await sharp(cleanMask).raw().toBuffer({ resolveWithObject: true });
   const maskRaw = mr.data;
@@ -138,7 +143,24 @@ async function keyBody() {
     if (vd[o + 3] > 200 && vd[o] + vd[o + 1] + vd[o + 2] < 120) dark++;
   }
   if (dark > 50) throw new Error("VERIFY FAIL: dark pixels inside opaque body = " + dark);
-  console.log("VERIFY PASS: corners transparent / dark-in-body=" + dark);
+
+  // ghost 検証: body.png の alpha が「base alpha（+rim 余白 3px）」の外に存在しないこと
+  //（B10 で発覚した『巨大頭の輪郭ゴースト』= stale ビルドの再発防止）
+  const baseDil = await sharp(cleanMask).blur(3).raw().toBuffer({ resolveWithObject: true });
+  const bdc = baseDil.info.channels;
+  let ghost = 0;
+  for (let y = 0; y < vh; y++) {
+    for (let x = 0; x < vw; x++) {
+      const a = vd[(y * vw + x) * vc + 3];
+      if (a > 40) {
+        const sx = minX + x, sy = minY + y;
+        const ba = baseDil.data[(sy * w + sx) * bdc];
+        if (ba < 8) ghost++;
+      }
+    }
+  }
+  if (ghost > 100) throw new Error("VERIFY FAIL: ghost alpha outside base silhouette = " + ghost + "px");
+  console.log("VERIFY PASS: corners transparent / dark-in-body=" + dark + " / ghost-outside-base=" + ghost);
 
   // ⑤ ゾーン定数を crop 後フレームで機械算出（手動目測の廃止 — HumanBatteryFigure へ転記する値）
   const mm = await sharp(path.join(out, "body-mask.png")).raw().toBuffer({ resolveWithObject: true });
