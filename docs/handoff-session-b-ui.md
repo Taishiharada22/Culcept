@@ -2,7 +2,8 @@
 
 - 日付: 2026-06-11 / 発行: 契約凍結セッション（claude/xenodochial-chatelet-0023b2）
 - 前提: CEO が Session B 起動を承認していること（設計書 §10.4-3）
-- 読むべき契約（読み取り専用・変更禁止）: ①`docs/alter-tab-visual-contract.md`（視覚正本 — 全節）②`docs/day-state-alter-tab-v0-design.md` §7（タブ構成）・§9（人体バッテリー）
+- 読むべき契約（読み取り専用・変更禁止）: ①`docs/alter-tab-visual-contract.md`（視覚正本 — 全節）②`docs/day-state-alter-tab-v0-design.md` §7（タブ構成）・§9（人体バッテリー）③`docs/day-state-stage0-closeout.md`（Stage 0 の実装範囲と境界）④参照画像（CEO 提供 iPhone モック — 意図的に再現しない要素は visual-contract §2）
+- **型の正本は実装済みコード**: `AlterBatteryViewModel` は `lib/plan/dayState/dayStateTypes.ts` から **import type する**（再定義・コピー禁止。lib/plan/dayState の**変更は禁止** — 読み取り専用）
 
 ## ミッション
 
@@ -13,7 +14,7 @@
 ## HARD 制約
 
 1. **触ってはいけない**: PlanClient.tsx（タブ配線は Stage 1 で契約管理側が実施）/ グローバルナビ / FlowTab・CalendarTab・MapTab / 既存の全 API route / supabase / localStorage / featureFlags。**例外として下記 preview ページ 1 枚のみ新設可**。
-2. **データは mock のみ**: 下の fixture を **`app/(culcept)/plan/components/alter/__mocks__/`** に置いて props で受け取る（**`lib/plan/dayState/` 配下には置かない** — Session A の領域と混ぜない）。fetch・hook 接続禁止。
+2. **データは mock のみ**: 下の fixture を **`app/(culcept)/plan/components/alter/__mocks__/`** に置いて props で受け取る（**`lib/plan/dayState/` 配下には置かない** — Session A の領域と混ぜない。型のみ import type で参照）。fetch・hook 接続禁止。PlanClient・API・localStorage・featureFlags にも触らない（許される新規 route は下記 dev preview ページ 1 枚のみ・三重ガード必須・どこからもリンクしない）。
 3. **禁止表示**（visual-contract §7 のチェックリストを regression として使う）: N-3 禁止 9 語 / 見立てへの % ・数値 / 「今日の開始残量」/ 断定形 / 赤色警告 / 偽データ（睡眠時間等）/ streak・比較。
 4. **再利用優先**: GlassCard(gradient) / GlassButton(gradient) / FadeInView / TimelineSpine 3 カラム / FollowUpChip パターン / sticky header・breathe-md・max-w-3xl 規約（visual-contract §5 の file:line 参照）。新 UI ライブラリ導入禁止。
 5. UI ラベルは日本語（CLAUDE.md）。ダークモード対象外。
