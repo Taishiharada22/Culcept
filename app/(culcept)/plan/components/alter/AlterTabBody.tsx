@@ -170,15 +170,18 @@ export function AlterTabBody({
       <AlterHeader onSettingsTap={onSettingsTap} />
 
       <div className="mx-auto max-w-3xl space-y-2 px-3 pb-24 pt-2">
-        {/* 2. あなたのバッテリー（全幅・人体中央 + 左右コールアウト） */}
-        <HumanBatteryCard
-          battery={vm.battery}
-          onZoneTap={(z) => setSheet({ kind: "correction", target: z })}
-          pulseZone={pulseZone}
-        />
-
-        {/* 2'. 状態の背景（昨日までの影響） */}
-        <StateBackgroundColumn cards={vm.contextCards} onCardTap={handleContextCardTap} />
+        {/* 2. 上段 2 カラム（over.png 構図）: あなたのバッテリー | 状態の背景 */}
+        <div className="grid grid-cols-[1.78fr_1fr] items-stretch gap-1.5">
+          <HumanBatteryCard
+            battery={vm.battery}
+            outingTolerance={vm.contextCards.outingTolerance}
+            eveningSlack={vm.contextCards.eveningSlack}
+            onZoneTap={(z) => setSheet({ kind: "correction", target: z })}
+            onOutingTap={() => setSheet({ kind: "correction", target: "outingTolerance" })}
+            pulseZone={pulseZone}
+          />
+          <StateBackgroundColumn cards={vm.contextCards} onCardTap={handleContextCardTap} />
+        </div>
 
         <AnimatePresence>
           {ack && (

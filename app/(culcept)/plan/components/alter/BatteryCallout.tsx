@@ -1,16 +1,17 @@
 "use client";
 
 /**
- * BatteryCallout — 系統コールアウト（人体の周囲に浮かぶ小カード・v2）
+ * BatteryCallout — 人体の周囲に浮かぶコールアウト小カード（v4: over.png 密度準拠の超コンパクト）
  *
- * 正本: docs/alter-tab-visual-contract.md §3.2 / 設計書 §9.2
- * 参照画像準拠: アイコンチップ + ラベル + 帯語（大きめ・系統色）+「見立て」バッジ + 根拠チップ 1-2。
- * % 数値は置かない。タップ → 補正シート。
+ * 正本: docs/alter-tab-visual-contract.md §3.2 / §3.3（周辺カードは「人体の周囲または下」配置可）
+ *  - BatteryCallout: 3 系統（タップ → 補正シート・コネクタあり）
+ *  - FloatingContextCard: 外出耐性 / 夜の余白（人体の周囲に浮かべる周辺カード。人体水位ではないためコネクタなし）
+ * % 数値は置かない。帯語 + 「見立て」バッジ + 根拠チップ 1 個。
  */
 
-import type { BatteryZoneVM } from "@/lib/plan/dayState/dayStateTypes";
+import type { AlterBatteryViewModel, BatteryZoneVM } from "@/lib/plan/dayState/dayStateTypes";
 import { BAND_LABEL, UNKNOWN_TEXT, ZONE_STYLE, type ZoneKey } from "./bandDisplay";
-import { BatteryIcon, BrainIcon, HeartIcon } from "./alterIcons";
+import { BatteryIcon, BrainIcon, HeartIcon, MoonIcon, WalkIcon } from "./alterIcons";
 
 const ZONE_ICON: Record<ZoneKey, (p: { size?: number; className?: string }) => React.ReactNode> = {
   brain: BrainIcon,
@@ -23,6 +24,17 @@ const ZONE_CHIP_BG: Record<ZoneKey, string> = {
   heart: "bg-rose-100/90 text-rose-400",
   body: "bg-sky-100/90 text-sky-500",
 };
+
+const cardBase =
+  "rounded-xl border border-white bg-white/92 px-1.5 py-1.5 text-left shadow-[0_4px_14px_rgba(99,102,241,0.14)] backdrop-blur-md";
+
+function MitateBadge() {
+  return (
+    <span className="rounded-full border border-slate-200 bg-slate-50 px-1 py-px text-[7.5px] font-medium text-slate-400">
+      見立て
+    </span>
+  );
+}
 
 export interface BatteryCalloutProps {
   zoneKey: ZoneKey;
@@ -40,35 +52,79 @@ export function BatteryCallout({ zoneKey, zone, onTap, className }: BatteryCallo
     <button
       type="button"
       onClick={() => onTap?.(zoneKey)}
-      className={`rounded-2xl border bg-white/88 px-2 py-2 text-left shadow-[0_4px_14px_rgba(99,102,241,0.10)] backdrop-blur-md transition-shadow hover:shadow-lg ${
-        isUnknown ? "border-slate-200/80" : "border-white"
-      } ${className ?? ""}`}
+      className={`${cardBase} transition-shadow hover:shadow-lg ${className ?? ""}`}
       aria-label={`${zone.label}の補正シートを開く`}
     >
       <div className="flex items-center gap-1">
-        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${isUnknown ? "bg-slate-100 text-slate-400" : ZONE_CHIP_BG[zoneKey]}`}>
-          <Icon size={12} />
+        <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] ${isUnknown ? "bg-slate-100 text-slate-400" : ZONE_CHIP_BG[zoneKey]}`}>
+          <Icon size={10} />
         </span>
-        <span className="min-w-0 truncate text-[9.5px] font-medium text-slate-500">{zone.label}</span>
+        <span className="min-w-0 truncate text-[8.5px] font-medium text-slate-500">{zone.label}</span>
       </div>
-      <div className={`mt-1 text-[13px] font-bold leading-tight ${isUnknown ? "text-slate-400" : style.textClass}`}>
+      <div className={`mt-0.5 text-[12px] font-bold leading-tight ${isUnknown ? "text-[10px] text-slate-400" : style.textClass}`}>
         {isUnknown ? UNKNOWN_TEXT : BAND_LABEL[zone.band]}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        <span
-          className={`rounded-full border px-1 py-px text-[8px] font-medium ${
-            zone.source === "本人" ? "border-emerald-200 bg-emerald-50 text-emerald-600" : "border-slate-200 bg-slate-50 text-slate-400"
-          }`}
-        >
-          {zone.source}
-        </span>
-        {zone.evidence.slice(0, 2).map((ev) => (
-          <span key={ev} className="rounded-full bg-slate-100/90 px-1 py-px text-[8px] text-slate-500">
+      <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
+        <MitateBadge />
+        {zone.evidence.slice(0, 1).map((ev) => (
+          <span key={ev} className="truncate rounded-full bg-slate-100/90 px-1 py-px text-[7.5px] text-slate-500">
             {ev}
           </span>
         ))}
       </div>
-      {isUnknown && <div className="mt-0.5 text-[8.5px] text-slate-400">今日の様子から学びます</div>}
+      {isUnknown && <div className="mt-0.5 text-[7.5px] text-slate-400">今日の様子から学びます</div>}
     </button>
   );
+}
+
+/** 外出耐性 / 夜の余白 — 人体の周囲に浮かべる周辺カード（コネクタなし・人体水位ではない） */
+export function FloatingContextCard({
+  kind,
+  card,
+  onTap,
+  className,
+}: {
+  kind: "outing" | "evening";
+  card:
+    | AlterBatteryViewModel["contextCards"]["outingTolerance"]
+    | AlterBatteryViewModel["contextCards"]["eveningSlack"];
+  onTap?: () => void;
+  className?: string;
+}) {
+  const icon =
+    kind === "outing" ? (
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] bg-emerald-100/90 text-emerald-500">
+        <WalkIcon size={10} />
+      </span>
+    ) : (
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] bg-indigo-100/90 text-indigo-500">
+        <MoonIcon size={10} />
+      </span>
+    );
+  const isEstimate = kind === "outing";
+  const inner = (
+    <>
+      <div className="flex items-center gap-1">
+        {icon}
+        <span className="min-w-0 truncate text-[8.5px] font-medium text-slate-500">{card.label}</span>
+      </div>
+      <div className="mt-0.5 text-[10.5px] font-bold leading-snug text-slate-700">{card.text}</div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
+        {isEstimate && <MitateBadge />}
+        {card.evidence.slice(0, 1).map((ev) => (
+          <span key={ev} className="truncate rounded-full bg-slate-100/90 px-1 py-px text-[7.5px] text-slate-500">
+            {ev}
+          </span>
+        ))}
+      </div>
+    </>
+  );
+  if (onTap) {
+    return (
+      <button type="button" onClick={onTap} aria-label={`${card.label}の補正シートを開く`} className={`${cardBase} transition-shadow hover:shadow-lg ${className ?? ""}`}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className={`${cardBase} ${className ?? ""}`}>{inner}</div>;
 }

@@ -18,7 +18,7 @@ import {
   UNKNOWN_TEXT,
   YESTERDAY_LOAD_LABEL,
 } from "./bandDisplay";
-import { CarryIcon, LeafIcon, MoonIcon, PulseIcon, TargetIcon, WalkIcon } from "./alterIcons";
+import { CarryIcon, LeafIcon, MoonIcon, PulseIcon, TargetIcon } from "./alterIcons";
 
 export type ContextSheetTarget = "outingTolerance" | "sleep";
 
@@ -43,7 +43,7 @@ function BandBar({ fraction, barClass }: { fraction: number; barClass: string })
   );
 }
 
-/** 状態の背景（昨日までの影響）— 3 連カード */
+/** 状態の背景（昨日までの影響）— 右カラム縦積み（over.png 構図） */
 export function StateBackgroundColumn({
   cards,
   onCardTap,
@@ -53,17 +53,17 @@ export function StateBackgroundColumn({
 }) {
   const { sleep, yesterdayLoad, recoveryQuality } = cards;
   return (
-    <div>
-      <p className="px-1 pb-1 text-[9px] font-medium text-slate-400">
+    <div className="flex h-full flex-col">
+      <p className="px-1 pb-1 text-[8.5px] font-medium text-slate-400">
         状態の背景 <span className="text-slate-300">（昨日までの影響）</span>
       </p>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-1.5 [&>*]:flex-1">
         {/* 睡眠（本人入力のみ。偽データ禁止） */}
         <button
           type="button"
           onClick={() => onCardTap?.("sleep")}
           aria-label="昨夜の眠りを入力する"
-          className="rounded-2xl border border-white bg-white/85 p-2 text-left shadow-sm backdrop-blur-sm transition-colors hover:bg-white"
+          className="flex flex-col justify-center rounded-2xl border border-white bg-white/85 p-2 text-left shadow-sm backdrop-blur-sm transition-colors hover:bg-white"
         >
           <div className="flex items-center gap-1">
             <IconChip icon={<MoonIcon size={11} />} tint="bg-violet-100/90 text-violet-500" />
@@ -79,7 +79,7 @@ export function StateBackgroundColumn({
         </button>
 
         {/* 昨日の負荷（事実表示・小バー可/数値なし） */}
-        <div className="rounded-2xl border border-white bg-white/85 p-2 shadow-sm backdrop-blur-sm">
+        <div className="flex flex-col justify-center rounded-2xl border border-white bg-white/85 p-2 shadow-sm backdrop-blur-sm">
           <div className="flex items-center gap-1">
             <IconChip icon={<PulseIcon size={11} />} tint="bg-amber-100/90 text-amber-500" />
             <span className="text-[9.5px] font-medium text-slate-500">{yesterdayLoad.label}</span>
@@ -91,7 +91,7 @@ export function StateBackgroundColumn({
         </div>
 
         {/* 回復の質（弱導出 or unknown 許容） */}
-        <div className="rounded-2xl border border-white bg-white/85 p-2 shadow-sm backdrop-blur-sm">
+        <div className="flex flex-col justify-center rounded-2xl border border-white bg-white/85 p-2 shadow-sm backdrop-blur-sm">
           <div className="flex items-center gap-1">
             <IconChip icon={<LeafIcon size={11} />} tint="bg-teal-100/90 text-teal-500" />
             <span className="text-[9.5px] font-medium text-slate-500">{recoveryQuality.label}</span>
@@ -106,62 +106,17 @@ export function StateBackgroundColumn({
   );
 }
 
-/** 下段グリッド: 外出耐性 / 夜の余白 / 明日への持ち越し / 今日の成立見込み */
+/** 下段ペア: 明日への持ち越し / 今日の成立見込み（外出耐性・夜の余白は人体周囲の浮遊カードへ移動） */
 export function ContextCardGrid({
   cards,
-  onCardTap,
 }: {
   cards: AlterBatteryViewModel["contextCards"];
   onCardTap?: (target: ContextSheetTarget) => void;
 }) {
-  const { outingTolerance, eveningSlack, carryOver, feasibility } = cards;
+  const { carryOver, feasibility } = cards;
   const cellBase = "rounded-2xl border border-white bg-white/85 p-2.5 shadow-sm backdrop-blur-sm";
   return (
     <div className="grid grid-cols-2 gap-1.5">
-      {/* 外出耐性（見立て・補正可・根拠つき） */}
-      <button
-        type="button"
-        onClick={() => onCardTap?.("outingTolerance")}
-        aria-label="外出耐性の補正シートを開く"
-        className={`${cellBase} text-left transition-colors hover:bg-white`}
-      >
-        <div className="flex items-center gap-1">
-          <IconChip icon={<WalkIcon size={11} />} tint="bg-emerald-100/90 text-emerald-500" />
-          <span className="text-[10px] font-medium text-slate-500">{outingTolerance.label}</span>
-          <MitateBadge />
-        </div>
-        <div className={`mt-1 text-[12px] font-bold leading-tight ${outingTolerance.band === "unknown" ? "text-slate-400" : "text-slate-700"}`}>
-          {outingTolerance.text}
-        </div>
-        {outingTolerance.evidence.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {outingTolerance.evidence.slice(0, 2).map((ev) => (
-              <span key={ev} className="rounded-full bg-slate-100/90 px-1 py-px text-[8px] text-slate-500">
-                {ev}
-              </span>
-            ))}
-          </div>
-        )}
-      </button>
-
-      {/* 夜の余白（予定由来の事実 — 時間量表示可） */}
-      <div className={cellBase}>
-        <div className="flex items-center gap-1">
-          <IconChip icon={<MoonIcon size={11} />} tint="bg-indigo-100/90 text-indigo-500" />
-          <span className="text-[10px] font-medium text-slate-500">{eveningSlack.label}</span>
-        </div>
-        <div className="mt-1 text-[12px] font-bold leading-tight text-slate-700">{eveningSlack.text}</div>
-        {eveningSlack.evidence.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {eveningSlack.evidence.slice(0, 1).map((ev) => (
-              <span key={ev} className="rounded-full bg-slate-100/90 px-1 py-px text-[8px] text-slate-500">
-                {ev}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* 明日への持ち越し */}
       <div className={cellBase}>
         <div className="flex items-center gap-1">

@@ -18,6 +18,7 @@
 import { notFound } from "next/navigation";
 import { isCandidateActionsPreviewHostAllowed } from "@/lib/plan/reality/candidateActionsPreviewHost";
 import { AlterTabBody } from "../components/alter/AlterTabBody";
+import overPng from "../components/alter/assets/over.png";
 import {
   MOCK_ALTER_BATTERY_VM,
   MOCK_ALTER_MESSAGE_TIME,
@@ -63,9 +64,12 @@ export default async function DevAlterTabPage({
   const requested = typeof sp.v === "string" ? sp.v : "morning";
   const variantKey: VariantKey = requested in VARIANTS ? (requested as VariantKey) : "morning";
   const variant = VARIANTS[variantKey];
+  // 位置合わせ用 overlay（dev 専用・一時利用）: ?overlay=0.5&oy=-120
+  const overlayOpacity = typeof sp.overlay === "string" ? Math.min(Math.max(parseFloat(sp.overlay) || 0, 0), 1) : 0;
+  const overlayY = typeof sp.oy === "string" ? parseInt(sp.oy, 10) || 0 : 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-50/60 via-white to-purple-50/40">
+    <div className="relative min-h-screen bg-gradient-to-b from-indigo-50/60 via-white to-purple-50/40">
       {/* dev 専用 variant 切替バー（製品 UI ではない） */}
       <div className="border-b border-amber-200 bg-amber-50 px-3 py-2">
         <p className="text-[10px] font-medium text-amber-700">
@@ -93,6 +97,18 @@ export default async function DevAlterTabPage({
         recentExchange={variant.withChat ? MOCK_CHAT_EXCHANGE : undefined}
         alterMessageTime={variant.withChat ? MOCK_ALTER_MESSAGE_TIME : undefined}
       />
+
+      {/* over.png 半透明 overlay（dev 位置合わせ専用。本番背景貼りではない） */}
+      {overlayOpacity > 0 && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={overPng.src}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 z-[100] w-[390px] max-w-none -translate-x-1/2"
+          style={{ top: overlayY, opacity: overlayOpacity }}
+        />
+      )}
     </div>
   );
 }
