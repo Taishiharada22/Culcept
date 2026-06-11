@@ -32,12 +32,13 @@ export interface HumanBatteryFigureProps {
   className?: string;
 }
 
-// body.png 内のゾーン境界（CEO 透過アセットの alpha 行幅実測: 頭 3-15% / 肩 17% / 脚〜99%）
-const HEAD_TOP_PCT = 3;
-const NECK_PCT = 16; // 頭部容器の下端（顎〜首）
-const BODY_TOP_PCT = 16; // 体ゾーンの上端
-const HEART_CENTER = { xPct: 44, yPct: 22 }; // 胸の左上
-const FEET_PCT = 99;
+// body.png 内のゾーン境界 — _processAssets.mjs が crop 後フレームで機械算出した値を転記する
+//（手動目測の禁止。再生成時はパイプライン出力 "ZONES(crop後・転記用)" と同期させること）
+const HEAD_TOP_PCT = 0.5;
+const NECK_PCT = 12.2; // 顎（頭部容器の下端）
+const BODY_TOP_PCT = 17.5; // 肩（体ゾーンの上端）
+const HEART_CENTER = { xPct: 46, yPct: 25.7 }; // 胸（機械算出 HEART_Y・x は胸の左上指示で中心やや左）
+const FEET_PCT = 99.4;
 
 const bodyMaskStyle: React.CSSProperties = {
   WebkitMaskImage: `url(${bodyImg.src})`,

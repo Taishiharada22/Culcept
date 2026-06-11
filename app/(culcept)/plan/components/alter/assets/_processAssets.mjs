@@ -87,11 +87,18 @@ async function keyBody() {
   }
   const rimAlphaPng = await sharp(rim, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer();
 
-  // 器フィル: CEO 透過アセットの陰影（解剖学的ボリューム）を保持しつつ、ややクールトーン + 軽い
-  // コントラスト。白飛びさせず「白〜薄グレーの器」。色は液体レイヤーが持つので強い色は入れない。
-  const rgb = await sharp(file).removeAlpha().linear(0.96, 6).tint({ r: 230, g: 234, b: 247 }).png().toBuffer();
-  // ① clean alpha で切り抜く（dest-in）
-  const fillRGBA = await sharp(rgb).ensureAlpha().composite([{ input: cleanMask, blend: "dest-in" }]).png().toBuffer();
+  // 器フィル: CEO 透過アセットの陰影を保持しつつクールトーン。
+  // ★flatten(白): 透明域の下に残る黒 RGB と、元画像に焼き込まれた周囲グロー輪を白に落とす
+  //   （alpha が壊れても黒が出ない二重防御。「二重の頭」に見えたグロー輪の構造的排除）
+  const rgb = await sharp(file)
+    .flatten({ background: "#ffffff" })
+    .linear(0.96, 6)
+    .tint({ r: 230, g: 234, b: 247 })
+    .removeAlpha()
+    .png()
+    .toBuffer();
+  // ① clean alpha を joinChannel で最終 alpha に結合（dest-in は greyscale 無alpha 入力で無言失敗するため廃止）
+  const fillRGBA = await sharp(rgb).joinChannel(cleanMask).png().toBuffer();
   // ② rim を上に重ねる
   const rimLayer = await sharp({ create: { width: w, height: h, channels: 3, background: "#f3f5ff" } }).png().toBuffer();
   const rimRGBA = await sharp(rimLayer).joinChannel(rimAlphaPng).png().toBuffer();
@@ -117,6 +124,46 @@ async function keyBody() {
   await sharp(cleanMask).extract(ext).png().toFile(path.join(out, "body-mask.png"));
   const m = await sharp(path.join(out, "body.png")).metadata();
   console.log("body.png", m.width + "x" + m.height, "hasAlpha=" + m.hasAlpha);
+
+  // ④ 自動検証（PASS しなければ throw — 黒背景/不透明余白の再発防止）
+  const v = await sharp(path.join(out, "body.png")).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const vd = v.data, vw = v.info.width, vh = v.info.height, vc = v.info.channels;
+  const aAt = (xf, yf) => vd[(Math.floor(vh * yf) * vw + Math.floor(vw * xf)) * vc + 3];
+  for (const [xf, yf] of [[0.01, 0.01], [0.99, 0.01], [0.01, 0.99], [0.99, 0.99]]) {
+    if (aAt(xf, yf) > 8) throw new Error("VERIFY FAIL: corner not transparent a=" + aAt(xf, yf));
+  }
+  let dark = 0;
+  for (let i = 0; i < vw * vh; i++) {
+    const o = i * vc;
+    if (vd[o + 3] > 200 && vd[o] + vd[o + 1] + vd[o + 2] < 120) dark++;
+  }
+  if (dark > 50) throw new Error("VERIFY FAIL: dark pixels inside opaque body = " + dark);
+  console.log("VERIFY PASS: corners transparent / dark-in-body=" + dark);
+
+  // ⑤ ゾーン定数を crop 後フレームで機械算出（手動目測の廃止 — HumanBatteryFigure へ転記する値）
+  const mm = await sharp(path.join(out, "body-mask.png")).raw().toBuffer({ resolveWithObject: true });
+  const md = mm.data, mw = mm.info.width, mh = mm.info.height, mc = mm.info.channels;
+  const rowWidth = (y) => {
+    let lo = -1, hi = -1;
+    for (let x = 0; x < mw; x++) if (md[(y * mw + x) * mc] > 128) { if (lo < 0) lo = x; hi = x; }
+    return lo < 0 ? 0 : hi - lo;
+  };
+  let topY = -1, botY = -1;
+  for (let y = 0; y < mh; y++) if (rowWidth(y) > 0) { topY = y; break; }
+  for (let y = mh - 1; y >= 0; y--) if (rowWidth(y) > 0) { botY = y; break; }
+  let headMax = 0;
+  for (let y = topY; y < topY + Math.floor(mh * 0.15); y++) headMax = Math.max(headMax, rowWidth(y));
+  let chinY = -1, minW = 1e9;
+  for (let y = topY; y < topY + Math.floor(mh * 0.25); y++) {
+    const ww = rowWidth(y);
+    if (ww > 0 && ww < minW && y > topY + Math.floor(mh * 0.05)) { minW = ww; chinY = y; }
+    if (ww > headMax * 1.6) break;
+  }
+  let shoulderY = -1;
+  for (let y = chinY; y < mh; y++) if (rowWidth(y) > headMax * 1.8) { shoulderY = y; break; }
+  const p = (y) => +(y / mh * 100).toFixed(1);
+  const heartY = p(shoulderY + (botY - shoulderY) * 0.10);
+  console.log("ZONES(crop後・転記用): HEAD_TOP=" + p(topY), "CHIN(NECK)=" + p(chinY), "SHOULDER(BODY_TOP)=" + p(shoulderY), "FEET=" + p(botY), "HEART_Y=" + heartY);
 }
 
 await keyBody();
