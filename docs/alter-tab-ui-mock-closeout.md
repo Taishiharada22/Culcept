@@ -209,6 +209,16 @@ B6（自前 flood-fill）を revert 後、CEO が `human-body-base.png` / `body-
 
 **残（CEO 次点）**: 周辺カードの配置/磨き込み・dotted connector 視認性（人体ほど深刻でない）。頭部の濃淡微調整。
 
+## 7.13 B8 — 黒背景根絶 / 座標系統一 / 心臓固定（commit `6288d989`・人体のみ）
+
+CEO 指摘「水が部位をカバーしない・背景が真っ黒・頭/体/心臓の水位フレームが全て違う・心臓ズレ・頭 png が二重配置?」の分析と修正。
+
+**分析（実測で確定）**: ①「頭 png の二重配置」は不存在 — body.png は 1 体のみ。見えた「ズレた頭」= 元画像 RGB に焼き込まれた身体周囲グロー輪が、alpha 全面不透明バグで黒背景ごと露出したもの。②黒背景の根因 = sharp `composite(dest-in)` に **alpha なし greyscale mask を渡すと無言で失敗**（最小再現で alpha 全 255 を確認）→ CEO の正しい透過を私のパイプラインが破壊。③水のズレ = crop 後フレームでゾーン未再実測（実測: 頭頂 0.5 / 顎 12.2 / 肩 17.5 / 足底 99.4 vs 旧定数 3/16/16/99）。
+
+**修正**: dest-in 廃止 → joinChannel + **flatten(白)**（透明域の黒 RGB とグロー輪を構造的に排除）/ パイプラインに自動検証内蔵（四隅 alpha=0・体内黒 0 を assert — FAIL なら throw）/ **ゾーン定数は機械算出値の転記制**（手動目測の禁止を規約化）/ 心臓 = 肩線+体高比の機械アンカー (46, 25.7)。レイヤー合成シミュレーションで「黒ゼロ・形どおりのクリップ・同一座標系」を画像検証済み。
+
+**教訓**: (1) sharp の dest-in は mask に alpha が必須 — greyscale は黙って素通しになる (2) アセット差し替え時は出力ピクセルの自動 assert を通してから画面確認 (3) ゾーン定数は出力フレームで機械算出。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
