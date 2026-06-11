@@ -18,6 +18,7 @@
 import { notFound } from "next/navigation";
 import { isCandidateActionsPreviewHostAllowed } from "@/lib/plan/reality/candidateActionsPreviewHost";
 import { AlterTabBody } from "../components/alter/AlterTabBody";
+import { buildScreenViewModel } from "../components/alter/screenViewModel";
 import overPng from "../components/alter/assets/over.png";
 import {
   MOCK_ALTER_BATTERY_VM,
@@ -95,7 +96,7 @@ export default async function DevAlterTabPage({
       </div>
 
       <AlterTabBody
-        vm={variant.vm}
+        screen={buildScreenViewModel(variant.vm)}
         recentExchange={variant.withChat ? MOCK_CHAT_EXCHANGE : undefined}
         alterMessageTime={variant.withChat ? MOCK_ALTER_MESSAGE_TIME : undefined}
       />

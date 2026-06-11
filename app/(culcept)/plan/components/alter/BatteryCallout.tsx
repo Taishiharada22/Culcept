@@ -39,11 +39,13 @@ function MitateBadge() {
 export interface BatteryCalloutProps {
   zoneKey: ZoneKey;
   zone: BatteryZoneVM;
+  /** over.png 準拠の % 数値（CEO 2026-06-11 契約緩和で解禁）。省略時は帯語のみ */
+  pct?: number;
   onTap?: (zoneKey: ZoneKey) => void;
   className?: string;
 }
 
-export function BatteryCallout({ zoneKey, zone, onTap, className }: BatteryCalloutProps) {
+export function BatteryCallout({ zoneKey, zone, pct, onTap, className }: BatteryCalloutProps) {
   const style = ZONE_STYLE[zoneKey];
   const Icon = ZONE_ICON[zoneKey];
   const isUnknown = zone.band === "unknown";
@@ -61,9 +63,17 @@ export function BatteryCallout({ zoneKey, zone, onTap, className }: BatteryCallo
         </span>
         <span className="min-w-0 truncate text-[8.5px] font-medium text-slate-500">{zone.label}</span>
       </div>
-      <div className={`mt-0.5 text-[12px] font-bold leading-tight ${isUnknown ? "text-[10px] text-slate-400" : style.textClass}`}>
-        {isUnknown ? UNKNOWN_TEXT : BAND_LABEL[zone.band]}
-      </div>
+      {isUnknown ? (
+        <div className="mt-0.5 text-[10px] font-bold leading-tight text-slate-400">{UNKNOWN_TEXT}</div>
+      ) : pct !== undefined ? (
+        <div className={`mt-0.5 flex items-baseline gap-0.5 leading-none ${style.textClass}`}>
+          <span className="text-[20px] font-bold tabular-nums">{pct}</span>
+          <span className="text-[10px] font-semibold">%</span>
+          <span className="ml-auto text-[8.5px] font-medium text-slate-500">{BAND_LABEL[zone.band]}</span>
+        </div>
+      ) : (
+        <div className={`mt-0.5 text-[12px] font-bold leading-tight ${style.textClass}`}>{BAND_LABEL[zone.band]}</div>
+      )}
       <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
         <MitateBadge />
         {zone.evidence.slice(0, 1).map((ev) => (
@@ -81,6 +91,7 @@ export function BatteryCallout({ zoneKey, zone, onTap, className }: BatteryCallo
 export function FloatingContextCard({
   kind,
   card,
+  pct,
   onTap,
   className,
 }: {
@@ -88,6 +99,8 @@ export function FloatingContextCard({
   card:
     | AlterBatteryViewModel["contextCards"]["outingTolerance"]
     | AlterBatteryViewModel["contextCards"]["eveningSlack"];
+  /** 外出耐性の % 数値（over.png）。evening は時間量テキストなので不要 */
+  pct?: number;
   onTap?: () => void;
   className?: string;
 }) {
@@ -108,7 +121,15 @@ export function FloatingContextCard({
         {icon}
         <span className="min-w-0 truncate text-[8.5px] font-medium text-slate-500">{card.label}</span>
       </div>
-      <div className="mt-0.5 text-[10.5px] font-bold leading-snug text-slate-700">{card.text}</div>
+      {kind === "outing" && pct !== undefined ? (
+        <div className="mt-0.5 flex items-baseline gap-0.5 leading-none text-emerald-600">
+          <span className="text-[20px] font-bold tabular-nums">{pct}</span>
+          <span className="text-[10px] font-semibold">%</span>
+          <span className="ml-auto truncate text-[8.5px] font-medium text-slate-500">{card.text}</span>
+        </div>
+      ) : (
+        <div className="mt-0.5 text-[12px] font-bold leading-snug text-slate-800">{card.text}</div>
+      )}
       <div className="mt-0.5 flex flex-wrap items-center gap-0.5">
         {isEstimate && <MitateBadge />}
         {card.evidence.slice(0, 1).map((ev) => (

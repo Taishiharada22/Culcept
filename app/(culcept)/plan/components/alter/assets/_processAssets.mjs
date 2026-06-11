@@ -64,8 +64,59 @@ async function keyOut(file, outName, { floor = 208, tintWhite = false, trim = tr
   console.log(outName, "T=" + T, m.width + "x" + m.height, "hasAlpha=" + m.hasAlpha);
 }
 
-await keyOut(path.join(here, "human-body-base.png"), "body.png", { alphaBoost: 2.0, brighten: 1.06, alphaBlur: 9 });
+/**
+ * 人体ベースは輪郭が薄れる（白 on 白）問題があるため、専用処理:
+ *   ① crisp な alpha（median+小blur+急峻 linear）
+ *   ② alpha の境界帯から rim（縁光）を生成し、ラベンダー白で RGB に焼き込む（輪郭をはっきりさせる）
+ *   ③ RGB は陰影を残したクールトーン
+ *   alpha は人体シルエットのまま（液体 mask 用）。
+ */
+async function keyBody() {
+  const file = path.join(here, "human-body-base.png");
+  const meta = await sharp(file).metadata();
+  const { width: w, height: h } = meta;
+  const T = (await cornerMin(file, w, h)) - 3;
+  const { data } = await sharp(file).greyscale().raw().toBuffer({ resolveWithObject: true });
+  const floor = 208;
+  const denom = Math.max(T - floor, 1);
+  const alpha = Buffer.alloc(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const L = data[i];
+    alpha[i] = Math.max(0, Math.min(255, Math.round(((T - L) / denom) * 255)));
+  }
+  // 実績 recipe（median3 + blur3.5 + 急峻 linear）で市松残滓を除去。body は半透明のまま。
+  const crispAlpha = await sharp(alpha, { raw: { width: w, height: h, channels: 1 } })
+    .median(3)
+    .blur(3.5)
+    .linear(2.8, -26)
+    .png()
+    .toBuffer();
+
+  // rim（縁光）: 境界帯 = 255 - |blurA*2 - 255|。輪郭をはっきりさせる（CEO「輪郭が薄れている」対応）
+  const blurA = await sharp(crispAlpha).blur(3.0).raw().toBuffer();
+  const rim = Buffer.alloc(w * h);
+  for (let i = 0; i < w * h; i++) {
+    const b = blurA[i];
+    rim[i] = Math.max(0, Math.min(255, Math.round((255 - Math.abs(b * 2 - 255)) * 1.3)));
+  }
+  const rimAlphaPng = await sharp(rim, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer();
+
+  // RGB: 陰影を残しつつクールトーン
+  const rgb = await sharp(file).removeAlpha().linear(0.82, 30).tint({ r: 226, g: 230, b: 250 }).png().toBuffer();
+  // rim を明るいラベンダー白で焼き込み
+  const rimLayer = await sharp({ create: { width: w, height: h, channels: 3, background: "#f4f5ff" } }).png().toBuffer();
+  const rimRGBA = await sharp(rimLayer).joinChannel(rimAlphaPng).png().toBuffer();
+  // composite が alpha を残すため removeAlpha で 3ch に戻してから silhouette alpha を join する
+  const composed = await sharp(rgb).composite([{ input: rimRGBA, blend: "over" }]).removeAlpha().png().toBuffer();
+  // 最終 alpha = crisp body silhouette。trim threshold 12（実績）で透明縁を crop。
+  let buf = await sharp(composed).joinChannel(crispAlpha).png().toBuffer();
+  buf = await sharp(buf).trim({ background: { r: 0, g: 0, b: 0, alpha: 0 }, threshold: 12 }).png().toBuffer();
+  await sharp(buf).toFile(path.join(out, "body.png"));
+  const m = await sharp(path.join(out, "body.png")).metadata();
+  console.log("body.png T=" + T, m.width + "x" + m.height, "hasAlpha=" + m.hasAlpha);
+}
+
+await keyBody();
 await keyOut(path.join(here, "heart-mask.png"), "heart.png", { floor: 218, alphaBoost: 2.6, alphaBlur: 24 });
 await keyOut(path.join(here, "glow-noise-texture.png"), "glow.png", { floor: 200, alphaBoost: 1.6, alphaBlur: 8 });
-await keyOut(path.join(here, "body-mask.png"), "body-nohead.png", { alphaBoost: 1.9, alphaBlur: 7 });
 console.log("done");

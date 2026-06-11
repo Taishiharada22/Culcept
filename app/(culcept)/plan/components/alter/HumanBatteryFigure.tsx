@@ -36,7 +36,7 @@ export interface HumanBatteryFigureProps {
 const HEAD_TOP_PCT = 1;
 const NECK_PCT = 12; // 頭部容器の下端（顎）
 const BODY_TOP_PCT = 16; // 体ゾーンの上端（肩の手前）
-const HEART_CENTER = { xPct: 50, yPct: 24 }; // 胸の中心
+const HEART_CENTER = { xPct: 50, yPct: 20.5 }; // 胸の中心（肩のすぐ下）
 const FEET_PCT = 99;
 
 const bodyMaskStyle: React.CSSProperties = {

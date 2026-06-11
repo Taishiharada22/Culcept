@@ -27,8 +27,9 @@ import { AlterInputBar } from "./AlterInputBar";
 import { AlterQuickReplies } from "./AlterQuickReplies";
 import { HumanBatteryCard } from "./HumanBatteryCard";
 import { NightCheckCard } from "./NightCheckCard";
-import { ContextCardGrid, StateBackgroundColumn, type ContextSheetTarget } from "./RealityContextCards";
-import { TodayFlowStrip } from "./TodayFlowStrip";
+import { ForecastGrid, StateBackgroundPanel } from "./ForecastCards";
+import { ResourceTrendChart } from "./ResourceTrendChart";
+import { type AlterScreenViewModel } from "./screenViewModel";
 import { BAND_LABEL, type ZoneKey } from "./bandDisplay";
 import { SunIcon } from "./alterIcons";
 
@@ -37,7 +38,8 @@ export type CorrectionDirection = "lower" | "match" | "higher";
 export type SleepChoice = "よく眠れた" | "浅い" | "短い";
 
 export interface AlterTabBodyProps {
-  vm: AlterBatteryViewModel;
+  /** over.png 表示 VM（基底 AlterBatteryViewModel を内包）。CEO 2026-06-11 契約緩和 */
+  screen: AlterScreenViewModel;
   /** 直近 1-2 往復（mock。実チャット接続は Stage 1） */
   recentExchange?: AlterChatTurn[];
   alterMessageTime?: string;
@@ -104,7 +106,7 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
 }
 
 export function AlterTabBody({
-  vm,
+  screen,
   recentExchange,
   alterMessageTime,
   onCorrection,
@@ -116,6 +118,7 @@ export function AlterTabBody({
   onSend,
   onSettingsTap,
 }: AlterTabBodyProps) {
+  const vm = screen.base;
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
   const [pulseZone, setPulseZone] = useState<ZoneKey | null>(null);
   const [ack, setAck] = useState<string | null>(null);
@@ -160,27 +163,23 @@ export function AlterTabBody({
     showAck("受け取りました");
   };
 
-  const handleContextCardTap = (target: ContextSheetTarget) => {
-    if (target === "sleep") setSheet({ kind: "sleep" });
-    else setSheet({ kind: "correction", target: "outingTolerance" });
-  };
-
   return (
     <div className="relative min-h-screen">
       <AlterHeader onSettingsTap={onSettingsTap} />
 
       <div className="mx-auto max-w-3xl space-y-2 px-3 pb-24 pt-2">
-        {/* 2. 上段 2 カラム（over.png 構図）: あなたのバッテリー | 状態の背景 */}
-        <div className="grid grid-cols-[1.78fr_1fr] items-stretch gap-1.5">
+        {/* 上段 2 カラム（over.png 構図）: あなたのバッテリー | 状態の背景 4 セル */}
+        <div className="grid grid-cols-[1.62fr_1fr] items-stretch gap-1.5">
           <HumanBatteryCard
             battery={vm.battery}
             outingTolerance={vm.contextCards.outingTolerance}
             eveningSlack={vm.contextCards.eveningSlack}
+            meterPct={screen.meterPct}
             onZoneTap={(z) => setSheet({ kind: "correction", target: z })}
             onOutingTap={() => setSheet({ kind: "correction", target: "outingTolerance" })}
             pulseZone={pulseZone}
           />
-          <StateBackgroundColumn cards={vm.contextCards} onCardTap={handleContextCardTap} />
+          <StateBackgroundPanel stateBg={screen.stateBg} />
         </div>
 
         <AnimatePresence>
@@ -196,7 +195,7 @@ export function AlterTabBody({
           )}
         </AnimatePresence>
 
-        {/* コールドスタート: チップ列を人体直下に昇格（§3.6） */}
+        {/* コールドスタート: チップ列を人体直下に昇格 */}
         {isColdStart && (
           <div className="rounded-3xl border border-white bg-white/80 p-3 shadow-sm backdrop-blur-sm">
             <AlterQuickReplies
@@ -207,13 +206,18 @@ export function AlterTabBody({
           </div>
         )}
 
-        {/* 3. 周辺カード 2x2 */}
-        <ContextCardGrid cards={vm.contextCards} onCardTap={handleContextCardTap} />
+        {/* 数値カード 2x2: 消耗予測 / 回復見込み / 持ち越し / 成立見込み（over.png） */}
+        <ForecastGrid
+          consumption={screen.consumption}
+          nightRecovery={screen.nightRecovery}
+          carryOver={screen.carryOver}
+          feasibility={screen.feasibility}
+        />
 
-        {/* 4. 今日の流れ（事実横帯） */}
-        <TodayFlowStrip flowTimeline={vm.flowTimeline} />
+        {/* 今日のリソース推移予測（over.png のグラフ） */}
+        <ResourceTrendChart trend={screen.trend} />
 
-        {/* 5. Night Check（state=hidden なら描画なし） */}
+        {/* Night Check（state=hidden なら描画なし） */}
         <NightCheckCard nightCheck={vm.nightCheck} onAnswer={onNightCheckAnswer} />
 
         {/* 5'. Morning Reveal（朝のみ・null なら描画なし） */}
