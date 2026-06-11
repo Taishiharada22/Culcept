@@ -115,6 +115,20 @@
 **検証（v2）**: 全 7 variant 描画 / 補正・睡眠シート開閉 0.6s / チップ選択・CTA・送信クリア OK / tsc 55 = baseline / N-3・red・開始残量 grep 0 / 94 tests 不変。
 **インシデント記録**: dev server の `.next` キャッシュ破損（instance 強制停止後）により**エラーなしで hydration が無言不発**（全ページ静的化・click 無反応）。`rm -rf .next` + 再起動で解消。今後 preview が無反応の場合はまずキャッシュクリアを疑うこと。
 
+## 7.6 v3 — B1 visual shell reconstruction（CEO 方針転換: 機能より見た目再現を優先）
+
+CEO 指示「今の実装を磨くのではなく、理想画像を基準に UI シェルを作り直せ。人体は高品質アセット化 + 動的レイヤー」を受けた再構築（commit `e820bebb`）。
+
+**実装**:
+- `HumanBatteryFigure` を **5 レイヤー構造**（ambient glow / base human body / body / brain / heart）に分離。CEO 提供アセット（人体ベース・心臓・頭・星雲テクスチャ）と 1:1 対応する差し替えスロット設計
+- base 層の組み込みフォールバック: 解剖学プロポーション改善（顎・首・肩・ウエスト・手・ふくらはぎ・足）+ opaque 合成 + **リムライト filter**（feMorphology erode → edge → blur → white = ガラスマネキンの輪郭発光）+ 星雲 ambient（固定座標スパークル 12 点・random 不使用）+ 心臓の軌道リング
+- 人体主役化: ステージ 340px。下部は会話 + チップ + CTA + 入力バーを 1 枚の glass 操縦席パネルに一体化
+- ViewModel 接続維持: 描画は `vm.battery.*.visualFill` / `band` のみから。型変更なし・dayState 不接触・mock fixture 外の偽データなし
+
+**アセット受け入れ手順（CEO 添付画像 5 点はチャット上のみでファイル未着）**: `app/(culcept)/plan/components/alter/assets/` に **実透過 PNG/WebP**（チェッカーボード焼き込み不可）で `human-body-base.png`（必須）/ `heart-glow.png` / `glow-texture.png`（任意）を配置 → base 層を画像 + CSS mask（alpha を mask に流用し液体をクリップ）へ差し替え（1 commit・構造変更なし）
+
+**運用ノート（再現性確認済み）**: dev server が**既存の `.next` dev キャッシュを再利用して起動すると、エラーなしで全ページ hydration 不能**（Next 16.1.6 Turbopack + 本リポジトリ構成）。preview 起動前に `rm -rf .next` を必須手順とする。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
