@@ -1,5 +1,12 @@
 # Day State Stage 0 — Closeout（Session A / Reality Logic）
 
+> **正式受領（2026-06-11・CEO/GPT 監査）**: Session A / Stage 0 は正式完了として受領。
+> recoveryNeed 裁定は**追認済み**（±1 吸収なしを正式採用。ただし内部採点 strict・ユーザー表示は柔らかく）。
+> セッション規律の固定: **実装セッションで契約矛盾を見つけたら、勝手に docs 変更して進めない**
+> （今回の契約 docs 追補は、契約凍結セッション兼 Session A という二重役割による例外的許容）。
+> 本セッションは以後**契約管理・監査セッション**として待機（追加実装停止）。次 = 別セッションで Session B。
+> Stage 1（/plan 配線 + localStorage）はまだ進まない。Stage 2（DB/Supabase write）は引き続き NO。
+
 - 日付: 2026-06-11
 - 実装: 契約凍結セッション（= Session A 継続実行。CEO 決定）
 - 契約正本: `docs/day-state-alter-tab-v0-design.md`（v0.3）/ `docs/alter-tab-visual-contract.md` §4 / `docs/handoff-session-a-logic.md`
@@ -54,7 +61,7 @@
 
 | # | 事項 | 処置 |
 |---|---|---|
-| 裁定 1 | §4.3「同規約」と §5.2 明示セルの矛盾（recoveryNeed の ±1 吸収） | **§5.2 を正と裁定 — ただし【CEO 追認待ち】**（受領監査 2: 本来は契約差し戻し対象。論理根拠 = 吸収すると凍結 medium が永遠に match = 学習信号消滅。CEO が ±1 吸収側を選ぶ場合は gradeRecoveryNeed と test 5 件を戻す軽微変更で済む）。**今後の規律: 契約矛盾を見つけた場合は裁定せず差し戻し事項として停止する** |
+| 裁定 1 | §4.3「同規約」と §5.2 明示セルの矛盾（recoveryNeed の ±1 吸収） | **§5.2 を正と裁定 → 【CEO 追認済み 2026-06-11】**（3 値スケールは ±1 吸収なしを正式採用。条件: **内部採点は strict・ユーザー表示は柔らかく** — 「外れた」等の強い表現を UI に出さない。visual-contract §3.5' に表示規律として明記）。**今後の規律: 契約矛盾を見つけた場合は裁定せず差し戻し事項として停止する** |
 | 裁定 2 | buildAlterBatteryViewModel の第 4 引数 `segments?` | additive 正式化（visual-contract §4 改訂済み）。理由: record は segment を保持しない（store slow）ため「今日の流れ」完全表示に必要。未提供時は nowSegment のみの縮退表示 |
 | 裁定 3 | VM.nightCheck を optional → **常時返却 + state="hidden"** に統一 | visual-contract §4 改訂済み（Session B の分岐単純化） |
 | 裁定 4 | emotionalReserve ③（対人密度）の入力チャネル | `interpersonalLoadHint?: "high"|"low"` を additive 追加・実装/テスト済み（設計書 §3.3 に明記） |
@@ -76,9 +83,9 @@
 ## 5. 残課題（次セッション・次 Stage へ）
 
 **Stage 1 着手前に閉じる事項（受領監査で確定）**:
-1. MomentState.timeBucket の invalid 入力時の型（上表「要クローズ」— placeholder 廃止）
+1. MomentState.timeBucket の invalid 入力時の型（上表「要クローズ」— placeholder 廃止。`TimeBucket | "unknown"` への明示改訂を次契約で検討）
 2. `dailyModeHint` の供給設計: **誰が**（タブの server/client どちらで resolveDailyMode を実行するか）**どの confidence で**（固定 0.5 廃止 — resolveDailyMode 入力の min confidence を併送）渡すかが未設計
-3. recoveryNeed 裁定の CEO 追認（裁定 1）
+（recoveryNeed 裁定の CEO 追認は 2026-06-11 完了 — 裁定 1）
 
 
 - Session B（別セッション）: mock ViewModel で AlterTabBody 試作（handoff-B。morningReveal mock は B1 前文言に修正済み）
