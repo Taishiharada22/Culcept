@@ -129,6 +129,18 @@ CEO 指示「今の実装を磨くのではなく、理想画像を基準に UI 
 
 **運用ノート（再現性確認済み）**: dev server が**既存の `.next` dev キャッシュを再利用して起動すると、エラーなしで全ページ hydration 不能**（Next 16.1.6 Turbopack + 本リポジトリ構成）。preview 起動前に `rm -rf .next` を必須手順とする。
 
+## 7.7 B2-static-clone（over.png 設計図化 + CEO アセット実装。commit `75a20cca`）
+
+CEO 指示「B1 不受領。over.png を設計図に静的クローン → 禁止要素置換 → vm 再接続」に対応。実際は vm 接続を切らずに over.png の骨格へ組み替えた（最終要件「vm に戻す」を先に満たした形）。
+
+**アセットパイプライン**: CEO 提供 6 ファイルは全て alpha なし（チェッカーボード焼き込み）+ キャンバス不揃い。`assets/_processAssets.mjs` で実透過化 — 被写体がチェッカーより暗い側に分布する性質を使い「輝度キーイング（T = 四隅チェッカー最小輝度 − 3）→ alpha 強ブラー（市松周期の均し）→ 再ブースト」。body は陰影保持 + クールトーン再キー。brain-mask.png は被写体とチェッカーの輝度が重なり分離不能 → 頭部ゾーンは body.png の alpha 行幅実測（頭 1–12% / 首 12% / 肩 18%）で代替。
+
+**over.png との対応表（禁止要素は契約語彙へ置換）**: 今日の開始残量→あなたのバッテリー / 集中余力48%→集中の余力・少なめ / 回復必要度68%→心の余力（人体から recoveryNeed を外す §9.3）/ 体力61%→からだの余力 / 外出耐性31%・夜の余白→浮遊周辺カード（§3.3「人体の周囲」配置・コネクタなし）/ 状態の背景 4 枚→睡眠・昨日の負荷・回復の質の 3 枚（体質スタミナは軸なしで不採用）/ 下段 4 枚→持ち越し・成立見込みの 2 枚（消耗予測・回復後予測は採点不能で不採用）/ リソース推移グラフ→今日の流れ事実横帯 / ※数値は目安です→※見立ては体調や予定により変動します。
+
+**overlay デバッグ**: `?overlay=0.5&oy=-120` で over.png を半透明表示（dev 専用・本番背景貼りではない）。
+
+**環境事象の追記（重要）**: dev server の hydration 無言不発は `.next` 削除でも**非決定的に再発**。症状 = 全ページ static・console/network エラー 0・`window.__next_f` が空配列（RSC flight 不達）。/login でも発生するため Session B コード起因ではない。インタラクション検証は健全インスタンスで PASS 済み（補正シート・睡眠シート・Night Check・チップ・送信）。恒久対処の候補 = `next dev --webpack`（launch.json 変更 = Session B 範囲外・CEO 判断）or 通常 Chrome での確認。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
