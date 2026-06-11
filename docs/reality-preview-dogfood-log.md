@@ -292,3 +292,9 @@
 - lock 進化 2 件: c31 writer consumer=input action を公認／c19 mainline gate consumer=3 file へ
 - ⚠flake 3 回目（proposalPlanClientHelpers の PlanClient import・単体 36/36 PASS・再実行 green=並列 import race と推定・watch 継続）
 - GPT 16 lock（24 case 相当）・full suite 20576 GREEN・tsc 55
+
+### [2026-06-11] record 47 — A-4-c33b CEO operator smoke **PASS（入力 UI 本線 E2E・cleanup は Claude 委任実行）**
+- CEO 実行（server log + smoke 出力で裏取り）: before 全 0 → /plan 登録入口から **license_renewal を 2 期日登録（lifeopsSrc=ok ×2）** → **同一期日の再登録 → lifeopsSrc=already_exists（duplicate guard の本線 UI E2E 実証）**
+- ★**UI 経由の occurrence key が正形式**: `license_renewal:2026-06-11` / `license_renewal:2026-06-12`（`::` なし・dueDate 由来＝c32 補正が本線 UI で実証・c30 finding 完全クローズ）
+- cleanup（CEO 委任→Claude 実行）: 新 guarded script `lifeops-structured-dogfood-cleanup.ts`（check→confirm 二段・category 指定・上限件数 guard）で **exact 2 件削除（total 2→0）** → 最終 smoke 全 0（M1=0/structured=0/normalized=0）
+- 学び: CEO は picker から tax_filing でなく license_renewal を選択（想定 category 決め打ちの cleanup 手順は脆い）→ 本 script は category パラメータ化+全 money_admin 走査で対応
