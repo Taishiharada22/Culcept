@@ -49,10 +49,26 @@ export function LifeOpsCard({ vm, onAction }: { vm: LifeOpsCardViewModel; onActi
 
       {vm.confirmationNote && <p className="mt-2 text-xs text-amber-700">{vm.confirmationNote}</p>}
 
-      <div className="mt-3">
-        <GlassButton variant="secondary" size="sm" onClick={onAction}>
-          {vm.actionLabel}
-        </GlassButton>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {vm.bookingLinks.length > 0 ? (
+          // L-6 deep-link を実外部リンクで描画（新規タブ・noopener）。外部ページを開くだけ＝action 記録/DB/A-4 rail に触れない。
+          vm.bookingLinks.map((link) => (
+            <a
+              key={link.platform}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-700 backdrop-blur-lg transition hover:border-slate-300 hover:bg-white"
+            >
+              {link.label}
+            </a>
+          ))
+        ) : (
+          // deep-link なし（通知/候補/医療 cap/placeQuery なし）→ 純表示ラベル（外部遷移しない）
+          <GlassButton variant="secondary" size="sm" onClick={onAction}>
+            {vm.actionLabel}
+          </GlassButton>
+        )}
       </div>
     </GlassCard>
   );

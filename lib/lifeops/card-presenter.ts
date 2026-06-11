@@ -15,6 +15,7 @@
 import type { DueReason, EventKind, LifeOpsCandidate } from "./candidate-types";
 import { getCategorySpec, type LifeOpsCategoryId } from "./category-model";
 import { assessLifeOpsPermission, type LifeOpsAction, type PermissionAssessment } from "./permission";
+import { buildBookingLinks, type BookingLink } from "./booking-link";
 
 /** 表示用カード（非断定）。 */
 export interface LifeOpsCardViewModel {
@@ -27,7 +28,14 @@ export interface LifeOpsCardViewModel {
   readonly confirmationNote: string | null;
   readonly riskNotes: readonly string[];
   readonly placeQuery: string | null;
+  /** L-6 deep-link（open_link 許可＝美容系のみ非空）。card はこれを実外部リンクで描画。 */
+  readonly bookingLinks: readonly BookingLink[];
   readonly urgency: "overdue" | "high" | "normal";
+}
+
+/** presenter 注入オプション（地域/駅は実データ源・注入）。 */
+export interface CardPresenterOptions {
+  readonly area?: string | null;
 }
 
 const EVENT_LABEL: Record<EventKind, string> = {
@@ -94,8 +102,12 @@ function riskNotes(reasonCodes: readonly string[]): readonly string[] {
   return reasonCodes.map((c) => RISK_NOTE[c]).filter((s): s is string => typeof s === "string");
 }
 
-/** candidate + assessment → ViewModel（pure・非断定）。 */
-export function toLifeOpsCardViewModel(candidate: LifeOpsCandidate, assessment: PermissionAssessment): LifeOpsCardViewModel {
+/** candidate + assessment → ViewModel（pure・非断定）。bookingLinks は L-6（open_link 許可時のみ非空）。 */
+export function toLifeOpsCardViewModel(
+  candidate: LifeOpsCandidate,
+  assessment: PermissionAssessment,
+  opts: CardPresenterOptions = {}
+): LifeOpsCardViewModel {
   return {
     category: candidate.category,
     title: getCategorySpec(candidate.category)?.label ?? candidate.category,
@@ -106,6 +118,7 @@ export function toLifeOpsCardViewModel(candidate: LifeOpsCandidate, assessment: 
     confirmationNote: assessment.requiresExplicitConfirmation ? "内容を確認してから進めます" : null,
     riskNotes: riskNotes(assessment.reasonCodes),
     placeQuery: candidate.placeQuery,
+    bookingLinks: buildBookingLinks(candidate, assessment, { area: opts.area ?? null }),
     urgency: urgency(candidate.dueReason),
   };
 }
@@ -113,9 +126,12 @@ export function toLifeOpsCardViewModel(candidate: LifeOpsCandidate, assessment: 
 const URGENCY_RANK: Record<LifeOpsCardViewModel["urgency"], number> = { overdue: 0, high: 1, normal: 2 };
 
 /** candidates → ViewModel[]（permission を内部算出・urgency 順・安定）。 */
-export function toLifeOpsCardViewModels(candidates: readonly LifeOpsCandidate[]): readonly LifeOpsCardViewModel[] {
+export function toLifeOpsCardViewModels(
+  candidates: readonly LifeOpsCandidate[],
+  opts: CardPresenterOptions = {}
+): readonly LifeOpsCardViewModel[] {
   return candidates
-    .map((c, i) => ({ vm: toLifeOpsCardViewModel(c, assessLifeOpsPermission(c)), i }))
+    .map((c, i) => ({ vm: toLifeOpsCardViewModel(c, assessLifeOpsPermission(c), opts), i }))
     .sort((a, b) => {
       const r = URGENCY_RANK[a.vm.urgency] - URGENCY_RANK[b.vm.urgency];
       return r !== 0 ? r : a.i - b.i;

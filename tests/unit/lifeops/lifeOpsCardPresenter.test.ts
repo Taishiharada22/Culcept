@@ -110,3 +110,22 @@ describe("L-8a urgency / 並べ替え / 透過 / pure", () => {
     expect(toLifeOpsCardViewModel(c, assessLifeOpsPermission(c))).toEqual(toLifeOpsCardViewModel(c, assessLifeOpsPermission(c)));
   });
 });
+
+describe("L-8a bookingLinks 配線（L-6 deep-link → card）", () => {
+  it("美容院(open_link 許可)→ hotpepper+google の実リンク", () => {
+    const links = vm(cand("beauty_salon", cycleBeyond)).bookingLinks;
+    expect(links.map((l) => l.platform)).toEqual(["hotpepper_beauty", "google_maps"]);
+    expect(links[0].url).toContain("beauty.hotpepper.jp");
+    expect(links[1].url).toContain("google.com/maps");
+  });
+  it("area を deep-link に反映", () => {
+    const c = cand("eyebrow", cycleBeyond);
+    const links = toLifeOpsCardViewModel(c, assessLifeOpsPermission(c), { area: "新宿" }).bookingLinks;
+    expect(links[0].url).toContain(encodeURIComponent("眉サロン 新宿"));
+  });
+  it("事務/買い物/医療 → bookingLinks 空（card は fallback ラベル）", () => {
+    expect(vm(cand("tax_filing", deadlineWithin)).bookingLinks).toEqual([]);
+    expect(vm(cand("groceries", cycleBeyond)).bookingLinks).toEqual([]);
+    expect(vm(cand("dental", cycleBeyond)).bookingLinks).toEqual([]);
+  });
+});
