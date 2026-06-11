@@ -35,9 +35,9 @@ export const MOCK_ALTER_BATTERY_VM: AlterBatteryViewModel = {
     outingTolerance: { label: "外出耐性", band: "low", text: "軽めなら動けそう",
                        evidence: ["移動が多め", "雨なし"], correctable: true },
     eveningSlack:    { label: "夜の余白", text: "2.5h 確保できそう", evidence: ["20:30以降が空き"] },
-    sleep:           { label: "睡眠", band: "unknown", text: "まだ読めていません" },
+    sleep:           { label: "睡眠", band: "unknown", text: "まだ読めていません", source: "unknown" }, // source≠user_reported なら band は必ず unknown（偽データ型禁止）
     yesterdayLoad:   { label: "昨日の負荷", band: "high" },
-    recoveryQuality: { label: "回復の質", band: "unknown" },
+    recoveryQuality: { label: "回復の質", band: "unknown", source: "unknown" },
     carryOver:       { label: "明日への持ち越し", band: "low" },
     feasibility:     { label: "今日の成立見込み", band: "high", text: "大きく崩れにくい見立てです" }, // likely_steady→high 写像（visual-contract §4）
   },
@@ -47,10 +47,18 @@ export const MOCK_ALTER_BATTERY_VM: AlterBatteryViewModel = {
     { kind: "event",  startHHMM: "14:00", endHHMM: "16:00", label: "予定" },
     { kind: "gap",    startHHMM: "20:30", endHHMM: "23:00", isEveningSlack: true },
   ] },
+  morningReveal: {
+    forDate: "2026-06-10",
+    // dayFelt=4（少し余った）× 凍結 low = under。表示 actualBand は dayFelt→Band 写像（4→high）
+    items: [{ label: "からだの余力", estimatedBand: "low", actualBand: "high", verdict: "under" }],
+    adjustmentNote: "この差は記録しました。反映はもう少し学んでから", // B1 解錠前の正規形（visual-contract §3.5'）
+  },
   alterMessage: "今日は夜を軽くすると全体が安定して見えます。",
   quickReplies: ["元気", "少し疲れた", "眠い", "集中したい", "外出は軽め"],
 };
 // unknown 状態の検証用に brain.band="unknown" / visualFill 0 の variant も必ず作って描画確認すること
+// morningReveal=null（前日未回答）の variant、全 estimates unknown のコールドスタート variant（チップ列昇格）も必須
+// futureSlots（adjustmentDiffSlot / placeCandidateSlot / requestFrameSlot）は visual-contract §4 の docs 予約のみ — UI を想像で作らないこと
 ```
 
 ## Preview 方法（確定）

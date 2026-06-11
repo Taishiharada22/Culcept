@@ -140,6 +140,49 @@ type MomentStateV0 = {
 
 接続規約: Alter タブは各既存トラックの**消費者**であり再実装しない（Life Ops 境界の「縦は横の machinery を再実装しない」と同じ契約）。A3 の差分・A4 の場所候補は、各トラックの CEO 判断後にタブへ「流れ込む」— タブ側はその受け口（§7.2 の調整案 CTA・場所候補スロット）だけ確保する。
 
+### 2.5 未実装ノードの閉じ方 — Stage 割当表（v0.3 追加。「既存トラック扱い」を契約に格上げ）
+
+「DayGraph がある」は**材料がある**という意味であって、Aneurasync 的な現実ノードに変換済みという意味ではない。未実装の閉じ方を以下に固定する:
+
+**(a) EventRealityNode adapter（DayGraph → 現実ノード変換）— 未実装。将来契約の候補フィールド:**
+
+| フィールド | 既存材料 | 状態 |
+|---|---|---|
+| timeRigidity | `LatencyTolerance`（ノード付与済み・即写像可） | 🟢 材料あり |
+| locationCertainty | `isPlaceUnconfirmed()` + `DraftPlanLevel` | 🟢 材料あり |
+| mobilityFriction | `MovementSegmentResolved`（座標条件付き） | 🟢 材料あり |
+| energyCost | 軸係数 × 予定種別 | 🔴 未実装（Stage D 以降） |
+| intentionMass | Stargazer 軸 → 予定の意図重み | 🔴 未実装（PRM⇄Alter Bridge 領域。A1-7-36 解錠後） |
+| collapseRisk | event 単位の崩壊予測 | 🔴 未実装（Phase B / Reality Control OS 系 gate） |
+| permissionBoundary | `authority-escalation.ts`（pure 実装あり・未配線） | 🟡 Stage 2+ 配線（CEO 判断） |
+
+adapter 自体の設計 = **Stage 1.5（docs-only から）**。Session A はこの adapter を作らない。
+
+**(b) RequestRealityFrame（「明日、成田のスタバで作業したい」型の入力）— 未実装。** compose 取込 + DG frame 抽出は材料であって契約ではない。`candidatePlaceNeeded / locationAmbiguity / requiredConditions / unresolvedQuestions / permissionBoundary` は閉じていない。**Stage 割当 = v1（A3 soft connection の CEO 判断後・compose 拡張として設計）**。
+
+**(c) 将来 slot の docs 予約（実装しない・型も未定義。Session B が想像で作ることを禁止するための予約）:**
+```
+futureSlots（Stage 0 では実装しない）:
+- adjustmentDiffSlot:   A3 What-if から流入（「調整案を見る」CTA の中身）
+- placeCandidateSlot:   A4 Place Affinity から流入（場所候補比較）
+- requestFrameSlot:     compose 拡張から流入（意図入力の受け止め）
+```
+
+**(d) モート・ロードマップ（本ラウンドで発見した最大の欠落への手当て）**
+
+評価レポートで「別次元」の根拠とした 4 要素 + 競合空白を、計画のどの段で閉じるかのマッピングが存在しなかった。固定する:
+
+| モート要素 | v0（Session A/B）でやること | 閉じる Stage |
+|---|---|---|
+| ①人格が物理定数 | `PersonaCoefficientsV0` の**入力型のみ凍結**（fixture 供給。実導出はしない） | Stage D（WIRE_DAY_STATE_PRIORS・CEO 判断） |
+| ②毎晩採点される AI | 採点純関数 + **Morning Reveal（きのうの答え合わせ開示カード）を v0 タブに追加** — Night Check（入力面）だけあって開示面が無いと、採点は沈黙テレメトリになり「自分って、そういう人間だったのか」の日次版（評価レポートの中心提案）も habituation 防御も発動しない | 体験ループ最小形 = Stage 1。完全ループ（DB + 翌日反映）= Stage 2-3 |
+| ③信頼で増える介入権限 | なし（v0 タブは表示のみで介入しないため権限不要） | Stage 2+ で authority-escalation 配線（CEO 判断） |
+| ④Alter がセンサー | チップ + Composer **入口のみ。センサーとしては未完**（過剰に言わない） | Stage 1.5: 会話 → DayStateRecord 構造抽出契約（extractDailyGuidanceFrame パターンの転用設計） |
+| 守る/楽/攻める状態分岐（競合空白 ◎◎） | なし（A3 は**状態非依存**で別走中） | A3 soft connection 判断後: DayStateRecord を A3 の条件入力として渡す接続（adjustmentDiffSlot 経由・別設計） |
+| 崩壊予測（競合空白） | dayFeasibility は **day-level proxy のみ**（§3.3） | EventRealityNode adapter + Phase B で event 単位へ |
+
+**コールドスタート補足**: 初日は estimates がほぼ unknown になる。unknown の正直表示が原則だが、初回・全 unknown 時はチップ列を人体直下に昇格して「3 タップで初期化」できる導線にする（visual-contract §3.6 注記）。
+
 ---
 
 ## 3. DayStateRecord v0 — Data Contract（質問 b-1 への回答）
@@ -164,7 +207,9 @@ type MomentStateV0 = {
 
 type DayStateRecordV0 = {
   schemaVersion: 0;
-  date: string; // "YYYY-MM-DD"（JST。plan_date と同じ規約）
+  date: string; // "YYYY-MM-DD"（JST）。**主観日境界 = 05:00**: レコードは当日 05:00 〜 翌日 04:59 を覆う
+                // （TimeBucket の late_night 23:00-05:00 が前日の夜に属するのと同じ境界）。
+                // 02:00 の導出・Night Check 回答は前日 date のレコードに属する（answeredFor も主観日）。
 
   // ── §A facts: 事実（観測値。採点不要。数値そのまま保持してよい） ──
   facts: {
@@ -203,12 +248,17 @@ type DayStateRecordV0 = {
   // システム精度の集計（match 率）から除外して別系列で集計する。
   estimatesFrozen: {
     at: string;                                        // 凍結時刻 = その日の初回導出時
+    frozenKind: "morning_baseline" | "first_open_snapshot" | "late_snapshot";
+    // morning_baseline = 凍結が 05:00-11:00 / first_open_snapshot = 11:00-17:00 / late_snapshot = 17:00-05:00。
+    // 採点集計は frozenKind で層別する（昼に初めて開いた日の凍結値を「朝の予測精度」に混ぜない）。
+    // ヘッドライン指標（§10.2 の match 率）は morning_baseline のみで算出。
     values: DayStateRecordV0["estimates"];
   };
 
   // ── §C userInputs: 本人入力（最強 evidence。source="user_confirmed"） ──
   userInputs: {
     moodCode?: ActivityMoodCode;                       // 既存 enum（tired 等）
+    sleepQuality?: "good" | "shallow" | "short";       // 睡眠カードのチップ入力（よく眠れた/浅い/短い）。生理データ無しの唯一の睡眠源
     // v0.1: 3 系統すべて余力方向（focusReserve/emotionalReserve/energyLevel）のため
     // 表示方向 = 格納方向。変換不要（§9.3）。recoveryNeed は系統タップの対象外
     //（内部保持・周辺カード材料のみ）。direction は格納フィールドの値空間で記録する。
@@ -249,8 +299,8 @@ type EvidenceTag =
 | energyLevel（体バッテリー） | ①本人タップ/moodCode（user_confirmed 0.9）②shift.isNightShift=true → "low"（inferred 0.5）③前日 carryOver（B1 解錠後）④なし → "unknown"（0） | |
 | focusReserve（脳バッテリー） | ①本人補正のみ確度高。②proxy: largestFreeBlockMin ≥ 90 かつ density ≠ packed → "medium"（inferred **0.3 上限**）③なし → "unknown" | 弱いことを仕様として明記 |
 | emotionalReserve（心臓バッテリー・v0.1 新設） | ①bodyEcho.chest（user 入力: tight→low / open→high / normal→medium。user_confirmed 0.85）②moodCode・DayState.emotion（tired/anxious/frustrated → low 寄り。inferred 0.4）③対人予定密度（DayConditions.withWhom / DayState.social の many_people 連続。inferred **0.3 上限**）④HDM heart 状態（psychologicalCapacity / emotionalLoad）— **optional input（heartHint?）として受領**。Stage 0 の pure 関数は `heartIntegration.ts` を import しない（依存を濃くしない。値は将来の呼び出し側が渡す）。対話文脈由来のため 0.3 上限・belief 書き戻し禁止⑤なし → "unknown" | 弱い前提を仕様化 |
-| outingTolerance（外出耐性・v0.1 新設） | combine: travelChainMin（多いほど低）× weather（雨/猛暑で低）× shift 疲労 × socialBandwidth 信号（solo_preferred は対人外出のみ低）× estimatedWalkLevel（morning plan の `dayConditions.estimatedWalkLevel`〔lib/alter-morning/types.ts:633、optional〕を **optional input として受領**。無い日は combine から除外して重み再正規化。**勝手な歩行量推定は禁止**）× 本人補正。**socialBandwidth 単独で決めない**（GPT 指摘 1 対応） | 入力数に応じ 0.3-0.6 |
-| dayFeasibility（成立見込み・v0.1 新設） | facts のみから: density=packed ∧ travelChainMin 大 ∧ eveningSlackMin<60 → "likely_fragile" / sparse ∧ 余白充分 → "likely_steady" / 中間 → "mixed" | 0.4-0.6（事実由来でやや高め） |
+| outingTolerance（外出耐性・v0.1 新設） | combine: travelChainMin（多いほど低）× weather（雨/猛暑で低）× shift 疲労 × socialBandwidth 信号（solo_preferred は対人外出のみ低）× estimatedWalkLevel（morning plan の `dayConditions.estimatedWalkLevel`〔lib/alter-morning/types.ts:633、optional〕を **optional input として受領**。無い日は combine から除外して重み再正規化。**勝手な歩行量推定は禁止**）× 本人補正。**socialBandwidth 単独で決めない**（GPT 指摘 1 対応）。**最低条件: grounded signal（travelChainMin・weather・shift・estimatedWalkLevel・観測済み socialBandwidth・本人補正のうち実在するもの）が 2 つ未満なら "unknown"**（薄い入力で推定しすぎない） | 入力数に応じ 0.3-0.6 |
+| dayFeasibility（成立見込み・v0.1 新設） | facts のみから: density=packed ∧ travelChainMin 大 ∧ eveningSlackMin<60 → "likely_fragile" / sparse ∧ 余白充分 → "likely_steady" / 中間 → "mixed"。**これは day-level proxy であり、EventRealityNode / Mobility 解決状態を含む本物の成立予測ではない**（本物は §2.5(a) adapter + Phase B 以降）。表示文は固定テーブルから生成し「今日の流れは大きく崩れにくそうです」程度に抑える（断定・強い主張禁止） | 0.4-0.6（事実由来でやや高め） |
 | recoveryNeed | energyLevel ∈ {low, depleted} → "high"。eveningSlackMin < 60 で 1 段階上げ | energyLevel の confidence × 0.8 |
 | dailyMode | resolveDailyMode（既存）に facts を渡す | 入力の min confidence |
 
@@ -357,7 +407,7 @@ type NightCheckResultV0 = {
 
 ### 5.3 学習への戻し方（v0 の範囲）
 
-v0 は「記録 + 翌日の 1 段補正」まで: §4.3 の規約に従い、**over（高く見すぎ）→ 翌日の同条件（shift 種別 × density 帯）の prior を 1 段下げ / under（低く見すぎ）→ 1 段上げ**、match → confidence +0.1（上限あり）。`gradeNightCheck()` の fixture テストに**方向検証ケースを必須**とする（HIGH-1 の再発防止）。**weightCalibration 風の本格較正・反復パターン検出（Wave 4）は v0 外**（手を広げない）。
+v0 は「記録 + 翌日の 1 段補正」まで（**ただし 1 段補正の実際の適用 = Stage 3。Stage 0-1 では nextDayPriorAdjustments を算出・保存するのみで、翌日の見立てには反映されない**）: §4.3 の規約に従い、**over（高く見すぎ）→ 翌日の同条件（shift 種別 × density 帯）の prior を 1 段下げ / under（低く見すぎ）→ 1 段上げ**、match → confidence +0.1（上限あり）。`gradeNightCheck()` の fixture テストに**方向検証ケースを必須**とする（HIGH-1 の再発防止）。**weightCalibration 風の本格較正・反復パターン検出（Wave 4）は v0 外**（手を広げない）。
 
 ---
 
@@ -375,7 +425,7 @@ v0 は「記録 + 翌日の 1 段補正」まで: §4.3 の規約に従い、**o
 | Stage | 内容 | 保存先 | gate | rollback |
 |---|---|---|---|---|
 | **0: pure** | 型 + `buildDayStateRecord()` + `gradeNightCheck()` 純関数 + fixture テスト。UI/保存なし | なし | 本設計の承認のみ（A-4-b harness と同じ構え） | revert のみ |
-| **1: local dogfood** | Alter タブ（§7）から localStorage に書く。key: `plan_day_state_v0` / `plan_night_check_v0`（versioned 規約準拠、safeSetItem 使用）。**新規 Supabase クエリゼロ**: facts の入力（anchors / dayIndicators / shift）は PlanClient が既に fetch 済みの props を再利用するだけ（stop gate「DB・Supabase read」に新規抵触しない。LOW-6 対応） | localStorage のみ | **「新規データ保存」+「UI 追加」stop gate → CEO GO 必要**。const flag `DAY_STATE_DOGFOOD_ENABLED=false` 既定 | flag を false（データはローカルで無害。30 日 purge で自然消滅） |
+| **1: local dogfood** | Alter タブ（§7）から localStorage に書く。key: `plan_day_state_v0` / `plan_night_check_v0` / `plan_morning_reveal_v0`（Reveal 既読管理）（versioned 規約準拠、safeSetItem 使用）。**新規 Supabase クエリゼロ**: facts の入力（anchors / dayIndicators / shift）は PlanClient が既に fetch 済みの props を再利用するだけ（stop gate「DB・Supabase read」に新規抵触しない。LOW-6 対応） | localStorage のみ | **「新規データ保存」+「UI 追加」stop gate → CEO GO 必要**。const flag `DAY_STATE_DOGFOOD_ENABLED=false` 既定 | flag を false（データはローカルで無害。30 日 purge で自然消滅） |
 | **2: DB** | (a) migration 1 本: `day_state_records`（PK (user_id, date)、record JSONB、CHECK date 整合、RLS 4 policy auth.uid()=user_id、updated_at trigger — 全て alter_morning_plan_history の写し）。書込トリガーは 3 つ: ①初回凍結時 ②補正タップ時 ③Night Check 回答時（per-day 1 行への upsert・fail-soft。LOW-7 対応）。(b) `plan_drift_events` への初 INSERT: Night Check の driftSelections を**夜 1 回・predicted と actual を同時に埋めた行として INSERT**（UPDATE 不要 = append-only 完全準拠）。(c) **Stage 1 の localStorage データは backfill しない**（基準線は Stage 2 で再取得。Stage 1 データは設計検証専用とし、30 日 purge で消えてよい。MED-3 対応） | Supabase | **DB migration = CEO 承認事項（Operating Rules 1）**。書き込みは fail-soft・自分の行のみ | テーブルは残置（破壊的変更なし）。書き込み flag off |
 | **3: cross-day read** | 翌朝に前日 record の carryOverOut を読む（energy prior へ）。**繰り越し Night Check（昨日分を朝に回答）後の前日 carryOverOut 再導出と当日レコードへの反映規則は Stage 3 設計時に定義**（LOW-2。v0 では「当日レコードは再導出しない」を暫定とする） | 読取のみ | **Phase B readiness gate（B1: 観測 ≥14 日等）に従属**。先回り通知は B2/R6 で別 GO | 読取コードの flag off |
 
@@ -420,6 +470,7 @@ v0 は「記録 + 翌日の 1 段補正」まで: §4.3 の規約に従い、**o
    昨日の負荷 / 回復の質 / 明日への持ち越し / 今日の成立見込み      ← facts + estimates（各カードの v0 充足は visual-contract §4 の通り）
 4. 今日の流れ（事実ベースの密度タイムライン。予測曲線は不採用）     ← DayGraph 既存値（TimelineSpine 転用）
 5. Night Check カード（夜のみ／繰越時は朝）
+5'. **Morning Reveal（きのうの答え合わせ開示カード・朝 05:00-11:00 のみ = morning_baseline と同帯）**: 前日の Night Check が回答済みの場合に限り、凍結見立て vs 実際を開示（例: 「きのうは『からだの余力 少なめ』と見ていました。実際は『少し余った』ようです。**この差は記録しました。反映はもう少し学んでから**」— dayFelt=4 × 凍結 low = §4.3 対応表どおり under の例）。**B1 解錠前の adjustmentNote は「記録した」系の文言に固定**（「今日は上げて見ています」は補正が実際に適用される Stage 3 まで使用禁止 — 事実でないことを言わない）。1 朝 1 回・閉じられる（既読は Stage 1 で `plan_morning_reveal_v0` キーに保存）・前日データは localStorage 読取（事実の再掲 = 表示は Stage 1 で可。見立てへの数値的利用は B1 後のまま）
 6. 入力チップ列: 「元気 / 少し疲れた / 眠い / 集中したい / 外出は軽め」 ← §3 userInputs へ（チップ→フィールド対応は visual-contract §3.6）
 7. ミニ Composer（「Alterに話しかける…」→ 既存 route source:"plan"）+ 直近 1-2 往復表示
 8. CTA 2 つ: 「今日を組む」（compose）/ 「調整案を見る」（A3 接続までモック導線）
@@ -457,6 +508,14 @@ v0 は「記録 + 翌日の 1 段補正」まで: §4.3 の規約に従い、**o
 - **PRG 原則**: belief を読み取り専用で使い、決定時の modifier に限定。DayStateRecord 側から belief への書き戻し禁止。
 - **PhaseFramingHint 連動**（hdmPhaseGate.ts）: Phase < 2 = no_personal_framing → 軸係数は内部計算のみで、表示文には人格の気配を出さない。
 - **WIRE flag**: 新規係数は `WIRE_DAY_STATE_PRIORS = false` 既定。**Stage D として追加**（Stage C は WIRE_RECENT_RHYTHM に既割当 — personalModelStargazerAdapter.ts:25,65。LOW-3 対応）。
+- **入力型は v0.3 で凍結**（Session A は実導出せず optional input として受領。fixture 供給）:
+```ts
+type PersonaCoefficientsV0 = {
+  socialEventDrain?: "low" | "medium" | "high";  // individual_vs_social 由来（社交予定 1 件あたりの消耗係数）
+  driftSensitivity?: "low" | "medium" | "high";  // plan_vs_spontaneous 由来（崩れた時の recoveryNeed 感度）
+  confidenceDamping?: boolean;                   // emotional_regulation 由来（高負荷日に見立て confidence を下げ hedged 固定）
+};
+```
 
 ### 8.3 表示ルール（過剰人格推定の防止）
 
@@ -527,7 +586,7 @@ v0 は「記録 + 翌日の 1 段補正」まで: §4.3 の規約に従い、**o
 | 観測項目 | 合格線（仮） |
 |---|---|
 | Night Check 回答率 | ≥ 5/7 日（1 日 1 回・タップ ≤3 の負担設計が機能しているか） |
-| 見立て match 率（energyLevel・recoveryNeed） | ベースライン取得が目的。数値目標なし（v0 は採点の成立自体が成果）。**集計は estimatesFrozen のうち source ∈ {inferred, derived} のみ**（本人申告の追認を精度に数えない。HIGH-2 対応の層別） |
+| 見立て match 率（energyLevel・recoveryNeed） | ベースライン取得が目的。数値目標なし（v0 は採点の成立自体が成果）。**集計は estimatesFrozen のうち source ∈ {inferred, derived} かつ frozenKind = morning_baseline のみ**（本人申告の追認・昼夜凍結日を精度に数えない。§3.2 の二重層別） |
 | メーター補正タップ | 補正が発生すること（= 補正 UI が見つかる・押せる）。補正後の納得感を口頭確認 |
 | タブ開封 | ≥ 4/7 日。0-1 日なら配置・導線を再設計 |
 | 既存 dogfood への影響 | A0-A4 の観測ログに変化がないこと（不接触の確認） |

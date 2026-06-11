@@ -98,9 +98,17 @@ CEO 提供の参照画像（iPhone モック）を精査した結果:
 ### 3.5 Night Check カード（夜 17:00-05:00 のみ / 繰越時は朝）
 - 主問 `今日は、最後まで余力がありましたか？` + 5 チップ。設計書 §5 が正本
 
+### 3.5' Morning Reveal（きのうの答え合わせ・朝 05:00-11:00 のみ。MomentState.timeBucket ∈ {early_morning, morning} で判定）
+- 表示条件: 前日の Night Check 回答済み。1 朝 1 回・閉じられる（既読は Stage 1 の `plan_morning_reveal_v0`）
+- 内容: 凍結見立て vs 実際（帯語のみ・数値なし）+ 記録/反映の 1 行
+- コピー例（B1 解錠前の正規形）: `きのうは「からだの余力 少なめ」と見ていました。実際は「少し余った」ようです。この差は記録しました。反映はもう少し学んでから`
+- **adjustmentNote の規律**: B1 解錠前は「記録した」系のみ。「今日は少し上げて見ています」等の**反映済み表現は、補正が実際に適用される Stage 3 から**（事実でないことを言わない — 設計書第一原則）
+- これが「毎晩採点される AI」の**開示面**であり、「自分って、そういう人間だったのか」の日次版。外れを隠さないことが信頼の源泉（補正の可視化は信頼を上げる — 外部研究確認済み）
+
 ### 3.6 会話エリア（コンパクト）
 - Alter の短い見立てメッセージ（1-2 行・観測トーン・断定なし）
 - クイックチップ: `元気` / `少し疲れた` / `眠い` / `集中したい` / `外出は軽め`
+- **コールドスタート（初回・全 unknown 時）**: チップ列を人体直下に昇格し「3 タップで初期化」できる導線にする（unknown を偽推定で埋めない代わりに、本人入力への最短路を出す）
   - チップ→フィールド対応: 元気→energyLevel:high / 少し疲れた→energyLevel:low / 眠い→energyLevel:low + recoveryNeed:high / 集中したい→保存しない ephemeral 信号（dailyMode 導出の desire 入力。focusReserve には書かない — 願望と状態を混同しない。例外的に user_confirmed 書き込みなし）/ 外出は軽め→outingTolerance:low（全て user_confirmed）
 - 直近 1-2 往復のみ表示（フルログは既存 Alter 面へ）
 - 入力バー `Alterに話しかける…` → 既存 `/api/stargazer/alter` へ `{ message, sessionId, source: "plan", mode: "warm" }`（既存 body 型の `source?: string` でそのまま受領可能・新 API 不要。"plan" 固有の route 分岐は追加しない）。セッションは `PLAN_ALTER_SESSION_KEY`（新設定数。Stage 1 で定義）で独立管理。`useAlterChat` の軽量パターン（ラリー上限あり）を踏襲
@@ -113,7 +121,7 @@ CEO 提供の参照画像（iPhone モック）を精査した結果:
 ## 4. ViewModel 契約（Session A が生成し、Session B が読むだけの境界面)
 
 ```ts
-// 正本: 設計書 §3 の DayStateRecordV0 から buildAlterBatteryViewModel() で導出する。
+// 正本: buildAlterBatteryViewModel(record: DayStateRecordV0, moment: MomentStateV0, yesterdayRecord?: DayStateRecordV0 | null) で導出する（handoff-A の 3 入力と同一）。
 // Session B はこの型だけを見る。ロジックの再定義禁止。
 type Band = "very_low" | "low" | "medium" | "high" | "unknown";
 type BatteryZone = {
@@ -131,9 +139,13 @@ type AlterBatteryViewModel = {
   contextCards: {
     outingTolerance: { label: "外出耐性"; band: Band; text: string; evidence: string[]; correctable: true };
     eveningSlack:    { label: "夜の余白"; text: string; evidence: string[] };       // 事実: "2.5h 確保できそう"
-    sleep:           { label: "睡眠"; band: Band; text: string };                    // v0 は本人入力 or unknown
+    sleep:           { label: "睡眠"; band: Band; text: string;
+                       source: "user_reported" | "unknown";
+                       correctable: true };                                          // **source ≠ user_reported なら band は必ず "unknown"（型で偽データを縛る）**
+                                                                                     // 入力経路: カードタップ → チップ（よく眠れた/浅い/短い）→ userInputs.sleepQuality（設計書 §3.2）
     yesterdayLoad:   { label: "昨日の負荷"; band: Band };                            // 事実表示（B1 前は表示のみ）
-    recoveryQuality: { label: "回復の質"; band: Band };                              // v0 unknown 許容
+    recoveryQuality: { label: "回復の質"; band: Band;
+                       source: "night_check_derived" | "unknown" };                   // **source=unknown なら band も "unknown"**。v0 の導出源は前夜 Night Check のみ（user_reported 入力経路は将来の additive 改訂）
     carryOver:       { label: "明日への持ち越し"; band: Band };
     feasibility:     { label: "今日の成立見込み"; band: Band; text: string };        // 帯語のみ
   };
@@ -142,6 +154,15 @@ type AlterBatteryViewModel = {
                       startHHMM: string; endHHMM: string;
                       label?: string; isEveningSlack?: boolean }>;
   };
+  morningReveal: {               // きのうの答え合わせ（§3.5'）。前日未回答・前日レコード欠如・朝以外は null（undefined 不可・null 一本化）
+    forDate: string;
+    items: Array<{ label: string; estimatedBand: Band; actualBand: Band;
+                   verdict: "match" | "over" | "under" }>;
+    // items の選定規則（v0 凍結）: energyLevel のみ必須。dayFeasibility は planVerdict 回答時のみ追加可。
+    // recoveryNeed は載せない（「余力」方向の帯語と意味反転するため。載せるのは専用語彙凍結後）。
+    // 表示用 actualBand 写像（dayFelt→Band）: 5→high / 4→high / 3→medium / 2→low / 1→very_low
+    adjustmentNote: string;      // B1 前 = 「この差は記録しました。反映はもう少し学んでから」系（固定テーブル）。反映済み表現は Stage 3 から
+  } | null;
   alterMessage: string;          // 観測トーン 1-2 行。禁止語 regression 対象
   quickReplies: string[];        // §3.6 の 5 チップ
   nightCheck?: {                 // 表示状態（設問・チップ文言は設計書 §5 が正本）
@@ -151,6 +172,8 @@ type AlterBatteryViewModel = {
 };
 ```
 
+- **futureSlots（実装しない・型未定義の docs 予約。Session B が想像で作ることを禁止）**: `adjustmentDiffSlot`（A3 から流入）/ `placeCandidateSlot`（A4 から流入）/ `requestFrameSlot`（compose 拡張から流入）。型は各トラックの CEO 判断後に additive 改訂で追加する。
+- **feasibility.text の制約**: 固定テーブル（band→帯語文）からのみ生成。「今日の流れは大きく崩れにくそうです」程度に抑え、断定・強い成立保証の文言は禁止（dayFeasibility は day-level proxy — 設計書 §3.3）。
 - enum→Band 写像（**全 contextCards 分を凍結**）:
   - energyLevel: depleted→very_low / low→low / medium→medium / high→high / unknown→unknown
   - focusReserve・emotionalReserve: low→low / medium→medium / high→high / unknown→unknown（very_low なし）

@@ -10,10 +10,10 @@ Stage 0: **pure 関数 4 本 + 型 + fixture テストのみ**を実装する。
 
 | 関数 | 入力 | 出力 | 契約 § |
 |---|---|---|---|
-| `buildDayStateRecord()` | facts 入力（anchors / dayIndicators / shift / weather / DayGraph 由来値）+ 既存シグナル（moodCode / bodyEcho / socialBandwidth / **estimatedWalkLevel?**〔dayConditions 由来 optional〕）+ **heartHint?**〔HDM 由来 optional input。import 禁止〕+ 軸事前分布（flag OFF 時は無効） | `DayStateRecordV0`（estimatesFrozen 凍結含む） | 設計書 §3 |
+| `buildDayStateRecord()` | facts 入力（anchors / dayIndicators / shift / weather / DayGraph 由来値）+ 既存シグナル（moodCode / bodyEcho / socialBandwidth / **estimatedWalkLevel?**〔dayConditions 由来 optional〕）+ **heartHint?**〔HDM 由来 optional input。import 禁止〕+ **personaCoefficients?**〔`PersonaCoefficientsV0`（設計書 §8 で凍結）。optional input・実導出は Stage D〕 | `DayStateRecordV0`（estimatesFrozen 凍結含む） | 設計書 §3 |
 | `gradeNightCheck()` | `DayStateRecordV0` + Night Check 回答（dayFelt / planVerdict / driftSelections） | `NightCheckGradeV0`（下記。**戻り値型も凍結済み**） | 設計書 §4-5 |
 | `deriveMomentState()` | `DayStateRecordV0` + DayGraph + 現在時刻（**引数で渡す**。Date.now 直呼びは fixture を壊すので注入） | `MomentStateV0`（**設計書 §2.1 で 14 フィールド凍結済み**。勝手な増減禁止） | 設計書 §2.1 |
-| `buildAlterBatteryViewModel()` | `DayStateRecordV0`（+ MomentState） | `AlterBatteryViewModel` | visual-contract §4 |
+| `buildAlterBatteryViewModel()` | `DayStateRecordV0` + `MomentStateV0` + **yesterdayRecord?**〔前日レコード optional。Morning Reveal 表示用 — 事実の再掲なので Stage 1 で読取可。見立てへの数値利用は B1 後〕 | `AlterBatteryViewModel`（morningReveal 含む） | visual-contract §4 |
 
 ## 実装規律（HARD）
 
@@ -28,9 +28,9 @@ Stage 0: **pure 関数 4 本 + 型 + fixture テストのみ**を実装する。
    | likely_fragile | **under** | **under** | match |
    （凍結 unknown は採点対象外・記録のみ）
 4. **凍結の fixture 必須**: 本人補正後も estimatesFrozen が不変であること / user_confirmed 由来の凍結値が match 率系列から除外されること（§3.3 凍結の規律）。
-5. **MomentState の fixture 必須**: ①timeBucket 境界（特に late_night 23:00-05:00 跨ぎ = 夜勤日）②departureDeadline の null 正直性（resolved 移動 segment なし → null。分数の捏造禁止）③currentMode 遷移（open→pre_event→in_event→post_event）④timePressure / interventionWindow の閾値境界（15/45 分）⑤isNightCheckWindow の 17:00 / 05:00 境界。
-6. **軸係数は flag 構造だけ用意**: `WIRE_DAY_STATE_PRIORS = false` 既定（Stage D。personalModelStargazerAdapter の Stage C は先約あり）。belief への書き戻し禁止。confidence 閾値は bodyLens 3 段（<0.2 不使用 / 0.2-0.5 半係数 / ≥0.5 通常）。
-7. HDM heart 状態（heartIntegration.ts）の利用は **read-only・confidence 0.3 上限**（emotionalReserve の参考材料。設計書 §3.3）。
+5. **MomentState の fixture 必須**: ①timeBucket 境界（特に late_night 23:00-05:00 跨ぎ = 夜勤日）②departureDeadline の null 正直性（resolved 移動 segment なし → null。分数の捏造禁止）③currentMode 遷移（open→pre_event→in_event→post_event）④timePressure / interventionWindow の閾値境界（15/45 分）⑤isNightCheckWindow の 17:00 / 05:00 境界 ⑥**主観日境界**: 02:00 の導出が前日 date のレコードに属すること（夜勤ケース。設計書 §3.2 date 注記）⑦frozenKind の 3 区分（05:00-11:00 / 11:00-17:00 / 17:00-05:00）と「morning_baseline のみがヘッドライン match 率に入る」層別 ⑧outingTolerance の「grounded signal 2 未満 → unknown」⑨Morning Reveal: 前日 nightCheck 未回答・前日レコード欠如・朝（05:00-11:00）以外 → morningReveal=null（undefined 不可）。B1 解錠前の adjustmentNote が「記録した」系固定文であること ⑩sleep / recoveryQuality: source=unknown 入力で band=unknown が強制されること（偽データの型縛り検証）。
+6. **軸係数は flag 構造だけ用意**: `WIRE_DAY_STATE_PRIORS = false` 既定（Stage D。personalModelStargazerAdapter の Stage C は先約あり）。belief への書き戻し禁止。confidence 閾値は bodyLens 3 段（<0.2 不使用 / 0.2-0.5 半係数 / ≥0.5 通常）。**Stage 0 では personaCoefficients を受領して型 fixture を書くのみで estimates へ未適用**（適用式・gradeNightCheck への受け渡し or record 内保持を含む配達経路は Stage D 契約で定義）。
+7. HDM heart 状態（heartIntegration.ts）の利用は **optional input・confidence 0.3 上限**（emotionalReserve の参考材料。設計書 §3.3）。**deriveMomentState は `receptivity-gate.ts` / `authority-escalation.ts` も import しない**（MomentStateV0 の値域は inline 定義が正本。本物のゲートは後段が MomentState を消費する側）。
 8. **「3」の取り違え禁止**: 人体 3 系統（focusReserve/emotionalReserve/energyLevel）≠ 採点 3 対象（energyLevel/recoveryNeed/dayFeasibility）。重なるのは energyLevel のみ。脳・心は Night Check で採点しない（設計書 §4.3 冒頭注記）。
 9. テストは既存規約（vitest）に従う。`npx tsc` は `--max-old-space-size=8192` 必須。
 
@@ -69,8 +69,8 @@ CEO 構想の Reality Graph 7 ノードに対する Session A の境界（設計
 | Reality Diff | **再実装禁止** | A3 What-if トラック。将来「調整案を見る」CTA へ流入 |
 
 - これらを Session A 内で**勝手に新設しない**。必要に感じたら契約差し戻し。
-- ViewModel への `realityGraphSlots` 追加は**今はしない**（契約凍結維持）。A3/A4 の CEO 判断後に additive な契約改訂として行う。
-- **closeout 必須項目**: 上表の境界を遵守したこと（再実装ゼロ・新設ノードゼロ）を明記する。
+- ViewModel への futureSlots（adjustmentDiffSlot / placeCandidateSlot / requestFrameSlot — 設計書 §2.5(c)）の型追加は**今はしない**（契約凍結維持）。A3/A4 の CEO 判断後に additive な契約改訂として行う。
+- **closeout 必須項目**: ①上表の境界を遵守したこと（再実装ゼロ・新設ノードゼロ）②MomentState が v0 でどこまで持ったか（14 フィールド + 値域）③Request / Event-adapter / Place / Diff は未実装であり、どの Stage で閉じるか（設計書 §2.5 の Stage 割当表を転記）④**「Alter がセンサーになる」は未完**であること（Composer は既存 route への入口にすぎず、会話 → DayStateRecord 構造抽出は Stage 1.5 の別契約）⑤dayFeasibility は day-level proxy であること。
 
 ## 触ってはいけないもの
 
