@@ -56,8 +56,8 @@ export function HumanBatteryCard({ battery, onZoneTap, pulseZone = null }: Human
         昨日・睡眠・予定の影響を引き継いで見ています
       </p>
 
-      {/* 人体ステージ（中央に人体・左右にコールアウト・点線コネクタ） */}
-      <div className="relative mx-auto mt-2 h-[292px] max-w-[372px]">
+      {/* 人体ステージ（人体が主役。中央大きく・左右にコールアウト・点線コネクタ） */}
+      <div className="relative mx-auto mt-1.5 h-[340px] max-w-[372px]">
         <HumanBatteryFigure
           className="absolute left-1/2 top-0 h-full w-auto -translate-x-1/2"
           brainFill={battery.brain.visualFill}
@@ -70,27 +70,27 @@ export function HumanBatteryCard({ battery, onZoneTap, pulseZone = null }: Human
         />
 
         {/* コネクタ（脳: 左上 → 頭 / 心: 右 → 胸 / 体: 左下 → 液面） */}
-        <Connector side="left" top={34} fromPx={108} toCenterOffset={24} dotClass="bg-violet-400" />
-        <Connector side="right" top={104} fromPx={108} toCenterOffset={12} dotClass="bg-rose-300" />
-        <Connector side="left" top={184} fromPx={108} toCenterOffset={18} dotClass="bg-sky-400" />
+        <Connector side="left" top={32} fromPx={106} toCenterOffset={22} dotClass="bg-violet-400" />
+        <Connector side="right" top={106} fromPx={106} toCenterOffset={14} dotClass="bg-rose-300" />
+        <Connector side="left" top={212} fromPx={106} toCenterOffset={16} dotClass="bg-sky-400" />
 
         <BatteryCallout
           zoneKey="brain"
           zone={battery.brain}
           onTap={onZoneTap}
-          className="absolute left-0 top-0 z-10 w-[106px]"
+          className="absolute left-0 top-0 z-10 w-[104px]"
         />
         <BatteryCallout
           zoneKey="heart"
           zone={battery.heart}
           onTap={onZoneTap}
-          className="absolute right-0 top-[64px] z-10 w-[106px]"
+          className="absolute right-0 top-[72px] z-10 w-[104px]"
         />
         <BatteryCallout
           zoneKey="body"
           zone={battery.body}
           onTap={onZoneTap}
-          className="absolute left-0 top-[150px] z-10 w-[106px]"
+          className="absolute left-0 top-[176px] z-10 w-[104px]"
         />
       </div>
 

@@ -216,12 +216,14 @@ export function AlterTabBody({
         {/* 5'. Morning Reveal（朝のみ・null なら描画なし） */}
         {vm.morningReveal !== null && <MorningRevealCard morningReveal={vm.morningReveal} />}
 
-        {/* 6-7. 会話エリア → CTA → 入力バー */}
-        <div className="space-y-2 pt-1">
-          <AlterChatPreview alterMessage={vm.alterMessage} alterMessageTime={alterMessageTime} recentExchange={recentExchange} />
-          {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}
-          <AlterCtaRow onCompose={onCompose} onViewAdjustments={onViewAdjustments} />
-          <AlterInputBar onSend={onSend} />
+        {/* 6-7. 会話エリア + CTA + 入力バー（下部で一体化した操縦席パネル） */}
+        <div className="rounded-3xl border border-white/90 bg-gradient-to-b from-white/60 to-indigo-50/40 p-3 shadow-[0_8px_28px_rgba(99,102,241,0.12)] backdrop-blur-xl">
+          <div className="space-y-2.5">
+            <AlterChatPreview alterMessage={vm.alterMessage} alterMessageTime={alterMessageTime} recentExchange={recentExchange} />
+            {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}
+            <AlterCtaRow onCompose={onCompose} onViewAdjustments={onViewAdjustments} />
+            <AlterInputBar onSend={onSend} />
+          </div>
         </div>
       </div>
 
