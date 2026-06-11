@@ -45,16 +45,21 @@ export interface LifeOpsStructuredCadenceSource {
 }
 
 /**
- * occurrenceKey の自動導出（`{categoryId}:{menu}:{dueAt 日付部}`・非 PII 構造キー）。
+ * occurrenceKey の自動導出（**非空 segment のみを `:` で join**・非 PII 構造キー）。
  *   ★A-4-c30 finding の恒久対応: **due date 由来で deterministic**（now/smoke 開始時刻/created_at を使わない）。
+ *   ★A-4-c32 補正: menu なしで `::`（空 segment）を残さない。
+ *     deadline menu なし=`tax_filing:2026-06-25` / menu あり=`beauty_salon:cut:2026-06-25`。
  */
 export function deriveLifeOpsOccurrenceKey(categoryId: LifeOpsCategoryId, menu: BeautyMenu | null, dueAtISO: string): string {
-  return `${categoryId}:${menu ?? ""}:${dueAtISO.slice(0, 10)}`;
+  return [categoryId, menu, dueAtISO.slice(0, 10)].filter((s): s is string => !!s).join(":");
 }
 
-/** cadence 用 occurrenceKey（occurrence 概念がないため固定 suffix・deterministic）。 */
+/**
+ * cadence 用 occurrenceKey（occurrence 概念がないため固定 suffix・deterministic・空 segment なし）。
+ *   menu なし=`groceries:cadence` / menu あり=`beauty_salon:cut:cadence`。
+ */
 export function deriveLifeOpsCadenceOccurrenceKey(categoryId: LifeOpsCategoryId, menu: BeautyMenu | null): string {
-  return `${categoryId}:${menu ?? ""}:cadence`;
+  return [categoryId, menu, "cadence"].filter((s): s is string => !!s).join(":");
 }
 
 function dictValid(categoryId: LifeOpsCategoryId, menu: BeautyMenu | null): boolean {

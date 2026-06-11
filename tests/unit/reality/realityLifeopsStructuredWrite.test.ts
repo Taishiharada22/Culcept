@@ -39,14 +39,14 @@ describe("c31 — builder（①②③④⑤⑥⑦⑧⑭）", () => {
     expect(r.row).toEqual({
       source_type: "deadline", category_id: "tax_filing", menu: null,
       due_at: "2026-06-25", last_completed_at: null, typical_interval_days: null,
-      occurrence_key: "tax_filing::2026-06-25", confidence: "high", status: "active",
+      occurrence_key: "tax_filing:2026-06-25", confidence: "high", status: "active",
     });
   });
   it("②valid cadence → insert row（interval のみ / last のみ / 両方）・occurrence=固定 suffix", () => {
     const lastOnly = buildLifeOpsStructuredInsertRow(cadenceInput());
     expect(lastOnly.ok && lastOnly.row.occurrence_key === "beauty_salon:cut:cadence").toBe(true);
     const intervalOnly = buildLifeOpsStructuredInsertRow(cadenceInput({ lastCompletedAtISO: undefined, typicalIntervalDays: 30, menu: undefined, categoryId: "eyebrow" }));
-    expect(intervalOnly.ok && intervalOnly.row.typical_interval_days === 30 && intervalOnly.row.occurrence_key === "eyebrow::cadence").toBe(true);
+    expect(intervalOnly.ok && intervalOnly.row.typical_interval_days === 30 && intervalOnly.row.occurrence_key === "eyebrow:cadence").toBe(true);
   });
   it("③unknown category/enum 外 menu → invalid_category", () => {
     expect(buildLifeOpsStructuredInsertRow(deadlineInput({ categoryId: "massage_parlor" }))).toEqual({ ok: false, reason: "invalid_category" });
@@ -62,12 +62,17 @@ describe("c31 — builder（①②③④⑤⑥⑦⑧⑭）", () => {
     }
   });
   it("⑦⑧occurrenceKey は deterministic（同 input→同 key・dueDate 変更でのみ変化・now 不使用=時刻を跨いでも同値）", () => {
-    expect(deriveLifeOpsOccurrenceKey("tax_filing", null, "2026-06-25T23:59:00+09:00")).toBe("tax_filing::2026-06-25");
+    expect(deriveLifeOpsOccurrenceKey("tax_filing", null, "2026-06-25T23:59:00+09:00")).toBe("tax_filing:2026-06-25");
+    // ★A-4-c32: menu なしで double colon（空 segment）を残さない（4 推奨形の lock）
+    expect(deriveLifeOpsOccurrenceKey("tax_filing", null, "2026-06-25")).not.toContain("::");
+    expect(deriveLifeOpsOccurrenceKey("beauty_salon", "cut", "2026-06-25")).toBe("beauty_salon:cut:2026-06-25");
+    expect(deriveLifeOpsCadenceOccurrenceKey("tax_filing", null)).toBe("tax_filing:cadence");
+    expect(deriveLifeOpsCadenceOccurrenceKey("tax_filing", null)).not.toContain("::");
     const a = buildLifeOpsStructuredInsertRow(deadlineInput());
     const b = buildLifeOpsStructuredInsertRow(deadlineInput());
     expect(a.ok && b.ok && a.row.occurrence_key === b.row.occurrence_key).toBe(true); // 呼び出し時刻に依存しない
     const c = buildLifeOpsStructuredInsertRow(deadlineInput({ dueDateISO: "2026-07-01" }));
-    expect(c.ok && c.row.occurrence_key === "tax_filing::2026-07-01").toBe(true);
+    expect(c.ok && c.row.occurrence_key === "tax_filing:2026-07-01").toBe(true);
     expect(deriveLifeOpsCadenceOccurrenceKey("beauty_salon", "cut")).toBe("beauty_salon:cut:cadence");
     // ★c30 finding 回帰 lock: 生成 source code に now/Date.now が存在しない（occurrence は入力のみから決まる）
     const src = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/lifeops/lifeops-structured-write.ts"), "utf8");
@@ -89,14 +94,14 @@ describe("c31 — builder（①②③④⑤⑥⑦⑧⑭）", () => {
 describe("c31 — duplicate guard（⑪）", () => {
   const existingRow: LifeOpsStructuredSourceRow = {
     source_type: "deadline", category_id: "tax_filing", menu: null, due_at: "2026-06-25",
-    last_completed_at: null, typical_interval_days: null, occurrence_key: "tax_filing::2026-06-25",
+    last_completed_at: null, typical_interval_days: null, occurrence_key: "tax_filing:2026-06-25",
     confidence: "high", status: "active",
   };
   it("同 type+category+menu+occurrence の active 既存 → duplicate / 別 occurrence・archived は通る", () => {
     const built = buildLifeOpsStructuredInsertRow(deadlineInput());
     if (!built.ok) throw new Error("unexpected");
     expect(hasActiveStructuredDuplicate([existingRow], built.row)).toBe(true);
-    expect(hasActiveStructuredDuplicate([{ ...existingRow, occurrence_key: "tax_filing::2026-07-01" }], built.row)).toBe(false); // 別期日=別 occurrence
+    expect(hasActiveStructuredDuplicate([{ ...existingRow, occurrence_key: "tax_filing:2026-07-01" }], built.row)).toBe(false); // 別期日=別 occurrence
     expect(hasActiveStructuredDuplicate([{ ...existingRow, status: "archived" }], built.row)).toBe(false); // archive 済みは再登録可
     expect(hasActiveStructuredDuplicate([], built.row)).toBe(false);
   });
@@ -132,7 +137,7 @@ describe("c31 — writer（⑫⑬・fake client・insert 1 件のみ）", () => 
     expect(await writer.writeSource(deadlineInput({ categoryId: "massage_parlor" }))).toEqual({ written: false, reason: "invalid_category" });
     const existing: LifeOpsStructuredSourceRow = {
       source_type: "deadline", category_id: "tax_filing", menu: null, due_at: "2026-06-25",
-      last_completed_at: null, typical_interval_days: null, occurrence_key: "tax_filing::2026-06-25",
+      last_completed_at: null, typical_interval_days: null, occurrence_key: "tax_filing:2026-06-25",
       confidence: "high", status: "active",
     };
     expect(await writer.writeSource(deadlineInput(), { existing: [existing] })).toEqual({ written: false, reason: "already_exists" });

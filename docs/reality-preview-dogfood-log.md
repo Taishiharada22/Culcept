@@ -275,3 +275,10 @@
 - update 方針=insert のみ（期日変更は archive→新 insert を将来方針）。DB unique index は設計のみ（partial unique・別 slice）。staging write smoke は**計画のみ**（mini-design §1-10・occurrence 回帰検証込み・実行は別 GO）
 - roundtrip lock: writer payload→c27 reader DTO→正規化可能（write と read contract の整合）
 - GPT 16 lock（11 case）・full suite 20567 GREEN・tsc 55
+
+### [2026-06-11] record 45 — A-4-c32 structured writer smoke **FULL PASS（+occurrence `::` 外科修正）**
+- ★double colon は**表記ミスでなく実装の実態だった** → smoke 前に外科修正: 非空 segment のみ `:` join（deadline menu なし=`tax_filing:2026-06-25`・menu あり=`beauty_salon:cut:2026-06-25`・cadence=`…:cadence`）。staging table は c30 cleanup 済みで空＝保存データ影響ゼロの最適時に補正。旧 format lock 8 箇所更新+`::` 不在 lock 追加
+- smoke 結果（staging・全 PASS）: gate 開/production 常閉 → **occurrence builder 実出力=`tax_filing:2026-06-25`（dueDate 由来・:: なし）** → before 全 0 → write#1 ok → count=1・reader=1・**実 DB roundtrip で occurrence 一致（c30 回帰なし）**・normalizer=1・**card chain: 実 row→reader→normalizer→real_only card に「確定申告」** → write#2=already_exists・insert 0・count=1 のまま → exact cleanup 1 件 → after 全 0・feedback 不干渉
+- ★c31 writer contract が実 DB の RLS/CHECK/reader/normalizer/duplicate と噛み合うことを実証＝**UI 入力は本当に表層になった**
+- finding（c33 へ）: duplicate guard の existing は row 形だが c29 reader は c26 DTO を返す → UI server action 用に「active rows の column-restricted 読み」か「DTO 受けの guard overload」を c33 で整備
+- full suite 20567 GREEN・tsc 55

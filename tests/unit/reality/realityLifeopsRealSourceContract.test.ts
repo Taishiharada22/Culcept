@@ -83,7 +83,7 @@ describe("c26 Part1 — structured source contract（①②③④⑤⑥⑦）", 
   it("⑤出力 JSON に free text/raw/user_id/id/source_ref なし・occurrenceKey 自動導出は非 PII 構造キー", () => {
     const obs = structuredDeadlinesToObservations([deadline()]);
     expect(JSON.stringify(obs)).not.toMatch(FORBIDDEN);
-    expect(deriveLifeOpsOccurrenceKey("tax_filing", null, iso(5))).toBe(`tax_filing::${iso(5).slice(0, 10)}`);
+    expect(deriveLifeOpsOccurrenceKey("tax_filing", null, iso(5))).toBe(`tax_filing:${iso(5).slice(0, 10)}`); // c32: 空 menu は segment ごと省略（:: なし）
   });
   it("⑥static: contract file に calendar/title/event_name/LLM/fetch/URL 解析なし（pure）", () => {
     const code = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/lifeops/lifeops-structured-source.ts"), "utf8")
