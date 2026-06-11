@@ -101,7 +101,7 @@ PersonalizationPort（read-only・lib/shared 系の正本原則に従う）
   getPairContext(pairId): { fairnessLedger, sharedConsent, hdmPhase }
 ```
 
-- 実装は Stargazer 側の既存永続化（`stargazer_axis_scores` ほか）からの読み出し + 写像のみ。書き込みなし。
+- 実装は Stargazer 側の既存永続化（`stargazer_axis_snapshots` ほか — 2026-06-12 精密監査で確定、詳細は [m2-personalization-port-design.md](m2-personalization-port-design.md)）からの読み出し + 写像のみ。書き込みなし。
 - これにより「ユーザーを全て理解している」という差別化主張が、初めてコードの事実になる。
 
 ### M3: Reservation-Readiness（予約直前化）
