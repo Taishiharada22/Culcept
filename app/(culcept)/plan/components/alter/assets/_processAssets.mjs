@@ -166,7 +166,40 @@ async function keyBody() {
   console.log("ZONES(crop後・転記用): HEAD_TOP=" + p(topY), "CHIN(NECK)=" + p(chinY), "SHOULDER(BODY_TOP)=" + p(shoulderY), "FEET=" + p(botY), "HEART_Y=" + heartY);
 }
 
+/**
+ * heart: CEO 透過済み heart-mask.png（2026-06-12 置き直し版）を直接使用（keying 不要）。
+ * 横方向のリング弧が alpha に含まれるため、行/列の alpha 質量プロファイルでコア（ハート本体の
+ * グロー）だけを crop する — 胸に「リング＝ズレた頭の輪」を出さないため。
+ */
+async function keyHeart() {
+  const file = path.join(here, "heart-mask.png");
+  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width: w, height: h, channels: c } = info;
+  const colMass = new Array(w).fill(0);
+  const rowMass = new Array(h).fill(0);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * c + 3] > 120) { colMass[x]++; rowMass[y]++; }
+    }
+  }
+  const cut = (arr) => {
+    const mx = Math.max(...arr);
+    const th = mx * 0.12; // 薄い弧（数行分）を捨て、本体だけ残す
+    let lo = arr.findIndex((v) => v > th);
+    let hi = arr.length - 1 - [...arr].reverse().findIndex((v) => v > th);
+    return [lo, hi];
+  };
+  const [x0, x1] = cut(colMass);
+  const [y0, y1] = cut(rowMass);
+  const ext = { left: x0, top: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+  const alphaPng = await sharp(file).ensureAlpha().extractChannel(3).extract(ext).png().toBuffer();
+  const am = await sharp(alphaPng).metadata();
+  const white = await sharp({ create: { width: am.width, height: am.height, channels: 3, background: "#ffffff" } }).png().toBuffer();
+  await sharp(white).joinChannel(alphaPng).png().toFile(path.join(out, "heart.png"));
+  console.log("heart.png(core)", am.width + "x" + am.height, "crop x", (x0 / w).toFixed(2) + "-" + (x1 / w).toFixed(2), "y", (y0 / h).toFixed(2) + "-" + (y1 / h).toFixed(2));
+}
+
 await keyBody();
-await keyOut(path.join(here, "heart-mask.png"), "heart.png", { floor: 218, alphaBoost: 2.6, alphaBlur: 24 });
+await keyHeart();
 await keyOut(path.join(here, "glow-noise-texture.png"), "glow.png", { floor: 200, alphaBoost: 1.6, alphaBlur: 8 });
 console.log("done");

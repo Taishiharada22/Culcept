@@ -35,9 +35,9 @@ export interface HumanBatteryFigureProps {
 // body.png 内のゾーン境界 — _processAssets.mjs が crop 後フレームで機械算出した値を転記する
 //（手動目測の禁止。再生成時はパイプライン出力 "ZONES(crop後・転記用)" と同期させること）
 const HEAD_TOP_PCT = 0.5;
-const NECK_PCT = 12.2; // 顎（頭部容器の下端）
+const NECK_PCT = 14; // 頭部容器の下端 = 顎の直下（診断画像 _chin.png で顎=13% を視覚確定。機械値 12.2 は口元）
 const BODY_TOP_PCT = 17.5; // 肩（体ゾーンの上端）
-const HEART_CENTER = { xPct: 46, yPct: 25.7 }; // 胸（機械算出 HEART_Y・x は胸の左上指示で中心やや左）
+const HEART_CENTER = { xPct: 46, yPct: 24 }; // 胸（CEO 指示: 右上=ビューア左上へ補正）
 const FEET_PCT = 99.4;
 
 const bodyMaskStyle: React.CSSProperties = {
@@ -113,21 +113,7 @@ export function HumanBatteryFigure({
                 "radial-gradient(ellipse 48% 48% at 50% 46%, rgba(166,180,228,0.78), rgba(180,192,232,0.5) 56%, rgba(203,213,245,0) 78%)",
             }}
           />
-          {/* 頭部の紫ヘイロー（集中の余力の主役感。CEO 指示 B） */}
-          {!brainUnknown && brainFill > 0 && (
-            <motion.div
-              className="pointer-events-none absolute left-1/2"
-              style={{
-                top: `${HEAD_TOP_PCT - 3}%`,
-                width: "62%",
-                height: `${(NECK_PCT - HEAD_TOP_PCT) * 1.9}%`,
-                transform: "translateX(-50%)",
-                background: "radial-gradient(ellipse 50% 50% at 50% 45%, rgba(139,92,246,0.5), rgba(124,58,237,0.18) 55%, rgba(124,58,237,0) 75%)",
-              }}
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
-            />
-          )}
+          {/* 紫ヘイローは削除（B9）: 頭の脇に「羽/ズレた頭」のように見える原因だった */}
           <motion.img
             src={glowImg.src}
             alt=""
@@ -239,21 +225,21 @@ export function HumanBatteryFigure({
             </motion.div>
           )}
 
-          {/* 5. heart（アセットのグローにローズを流す + SVG ハート/軌道リング） */}
+          {/* 5. heart（CEO 透過 heart-mask の alpha にローズを流す。自前の軌道リング/ドットは
+              削除 — 胸に「ズレた頭の輪」を作る原因だった（B9）） */}
           {!heartUnknown && heart > 0 && (
             <motion.div
               className="pointer-events-none absolute"
               style={{
                 left: `${HEART_CENTER.xPct}%`,
                 top: `${HEART_CENTER.yPct}%`,
-                width: `${46 + 26 * heart}%`,
+                width: `${34 + 16 * heart}%`,
                 aspectRatio: `${heartImg.width} / ${heartImg.height}`,
                 transform: "translate(-50%, -50%)",
               }}
               animate={{ scale: [1, 1.06, 1] }}
               transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
             >
-              {/* アセット alpha を mask にしてローズの光を流す */}
               <div
                 className="absolute inset-0"
                 style={{
@@ -262,16 +248,10 @@ export function HumanBatteryFigure({
                   opacity: 0.6 + 0.4 * heart,
                 }}
               />
-              {/* 精細なハート + 軌道（asset はグロー専用） */}
+              {/* 精細なハート（小・中心） */}
               <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" aria-hidden="true">
-                <g opacity={0.35 + 0.35 * heart}>
-                  <circle cx={50} cy={50} r={34} fill="none" stroke="#ffffff" strokeWidth={0.7} />
-                  <circle cx={50} cy={16} r={1.7} fill="#ffffff" />
-                  <circle cx={84} cy={50} r={1.4} fill="#ffffff" />
-                  <circle cx={26} cy={74} r={1.3} fill="#ffffff" />
-                </g>
                 <path
-                  d="M50 62 c-7 -9 -20 -4 -14 8 c4 7 14 11 14 11 c0 0 10 -4 14 -11 c6 -12 -7 -17 -14 -8 z"
+                  d="M50 56 c-6 -8 -17 -3 -12 7 c3 6 12 9 12 9 c0 0 9 -3 12 -9 c5 -10 -6 -15 -12 -7 z"
                   fill="#f472b6"
                   opacity={0.55 + 0.35 * heart}
                 />
