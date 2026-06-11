@@ -220,7 +220,7 @@ export function AlterTabBody({
         {vm.morningReveal !== null && <MorningRevealCard morningReveal={vm.morningReveal} />}
 
         {/* 6-7. 会話エリア + CTA + 入力バー（下部で一体化した操縦席パネル） */}
-        <div className="rounded-3xl border border-white/90 bg-gradient-to-b from-white/60 to-indigo-50/40 p-3 shadow-[0_8px_28px_rgba(99,102,241,0.12)] backdrop-blur-xl">
+        <div className="rounded-3xl border border-white bg-gradient-to-b from-white/85 via-indigo-50/50 to-violet-50/60 p-3 shadow-[0_10px_34px_rgba(99,102,241,0.18)] backdrop-blur-xl">
           <div className="space-y-2.5">
             <AlterChatPreview alterMessage={vm.alterMessage} alterMessageTime={alterMessageTime} recentExchange={recentExchange} />
             {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}

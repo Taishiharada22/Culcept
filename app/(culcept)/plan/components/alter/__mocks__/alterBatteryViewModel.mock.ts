@@ -120,6 +120,25 @@ export const MOCK_VM_COLD_START: AlterBatteryViewModel = {
   nightCheck: { state: "hidden", question: NIGHT_CHECK_QUESTION, chips: NIGHT_CHECK_CHIPS },
 };
 
+/**
+ * visual fidelity 検証用 variant（dev 専用・本番 mock とは別物）:
+ * over.png と水位の見え方を比較するため、band と矛盾しない範囲で fill を高めに設定
+ * （body 0.62 / brain 0.50 / heart 0.55 = いずれも band "medium" と整合。実データを偽る用途ではない）
+ */
+export const MOCK_VM_VISUAL: AlterBatteryViewModel = {
+  ...MOCK_ALTER_BATTERY_VM,
+  battery: {
+    brain: { label: "集中の余力", band: "medium", visualFill: 0.5, confidence: "medium",
+             source: "見立て", evidence: ["まとまった空きあり"], correctable: true },
+    heart: { label: "心の余力", band: "medium", visualFill: 0.55, confidence: "medium",
+             source: "見立て", evidence: ["夜の余白あり"], correctable: true },
+    body: { label: "からだの余力", band: "medium", visualFill: 0.62, confidence: "medium",
+            source: "見立て", evidence: ["休みの日"], correctable: true },
+  },
+  morningReveal: null,
+  nightCheck: { state: "hidden", question: NIGHT_CHECK_QUESTION, chips: NIGHT_CHECK_CHIPS },
+};
+
 /** 会話エリアの直近 1-2 往復 mock（VM の外。実チャット接続は Stage 1 — useAlterChat 経由） */
 export type MockChatTurn = { role: "user" | "alter"; text: string; time?: string };
 export const MOCK_ALTER_MESSAGE_TIME = "09:30";

@@ -67,8 +67,21 @@ export function HumanBatteryCard({
         昨日・睡眠・予定の影響を引き継いで見ています
       </p>
 
-      {/* 人体ステージ: 人体中央 + 浮遊カード 5 枚（over.png 配置） */}
-      <div className="relative mt-1 h-[330px]">
+      {/* 人体ステージ: 人体中央 + 浮遊カード 5 枚（over.png 配置）。
+          薄いラベンダー/ブルーの色面 + halo を敷き、白い人体が背景に溶けないようにする（B3） */}
+      <div className="relative mt-1 h-[330px] overflow-hidden rounded-2xl">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(to bottom, rgba(224,231,255,0.65), rgba(237,233,254,0.5) 45%, rgba(239,246,255,0.35))",
+          }}
+        />
+        {/* 足元のグラウンドシャドウ（接地感） */}
+        <div
+          className="pointer-events-none absolute left-1/2 top-[296px] h-4 w-[120px] -translate-x-1/2 rounded-[100%]"
+          style={{ background: "radial-gradient(ellipse, rgba(129,140,248,0.28), rgba(129,140,248,0))" }}
+        />
         <HumanBatteryFigure
           className="absolute left-1/2 top-1 h-[318px] -translate-x-1/2"
           brainFill={battery.brain.visualFill}

@@ -36,7 +36,7 @@ export interface HumanBatteryFigureProps {
 const HEAD_TOP_PCT = 1;
 const NECK_PCT = 12; // 頭部容器の下端（顎）
 const BODY_TOP_PCT = 16; // 体ゾーンの上端（肩の手前）
-const HEART_CENTER = { xPct: 50, yPct: 26 }; // 胸の中心
+const HEART_CENTER = { xPct: 50, yPct: 24 }; // 胸の中心
 const FEET_PCT = 99;
 
 const bodyMaskStyle: React.CSSProperties = {
@@ -102,16 +102,25 @@ export function HumanBatteryFigure({
       role="img"
       aria-label="あなたのバッテリー（3 系統の見立て）"
     >
-      {/* 1. glow（星雲・背面） */}
+      {/* 1. glow（星雲・背面）+ halo plate（人体を白背景から浮かせる色面） */}
       {!allUnknown && (
-        <motion.img
-          src={glowImg.src}
-          alt=""
-          aria-hidden="true"
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[108%] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
-          animate={{ opacity: [0.4, 0.6, 0.4] }}
-          transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
-        />
+        <>
+          <div
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[108%] w-[190%] -translate-x-1/2 -translate-y-1/2"
+            style={{
+              background:
+                "radial-gradient(ellipse 52% 46% at 50% 45%, rgba(196,181,253,0.55), rgba(199,210,254,0.38) 55%, rgba(224,231,255,0) 78%)",
+            }}
+          />
+          <motion.img
+            src={glowImg.src}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[108%] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
+            animate={{ opacity: [0.5, 0.75, 0.5] }}
+            transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
+          />
+        </>
       )}
 
       {/* 2. base human body（実透過アセット。二重描画 + 淡い縁光で存在感を出す） */}
@@ -159,9 +168,13 @@ export function HumanBatteryFigure({
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(125,211,252,0.78), rgba(56,189,248,0.72) 45%, rgba(45,212,191,0.8))",
+                      "linear-gradient(to bottom, rgba(147,197,253,0.92), rgba(96,165,250,0.88) 45%, rgba(34,211,238,0.92))",
                     filter: "blur(0.5px)",
                   }}
+                />
+                <div
+                  className="absolute -top-px left-[6%] h-[2.5px] w-[88%] rounded-full"
+                  style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.9) 28%, rgba(255,255,255,0.9) 72%, rgba(255,255,255,0))" }}
                 />
                 <SurfaceWave />
                 {/* 内部ハイライト（体積感） */}
@@ -186,9 +199,14 @@ export function HumanBatteryFigure({
                 <div
                   className="absolute inset-0"
                   style={{
-                    background: "linear-gradient(to bottom, rgba(167,139,250,0.85), rgba(99,102,241,0.9))",
-                    filter: "blur(0.5px)",
+                    background: "linear-gradient(to bottom, rgba(139,92,246,0.96), rgba(79,70,229,0.96))",
+                    filter: "blur(0.4px)",
                   }}
+                />
+                {/* 水面の白いライン（「満たされている」を一瞬で読ませる） */}
+                <div
+                  className="absolute -top-px left-[8%] h-[2.5px] w-[84%] rounded-full"
+                  style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.95) 30%, rgba(255,255,255,0.95) 70%, rgba(255,255,255,0))" }}
                 />
                 <SurfaceWave light />
               </div>
@@ -226,8 +244,8 @@ export function HumanBatteryFigure({
                 className="absolute inset-0"
                 style={{
                   ...heartMaskStyle,
-                  background: "radial-gradient(circle, rgba(244,114,182,0.95), rgba(251,113,133,0.55) 60%, rgba(253,164,175,0.25))",
-                  opacity: 0.5 + 0.5 * heart,
+                  background: "radial-gradient(circle, rgba(244,114,182,1), rgba(251,113,133,0.65) 60%, rgba(253,164,175,0.3))",
+                  opacity: 0.6 + 0.4 * heart,
                 }}
               />
               {/* 精細なハート + 軌道（asset はグロー専用） */}

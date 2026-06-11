@@ -31,7 +31,7 @@ export function TodayFlowStrip({ flowTimeline }: TodayFlowStripProps) {
   return (
     <section
       aria-label="今日の流れ"
-      className="rounded-3xl border border-white bg-white/80 p-3 shadow-sm backdrop-blur-sm"
+      className="rounded-3xl border border-white bg-gradient-to-b from-white to-indigo-50/30 p-3 shadow-[0_6px_18px_rgba(99,102,241,0.10)] backdrop-blur-sm"
     >
       <div className="flex items-center gap-2">
         <h3 className="text-[12px] font-bold text-slate-700">今日の流れ</h3>
@@ -49,7 +49,7 @@ export function TodayFlowStrip({ flowTimeline }: TodayFlowStripProps) {
       ) : (
         <>
           {/* 横帯（事実のみ・予測曲線なし） */}
-          <div className="relative mt-2.5 h-9 overflow-hidden rounded-xl bg-slate-100/70">
+          <div className="relative mt-2.5 h-11 overflow-hidden rounded-xl border border-indigo-100/60 bg-gradient-to-b from-slate-100/80 to-indigo-50/60 shadow-inner">
             {segments.map((seg, i) => {
               const start = Math.max(toMin(seg.startHHMM), DAY_START_MIN);
               const end = Math.min(toMin(seg.endHHMM), DAY_END_MIN);

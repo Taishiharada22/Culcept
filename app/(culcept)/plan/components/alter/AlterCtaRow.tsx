@@ -21,17 +21,19 @@ export function AlterCtaRow({ onCompose, onViewAdjustments }: AlterCtaRowProps) 
       <button
         type="button"
         onClick={onViewAdjustments}
-        className="flex items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-400 via-violet-500 to-purple-500 px-3 py-3 text-[12.5px] font-bold text-white shadow-[0_6px_16px_rgba(124,58,237,0.35)] transition-opacity hover:opacity-90"
+        className="relative flex items-center justify-center gap-1.5 overflow-hidden rounded-full bg-gradient-to-r from-indigo-400 via-violet-500 to-purple-500 px-3 py-3.5 text-[13px] font-bold text-white shadow-[0_8px_22px_rgba(124,58,237,0.45)] transition-transform hover:scale-[1.02]"
       >
-        <SparkleIcon size={13} />
+        <span className="pointer-events-none absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/35 to-white/0" />
+        <SparkleIcon size={14} />
         調整案を見る
       </button>
       <button
         type="button"
         onClick={onCompose}
-        className="flex items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-orange-500 px-3 py-3 text-[12.5px] font-bold text-white shadow-[0_6px_16px_rgba(251,146,60,0.4)] transition-opacity hover:opacity-90"
+        className="relative flex items-center justify-center gap-1.5 overflow-hidden rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-orange-500 px-3 py-3.5 text-[13px] font-bold text-white shadow-[0_8px_22px_rgba(251,146,60,0.5)] transition-transform hover:scale-[1.02]"
       >
-        <SunIcon size={13} />
+        <span className="pointer-events-none absolute inset-x-2 top-0.5 h-1/2 rounded-full bg-gradient-to-b from-white/35 to-white/0" />
+        <SunIcon size={14} />
         今日を組む
       </button>
     </div>

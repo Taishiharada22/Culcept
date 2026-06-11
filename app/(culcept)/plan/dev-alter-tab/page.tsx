@@ -29,12 +29,14 @@ import {
   MOCK_VM_NIGHT_FOLLOWUP,
   MOCK_VM_NIGHT_MAIN,
   MOCK_VM_UNKNOWN_BRAIN,
+  MOCK_VM_VISUAL,
 } from "../components/alter/__mocks__/alterBatteryViewModel.mock";
 
 export const dynamic = "force-dynamic";
 
 const VARIANTS = {
   morning: { vm: MOCK_ALTER_BATTERY_VM, label: "朝（Reveal あり）", withChat: true },
+  visual: { vm: MOCK_VM_VISUAL, label: "理想比較（検証用）", withChat: true },
   night: { vm: MOCK_VM_NIGHT_MAIN, label: "夜（Night Check 主問）", withChat: true },
   followup: { vm: MOCK_VM_NIGHT_FOLLOWUP, label: "夜（followup）", withChat: true },
   answered: { vm: MOCK_VM_ANSWERED, label: "夜（回答済み）", withChat: true },
