@@ -214,15 +214,17 @@ export function AlterTabBody({
         {/* 5'. Morning Reveal（朝のみ・null なら描画なし） */}
         {vm.morningReveal !== null && <MorningRevealCard morningReveal={vm.morningReveal} />}
 
-        {/* 6. cockpit input panel（B13・CEO 判断）: 吹き出し往復は廃止。
-            alterMessage 1 行（見立て要約）+ チップ（状態補正/センサー入口）+ CTA（操作盤）+
-            状態入力スリット（会話を展開しない・送信は短い ack のみ） */}
-        <div className="rounded-3xl border border-white bg-gradient-to-b from-white/85 via-indigo-50/50 to-violet-50/60 p-3 shadow-[0_10px_34px_rgba(99,102,241,0.18)] backdrop-blur-xl">
-          <div className="space-y-2.5">
-            <div className="flex items-center gap-2">
-              <AlterAvatar size={28} />
-              <p className="min-w-0 text-[12.5px] leading-snug text-slate-700">{vm.alterMessage}</p>
-            </div>
+        {/* 6. cockpit input panel（B13/B14・CEO 判断）: 吹き出し往復は廃止。
+            alterMessage / chips / CTA / 状態入力スリットを「1 つの操作盤」に見せる（B14・指示④）:
+            見出しバー + 内部を区切り線で連結し、外周 1 枠に統合 */}
+        <div className="overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-b from-white/90 via-indigo-50/55 to-violet-50/70 shadow-[0_12px_38px_rgba(99,102,241,0.2)] backdrop-blur-xl">
+          {/* 見出し行: アバター + 見立て要約（操作盤のタイトル帯） */}
+          <div className="flex items-center gap-2 border-b border-indigo-100/70 bg-white/45 px-3 py-2">
+            <AlterAvatar size={26} />
+            <p className="min-w-0 text-[12px] font-medium leading-snug text-slate-700">{vm.alterMessage}</p>
+          </div>
+          {/* 操作群: チップ → CTA → 入力スリットを詰めて連結 */}
+          <div className="space-y-2 px-3 pb-2.5 pt-2">
             {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}
             <AlterCtaRow onCompose={onCompose} onViewAdjustments={onViewAdjustments} />
             <AlterInputBar

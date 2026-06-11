@@ -76,39 +76,71 @@ function loadAt(min: number, segs: Seg[]): number {
   return 18;
 }
 
+/** 負荷の「滑らかな」瞬間値: ±60 分窓で loadAt を 15 分刻みに平均（段差→ランプ化。B14・指示⑤） */
+function smoothLoadAt(min: number, segs: Seg[]): number {
+  let sum = 0;
+  let n = 0;
+  for (let d = -60; d <= 60; d += 15) {
+    sum += loadAt(min + d, segs);
+    n++;
+  }
+  return sum / n;
+}
+
 /**
  * 今日の推移予測を flowTimeline + メーター値から決定論生成する。
  *  - 始点(06:00): 体力 = meter.body+12 / 集中 = meter.brain+10（朝は現在値より高い想定の検証用見込み式）
- *  - 90 分刻みで、負荷に比例して減少。夜の余白帯（実セグメント）で回復。
+ *  - 30 分刻みで、負荷に比例して減少。夜の余白帯（実セグメント）で回復。
+ *  - 負荷線は ±60 分窓平均 + 端点平滑化で「異常値スパイク」に見えないよう整える（flowTimeline 由来は維持）。
  *  - 回復帯 = flowTimeline の isEveningSlack セグメントの実時刻。
+ *  - now マーカー = 引数の現在 JST 分（呼び出し側で注入。日本時間で動く）。
  */
-function deriveTrend(base: AlterBatteryViewModel, meter: { body: number; brain: number }): AlterScreenViewModel["trend"] {
+function deriveTrend(
+  base: AlterBatteryViewModel,
+  meter: { body: number; brain: number },
+  nowMinJst: number,
+): AlterScreenViewModel["trend"] {
   const segs = base.flowTimeline.segments;
   const slack = segs.find((s) => s.kind === "gap" && s.isEveningSlack);
   const recoveryBand: [string, string] = slack ? [slack.startHHMM, slack.endHHMM] : ["21:00", "22:30"];
   const [rb0, rb1] = recoveryBand.map(toMin);
 
+  const STEP = 30;
+  const rawLoad: number[] = [];
   const points: TrendPoint[] = [];
   let e = clamp(meter.body + 12, 5, 95);
   let f = clamp(meter.brain + 10, 5, 95);
-  for (let t = 360; t <= 1440; t += 90) {
-    const mid = t - 45;
-    const L = loadAt(mid, segs);
+  for (let t = 360; t <= 1440; t += STEP) {
+    const L = smoothLoadAt(t, segs);
     if (t > 360) {
-      // 負荷比例の消耗（90 分あたり）。回復帯では加算。
-      e = clamp(e - (L - 18) / 7 - 1.2, 5, 95);
-      f = clamp(f - (L - 14) / 6.5 - 1.4, 5, 95);
-      if (mid >= rb0 && mid < rb1) {
-        e = clamp(e + 9, 5, 95);
-        f = clamp(f + 8, 5, 95);
+      // 負荷比例の消耗（30 分あたり）。回復帯では加算。
+      e = clamp(e - (L - 18) / 22 - 0.4, 5, 95);
+      f = clamp(f - (L - 14) / 20 - 0.5, 5, 95);
+      if (t >= rb0 && t < rb1) {
+        e = clamp(e + 3.2, 5, 95);
+        f = clamp(f + 2.9, 5, 95);
       }
     }
-    points.push({ t: toHHMM(t), energy: e, focus: f, load: clamp(L + (mid >= rb0 && mid < rb1 ? -6 : 0), 5, 95) });
+    rawLoad.push(L);
+    points.push({ t: toHHMM(t), energy: Math.round(e), focus: Math.round(f), load: 0 });
   }
-  // now マーカー: VM に「現在時刻」は存在しないため検証用固定（最初の午後予定の開始 or 14:00）
-  const firstAfternoonEvent = segs.find((s) => s.kind === "event" && toMin(s.startHHMM) >= 12 * 60);
-  const nowMarker = firstAfternoonEvent ? firstAfternoonEvent.startHHMM : "14:00";
+  // 負荷の端点平滑化（3 点移動平均）→ 異常値・ジグザグ除去
+  for (let i = 0; i < points.length; i++) {
+    const a = rawLoad[Math.max(0, i - 1)];
+    const b = rawLoad[i];
+    const c = rawLoad[Math.min(rawLoad.length - 1, i + 1)];
+    points[i].load = clamp((a + b + c) / 3, 5, 95);
+  }
+  const nowMarker = toHHMM(Math.min(Math.max(nowMinJst, 360), 1440));
   return { points, nowMarker, recoveryBand };
+}
+
+/** 現在の日本時間（分・00:00 起点）。Date を引数注入しない簡易版（呼び出し側 server で評価） */
+export function jstNowMinutes(now: Date): number {
+  // UTC からの JST(+9h) 換算
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const jst = new Date(utc + 9 * 3600000);
+  return jst.getHours() * 60 + jst.getMinutes();
 }
 
 /** 夜の余白の実分数（isEveningSlack セグメント合計） */
@@ -134,8 +166,10 @@ function fmtHours(min: number): string {
  */
 export function buildScreenViewModel(
   base: AlterBatteryViewModel,
-  overrides?: Partial<Omit<AlterScreenViewModel, "base">>,
+  opts?: { nowMinJst?: number; overrides?: Partial<Omit<AlterScreenViewModel, "base">> },
 ): AlterScreenViewModel {
+  const nowMinJst = opts?.nowMinJst ?? 14 * 60; // 注入なし時のフォールバック
+  const overrides = opts?.overrides;
   const meterPct = {
     brain: Math.round(base.battery.brain.visualFill * 100),
     heart: Math.round(base.battery.heart.visualFill * 100),
@@ -185,7 +219,7 @@ export function buildScreenViewModel(
     nightRecovery,
     carryOver: { pct: CARRY_PCT[carryBand], note: carryBand === "unknown" ? "まだ読めていません" : "夜以降に確定" },
     feasibility: { pct: FEAS_PCT[feasBand], note: feasBand === "unknown" ? "まだ読めていません" : base.contextCards.feasibility.text },
-    trend: deriveTrend(base, { body: meterPct.body, brain: meterPct.brain }),
+    trend: deriveTrend(base, { body: meterPct.body, brain: meterPct.brain }, nowMinJst),
     ...overrides,
   };
 }

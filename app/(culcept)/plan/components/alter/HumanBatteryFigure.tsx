@@ -102,21 +102,8 @@ export function HumanBatteryFigure({
       role="img"
       aria-label="あなたのバッテリー（3 系統の見立て）"
     >
-      {/* 1. 背面プレート（薄いラベンダー〜ブルーグレー = 人体を背景から分離。CEO 指示 D で強化） */}
-      {!allUnknown && (
-        <>
-          <div
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[106%] w-[178%] -translate-x-1/2 -translate-y-1/2"
-            style={{
-              background:
-                "radial-gradient(ellipse 48% 48% at 50% 46%, rgba(166,180,228,0.78), rgba(180,192,232,0.5) 56%, rgba(203,213,245,0) 78%)",
-            }}
-          />
-          {/* 星雲 glow.png は削除（B10）: alpha に不定形ブロブ + 市松残滓が残っており、
-              頭の背後で「頭だけの画像の重なり」に見えていた正体（増幅可視化 _a_glow.png で確定）。
-              紫ヘイロー（B9 削除）と同じく、器・液体以外の装飾レイヤーは置かない。 */}
-        </>
-      )}
+      {/* 1. 背面プレートは廃止（B14・CEO 指示②）: 薄紫の面を出さない。
+          人体は器画像自身のリムライト + 液体で立たせる。星雲 glow も廃止済み（B10）。 */}
 
       {/* 2. base human body（器。芯のある半透明 — blur なし・色は液体レイヤーのみが持つ） */}
       <img
@@ -159,12 +146,13 @@ export function HumanBatteryFigure({
                   height: `${bodyLiquidHeightPct + (100 - FEET_PCT)}%`,
                 }}
               >
-                {/* 液体本体: 上淡（シアン）→ 下濃（青）。発光でなく液体（blur なし） */}
+                {/* 液体本体（B14・CEO 指示③: 自然で淡い水色。濃すぎ・不自然な原色を避ける）
+                    上=淡いアクア → 下=やわらかいスカイブルー。透過を上げて器に馴染ませる */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(125,211,252,0.88) 0%, rgba(56,189,248,0.92) 22%, rgba(37,99,235,0.95) 70%, rgba(29,78,216,0.97) 100%)",
+                      "linear-gradient(to bottom, rgba(186,230,253,0.62) 0%, rgba(125,211,252,0.66) 35%, rgba(96,165,250,0.72) 100%)",
                   }}
                 />
                 {/* 水面: 白いライン + 直下の明るい帯（水面近くのハイライト） */}
@@ -195,12 +183,13 @@ export function HumanBatteryFigure({
                 className="absolute inset-x-0"
                 style={{ top: `${NECK_PCT - brainLiquidHeightPct}%`, height: `${brainLiquidHeightPct}%` }}
               >
-                {/* 液体本体: 上淡（ラベンダー紫）→ 下濃（青紫）。blur なしの液体グラデ */}
+                {/* 液体本体（B14・CEO 指示③: 自然で淡い紫。濃すぎを避ける）
+                    上=淡いラベンダー → 下=やわらかいバイオレット。透過を上げて器に馴染ませる */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(167,139,250,0.92) 0%, rgba(124,58,237,0.96) 38%, rgba(91,33,182,0.98) 100%)",
+                      "linear-gradient(to bottom, rgba(216,205,251,0.62) 0%, rgba(167,139,250,0.68) 40%, rgba(139,92,246,0.74) 100%)",
                   }}
                 />
                 {/* 水面: 白いライン + 直下の明るいラベンダー帯（光の縁） */}
@@ -234,13 +223,14 @@ export function HumanBatteryFigure({
               animate={{ scale: [1, 1.06, 1] }}
               transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
             >
+              {/* B14・CEO 指示③: 心臓は若干強め（body/brain を淡くしたぶん中核として立たせる） */}
               <div
                 className="absolute inset-0"
                 style={{
                   ...heartMaskStyle,
                   background:
-                    "radial-gradient(circle at 50% 42%, rgba(244,114,182,1), rgba(244,114,182,0.8) 45%, rgba(251,113,133,0.55) 70%, rgba(253,164,175,0.3))",
-                  opacity: 0.6 + 0.4 * heart,
+                    "radial-gradient(circle at 50% 42%, rgba(236,72,153,1), rgba(244,114,182,0.9) 45%, rgba(251,113,133,0.6) 72%, rgba(253,164,175,0.32))",
+                  opacity: 0.7 + 0.3 * heart,
                 }}
               />
             </motion.div>

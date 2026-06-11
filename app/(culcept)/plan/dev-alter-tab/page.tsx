@@ -18,7 +18,7 @@
 import { notFound } from "next/navigation";
 import { isCandidateActionsPreviewHostAllowed } from "@/lib/plan/reality/candidateActionsPreviewHost";
 import { AlterTabBody } from "../components/alter/AlterTabBody";
-import { buildScreenViewModel } from "../components/alter/screenViewModel";
+import { buildScreenViewModel, jstNowMinutes } from "../components/alter/screenViewModel";
 import overPng from "../components/alter/assets/over.png";
 import {
   MOCK_ALTER_BATTERY_VM,
@@ -93,8 +93,8 @@ export default async function DevAlterTabPage({
         </div>
       </div>
 
-      {/* B13: チャット欄廃止（CEO 判断）— 吹き出し mock の供給も廃止 */}
-      <AlterTabBody screen={buildScreenViewModel(variant.vm)} />
+      {/* B13: チャット欄廃止 / B14: now マーカーは日本時間（force-dynamic で都度評価） */}
+      <AlterTabBody screen={buildScreenViewModel(variant.vm, { nowMinJst: jstNowMinutes(new Date()) })} />
 
       {/* over.png 半透明 overlay（dev 位置合わせ専用。本番背景貼りではない） */}
       {overlayOpacity > 0 && (
