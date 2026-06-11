@@ -32,6 +32,7 @@ import { applyLifeOpsCompletionSuppression } from "./lifeops-completion-suppress
 import type { LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
 import { listLifeOpsActionDescriptors } from "./lifeops-action-intent";
 import type { CadenceObservation, LifeOpsCandidate } from "../../../lifeops/candidate-types";
+import type { DeadlineObservation } from "../../../lifeops/deadline-engine";
 
 // ── client DTO（唯一の通路・allowlist・§2）──
 
@@ -100,6 +101,9 @@ export interface LifeOpsPreviewClientDto {
     readonly cadenceSourceConflictCount: number;
     /** A-4-c22: done により presentation suppression された deadline 候補数（**数のみ**・cleanup で 0 に戻る）。 */
     readonly suppressedDeadlineCount: number;
+    /** A-4-c29: 構造化 source 由来の件数（**数のみ**・default OFF/0 件なら 0）。 */
+    readonly structuredDeadlineCount: number;
+    readonly structuredCadenceCount: number;
   };
 }
 
@@ -151,6 +155,12 @@ export interface LifeOpsPreviewComputeArgs {
    *   使う（collector 後・pool cap 前・done のみ・occurrence window 照合で stale done 無視）。省略/0 件 → no-op。
    */
   readonly doneFeedback?: readonly LifeOpsFeedbackObservation[];
+  /**
+   * A-4-c29: 構造化 source（`lifeops_structured_sources`・c27 正規化済み）の実データ channel。
+   *   cadence は merge（latest 勝ち）・deadline は concat で **capRaw の前**に合流。省略/0 件 → no-op。
+   */
+  readonly structuredDeadlines?: readonly DeadlineObservation[];
+  readonly structuredCadence?: readonly CadenceObservation[];
 }
 
 /**
@@ -179,12 +189,22 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
   //   （①raw input cap=collector 入力直前 ②pool cap=placement 入力直前。fixture は cap 未満=no-op・flood test で作動証明）。
   // A-4-c14: done feedback 由来 cadence を **raw cap より前**に merge（最上流契約・0 件は no-op）。
   // A-4-c20: real cadence 合成層を feedback の後・cap の前に merge（latest 勝ち・衝突は count で観測）。
+  // A-4-c29: 構造化 source channel（cadence=merge latest 勝ち・deadline=concat）も **capRaw の前**に合流。
   const feedbackCadence = args.feedbackCadence ?? [];
   const realCadence = args.realCadence ?? [];
-  const mergedInputs = mergeCadenceIntoLifeOpsInputs(
-    mergeCadenceIntoLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs), feedbackCadence),
-    realCadence,
+  const structuredCadence = args.structuredCadence ?? [];
+  const structuredDeadlines = args.structuredDeadlines ?? [];
+  const cadenceMerged = mergeCadenceIntoLifeOpsInputs(
+    mergeCadenceIntoLifeOpsInputs(
+      mergeCadenceIntoLifeOpsInputs(args.inputs ?? fixtureLifeOpsInputs(nowMs), feedbackCadence),
+      realCadence,
+    ),
+    structuredCadence,
   );
+  const mergedInputs =
+    structuredDeadlines.length === 0
+      ? cadenceMerged
+      : { ...cadenceMerged, deadlineObservations: [...(cadenceMerged.deadlineObservations ?? []), ...structuredDeadlines] };
   const raw = capRawLifeOpsInputs(mergedInputs);
   const collected = collectLifeOpsCandidates(raw.inputs, new Date(nowMs).toISOString());
   // A-4-c22: deadline completion suppression（collector 後・pool cap 前＝Morning/Moment/全 tier が同一の抑制済み集合を見る）。
@@ -264,6 +284,8 @@ export function computeLifeOpsPreviewModel(args: LifeOpsPreviewComputeArgs): Lif
       realCadenceCount: realCadence.length,
       cadenceSourceConflictCount: countCadenceKeyConflicts(feedbackCadence, realCadence),
       suppressedDeadlineCount: suppression.suppressedDeadlineCount,
+      structuredDeadlineCount: structuredDeadlines.length,
+      structuredCadenceCount: structuredCadence.length,
     },
   };
   return { dto, repCandidates: reps.map((p) => p.candidate), pooledCandidates: pooled.pool };

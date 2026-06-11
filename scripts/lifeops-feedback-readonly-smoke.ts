@@ -20,6 +20,10 @@ import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/de
 import { createLifeOpsFeedbackReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-feedback-readonly-source";
 import { isLifeOpsFeedbackReadAllowed, feedbackToCadence } from "@/lib/plan/reality/lifeops/lifeops-feedback-source";
 import { isLifeOpsCadenceReadAllowed, feedbackDoneToRealCadence, realCadenceToCadenceObservations } from "@/lib/plan/reality/lifeops/lifeops-cadence-real-source";
+import { createLifeOpsStructuredSourceReadonlySource } from "@/lib/plan/reality/lifeops/lifeops-structured-storage-readonly-source";
+import type { LifeOpsStructuredSourceReadClient } from "@/lib/plan/reality/lifeops/lifeops-structured-storage-readonly-source";
+import { isLifeOpsStructuredSourceReadAllowed } from "@/lib/plan/reality/lifeops/lifeops-structured-storage";
+import { structuredDeadlinesToObservations, structuredCadenceToObservations } from "@/lib/plan/reality/lifeops/lifeops-structured-source";
 import type { PrmLearningEventReadClient } from "@/lib/plan/reality/learning/supabase-prm-learning-event-reader";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
@@ -94,7 +98,17 @@ async function main(): Promise<void> {
   log(`▶ real cadence: gate=${isLifeOpsCadenceReadAllowed(cadenceEnv)} realCadence=${realCad.length}（期待: 0＝honest zero）`);
   pass = ok(realCad.length <= obs.length, "c20: real 合成層は observations 以下（done のみ・low 足切り・辞書再検証）") && pass;
 
-  log(`\n${pass ? "✅ PASS" : "❌ FAIL"} — A-4-c8/c14/c20 feedback+cadence read-only smoke（write 0・cleanup 不要・production 0）`);
+  // 5) ★A-4-c29: structured source reader（lifeops_structured_sources・column-restricted・counts のみ）
+  const structEnv = { master: PLAN_FLAGS.lifeopsRealdataReadonly, structured: PLAN_FLAGS.lifeopsStructuredSourceReadonly, supabaseUrl: SB_URL };
+  pass = ok(isLifeOpsStructuredSourceReadAllowed({ ...structEnv, supabaseUrl: `https://${PRODUCTION_PROJECT_REF}.supabase.co` }) === false, "c29 gate: production URL → 常に false") && pass;
+  const structSrc = createLifeOpsStructuredSourceReadonlySource(sb as unknown as LifeOpsStructuredSourceReadClient, userId, structEnv);
+  const split = await structSrc.readSources();
+  const normDeadlines = structuredDeadlinesToObservations(split.deadlines);
+  const normCadence = structuredCadenceToObservations(split.cadences);
+  log(`▶ structured: gate=${isLifeOpsStructuredSourceReadAllowed(structEnv)} deadlines=${split.deadlines.length} cadences=${split.cadences.length} → normalized: deadline=${normDeadlines.length} cadence=${normCadence.length}（期待: 全て 0＝honest zero）`);
+  pass = ok(normDeadlines.length <= split.deadlines.length && normCadence.length <= split.cadences.length, "c29: normalizer は DTO 以下（辞書/ISO/low の最終防壁）") && pass;
+
+  log(`\n${pass ? "✅ PASS" : "❌ FAIL"} — A-4-c8/c14/c20/c29 feedback+cadence+structured read-only smoke（write 0・cleanup 不要・production 0）`);
   await sb.auth.signOut();
   process.exit(pass ? 0 : 1);
 }

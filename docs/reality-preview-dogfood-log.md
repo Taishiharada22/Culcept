@@ -255,3 +255,10 @@
 - PRE 全 0 → MIGRATION Success → POST 監査: **13 列完全一致**（型/NULL 可否含む）・forbidden 0 行・RLS=true・**4 policy 一致**・**CHECK 7 種完全一致**（PG 正規化形 `= ANY(ARRAY)`・inline 自動命名 `{table}_{col}_check` は c10/c11 確認済み規約どおり）・trigger 1・row_count=0
 - ★監査での発見→外科修正: CREATE TRIGGER/POLICY に IF NOT EXISTS 相当がなく **db push 再実行で重複エラーになる**未冪等を検出 → DROP IF EXISTS 前置で冪等化（staging には c27 版適用済み・end-state 同一）。header に staging 適用済み/production 未 apply 注記
 - `lifeops_structured_sources` が staging に実在＝**構造化 source の保存先が初めて現実になった**。database.types 更新は reader 接続 slice に予約
+
+### [2026-06-11] record 42 — A-4-c29 structured source reader read-only wiring（staging smoke PASS・honest zero）
+- ★型方針の発見と判断: repo に生成済み database.types は**存在しない**（client 全 untyped・structural DTO が確立 pattern）→ 全 schema gen は「余計な差分を混ぜない」要件違反（~100 table・consumer 0）のため、**migration 1:1 の scoped 型**（`LifeOpsStructuredSourcesTable{Row,Insert,Update}`・c28 POST-1 監査と一致・forbidden field 不存在を lock）を contract file に手書き追加
+- 配線: mainline model helper に gated read 合流（master∧`LIFEOPS_STRUCTURED_SOURCE_READONLY`∧staging∧!prod・default OFF→query 0）→ row→column-restricted DTO→**c26 normalizer**→compute 新 channel（cadence=latest 勝ち merge・deadline=concat・**capRaw 前**）→ sparse policy → card。page/actions は helper 共有済み=配線変更不要
+- meta += structuredDeadlineCount/structuredCadenceCount（数のみ）。full chain lock: fake row→正規化→real_only card に「確定申告」/fallback「美容院」・flood 60→rawDropped=10・0 件 no-op（JSON 一致）・latest 勝ち
+- **staging smoke PASS（新 table への初実 query）**: gate 開(staging)/閉(production)・deadlines=0/cadences=0/normalized 0＝honest zero・write 0・cleanup 不要 → reader/RLS/columns が実 DB で機能
+- c29 21 case + 既存 c27 13 case・full suite 20556 GREEN・tsc 55

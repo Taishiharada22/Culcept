@@ -24,6 +24,46 @@ import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixt
 
 export const LIFEOPS_STRUCTURED_SOURCES_TABLE = "lifeops_structured_sources";
 
+/**
+ * A-4-c29: DB 型（**staging apply 済み schema と 1:1**・c28 POST-1 監査結果と一致・手書き scoped 型）。
+ *   注: 本 repo は生成済み database.types を持たない（client は untyped・structural DTO 方式が確立 pattern）ため、
+ *   全 schema gen ではなく本 table のみの scoped 型を contract と同居させる（production schema 由来でないことが構造的に明白・
+ *   forbidden column は型にも存在しない）。将来 repo が typed client を採用する場合は gen へ移行。
+ */
+export interface LifeOpsStructuredSourcesTable {
+  readonly Row: {
+    readonly id: string;
+    readonly user_id: string;
+    readonly source_type: string;
+    readonly category_id: string;
+    readonly menu: string | null;
+    readonly due_at: string | null;
+    readonly last_completed_at: string | null;
+    readonly typical_interval_days: number | null;
+    readonly occurrence_key: string | null;
+    readonly confidence: string;
+    readonly status: string;
+    readonly created_at: string;
+    readonly updated_at: string;
+  };
+  readonly Insert: {
+    readonly id?: string;
+    readonly user_id: string;
+    readonly source_type: "deadline" | "cadence";
+    readonly category_id: string;
+    readonly menu?: "cut" | "color" | "treatment" | null;
+    readonly due_at?: string | null;
+    readonly last_completed_at?: string | null;
+    readonly typical_interval_days?: number | null;
+    readonly occurrence_key?: string | null;
+    readonly confidence?: "high" | "medium" | "low";
+    readonly status?: "active" | "archived";
+    readonly created_at?: string;
+    readonly updated_at?: string;
+  };
+  readonly Update: Partial<LifeOpsStructuredSourcesTable["Insert"]>;
+}
+
 /** reader が select する列（**user_id / id を含めない**・この文字列が reader の select 引数）。 */
 export const LIFEOPS_STRUCTURED_SOURCE_COLUMNS_SQL =
   "source_type, category_id, menu, due_at, last_completed_at, typical_interval_days, occurrence_key, confidence, status";

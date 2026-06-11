@@ -18,6 +18,8 @@ import { resolveLifeOpsSourceMode, baseLifeOpsInputsForMode, type LifeOpsSourceM
 import { createLifeOpsFeedbackReadonlySource } from "./lifeops-feedback-readonly-source";
 import { feedbackToCadence, type LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
 import { isLifeOpsCadenceReadAllowed, feedbackDoneToRealCadence, realCadenceToCadenceObservations } from "./lifeops-cadence-real-source";
+import { createLifeOpsStructuredSourceReadonlySource, type LifeOpsStructuredSourceReadClient } from "./lifeops-structured-storage-readonly-source";
+import { structuredDeadlinesToObservations, structuredCadenceToObservations } from "./lifeops-structured-source";
 import type { PrmLearningEventReadClient } from "../learning/supabase-prm-learning-event-reader";
 import type { ContextSnapshot } from "../../context/contextModifier";
 import { PLAN_FLAGS } from "../../featureFlags";
@@ -63,8 +65,20 @@ export async function computeLifeOpsMainlineModel(
     ? realCadenceToCadenceObservations(feedbackDoneToRealCadence(observations, now.toISOString()))
     : [];
 
+  // A-4-c29: 構造化 source（lifeops_structured_sources・staging apply 済み）の gated read-only 読み。
+  //   gate=master ∧ LIFEOPS_STRUCTURED_SOURCE_READONLY ∧ staging ∧ !production（default OFF → query 0 → 空 channel）。
+  //   row → column-restricted DTO → c26 normalizer（辞書/ISO/low の最終防壁）→ compute channel（capRaw 前合流）。
+  const structuredSource = createLifeOpsStructuredSourceReadonlySource(supabase as LifeOpsStructuredSourceReadClient, userId, {
+    master: PLAN_FLAGS.lifeopsRealdataReadonly,
+    structured: PLAN_FLAGS.lifeopsStructuredSourceReadonly,
+    supabaseUrl,
+  });
+  const structured = await structuredSource.readSources();
+  const structuredDeadlines = structuredDeadlinesToObservations(structured.deadlines);
+  const structuredCadence = structuredCadenceToObservations(structured.cadences);
+
   // A-4-c25: source policy（fixture kill-switch）。staging のみ fixture 可・production/不明 host は **base 候補を空に**
-  //   （real channel=feedback 由来 cadence/suppression だけが上に乗る・real 0 件なら builder が null=card 非表示）。
+  //   （real channel=feedback 由来 cadence/suppression+構造化 source だけが上に乗る・real 0 件なら builder が null=card 非表示）。
   //   page 表示と action 再検証が本 helper を共有するため、偽造 candidateKey でも fixture 候補は再構築されない。
   const sourceMode = resolveLifeOpsSourceMode({ supabaseUrl });
   const model = computeLifeOpsPreviewModel({
@@ -76,6 +90,8 @@ export async function computeLifeOpsMainlineModel(
     feedbackCadence: feedbackToCadence(observations),
     realCadence,
     doneFeedback: observations,
+    structuredDeadlines,
+    structuredCadence,
   });
   return { model, observations, sourceMode };
 }
