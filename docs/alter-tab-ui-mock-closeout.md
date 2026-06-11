@@ -153,6 +153,36 @@ B3 対応: 色面/halo によるコントラスト確保・水位視認性（白
 | **残り（品質ギャップ）** | 心臓グローが右カードに一部隠れる / 体上部（液体より上）のガラス質感が over.png より平板 / カード間の「接続感」はまだ over.png の完成度に未達 / glow.png 星雲がやや弱い / コールドスタートはゴースト表示（破線でなく低透明度） |
 | **契約上あえて不採用** | % 数値全部 / 「今日の開始残量」/ 睡眠 5.8h / 昨日の負荷 72%・回復の質 64%（帯語に置換）/ 体質スタミナ / 消耗予測・回復後予測 / リソース推移予測グラフ / 上下タブ / 設定アイコンの通知風ドット |
 
+## 7.9 over.png 1:1 設計（B4・CEO 契約緩和。commit `b68f6050`）
+
+**契約変更（CEO 2026-06-11 明示承認）**: visual-contract §2 の不採用項目「% 表示 / グラフ / 消耗予測 / 回復後予測 / 体質スタミナ / リソース推移予測」を**解除**し over.png に合わせる。維持: 上下タブ不要・人体方向・「今日の開始残量」非採用（→「あなたのバッテリー」継続）。
+→ これは visual-contract の正本変更であり、本来は契約凍結セッションが §2 を改訂すべき**差し戻し事項**。CEO 直接承認のため Session B で先行実装し、ここに記録（契約管理側で §2 を追従改訂する必要あり）。
+
+**型境界の守り方**: `AlterBatteryViewModel`（lib/plan/dayState・Session A 領域）は**不変更**。`screenViewModel.ts` に **`AlterScreenViewModel`** を新設し、基底 VM を内包しつつ over.png 固有の数値・系列（meterPct / stateBg / consumption / nightRecovery / carryOver / feasibility / trend）を Session B 側で足した。meterPct は基底 `visualFill` から導出（VM 連動）。
+
+**実装（over.png 構成要素の対応）**:
+| over.png | 実装 |
+|---|---|
+| 今日の開始残量（左 3 メーター + 人体 + 右 体力/夜の余白） | あなたのバッテリー（左: 集中%/心%/外出耐性% 、右: からだ%/夜の余白）+ 人体 + 点線コネクタ |
+| 集中余力 48% 等の % | 各メーターに % 数値（band 帯語をサブに併記） |
+| 状態の背景 4 枠 | 1 枠に 4 セル（睡眠 5.8h / 昨日の負荷 72%+bar / 回復の質 64%+bar / 体質スタミナ 高い・持久力タイプ） |
+| 今日の消耗予測（体力-39/集中-42/負荷65） | ForecastGrid セル 1 |
+| 夜の回復見込み 2.5h（回復後 75/64） | ForecastGrid セル 2（bar 付き） |
+| 明日への持ち越し 28% + sparkline | ForecastGrid セル 3 |
+| 今日の成立見込み 78% + sparkline | ForecastGrid セル 4 |
+| 今日のリソース推移予測（折れ線 + 回復タイム + 14:00） | ResourceTrendChart（体力/集中/負荷 3 本 + 回復帯 + now 線 + 0-100 軸 + 06:00-24:00） |
+| 会話 + チップ + CTA + 入力 | 既存（操縦席パネル） |
+
+**人体（CEO 指摘 2 点）**: ①「輪郭が薄れている」→ アセット alpha の境界帯から rim（ラベンダー白の縁光）を `_processAssets.mjs` で焼き込み、カード背景に色面+halo を維持。②「心臓の位置がずれている」→ HEART_CENTER を胸中央（yPct 20.5）へ補正。
+
+**v=visual variant**: body 0.62 / brain 0.50 / heart 0.55（band medium と整合）で over.png の水位印象を検証。
+
+**残課題（Stage 1 / 契約側）**:
+- over.png 数値（消耗予測・回復後予測・推移カーブ・体質スタミナ）は **mock 表示値**。Stage 1+ で実導出が必要。特に消耗予測・推移予測は設計書 §4 で「採点不能」とされた連続予測 = 採点設計を伴わない数値表示は信頼設計と矛盾し得る → 契約側で再整理が必要。
+- 体質スタミナは対応軸が axisRegistry に無い（§2 監査）。mock のまま。軸拡張は CEO マター。
+- visual-contract §2/§3 の正本改訂（% 解禁・グラフ追加・「今日の流れ」→「リソース推移予測」置換）を契約管理セッションで反映要。
+- 旧 `TodayFlowStrip.tsx` / `RealityContextCards.tsx` の `StateBackgroundColumn`・`ContextCardGrid` は superseded（未使用・将来削除可）。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
