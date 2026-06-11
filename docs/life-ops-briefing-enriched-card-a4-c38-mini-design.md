@@ -22,9 +22,14 @@
 ## 2. moreLine の選定規則（1 行に統一）
 
 briefing VM には「ほかにも」が 2 系統ある（tier の overflowLine=「この案では入りきらない候補が◯件」／alsoAvailableLine=「ほかにも候補が◯件」）。
-本線 card では **rail を持つ tier（=Morning 代表の出所）の overflowLine を優先し、無ければ alsoAvailableLine**、両方なければ非表示。
-- 根拠: 代表の直下に出す「続き」として、同じ集合（その tier）の溢れが最も文脈整合。sparse fallback 時は両方 null になりやすく自動で minimal 維持。
-- tier 特定は「candidateKey 付き highlight を含む tier」（rail の実出所・builder 内で判定可能＝recommended マーク不要）。
+
+**★実測補正（実装時に判明）**: 当初は「rail tier の overflow 優先」としたが、**rail tier（=Morning 代表が収まる tier・通常 protect）は溢れないため overflow が null**（probe 実測: protect=null / easy=1件 / push=2件）。
+代表が出ている tier の溢れに固執せず、「**ユーザーがまだ見ていない候補がある**」ことを 1 行で伝えるのが目的に整合。
+
+補正後の規則:
+- ①**alsoAvailableLine 最優先**（最も中立な総量表現「ほかにも候補が◯件」）
+- ②無ければ overflow を持つ tier の**最大件数 1 行**（複数 tier の溢れを 1 行に集約）
+- ③どちらも null → 非表示。sparse fallback 時は両方 null になりやすく自動で minimal 維持。
 
 ## 3. DTO / builder / render 変更（実装時）
 

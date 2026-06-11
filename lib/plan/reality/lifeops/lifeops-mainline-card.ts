@@ -51,6 +51,33 @@ export interface LifeOpsMainlineCardDto {
   readonly headline: string;
   /** 代表 ≤3（通常=recommended tier rail 付き／sparse fallback=最大 1）。 */
   readonly items: readonly LifeOpsMainlineItemDto[];
+  /**
+   * A-4-c38: 行動前に知ると安心な注意（L-8a 固定句由来・**≤2**・非指示形）。VM の cautions をそのまま搬出。
+   *   tiers/tierLabel/raw tier info は**搬出しない**（minimal card の維持）。
+   */
+  readonly cautions: readonly string[];
+  /**
+   * A-4-c38: 「ほかにも◯件」の低圧 1 行（rail tier の overflow 優先→alsoAvailable・**最大 1 行**・なければ null）。
+   *   件数は VM が生成済みの固定句に内包（raw count を別搬出しない）。
+   */
+  readonly moreLine: string | null;
+}
+
+const CAUTIONS_MAX = 2;
+
+/**
+ * A-4-c38: moreLine 選定（**「ユーザーが見ていない候補がまだある」ことを 1 行で**・最大 1 行）。
+ *   ①alsoAvailableLine（最も中立な総量表現「ほかにも候補が◯件」）を最優先 →
+ *   ②無ければ overflow を持つ tier の最大件数 1 行（代表の出所 tier は溢れていないのが通常＝別 tier の溢れを拾う）→
+ *   ③どちらも無ければ null。
+ *   ※当初設計の「rail tier の overflow 優先」は誤り（rail tier=代表が収まる tier ゆえ overflow が出ない）と実測で判明し補正。
+ */
+function selectMoreLine(dto: LifeOpsPreviewModel["dto"]): string | null {
+  if (dto.briefing.alsoAvailableLine) return dto.briefing.alsoAvailableLine;
+  const overflows = dto.briefing.tiers.map((t) => t.overflowLine).filter((l): l is string => !!l);
+  if (overflows.length === 0) return null;
+  // 「入りきらない候補が◯件」の最大件数 1 行（複数 tier の溢れを 1 行に集約・見ていない候補の最大量を低圧に提示）。
+  return overflows.reduce((max, l) => ((Number(l.match(/(\d+)/)?.[1] ?? 0) > Number(max.match(/(\d+)/)?.[1] ?? 0)) ? l : max));
 }
 
 /**
@@ -108,7 +135,13 @@ export function buildLifeOpsMainlineCardDto(model: LifeOpsPreviewModel, mode: Li
     if (item) items.push(item);
   }
   if (items.length === 0) return null;
-  return { headline: model.dto.briefing.headline, items };
+  // A-4-c38: 富化（cautions ≤2 + moreLine ≤1）。fallback 時は VM が両方空になりやすく自動で minimal 維持。
+  return {
+    headline: model.dto.briefing.headline,
+    items,
+    cautions: model.dto.briefing.cautions.slice(0, CAUTIONS_MAX),
+    moreLine: selectMoreLine(model.dto),
+  };
 }
 
 /**

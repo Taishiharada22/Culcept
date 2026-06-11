@@ -48,6 +48,55 @@ const noop = async (_: FormData) => {};
 const render = (props?: Partial<Parameters<typeof LifeOpsMainlineCard>[0]>) =>
   renderToStaticMarkup(<LifeOpsMainlineCard card={card()} feedbackAction={noop} {...props} />);
 
+describe("★A-4-c38 — briefing 富化（cautions ≤2 + moreLine ≤1・3 案 summary 不在）", () => {
+  it("①DTO に cautions(配列)・moreLine(string|null) が追加され tiers/tierLabel/raw tier info は不在", () => {
+    const c = card();
+    expect(Object.keys(c).sort()).toEqual(["cautions", "headline", "items", "moreLine"].sort());
+    expect(Array.isArray(c.cautions)).toBe(true);
+    const json = JSON.stringify(c);
+    for (const banned of ['"tiers"', '"tierLabel"', '"tier"', '"overflowLine"', '"silencedCount"', '"alsoAvailableLine"', '"integrationMeta"']) {
+      expect(json).not.toContain(banned); // 3 案 summary / raw tier info を出さない
+    }
+  });
+  it("②cautions ≤2・③moreLine ≤1 行（情報量を構造で上限固定）", () => {
+    const c = card();
+    expect(c.cautions.length).toBeLessThanOrEqual(2);
+    if (c.moreLine !== null) expect(c.moreLine.split("\n").length).toBe(1);
+  });
+  it("④fixture chain で moreLine が実際に乗る（VM 固定句・overflow 最大件数を集約）", () => {
+    const c = card();
+    // fixture: protect(rail)=溢れなし / easy=1件 / push=2件 → alsoAvailable null → overflow 最大の「2件」を 1 行で
+    expect(c.moreLine).not.toBeNull();
+    expect(c.moreLine).toMatch(/件あります$/);
+    expect(c.moreLine).toContain("2"); // 最大件数を集約
+  });
+  it("④b cautions は VM 由来固定句のみ（risk flag を持つ候補がある時だけ・≤2・自由文なし）", () => {
+    // cautions が出るケース: 美容院(appearance_change/nomination/personal_info risk)を代表に含む構成
+    const beautyModel = computeLifeOpsPreviewModel({
+      world: ws(), date: "2026-06-10", nowMinute: 800, nowMs: NOW_MS,
+      inputs: { cadenceObservations: [{ categoryId: "beauty_salon", menu: "cut", lastCompletedAtISO: iso(-60) }] },
+    });
+    const c = buildLifeOpsMainlineCardDto(beautyModel, "real_only");
+    if (c && c.cautions.length > 0) {
+      expect(c.cautions.length).toBeLessThanOrEqual(2);
+      expect(JSON.stringify(c.cautions)).not.toMatch(BANNED_WORDS);
+      expect(JSON.stringify(c.cautions)).not.toMatch(FORBIDDEN);
+    }
+  });
+  it("⑤render: moreLine が安全表示・⑥BANNED_WORDS/FORBIDDEN/PII なし・tier 名を出さない", () => {
+    const h = render();
+    if (card().moreLine) expect(h).toContain("lifeops-mainline-more");
+    expect(h).not.toMatch(BANNED_WORDS);
+    expect(h).not.toMatch(FORBIDDEN);
+    expect(h).not.toContain("守る案"); // tier 名を本線に出さない
+    expect(h).not.toContain("攻める案");
+    expect(h).not.toContain("楽な案");
+  });
+  it("⑨候補 0→card null（cautions/moreLine も当然出ない）⑨b fallback は cautions/moreLine が自然に空寄り", () => {
+    expect(buildLifeOpsMainlineCardDto(computeLifeOpsPreviewModel({ world: ws(), date: "2026-06-10", nowMinute: 800, nowMs: NOW_MS, inputs: {} }))).toBeNull();
+  });
+});
+
 describe("c23 — gate/builder（①②③④⑤）", () => {
   it("①flag default OFF → gate false（page は card を計算しない）②production は flag ON でも false ③staging+ON→true", () => {
     expect(PLAN_FLAGS.lifeopsMainline).toBe(false);

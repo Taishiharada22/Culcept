@@ -81,6 +81,24 @@ export function LifeOpsMainlineCard({
         ))}
       </ul>
 
+      {/* A-4-c38: cautions（≤2・行動前に知ると安心な固定句・非指示形） */}
+      {card.cautions.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5" data-testid="lifeops-mainline-cautions">
+          {card.cautions.map((c, i) => (
+            <li key={i} className="text-[10px] text-gray-500">
+              ・{c}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* A-4-c38: moreLine（最大 1 行・全部見せずに存在だけ伝える低圧の窓） */}
+      {card.moreLine && (
+        <p className="mt-1 text-[10px] text-gray-400" data-testid="lifeops-mainline-more">
+          {card.moreLine}
+        </p>
+      )}
+
       <p className="mt-2 text-[10px] text-gray-500" data-testid="lifeops-mainline-footnote">
         ※完了は実際に終わった時だけ。予定には追加せず、次回以降の提案調整に使います。
       </p>
