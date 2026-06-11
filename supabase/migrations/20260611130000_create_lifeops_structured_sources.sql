@@ -16,8 +16,10 @@
 --   - **編集可能な設定系**（M1 の append-only と異なり owner UPDATE policy を許可・updated_at trigger あり）。
 --   - **RLS owner-only**（auth.uid() = user_id）・service_role 非前提・cross-user 不可。
 --
--- ⚠ 本 migration は **schema draft**。**実 DB への apply / db push / staging・production 適用は別 GO（CEO 承認後）**。
---    apply 後に database.types を supabase gen で更新する（apply slice の checklist 項目）。
+-- ⚠ **staging apply 済（2026-06-11・A-4-c28・CEO 実行・Dashboard SQL Editor・POST 全 PASS）**。**production へは未 apply**（別 GO）。
+--    SQL Editor 実行ゆえ supabase_migrations history 未記録（c11 と同様・既知）。staging には c27 版を適用済みで、
+--    本 file はその後 trigger/policy に DROP IF EXISTS を前置して**再実行冪等化**（end-state は staging と同一）。
+--    apply 後の database.types 更新は reader 接続 slice の checklist 項目。
 --    ── rollback / down（新規 table ゆえ clean DROP・別 revert migration で実行）:
 --      DROP TRIGGER IF EXISTS trg_lifeops_structured_sources_updated_at ON lifeops_structured_sources;
 --      DROP FUNCTION IF EXISTS lifeops_structured_sources_set_updated_at();
@@ -77,21 +79,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_lifeops_structured_sources_updated_at ON lifeops_structured_sources;
 CREATE TRIGGER trg_lifeops_structured_sources_updated_at
   BEFORE UPDATE ON lifeops_structured_sources
   FOR EACH ROW EXECUTE FUNCTION lifeops_structured_sources_set_updated_at();
 
--- ── RLS（owner-only・編集可能な設定系＝UPDATE policy あり）──
+-- ── RLS（owner-only・編集可能な設定系＝UPDATE policy あり・DROP IF EXISTS 前置で再実行冪等）──
 ALTER TABLE lifeops_structured_sources ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS lifeops_structured_sources_owner_select ON lifeops_structured_sources;
 CREATE POLICY lifeops_structured_sources_owner_select ON lifeops_structured_sources
   FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS lifeops_structured_sources_owner_insert ON lifeops_structured_sources;
 CREATE POLICY lifeops_structured_sources_owner_insert ON lifeops_structured_sources
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS lifeops_structured_sources_owner_update ON lifeops_structured_sources;
 CREATE POLICY lifeops_structured_sources_owner_update ON lifeops_structured_sources
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS lifeops_structured_sources_owner_delete ON lifeops_structured_sources;
 CREATE POLICY lifeops_structured_sources_owner_delete ON lifeops_structured_sources
   FOR DELETE USING (auth.uid() = user_id);

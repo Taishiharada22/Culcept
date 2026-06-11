@@ -16594,3 +16594,7 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 ---
 
 [2026-06-11] [Build] 本流/横R2統合: A-4-c28 Staging Migration Apply（lifeops_structured_sources）**bundle 整備完了・CEO 実行待ちで停止**（CEO/GPT GO・apply は CEO が Dashboard SQL Editor で実行=c11 protocol・Claude は CLI/psql 不実行）。整合検証: migration file=c27 commit `074c5777` と diff 0（sha1 edd1a07c…）。bundle（`docs/life-ops-structured-sources-staging-apply-a4-c28-bundle.md`）: 実行順 0-4・abort 条件（PRE 不一致/エラー時は ROLLBACK 独断実行せず停止）・期待値（PRE 全 0/POST 13 列・forbidden 0 行・RLS+4 policy・CHECK 7 種・trigger 1・row 0）・返送フォーマット。db push 不採用（未適用 draft 巻き込み）・SQL Editor ゆえ migrations history 未記録=既知。DB write smoke/UI/production なし。[承認: CEO/GPT c28 GO→整合検証→bundle→CEO 手順提示で停止]
+
+---
+
+[2026-06-11] [Build] 本流/横R2統合: A-4-c28 Staging Migration Apply（lifeops_structured_sources）**PASS（クローズ・CEO 実行・Claude 監査済み）**。結果: PRE 全 0→MIGRATION Success→POST=13 列完全一致（型/NULL 可否含む）・forbidden column 0 行・RLS enabled・owner 4 policy・**CHECK 7 種が draft と意味完全一致**（PG 正規化形/inline 自動命名は既知規約）・updated_at trigger 1・row_count 0。★**監査で未冪等を検出→外科修正**: CREATE TRIGGER/POLICY が再実行で重複エラーになるため DROP IF EXISTS 前置（staging 適用済み end-state と同一・header に staging 済/production 未 apply 注記・「未 apply」文字列維持で c27 static lock も green）。検証: full suite 20548 GREEN・tsc 55。**次（c29 提案）**: reader 接続（dormant 解除=preview/mainline model への gated 合流）→ structured source が candidate になる staging 観測 → UI 入力設計。[承認: CEO 実行+結果返送→Claude 突合監査→冪等化 commit]

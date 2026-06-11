@@ -250,3 +250,8 @@
 - gate: 新 dormant flag `LIFEOPS_STRUCTURED_SOURCE_READONLY`（master∧structured∧staging∧!prod・default OFF）。**consumer 0**（app/ 参照 0 を lock・table 未 apply で実 read 経路なし・query 0 構造的）
 - rollback: clean DROP を migration 末尾に同梱。database.types は apply slice で gen 予約
 - GPT 14 lock（13 case）・full suite 20548 GREEN・tsc 55
+
+### [2026-06-11] record 41 — A-4-c28 staging migration apply **PASS（CEO 実行・監査済み）**
+- PRE 全 0 → MIGRATION Success → POST 監査: **13 列完全一致**（型/NULL 可否含む）・forbidden 0 行・RLS=true・**4 policy 一致**・**CHECK 7 種完全一致**（PG 正規化形 `= ANY(ARRAY)`・inline 自動命名 `{table}_{col}_check` は c10/c11 確認済み規約どおり）・trigger 1・row_count=0
+- ★監査での発見→外科修正: CREATE TRIGGER/POLICY に IF NOT EXISTS 相当がなく **db push 再実行で重複エラーになる**未冪等を検出 → DROP IF EXISTS 前置で冪等化（staging には c27 版適用済み・end-state 同一）。header に staging 適用済み/production 未 apply 注記
+- `lifeops_structured_sources` が staging に実在＝**構造化 source の保存先が初めて現実になった**。database.types 更新は reader 接続 slice に予約
