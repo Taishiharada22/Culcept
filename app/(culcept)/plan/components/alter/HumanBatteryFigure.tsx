@@ -36,7 +36,7 @@ export interface HumanBatteryFigureProps {
 const HEAD_TOP_PCT = 1;
 const NECK_PCT = 12; // 頭部容器の下端（顎）
 const BODY_TOP_PCT = 16; // 体ゾーンの上端（肩の手前）
-const HEART_CENTER = { xPct: 50, yPct: 20.5 }; // 胸の中心（肩のすぐ下）
+const HEART_CENTER = { xPct: 45.5, yPct: 18.5 }; // 胸の左上（CEO B5 指示）
 const FEET_PCT = 99;
 
 const bodyMaskStyle: React.CSSProperties = {
@@ -102,46 +102,45 @@ export function HumanBatteryFigure({
       role="img"
       aria-label="あなたのバッテリー（3 系統の見立て）"
     >
-      {/* 1. glow（星雲・背面）+ halo plate（人体を白背景から浮かせる色面） */}
+      {/* 1. 背面プレート（薄いラベンダー〜ブルーグレー = コントラスト確保。霧の glow ではなく面） */}
       {!allUnknown && (
         <>
           <div
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[108%] w-[190%] -translate-x-1/2 -translate-y-1/2"
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[104%] w-[185%] -translate-x-1/2 -translate-y-1/2"
             style={{
               background:
-                "radial-gradient(ellipse 52% 46% at 50% 45%, rgba(196,181,253,0.55), rgba(199,210,254,0.38) 55%, rgba(224,231,255,0) 78%)",
+                "radial-gradient(ellipse 50% 47% at 50% 45%, rgba(176,188,230,0.62), rgba(186,196,234,0.4) 58%, rgba(203,213,245,0) 80%)",
             }}
           />
           <motion.img
             src={glowImg.src}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[108%] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
-            animate={{ opacity: [0.5, 0.75, 0.5] }}
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[106%] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
+            animate={{ opacity: [0.3, 0.45, 0.3] }}
             transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
           />
         </>
       )}
 
-      {/* 2. base human body（実透過アセット。二重描画 + 淡い縁光で存在感を出す） */}
+      {/* 2. base human body（器。芯のある半透明 — blur なし・色は液体レイヤーのみが持つ） */}
       <img
         src={bodyImg.src}
         alt=""
         aria-hidden="true"
         className={`absolute inset-0 h-full w-full select-none ${allUnknown ? "opacity-35 saturate-0" : ""}`}
-        style={allUnknown ? undefined : { filter: "drop-shadow(0 0 7px rgba(165,180,252,0.5))" }}
         draggable={false}
       />
       {!allUnknown && (
         <>
-          <img src={bodyImg.src} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full select-none opacity-80" draggable={false} />
-          {/* ガラスの体積感（mask 内側のクールトーン・縁ほど濃い） */}
+          <img src={bodyImg.src} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full select-none opacity-85" draggable={false} />
+          {/* ガラス光沢（上左からの薄いシーン。blur なし） */}
           <div
             className="absolute inset-0"
             style={{
               ...bodyMaskStyle,
               background:
-                "radial-gradient(ellipse 42% 38% at 50% 30%, rgba(255,255,255,0) 30%, rgba(199,210,254,0.4) 72%, rgba(165,180,252,0.62) 100%)",
+                "linear-gradient(112deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.12) 14%, rgba(255,255,255,0) 26%)",
             }}
           />
         </>
@@ -164,22 +163,26 @@ export function HumanBatteryFigure({
                   height: `${bodyLiquidHeightPct + (100 - FEET_PCT)}%`,
                 }}
               >
+                {/* 液体本体: 上淡（シアン）→ 下濃（青）。発光でなく液体（blur なし） */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(147,197,253,0.92), rgba(96,165,250,0.88) 45%, rgba(34,211,238,0.92))",
-                    filter: "blur(0.5px)",
+                      "linear-gradient(to bottom, rgba(125,211,252,0.88) 0%, rgba(56,189,248,0.92) 22%, rgba(37,99,235,0.95) 70%, rgba(29,78,216,0.97) 100%)",
                   }}
                 />
+                {/* 水面: 白いライン + 直下の明るい帯（水面近くのハイライト） */}
                 <div
                   className="absolute -top-px left-[6%] h-[2.5px] w-[88%] rounded-full"
-                  style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.9) 28%, rgba(255,255,255,0.9) 72%, rgba(255,255,255,0))" }}
+                  style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.95) 28%, rgba(255,255,255,0.95) 72%, rgba(255,255,255,0))" }}
+                />
+                <div
+                  className="absolute left-0 top-[2px] h-[7px] w-full"
+                  style={{ background: "linear-gradient(to bottom, rgba(186,230,253,0.75), rgba(186,230,253,0))" }}
                 />
                 <SurfaceWave />
-                {/* 内部ハイライト（体積感） */}
-                <div className="absolute left-[28%] top-[14%] h-10 w-9 rounded-full bg-white/25 blur-md" />
-                <div className="absolute right-[30%] top-[42%] h-8 w-7 rounded-full bg-white/20 blur-md" />
+                {/* 内部ハイライト（小さめ・控えめ。霧化させない） */}
+                <div className="absolute left-[30%] top-[16%] h-7 w-5 rounded-full bg-white/20 blur-[3px]" />
               </div>
             </motion.div>
           )}
@@ -196,32 +199,27 @@ export function HumanBatteryFigure({
                 className="absolute inset-x-0"
                 style={{ top: `${NECK_PCT - brainLiquidHeightPct}%`, height: `${brainLiquidHeightPct}%` }}
               >
+                {/* 液体本体: 上淡（ラベンダー紫）→ 下濃（青紫）。blur なしの液体グラデ */}
                 <div
                   className="absolute inset-0"
                   style={{
-                    background: "linear-gradient(to bottom, rgba(139,92,246,0.96), rgba(79,70,229,0.96))",
-                    filter: "blur(0.4px)",
+                    background:
+                      "linear-gradient(to bottom, rgba(167,139,250,0.92) 0%, rgba(124,58,237,0.96) 38%, rgba(91,33,182,0.98) 100%)",
                   }}
                 />
-                {/* 水面の白いライン（「満たされている」を一瞬で読ませる） */}
+                {/* 水面: 白いライン + 直下の明るいラベンダー帯（光の縁） */}
                 <div
                   className="absolute -top-px left-[8%] h-[2.5px] w-[84%] rounded-full"
-                  style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.95) 30%, rgba(255,255,255,0.95) 70%, rgba(255,255,255,0))" }}
+                  style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,1) 30%, rgba(255,255,255,1) 70%, rgba(255,255,255,0))" }}
+                />
+                <div
+                  className="absolute left-0 top-[2px] h-[6px] w-full"
+                  style={{ background: "linear-gradient(to bottom, rgba(221,214,254,0.8), rgba(221,214,254,0))" }}
                 />
                 <SurfaceWave light />
+                {/* 水面近くの内側グロー（器との差を出す） */}
+                <div className="absolute left-[34%] top-[12%] h-3 w-[32%] rounded-full bg-violet-200/45 blur-[2px]" />
               </div>
-              {/* 脳の淡い発光 */}
-              <div
-                className="absolute rounded-full"
-                style={{
-                  left: "41%",
-                  width: "18%",
-                  top: `${HEAD_TOP_PCT + 1}%`,
-                  height: `${headZoneHeightPct * 0.42}%`,
-                  background: "radial-gradient(circle, rgba(221,214,254,0.9), rgba(196,181,253,0))",
-                  opacity: 0.35 + 0.5 * clamp(brainFill),
-                }}
-              />
             </motion.div>
           )}
 

@@ -84,11 +84,12 @@ async function keyBody() {
     const L = data[i];
     alpha[i] = Math.max(0, Math.min(255, Math.round(((T - L) / denom) * 255)));
   }
-  // 実績 recipe（median3 + blur3.5 + 急峻 linear）で市松残滓を除去。body は半透明のまま。
+  // 市松残滓除去 + 「芯のある半透明ボディ」: blur は除去最小限・linear で内部 alpha を引き上げる
+  //（CEO B5: 低不透明度・強ぼかしで「消えかけた発光体」になっていた問題への対応）
   const crispAlpha = await sharp(alpha, { raw: { width: w, height: h, channels: 1 } })
     .median(3)
-    .blur(3.5)
-    .linear(2.8, -26)
+    .blur(3)
+    .linear(3.6, -30)
     .png()
     .toBuffer();
 
@@ -101,8 +102,8 @@ async function keyBody() {
   }
   const rimAlphaPng = await sharp(rim, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer();
 
-  // RGB: 陰影を残しつつクールトーン
-  const rgb = await sharp(file).removeAlpha().linear(0.82, 30).tint({ r: 226, g: 230, b: 250 }).png().toBuffer();
+  // RGB: 陰影を保持（明るくしすぎない）+ ブルーグレー寄りのクールトーン（ベース自体に強い色は入れない）
+  const rgb = await sharp(file).removeAlpha().linear(0.8, 22).tint({ r: 219, g: 225, b: 246 }).png().toBuffer();
   // rim を明るいラベンダー白で焼き込み
   const rimLayer = await sharp({ create: { width: w, height: h, channels: 3, background: "#f4f5ff" } }).png().toBuffer();
   const rimRGBA = await sharp(rimLayer).joinChannel(rimAlphaPng).png().toBuffer();

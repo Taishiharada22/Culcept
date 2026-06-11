@@ -22,7 +22,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { AlterBatteryViewModel } from "@/lib/plan/dayState/dayStateTypes";
 import { AlterChatPreview, type AlterChatTurn } from "./AlterChatPreview";
 import { AlterCtaRow } from "./AlterCtaRow";
-import { AlterHeader } from "./AlterHeader";
 import { AlterInputBar } from "./AlterInputBar";
 import { AlterQuickReplies } from "./AlterQuickReplies";
 import { HumanBatteryCard } from "./HumanBatteryCard";
@@ -50,7 +49,6 @@ export interface AlterTabBodyProps {
   onCompose?: () => void;
   onViewAdjustments?: () => void;
   onSend?: (message: string) => void;
-  onSettingsTap?: () => void;
 }
 
 type SheetTarget = { kind: "correction"; target: CorrectionTarget } | { kind: "sleep" };
@@ -116,7 +114,6 @@ export function AlterTabBody({
   onCompose,
   onViewAdjustments,
   onSend,
-  onSettingsTap,
 }: AlterTabBodyProps) {
   const vm = screen.base;
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
@@ -165,9 +162,8 @@ export function AlterTabBody({
 
   return (
     <div className="relative min-h-screen">
-      <AlterHeader onSettingsTap={onSettingsTap} />
-
-      <div className="mx-auto max-w-3xl space-y-2 px-3 pb-24 pt-2">
+      {/* ヘッダー（Alter/ライブ/サブコピー/設定）は CEO B5 指示で削除 */}
+      <div className="mx-auto max-w-3xl space-y-2 px-3 pb-24 pt-3">
         {/* 上段 2 カラム（over.png 構図）: あなたのバッテリー | 状態の背景 4 セル */}
         <div className="grid grid-cols-[1.62fr_1fr] items-stretch gap-1.5">
           <HumanBatteryCard

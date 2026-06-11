@@ -63,11 +63,11 @@ export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
 
   return (
     <section
-      aria-label="今日のリソース推移予測"
+      aria-label="今日の推移予測"
       className="rounded-3xl border border-white bg-gradient-to-b from-white to-indigo-50/40 p-3 shadow-[0_6px_18px_rgba(99,102,241,0.10)] backdrop-blur-sm"
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <h3 className="text-[12px] font-bold text-slate-700">今日のリソース推移予測</h3>
+        <h3 className="text-[12px] font-bold text-slate-700">今日の推移予測</h3>
         <div className="ml-auto flex items-center gap-2 text-[8.5px] text-slate-500">
           {legend.map((l) => (
             <span key={l.label} className="flex items-center gap-1">
@@ -108,10 +108,19 @@ export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
           </text>
         </g>
 
-        {/* ライン */}
+        {/* ライン + 時間ごとのデータ点 ・（over.png 準拠） */}
         <path d={linePath(load)} fill="none" stroke="#fb923c" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
         <path d={linePath(focus)} fill="none" stroke="#8b5cf6" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
         <path d={linePath(energy)} fill="none" stroke="#3b82f6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+        {load.map((p) => (
+          <circle key={`l-${p.t}`} cx={xOf(p.t)} cy={yOf(p.v)} r={1.7} fill="#fb923c" stroke="#fff" strokeWidth={0.6} />
+        ))}
+        {focus.map((p) => (
+          <circle key={`f-${p.t}`} cx={xOf(p.t)} cy={yOf(p.v)} r={1.7} fill="#8b5cf6" stroke="#fff" strokeWidth={0.6} />
+        ))}
+        {energy.map((p) => (
+          <circle key={`e-${p.t}`} cx={xOf(p.t)} cy={yOf(p.v)} r={1.9} fill="#3b82f6" stroke="#fff" strokeWidth={0.6} />
+        ))}
 
         {/* x ラベル */}
         {X_TICKS.map((t) => (
