@@ -97,9 +97,9 @@ export function HumanBatteryCard({
         />
 
         {/* コネクタ（3 系統のみ。脳: 左上 → 頭 / 心: 左中 → 胸 / 外出は周辺で接続なし。体: 右 → 胴） */}
-        <Connector side="left" top={23} fromPx={86} toCenterOffset={12} dotClass="bg-violet-400" lineClass="border-violet-300/80" glow="rgba(139,92,246,0.7)" />
-        <Connector side="left" top={116} fromPx={86} toCenterOffset={15} dotClass="bg-rose-400" lineClass="border-rose-300/80" glow="rgba(244,114,182,0.7)" />
-        <Connector side="right" top={64} fromPx={86} toCenterOffset={14} dotClass="bg-sky-400" lineClass="border-sky-300/80" glow="rgba(56,189,248,0.7)" />
+        <Connector side="left" top={23} fromPx={86} toCenterOffset={12} dotClass="bg-blue-400" lineClass="border-blue-300/80" glow="rgba(59,130,246,0.7)" />
+        <Connector side="left" top={116} fromPx={86} toCenterOffset={15} dotClass="bg-pink-400" lineClass="border-pink-300/80" glow="rgba(236,72,153,0.7)" />
+        <Connector side="right" top={64} fromPx={86} toCenterOffset={14} dotClass="bg-emerald-400" lineClass="border-emerald-300/80" glow="rgba(16,185,129,0.7)" />
 
         {/* 左列: 集中の余力 / 心の余力 / 外出耐性 */}
         <BatteryCallout zoneKey="brain" zone={battery.brain} pct={known(battery.brain) ? meterPct.brain : undefined} onTap={onZoneTap} className="absolute left-0 top-0 z-10 w-[90px]" />

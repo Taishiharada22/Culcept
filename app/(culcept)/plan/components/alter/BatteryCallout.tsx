@@ -20,9 +20,9 @@ const ZONE_ICON: Record<ZoneKey, (p: { size?: number; className?: string }) => R
 };
 
 const ZONE_CHIP_BG: Record<ZoneKey, string> = {
-  brain: "bg-violet-100/90 text-violet-500",
-  heart: "bg-rose-100/90 text-rose-400",
-  body: "bg-sky-100/90 text-sky-500",
+  brain: "bg-blue-100/90 text-blue-500",
+  heart: "bg-pink-100/90 text-pink-400",
+  body: "bg-emerald-100/90 text-emerald-500",
 };
 
 const cardBase =

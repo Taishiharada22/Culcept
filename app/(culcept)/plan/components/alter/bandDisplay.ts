@@ -62,30 +62,36 @@ export const BAND_BAR_FRACTION: Record<Band, number> = {
 /** 3 系統バッテリーのゾーンキー */
 export type ZoneKey = "brain" | "heart" | "body";
 
-/** ゾーン配色（visual-contract §3.2: 脳=パープル〜青紫 / 心臓=ピンク〜ローズ / 体=ブルー〜ミント） */
+/**
+ * ゾーン配色（B16・CEO 指示で刷新）: mind / heart / body を意味に合わせ、互いにはっきり区別し、
+ * 全体はパステルガラスで統一する三色:
+ *   集中の余力(brain) = ブルー（思考・集中の冷静さ）
+ *   心の余力(heart)   = ピンク／ローズ（感情・あたたかさ）
+ *   からだの余力(body) = グリーン／エメラルド（身体・活力）
+ */
 export const ZONE_STYLE: Record<
   ZoneKey,
   { dotClass: string; textClass: string; badgeClass: string; liquidFrom: string; liquidTo: string }
 > = {
   brain: {
-    dotClass: "bg-violet-400",
-    textClass: "text-violet-600",
-    badgeClass: "bg-violet-50 border-violet-200 text-violet-600",
-    liquidFrom: "#a78bfa", // violet-400
-    liquidTo: "#6366f1", // indigo-500
+    dotClass: "bg-blue-400",
+    textClass: "text-blue-600",
+    badgeClass: "bg-blue-50 border-blue-200 text-blue-600",
+    liquidFrom: "#93c5fd", // blue-300
+    liquidTo: "#2563eb", // blue-600
   },
   heart: {
-    dotClass: "bg-rose-300",
-    textClass: "text-rose-500",
-    badgeClass: "bg-rose-50 border-rose-200 text-rose-500",
-    liquidFrom: "#fda4af", // rose-300
-    liquidTo: "#f472b6", // pink-400
+    dotClass: "bg-pink-400",
+    textClass: "text-pink-500",
+    badgeClass: "bg-pink-50 border-pink-200 text-pink-500",
+    liquidFrom: "#f9a8d4", // pink-300
+    liquidTo: "#ec4899", // pink-500
   },
   body: {
-    dotClass: "bg-sky-400",
-    textClass: "text-sky-600",
-    badgeClass: "bg-sky-50 border-sky-200 text-sky-600",
-    liquidFrom: "#38bdf8", // sky-400
-    liquidTo: "#2dd4bf", // teal-400
+    dotClass: "bg-emerald-400",
+    textClass: "text-emerald-600",
+    badgeClass: "bg-emerald-50 border-emerald-200 text-emerald-600",
+    liquidFrom: "#6ee7b7", // emerald-300
+    liquidTo: "#059669", // emerald-600
   },
 };

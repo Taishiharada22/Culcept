@@ -34,7 +34,7 @@ export interface HumanBatteryFigureProps {
 // body.png 内のゾーン境界 — _processAssets.mjs が crop 後フレームで機械算出した値を転記する
 //（手動目測の禁止。再生成時はパイプライン出力 "ZONES(crop後・転記用)" と同期させること）
 const HEAD_TOP_PCT = 0.5;
-const NECK_PCT = 11; // 頭部の水の下端 = 口元〜顎の上（B15: 14% は首にかかるため上げた。診断 _chin2.png で 11%=鼻下）
+const NECK_PCT = 12.5; // 頭部の水の下端 = 顎と首の中間（B16: 11%は顎より上すぎ・14%は首。間をとる）
 const BODY_TOP_PCT = 17.5; // 肩（体ゾーンの上端）
 const HEART_CENTER = { xPct: 46, yPct: 24 }; // 胸（CEO 指示: 右上=ビューア左上へ補正）
 const FEET_PCT = 99.4;
@@ -146,13 +146,12 @@ export function HumanBatteryFigure({
                   height: `${bodyLiquidHeightPct + (100 - FEET_PCT)}%`,
                 }}
               >
-                {/* 液体本体（B15・CEO 指示②: からだ = 澄んだ水のブルー。greyish を脱して鮮明な sky 系へ）
-                    上=sky-300 → 下=sky-600 */}
+                {/* 液体本体（B16・CEO 指示②: からだ = 活力のグリーン）上=emerald-300 → 下=emerald-600 */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(125,211,252,0.66) 0%, rgba(56,189,248,0.74) 38%, rgba(2,132,199,0.84) 100%)",
+                      "linear-gradient(to bottom, rgba(110,231,183,0.66) 0%, rgba(52,211,153,0.74) 38%, rgba(5,150,105,0.84) 100%)",
                   }}
                 />
                 {/* 水面: 白いライン + 直下の明るい帯（水面近くのハイライト） */}
@@ -162,7 +161,7 @@ export function HumanBatteryFigure({
                 />
                 <div
                   className="absolute left-0 top-[2px] h-[7px] w-full"
-                  style={{ background: "linear-gradient(to bottom, rgba(186,230,253,0.75), rgba(186,230,253,0))" }}
+                  style={{ background: "linear-gradient(to bottom, rgba(167,243,208,0.75), rgba(167,243,208,0))" }}
                 />
                 <SurfaceWave />
                 {/* 内部ハイライト（小さめ・控えめ。霧化させない） */}
@@ -183,27 +182,26 @@ export function HumanBatteryFigure({
                 className="absolute inset-x-0"
                 style={{ top: `${NECK_PCT - brainLiquidHeightPct}%`, height: `${brainLiquidHeightPct}%` }}
               >
-                {/* 液体本体（B15・CEO 指示②: 集中 = 澄んだバイオレット。greyish ラベンダーを脱して鮮明な violet 系へ）
-                    上=violet-300 → 下=violet-600 */}
+                {/* 液体本体（B16・CEO 指示②: 集中 = 冷静のブルー）上=blue-300 → 下=blue-600 */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(196,181,253,0.66) 0%, rgba(167,139,250,0.74) 40%, rgba(124,58,237,0.84) 100%)",
+                      "linear-gradient(to bottom, rgba(147,197,253,0.66) 0%, rgba(96,165,250,0.74) 40%, rgba(37,99,235,0.84) 100%)",
                   }}
                 />
-                {/* 水面: 白いライン + 直下の明るいラベンダー帯（光の縁） */}
+                {/* 水面: 白いライン + 直下の明るいブルー帯（光の縁） */}
                 <div
                   className="absolute -top-px left-[8%] h-[2.5px] w-[84%] rounded-full"
                   style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,1) 30%, rgba(255,255,255,1) 70%, rgba(255,255,255,0))" }}
                 />
                 <div
                   className="absolute left-0 top-[2px] h-[6px] w-full"
-                  style={{ background: "linear-gradient(to bottom, rgba(221,214,254,0.8), rgba(221,214,254,0))" }}
+                  style={{ background: "linear-gradient(to bottom, rgba(191,219,254,0.8), rgba(191,219,254,0))" }}
                 />
                 <SurfaceWave light />
                 {/* 水面近くの内側グロー（器との差を出す） */}
-                <div className="absolute left-[34%] top-[12%] h-3 w-[32%] rounded-full bg-violet-200/45 blur-[2px]" />
+                <div className="absolute left-[34%] top-[12%] h-3 w-[32%] rounded-full bg-blue-200/45 blur-[2px]" />
               </div>
             </motion.div>
           )}
