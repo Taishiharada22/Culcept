@@ -5,12 +5,12 @@
  *
  * 正本: docs/alter-tab-visual-contract.md §3.2 / CEO 指示（B2-static-clone・人体は高品質アセット + 動的レイヤー）
  *
- * レイヤー構造:
- *  1. glow      … processed/glow.png（ラベンダー星雲・背面）
- *  2. base body … processed/body.png（実透過化済みアセット）
- *  3. body 液体 … body.png の alpha を CSS mask に流用し、首下ゾーンを bodyFill で満たす
- *  4. brain 液体 … 同 mask ∩ 頭部ゾーン
- *  5. heart     … processed/heart.png の alpha mask にローズグラデーションを流す + SVG ハート/軌道リング
+ * レイヤー構造（B10 棚卸し後 — 1 目的 = 1 レイヤー。器・液体以外の装飾レイヤー禁止）:
+ *  1. 背面プレート … CSS radial（人体と背景の分離。画像なし）
+ *  2. base body  … processed/body.png（CEO 透過アセット・1 枚のみ）+ ガラス光沢（mask 内 CSS）
+ *  3. body 液体  … body.png の alpha を CSS mask に流用し、肩下ゾーンを bodyFill で満たす
+ *  4. brain 液体 … 同 mask ∩ 頭部ゾーン（顎 14% から下→上へ）
+ *  5. heart      … processed/heart.png の alpha mask にローズを流す（1 レイヤーのみ）
  *
  * 規律: % / 目盛り / 数値なし。visualFill（vm.battery 由来）のみから描画。
  *       unknown ゾーンは液体なし。全 unknown（コールドスタート）はゴースト表示。
@@ -18,7 +18,6 @@
 
 import { motion } from "framer-motion";
 import bodyImg from "./assets/processed/body.png";
-import glowImg from "./assets/processed/glow.png";
 import heartImg from "./assets/processed/heart.png";
 
 export interface HumanBatteryFigureProps {
@@ -113,15 +112,9 @@ export function HumanBatteryFigure({
                 "radial-gradient(ellipse 48% 48% at 50% 46%, rgba(166,180,228,0.78), rgba(180,192,232,0.5) 56%, rgba(203,213,245,0) 78%)",
             }}
           />
-          {/* 紫ヘイローは削除（B9）: 頭の脇に「羽/ズレた頭」のように見える原因だった */}
-          <motion.img
-            src={glowImg.src}
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[106%] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
-            animate={{ opacity: [0.22, 0.34, 0.22] }}
-            transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
-          />
+          {/* 星雲 glow.png は削除（B10）: alpha に不定形ブロブ + 市松残滓が残っており、
+              頭の背後で「頭だけの画像の重なり」に見えていた正体（増幅可視化 _a_glow.png で確定）。
+              紫ヘイロー（B9 削除）と同じく、器・液体以外の装飾レイヤーは置かない。 */}
         </>
       )}
 
@@ -135,7 +128,8 @@ export function HumanBatteryFigure({
       />
       {!allUnknown && (
         <>
-          <img src={bodyImg.src} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full select-none opacity-85" draggable={false} />
+          {/* 重複 body img は削除（B10）: CEO アセットの内部 alpha は 255 solid のため
+              二重描画は不要（レイヤー棚卸しで「1 目的 = 1 レイヤー」に統合） */}
           {/* ガラス光沢（上左からの薄いシーン。blur なし） */}
           <div
             className="absolute inset-0"
@@ -225,8 +219,8 @@ export function HumanBatteryFigure({
             </motion.div>
           )}
 
-          {/* 5. heart（CEO 透過 heart-mask の alpha にローズを流す。自前の軌道リング/ドットは
-              削除 — 胸に「ズレた頭の輪」を作る原因だった（B9）） */}
+          {/* 5. heart — 心臓は 1 レイヤーのみ（B10）: CEO 透過 heart-mask の alpha にローズを流す。
+              SVG ハート path は削除 — アセットのハートと二重に見えていた正体。 */}
           {!heartUnknown && heart > 0 && (
             <motion.div
               className="pointer-events-none absolute"
@@ -244,18 +238,11 @@ export function HumanBatteryFigure({
                 className="absolute inset-0"
                 style={{
                   ...heartMaskStyle,
-                  background: "radial-gradient(circle, rgba(244,114,182,1), rgba(251,113,133,0.65) 60%, rgba(253,164,175,0.3))",
+                  background:
+                    "radial-gradient(circle at 50% 42%, rgba(244,114,182,1), rgba(244,114,182,0.8) 45%, rgba(251,113,133,0.55) 70%, rgba(253,164,175,0.3))",
                   opacity: 0.6 + 0.4 * heart,
                 }}
               />
-              {/* 精細なハート（小・中心） */}
-              <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full" aria-hidden="true">
-                <path
-                  d="M50 56 c-6 -8 -17 -3 -12 7 c3 6 12 9 12 9 c0 0 9 -3 12 -9 c5 -10 -6 -15 -12 -7 z"
-                  fill="#f472b6"
-                  opacity={0.55 + 0.35 * heart}
-                />
-              </svg>
             </motion.div>
           )}
         </>

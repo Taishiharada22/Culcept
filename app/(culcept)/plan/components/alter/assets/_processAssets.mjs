@@ -201,5 +201,6 @@ async function keyHeart() {
 
 await keyBody();
 await keyHeart();
-await keyOut(path.join(here, "glow-noise-texture.png"), "glow.png", { floor: 200, alphaBoost: 1.6, alphaBlur: 8 });
+// glow.png は生成しない（B10）: keying 由来の不定形ブロブ + 市松残滓 alpha が
+// 「頭だけの画像の重なり」に見える原因だったため、星雲レイヤーごと廃止。
 console.log("done");
