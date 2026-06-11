@@ -1,8 +1,12 @@
-# Life Ops — A-4-c36 Production Schema Apply Bundle（CEO 実行・SQL Editor・**apply は別 GO**）
+# Life Ops — A-4-c36 Production Schema Apply Bundle（**docs-only 成果物・production execution は HOLD**）
 
 > 2026-06-11。対象=**production（aljavfujeqcwnqryjmhl）**。c28 と同方式（Claude は bundle 整備のみ・production DB へ接続しない・
 > service_role 不使用・sample insert なし・write smoke なし・UI enable なし・push/PR/merge なし）。
 > APPLY SQL = c28 冪等化修正版（commit `b75583db`・sha1 `cea6169a50c60ee6e689379a2996e1851dc54f2f`・**production 向けの変更なし**）。
+>
+> ★**A-4-c37 訂正（CEO gate）**: 本 bundle は「**production apply bundle 準備済み。ただし production execution は CEO gate 未承認のため HOLD**」。
+> 「CEO production schema apply GO を出せる状態」は強すぎる表現として撤回。PRE/APPLY/POST 全て CEO 承認まで未実行
+> （§8 の PRE-1 は CEO が手動実行した read-only 1 クエリ＝finding 取得のみ・apply には進まない）。
 
 ## 実行順（CEO）
 0. Dashboard の project ref が **aljavfujeqcwnqryjmhl（production）** であることを目視（staging hjcr… なら即中止）

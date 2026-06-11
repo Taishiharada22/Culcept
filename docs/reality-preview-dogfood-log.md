@@ -328,3 +328,11 @@
 - observability=counts-only（アプリ logging 追加せず・SQL Editor counts+既存 dashboard）。rollback=stage flag OFF 即時/allowlist per-user/migration DROP は最後の手段
 - production schema apply checklist（c36 素材）を設計書 §7 に同梱
 - GPT 10 lock（9 case）・full suite 20591 GREEN・tsc 55
+
+### [2026-06-11] record 52 — A-4-c37 production hold closeout / staging release freeze（docs-only・production 不接触）
+- ★framing 訂正（CEO gate）: c36 を「GO を出せる状態」→ **「bundle 準備済み・production execution は CEO gate 未承認 HOLD」**。誇張表現撤回
+- production 接触の正確な記録: **Claude は production DB 未接続（全 commit でゼロ）**。唯一の接触=CEO 手動 PRE-1（read-only 1 クエリ・table 既存 finding 取得のみ・apply 不進）
+- HOLD 明文化: PRE 続行/APPLY/read/write/card visibility/input UI/feedback writer 全て CEO gate 未承認＝flag/allowlist 全 dormant・誤操作で production が開く余地なし（prod stage gate は consumer 0）
+- staging 完成範囲を表で固定（c27〜c35 全 E2E PASS・final smoke 全 0・full suite 20591/tsc 55）。staging 追加観測は不要（c19 観測 5 条件充足済み）
+- production 前の CEO gate 順序（P1 audit→prm prerequisite→P2-P5 配線）と rollback 現状を整理
+- closeout 推奨: (a) staging-complete 凍結し Build の手は機能深化 or 別テーマへ（今月の成功条件と整合）
