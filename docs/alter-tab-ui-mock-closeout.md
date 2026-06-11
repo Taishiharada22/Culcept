@@ -260,6 +260,10 @@ CEO 指示 5 点（人体は微調整のみ）: ①推移予測 now マーカー
 
 CEO 指示 3 点: ①頭の水の下端 NECK 14→11%（口元〜鼻下。14% は首にかかっていた・診断画像で確認）②液体配色刷新（greyish 脱却）— からだ=澄んだ水ブルー(sky-300→sky-600) / 集中=鮮明バイオレット(violet-300→violet-600・muddy ラベンダー廃止) / 心臓は B14 強め維持 ③now マーカーを 1 分ごと自動更新（ResourceTrendChart に client tick: mount で JST 同期→分境界整列→60s 間隔。SSR は server JST 初期値）。人体は色・水位のみ（構造不変）。
 
+## 7.21 B16 — 配色刷新（mind/heart/body）+ 頭水位の中間化（commit `2d68e273`）
+
+CEO 指示: ①頭の水の下端 NECK 11→12.5%（顎と首の中間）②配色そのものを刷新（全体統一+はっきり区別）。旧の脳=紫/体=水色は近く区別が弱かったため、意味に合わせ三色を再定義: **集中=ブルー（思考）/ 心=ピンク（感情・心臓は強め維持）/ からだ=グリーン（活力）**。ZONE_STYLE（ドット/文字/バッジ/液体）・コールアウトのアイコンチップ・人体液体グラデ・3 コネクタ（点線/ドット/グロー）を一貫適用。人体は色・水位のみで構造不変。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
