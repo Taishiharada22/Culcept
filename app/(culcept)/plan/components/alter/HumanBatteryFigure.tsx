@@ -32,11 +32,11 @@ export interface HumanBatteryFigureProps {
   className?: string;
 }
 
-// body.png 内のゾーン境界（alpha 行幅の実測値: 頭 1-12% / 首くびれ 12% / 肩開始 18%）
-const HEAD_TOP_PCT = 1;
-const NECK_PCT = 12; // 頭部容器の下端（顎）
-const BODY_TOP_PCT = 16; // 体ゾーンの上端（肩の手前）
-const HEART_CENTER = { xPct: 45.5, yPct: 18.5 }; // 胸の左上（CEO B5 指示）
+// body.png 内のゾーン境界（CEO 透過アセットの alpha 行幅実測: 頭 3-15% / 肩 17% / 脚〜99%）
+const HEAD_TOP_PCT = 3;
+const NECK_PCT = 16; // 頭部容器の下端（顎〜首）
+const BODY_TOP_PCT = 16; // 体ゾーンの上端
+const HEART_CENTER = { xPct: 44, yPct: 22 }; // 胸の左上
 const FEET_PCT = 99;
 
 const bodyMaskStyle: React.CSSProperties = {
@@ -102,22 +102,37 @@ export function HumanBatteryFigure({
       role="img"
       aria-label="あなたのバッテリー（3 系統の見立て）"
     >
-      {/* 1. 背面プレート（薄いラベンダー〜ブルーグレー = コントラスト確保。霧の glow ではなく面） */}
+      {/* 1. 背面プレート（薄いラベンダー〜ブルーグレー = 人体を背景から分離。CEO 指示 D で強化） */}
       {!allUnknown && (
         <>
           <div
-            className="pointer-events-none absolute left-1/2 top-1/2 h-[104%] w-[185%] -translate-x-1/2 -translate-y-1/2"
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[106%] w-[178%] -translate-x-1/2 -translate-y-1/2"
             style={{
               background:
-                "radial-gradient(ellipse 50% 47% at 50% 45%, rgba(176,188,230,0.62), rgba(186,196,234,0.4) 58%, rgba(203,213,245,0) 80%)",
+                "radial-gradient(ellipse 48% 48% at 50% 46%, rgba(166,180,228,0.78), rgba(180,192,232,0.5) 56%, rgba(203,213,245,0) 78%)",
             }}
           />
+          {/* 頭部の紫ヘイロー（集中の余力の主役感。CEO 指示 B） */}
+          {!brainUnknown && brainFill > 0 && (
+            <motion.div
+              className="pointer-events-none absolute left-1/2"
+              style={{
+                top: `${HEAD_TOP_PCT - 3}%`,
+                width: "62%",
+                height: `${(NECK_PCT - HEAD_TOP_PCT) * 1.9}%`,
+                transform: "translateX(-50%)",
+                background: "radial-gradient(ellipse 50% 50% at 50% 45%, rgba(139,92,246,0.5), rgba(124,58,237,0.18) 55%, rgba(124,58,237,0) 75%)",
+              }}
+              animate={{ opacity: [0.7, 1, 0.7] }}
+              transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
+            />
+          )}
           <motion.img
             src={glowImg.src}
             alt=""
             aria-hidden="true"
             className="pointer-events-none absolute left-1/2 top-1/2 h-[106%] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none"
-            animate={{ opacity: [0.3, 0.45, 0.3] }}
+            animate={{ opacity: [0.22, 0.34, 0.22] }}
             transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
           />
         </>
