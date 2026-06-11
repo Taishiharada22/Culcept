@@ -124,6 +124,7 @@ import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
 import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken, type LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
+import { LifeOpsMomentCard } from "./LifeOpsMomentCard";
 import type { LifeOpsMainlineCardDto } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpers";
 import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
@@ -209,6 +210,8 @@ export interface PlanClientProps {
   lifeOpsInputAction?: (formData: FormData) => Promise<void>;
   lifeOpsInputResult?: LifeOpsSourceInputResultToken;
   lifeOpsInputResultType?: LifeOpsSourceInputSourceType;
+  /** A-4-c39: Moment read-only surface（**surfaced 非 null の時だけ server が渡す**＝沈黙時は不渡し）。 */
+  lifeOpsMoment?: { readonly phrase: string; readonly cautions: readonly string[] };
 }
 
 export default function PlanClient({
@@ -223,6 +226,7 @@ export default function PlanClient({
   lifeOpsInputAction,
   lifeOpsInputResult,
   lifeOpsInputResultType,
+  lifeOpsMoment,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -783,6 +787,12 @@ export default function PlanClient({
       {lifeOpsCard && lifeOpsAction && (
         <div className="mx-auto max-w-3xl">
           <LifeOpsMainlineCard card={lifeOpsCard} feedbackAction={lifeOpsAction} actionResult={lifeOpsActionResult} pendingDone={lifeOpsPendingDone} />
+        </div>
+      )}
+      {/* A-4-c39: Moment「今の一枚」（briefing card 直下・surfaced 非 null の時だけ・純 read-only） */}
+      {lifeOpsMoment && (
+        <div className="mx-auto max-w-3xl">
+          <LifeOpsMomentCard moment={lifeOpsMoment} />
         </div>
       )}
       {/* A-4-c33/c34: 登録入口（候補 card と独立＝**候補 0 件でも出る**・gated・bootstrap・期限+周期） */}

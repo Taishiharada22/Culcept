@@ -75,6 +75,7 @@ export default async function PlanPage({
   let lifeOpsCadenceOptions: readonly { value: string; label: string }[] | undefined;
   let lifeOpsInputResult: LifeOpsSourceInputResultToken | undefined;
   let lifeOpsInputResultType: LifeOpsSourceInputSourceType | undefined;
+  let lifeOpsMoment: { phrase: string; cautions: readonly string[] } | undefined;
   if (
     isLifeOpsMainlineAllowed({
       mainline: PLAN_FLAGS.lifeopsMainline,
@@ -85,6 +86,13 @@ export default async function PlanPage({
     const { model, sourceMode } = await computeLifeOpsMainlineModel(supabase, auth.user.id, new Date());
     // c26: mode を渡す（real_only では sparse fallback 最大 1 件が有効・fixture_allowed は従来どおり）。候補 0 → card なし。
     lifeOpsCard = buildLifeOpsMainlineCardDto(model, sourceMode) ?? undefined;
+
+    // A-4-c39: Moment read-only surface（「今の一枚」）。**mainline gate ∧ MOMENT flag ∧ surfaced 非 null** の時だけ props 渡し。
+    //   moment は既に compute 済み（model.dto.moment）。focus/recovery 沈黙・重複制御・cap1 は VM 側で処理済み＝surfaced=null なら沈黙。
+    //   表示は phrase + cautions のみ（kind/suppression/silencedCount は搬出しない）。
+    if (PLAN_FLAGS.lifeopsMainlineMoment && model.dto.moment.surfaced) {
+      lifeOpsMoment = { phrase: model.dto.moment.surfaced.phrase, cautions: model.dto.moment.surfaced.cautions };
+    }
 
     const sp = await searchParams;
     const fbRaw = sp?.lifeopsFb;
@@ -125,6 +133,7 @@ export default async function PlanPage({
       lifeOpsInputAction={lifeOpsInputCategories ? submitLifeOpsStructuredSourceAction : undefined}
       lifeOpsInputResult={lifeOpsInputResult}
       lifeOpsInputResultType={lifeOpsInputResultType}
+      lifeOpsMoment={lifeOpsMoment}
     />
   );
 }

@@ -418,4 +418,11 @@ export const PLAN_FLAGS = {
   lifeopsProdInputUi: process.env.LIFEOPS_PROD_INPUT_UI === "true",
   lifeopsProdStructuredWrite: process.env.LIFEOPS_PROD_STRUCTURED_WRITE === "true",
   lifeopsProdFeedbackWrite: process.env.LIFEOPS_PROD_FEEDBACK_WRITE === "true",
+
+  /**
+   * A-4-c39: Life Ops Moment の本線 read-only surface（「今の一枚」card・**default OFF・briefing card と独立 kill**）。
+   *   表示条件 = mainline gate（staging∧!prod）∧ 本 flag ∧ surfaced 非 null。**R4 trigger 本線ではない**
+   *   （既存 moment VM の表示解禁のみ・writer/notification/timer/polling なし）。production は mainline gate で恒久不可視。
+   */
+  lifeopsMainlineMoment: process.env.LIFEOPS_MAINLINE_MOMENT === "true",
 } as const;

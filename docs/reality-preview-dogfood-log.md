@@ -336,3 +336,9 @@
 - staging 完成範囲を表で固定（c27〜c35 全 E2E PASS・final smoke 全 0・full suite 20591/tsc 55）。staging 追加観測は不要（c19 観測 5 条件充足済み）
 - production 前の CEO gate 順序（P1 audit→prm prerequisite→P2-P5 配線）と rollback 現状を整理
 - closeout 推奨: (a) staging-complete 凍結し Build の手は機能深化 or 別テーマへ（今月の成功条件と整合）
+
+### [2026-06-11] record 53 — A-4-c38/c39 完了（briefing 富化 card + Moment read-only surface・staging gated）
+- C38（commit 5c4f21e7）: 本線 card に cautions(≤2)+moreLine(≤1)追加。★実測補正=rail tier(protect)は溢れず overflow=null→「alsoAvailable 最優先→overflow 最大件数 1 行」へ。3 案 summary/tier 名は本線非搬出。page/compute 不変更
+- C39: Moment「今の一枚」card。**moment は既に compute 済み(model.dto.moment)→表示の解禁のみ**。focus 沈黙(620=focus_block→surfaced null→card 不在)・Morning 代表との重複制御(excludeKeys)・cap1 は VM 側で処理済み＝自動継承。新 dormant flag LIFEOPS_MAINLINE_MOMENT(briefing と独立 kill)。表示=phrase+cautions のみ(kind/suppression/silencedCount 非搬出)・button/form/link/onClick ゼロ(disabled chip も不置)・R4/writer/notification/timer/polling import 0
+- 縦監査 3 項目への最終応答: ①Morning Briefing=C38 で本線富化完了 ②Moment=C39 で R2 側 read-only surface 完了(R4 trigger 本体のみ別領域残置) ③配置=完了済み(accept→plan seed は C40 docs-only 候補)
+- full suite 20608 GREEN・tsc 55
