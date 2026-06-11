@@ -187,6 +187,17 @@ B3 対応: 色面/halo によるコントラスト確保・水位視認性（白
 
 CEO B5 指示: ①心臓 → 胸の左上（xPct 45.5 / yPct 18.5）②「今日のリソース推移予測」→「**今日の推移予測**」+ 全系列に時間ごとのデータ点 ・ ③**ヘッダー削除**（Alter / ライブ / あなたの現実を制御する / 右の設定ボタン。`AlterHeader.tsx` は superseded・未使用）④「消えかけた発光体」問題への対応 — **ベース人体 = 器 / 色は液体レイヤーのみ**の役割分離: base alpha 3.6 で芯出し・blur 減・drop-shadow 霧除去・blur なし斜めガラス光沢 / 背面プレートをラベンダー〜ブルーグレーに深化 / body 液体 = 上淡シアン→下濃青 + 水面ライン + 直下ハイライト / brain 液体 = 上淡ラベンダー紫→下濃青紫 + 白い水面ライン + 光の縁 / 星雲 glow 減光。
 
+## 7.11 人体ベース作り直し（B6・commit `b5ed999f`）
+
+CEO/GPT 指摘「輪郭が途切れ途切れ・プルプル / 内部が半透明で背景に溶ける」= **チェッカー由来の汚い keyed-alpha** が根本原因。alpha を作り直した:
+- **塗りつぶしシルエット生成**: 輝度を強ブラーで均し → 縁から背景を flood fill → 人体に囲まれた領域（半透明な中心含む）を body とする。「内部の穴」を構造的に解消。
+- **連続輪郭**: 形態学的 close（dilate18 → erode14）+ 強 blur+threshold(130/150) で小突起・浮き島・スキャロップを除去 → 連続した綺麗な輪郭（プルプル解消）。副作用: 腕が胴に融合（vessel として許容）。
+- **器/液体の役割分離**: 器フィル = 合成グラデ（白〜薄ブルーグレー + 縦シリンダー陰影）を `dest-in` でマスク（元写真の市松を排除）。rim（輪郭線）焼き込み。色は brain/heart/body 液体レイヤーのみが持つ。body は 1 回描画で solid（glow 霧・二重描画を廃止）+ 背面ラベンダープレートで明度差。
+- ゾーン境界を新 mask 実測（頭 2-9%）に更新。heart を胸の左上へ。
+- パイプライン教訓: `joinChannel(mask)` は dims 不整合で黒画素を生む → `composite(dest-in)` が正。`trim` は半透明縁を取りこぼす → cleanMask からの決定論的 bbox extract が確実。
+
+**残（微調整）**: 頭部の紫が小さめ（頭ゾーンが小） / 腕融合で over.png の腕分離は未再現 / 液体レベルの厳密一致は未調整。
+
 ## 8. 残課題（Stage 1 / 契約管理側へ）
 
 - 実配線（PlanClient タブ追加・buildAlterBatteryViewModel 接続・localStorage・補正の applyUserCorrection 接続・ミニ Composer の `/api/stargazer/alter` source:"plan" 接続）は Stage 1（CEO GO 後・stop gate 解錠後）
