@@ -53,8 +53,16 @@ export interface DeadlineDueReason {
   readonly overdue: boolean; // 期日超過（事実・断定でない）
 }
 
-/** due 根拠の union（周期 / イベント前 / 期限）。 */
-export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason;
+/** 繰り返し（毎月/毎年）の due 根拠（次発生まで・事実のみ）。 */
+export interface RecurringDueReason {
+  readonly kind: "recurring";
+  readonly daysUntilNext: number;
+  readonly leadDays: number;
+  readonly recurrenceLabel: string; // 「毎月」「毎年」（表示用・事実）
+}
+
+/** due 根拠の union（周期 / イベント前 / 期限 / 繰り返し）。 */
+export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason | RecurringDueReason;
 
 /** §4 candidate（縦⇄横 seam・横が配置/trigger/場所解決する入力）。 */
 export interface LifeOpsCandidate {

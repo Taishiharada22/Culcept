@@ -27,10 +27,10 @@ describe("L-1 カテゴリ模型 — 構造", () => {
       expect(LIFE_OPS_CATEGORY_MODEL[s.id]).toBe(s);
     }
   });
-  it("辞書と一覧は同数（20 = 身体外見10 + 予定前準備5 + 生活維持2 + 事務3・重複なし）", () => {
+  it("辞書と一覧は同数（23 = 身体外見10 + 予定前準備5 + 生活維持2 + 事務6・重複なし）", () => {
     const ids = listCategories().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(20);
+    expect(ids).toHaveLength(23);
     expect(Object.keys(LIFE_OPS_CATEGORY_MODEL)).toHaveLength(ids.length);
   });
   it("defaultMaxLevelHint は L0–L5 のいずれか", () => {
@@ -96,7 +96,7 @@ describe("L-1 helper — runtime 防御", () => {
     expect(listByGroup("body_appearance")).toHaveLength(10);
     expect(listByGroup("pre_event_prep")).toHaveLength(5);
     expect(listByGroup("daily_upkeep")).toHaveLength(2);
-    expect(listByGroup("money_admin")).toHaveLength(3);
+    expect(listByGroup("money_admin")).toHaveLength(6); // deadline 3 + recurring 3
     expect(listByGroup("relationship")).toEqual([]); // 未定義群
   });
   it("cyclic: 身体外見メンテ/生活維持=true（周期）/ 予定前準備/事務=false（one-shot/期限）", () => {

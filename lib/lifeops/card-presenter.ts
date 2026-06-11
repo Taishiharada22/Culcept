@@ -83,7 +83,10 @@ function reasonText(d: DueReason): string {
     const head = `${d.daysUntilEvent}日後の${EVENT_LABEL[d.eventKind] ?? "予定"}に向けて`;
     return d.cyclePhase === "nearing" ? `${head}、そろそろ整えるタイミングです` : head;
   }
-  return d.overdue ? "期日を過ぎています" : `期日まで${d.daysUntilDeadline}日です`;
+  if (d.kind === "recurring") {
+    return d.daysUntilNext === 0 ? `${d.recurrenceLabel}・今日です` : `${d.recurrenceLabel}・あと${d.daysUntilNext}日です`;
+  }
+  return d.overdue ? "期日を過ぎています" : `期日まで${d.daysUntilDeadline}日です`; // deadline
 }
 
 /** event_prep のみ「◯日前が自然」を出す（recommendedLeadDays）。 */
@@ -95,7 +98,8 @@ function timingHint(d: DueReason): string | null {
 function urgency(d: DueReason): LifeOpsCardViewModel["urgency"] {
   if (d.kind === "deadline") return d.overdue ? "overdue" : "high";
   if (d.kind === "event_prep") return d.daysUntilEvent <= 3 ? "high" : "normal";
-  return "normal";
+  if (d.kind === "recurring") return "high"; // within_lead で候補化＝近い
+  return "normal"; // cycle
 }
 
 function riskNotes(reasonCodes: readonly string[]): readonly string[] {

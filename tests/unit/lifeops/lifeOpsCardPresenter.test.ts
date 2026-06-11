@@ -129,3 +129,16 @@ describe("L-8a bookingLinks 配線（L-6 deep-link → card）", () => {
     expect(vm(cand("dental", cycleBeyond)).bookingLinks).toEqual([]);
   });
 });
+
+describe("L-8a recurring 文言 / urgency", () => {
+  it("毎月・あと◯日・urgency high・L1・deep-link なし", () => {
+    const v = vm(cand("rent", { kind: "recurring", daysUntilNext: 3, leadDays: 3, recurrenceLabel: "毎月" }));
+    expect(v.reasonText).toBe("毎月・あと3日です");
+    expect(v.urgency).toBe("high");
+    expect(v.actionLabel).toBe("お知らせします"); // L1 notify
+    expect(v.bookingLinks).toEqual([]); // 事務は deep-link なし
+  });
+  it("当日は『毎月・今日です』", () => {
+    expect(vm(cand("rent", { kind: "recurring", daysUntilNext: 0, leadDays: 3, recurrenceLabel: "毎月" })).reasonText).toBe("毎月・今日です");
+  });
+});

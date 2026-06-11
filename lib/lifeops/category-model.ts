@@ -49,11 +49,14 @@ export type DailyUpkeepCategoryId =
   | "groceries" // 食料品の買い物
   | "daily_necessities"; // 日用品の補充
 
-/** お金・契約・事務群（A.6 群 4・期限もの）。期日からの逆算（deadline model）。recurring(家賃/クレカ/サブスク)は後続。 */
+/** お金・契約・事務群（A.6 群 4）。期限もの（deadline）+ 繰り返し（recurring 毎月）。 */
 export type MoneyAdminCategoryId =
-  | "license_renewal" // 免許の更新
-  | "passport_renewal" // パスポートの更新
-  | "tax_filing"; // 確定申告
+  | "license_renewal" // 免許の更新（deadline）
+  | "passport_renewal" // パスポートの更新（deadline）
+  | "tax_filing" // 確定申告（deadline）
+  | "rent" // 家賃の引き落とし（recurring 毎月）
+  | "card_payment" // カードの引き落とし（recurring 毎月）
+  | "subscription_review"; // サブスクの見直し（recurring 毎月）
 
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
 export type LifeOpsCategoryId =
@@ -140,6 +143,10 @@ const MONEY_ADMIN: readonly LifeOpsCategorySpec[] = [
   { id: "license_renewal", group: "money_admin", label: "免許の更新", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
   { id: "passport_renewal", group: "money_admin", label: "パスポートの更新", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
   { id: "tax_filing", group: "money_admin", label: "確定申告", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  // recurring（毎月・通知のみ L1）。引き落とし日/更新日は注入（実収集=CEO ゲート）。
+  { id: "rent", group: "money_admin", label: "家賃の引き落とし", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "card_payment", group: "money_admin", label: "カードの引き落とし", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "subscription_review", group: "money_admin", label: "サブスクの見直し", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
 /** 全カテゴリ（群横断・定義順）。 */
