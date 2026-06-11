@@ -36,9 +36,14 @@ export interface HumanBatteryFigureProps {
 const HEAD_TOP_PCT = 0.5;
 const NECK_PCT = 13.0; // 頭部の水の下端 = 顎の高さ（B19・CEO 微調整: 12.8→13.0）
 
-// 顎マスク（B19・CEO 指示）: 頭の水の下端を直線でなく顎の丸み（下に凸の弧）にする。
-// 中心(顎先)を最も低く・両端(エラ側)を持ち上げる radial。center bottom→full / sides→約79% で約21% の弧。
-const CHIN_MASK = "radial-gradient(72% 110% at 50% 0%, #000 99%, transparent 100%)";
+// 顎マスク（B20・CEO 指示）: 頭の水の下端を直線でなく顎の丸み（下に凸の弧）にする。
+// inner div は figure 全幅のため、頭幅(全幅の約20%)に合わせて横半径を小さく取る必要がある。
+// 2 レイヤー union 合成:
+//   L1 linear = 上 80% をベタ塗り（頭の幅いっぱい水を満たす。フラットな上部）
+//   L2 radial = 中央の小楕円のみ。顎先(中央)を 100% まで下げ、両端(エラ側)は 80% のまま → 下に凸の弧
+// maskComposite: add で L1 ∪ L2。さらに親 motion.div の body mask と交差して人体内側にクリップ。
+const CHIN_MASK =
+  "linear-gradient(to bottom, #000 80%, transparent 80%), radial-gradient(11% 20% at 50% 80%, #000 99%, transparent 100%)";
 const BODY_TOP_PCT = 17.5; // 肩（体ゾーンの上端）
 const HEART_CENTER = { xPct: 46, yPct: 24 }; // 胸（CEO 指示: 右上=ビューア左上へ補正）
 const FEET_PCT = 99.4;
@@ -187,9 +192,11 @@ export function HumanBatteryFigure({
                 style={{
                   top: `${NECK_PCT - brainLiquidHeightPct}%`,
                   height: `${brainLiquidHeightPct}%`,
-                  // 下端を顎の丸みに沿わせる（B19）。親 motion.div の body mask と交差して合成される
+                  // 下端を顎の丸みに沿わせる（B20）。L1∪L2 を add 合成。親 body mask と交差クリップ
                   WebkitMaskImage: CHIN_MASK,
                   maskImage: CHIN_MASK,
+                  WebkitMaskComposite: "source-over",
+                  maskComposite: "add",
                 }}
               >
                 {/* 液体本体（B16・CEO 指示②: 集中 = 冷静のブルー）上=blue-300 → 下=blue-600 */}
