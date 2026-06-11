@@ -73,9 +73,11 @@ export function gradeRecoveryNeed(frozen: RecoveryNeedLevel, felt: DayFelt): Gra
   const actual: Exclude<RecoveryNeedLevel, "unknown"> = felt <= 2 ? "high" : felt === 3 ? "medium" : "low";
   const dist =
     RECOVERY_ORDER.indexOf(frozen as Exclude<RecoveryNeedLevel, "unknown">) - RECOVERY_ORDER.indexOf(actual);
-  // 同規約（±1 は match）: 3 値スケールでは両端の取り違えのみ over/under
-  if (dist >= 2) return "over";
-  if (dist <= -2) return "under";
+  // 契約裁定（v0.3 監査 MED-1）: ±1 吸収は 4 値の energyLevel のみ。
+  // 3 値スケールに吸収を入れると凍結 medium の日が永遠に match となり学習信号が消えるため、
+  // §5.2 の明示セル（felt=2 × 凍結 low/medium → under）を正とし、1 段差も over/under とする。
+  if (dist > 0) return "over";
+  if (dist < 0) return "under";
   return "match";
 }
 

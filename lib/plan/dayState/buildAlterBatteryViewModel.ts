@@ -72,13 +72,25 @@ const EVIDENCE_LABEL: Partial<Record<EvidenceTag, string>> = {
   long_travel_chain: "移動が多め",
   low_evening_slack: "夜の余白少なめ",
   large_free_block: "まとまった空きあり",
-  weather_rain: "雨",
+  weather_rain: "雨・雪",
   weather_heat: "暑さ",
   user_tired_tap: "本人入力",
   user_mood_input: "本人入力",
   user_correction: "本人補正",
   carry_over_debt: "昨日の持ち越し",
 };
+
+// 系統ごとの根拠帰属（§9.2-3 の「各系統に根拠チップ併記」— 無関係な根拠を並べない）
+const ZONE_EVIDENCE: Record<"body" | "brain" | "heart" | "outing", EvidenceTag[]> = {
+  body: ["shift_night", "shift_work", "day_off", "long_travel_chain", "user_tired_tap", "carry_over_debt", "user_correction"],
+  brain: ["dense_schedule", "large_free_block", "low_evening_slack", "user_correction"],
+  heart: ["user_mood_input", "low_evening_slack", "dense_schedule", "user_correction"],
+  outing: ["long_travel_chain", "weather_rain", "weather_heat", "shift_night", "day_off", "user_correction"],
+};
+
+function zoneEvidence(tags: EvidenceTag[], zoneKey: keyof typeof ZONE_EVIDENCE, max = 3): string[] {
+  return evidenceLabels(tags.filter((t) => ZONE_EVIDENCE[zoneKey].includes(t)), max);
+}
 
 function evidenceLabels(tags: EvidenceTag[], max = 3): string[] {
   const out: string[] = [];
@@ -132,7 +144,7 @@ const SLEEP_TEXT: Record<"good" | "shallow" | "short" | "unknown", string> = {
 };
 
 const ALTER_MESSAGE: Record<string, string> = {
-  recover: "今日は回復に寄せて見ています。夜の余白を残せそうです。",
+  recover: "今日は回復に寄せて見ています。",
   reset: "今日は整える日に見ています。",
   advance: "今日は進めやすい流れに見ています。",
   maintenance: "今日はいつも通りの流れに見ています。",
@@ -228,7 +240,6 @@ export function buildAlterBatteryViewModel(
   segments?: DaySegmentLite[],
 ): AlterBatteryViewModel {
   const e: DayStateEstimates = record.estimates;
-  const ev = evidenceLabels(record.evidence);
 
   const outingBand = outingToBand(e.outingTolerance.value);
   const feasibilityBand = feasibilityToBand(e.dayFeasibility.value);
@@ -241,16 +252,16 @@ export function buildAlterBatteryViewModel(
 
   return {
     battery: {
-      brain: zone("集中の余力", reserveToBand(e.focusReserve.value), e.focusReserve, ev),
-      heart: zone("心の余力", reserveToBand(e.emotionalReserve.value), e.emotionalReserve, ev),
-      body: zone("からだの余力", energyToBand(e.energyLevel.value), e.energyLevel, ev),
+      brain: zone("集中の余力", reserveToBand(e.focusReserve.value), e.focusReserve, zoneEvidence(record.evidence, "brain")),
+      heart: zone("心の余力", reserveToBand(e.emotionalReserve.value), e.emotionalReserve, zoneEvidence(record.evidence, "heart")),
+      body: zone("からだの余力", energyToBand(e.energyLevel.value), e.energyLevel, zoneEvidence(record.evidence, "body")),
     },
     contextCards: {
       outingTolerance: {
         label: "外出耐性",
         band: outingBand,
         text: OUTING_TEXT[outingBand],
-        evidence: ev,
+        evidence: zoneEvidence(record.evidence, "outing"),
         correctable: true,
       },
       eveningSlack: {
@@ -279,7 +290,10 @@ export function buildAlterBatteryViewModel(
     },
     flowTimeline: { segments: buildFlowSegments(moment, segments) },
     morningReveal: buildMorningReveal(moment, yesterdayRecord),
-    alterMessage: ALTER_MESSAGE[e.dailyMode.value] ?? "今日を見ています。",
+    alterMessage:
+      e.dailyMode.value === "recover" && record.facts.eveningSlackMin > 0
+        ? `${ALTER_MESSAGE.recover}夜の余白を残せそうです。`
+        : (ALTER_MESSAGE[e.dailyMode.value] ?? "今日を見ています。"),
     quickReplies: QUICK_REPLIES,
     nightCheck: nightCheckState(record, moment, yesterdayRecord),
   };

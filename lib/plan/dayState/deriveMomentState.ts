@@ -19,6 +19,8 @@ export const TIME_PRESSURE_HIGH_MIN = 15;
 export const TIME_PRESSURE_MEDIUM_MIN = 45;
 export const PRE_EVENT_WINDOW_MIN = 30;
 export const POST_EVENT_WINDOW_MIN = 20;
+// 次 fixed event に「接続する」travel と見なす窓（travel 終端が開始のこの分数以内）
+export const DEPARTURE_TRAVEL_ATTACH_WINDOW_MIN = 90;
 
 export interface MomentStateInput {
   nowHHMM: string;
@@ -91,7 +93,10 @@ export function deriveMomentState(input: MomentStateInput): MomentStateV0 {
     // 直前 travel = nextFixed の開始に接続する travel（終端が開始の 90 分以内に届くもののうち最後）。
     // resolved travel segment が無い日は null のまま（分数の捏造禁止）。
     const candidates = subs.filter(
-      (s) => s.seg.kind === "travel" && s.end <= nextFixed.start && s.end > nextFixed.start - 90,
+      (s) =>
+        s.seg.kind === "travel" &&
+        s.end <= nextFixed.start &&
+        s.end > nextFixed.start - DEPARTURE_TRAVEL_ATTACH_WINDOW_MIN,
     );
     const chosen = candidates.length > 0 ? candidates[candidates.length - 1] : null;
     if (chosen) {

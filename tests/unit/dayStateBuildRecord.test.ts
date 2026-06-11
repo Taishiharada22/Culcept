@@ -45,9 +45,10 @@ describe("夜勤判定（主観日跨ぎ含む）", () => {
     expect(isNightShiftSpan("21:00", "06:00")).toBe(true);
     expect(isNightShiftSpan("01:00", "06:00")).toBe(true);
   });
-  it("09:00-17:00 → 夜勤ではない / 時刻欠如 → null", () => {
+  it("09:00-17:00 → 夜勤ではない / 時刻欠如・ゼロ長 → null（捏造しない）", () => {
     expect(isNightShiftSpan("09:00", "17:00")).toBe(false);
     expect(isNightShiftSpan(undefined, "17:00")).toBeNull();
+    expect(isNightShiftSpan("09:00", "09:00")).toBeNull();
   });
   it("夜勤 work シフト → energyLevel low（inferred 0.5）+ evidence shift_night", () => {
     const r = buildDayStateRecord(input({ shift: { kind: "work", startTime: "22:00", endTime: "06:00" } }));
@@ -139,6 +140,10 @@ describe("optional input の受領（import しない既存系）", () => {
       input({ bodyEchoChest: "tight", heartHint: { psychologicalCapacity: 0.9, emotionalLoad: 0.1 } }),
     );
     expect(r.estimates.emotionalReserve).toEqual({ value: "low", confidence: 0.85, source: "user_confirmed" });
+  });
+  it("interpersonalLoadHint=high → emotionalReserve low（inferred 0.3 上限・§3.3 ③）", () => {
+    const r = buildDayStateRecord(input({ interpersonalLoadHint: "high" }));
+    expect(r.estimates.emotionalReserve).toEqual({ value: "low", confidence: 0.3, source: "inferred" });
   });
   it("personaCoefficients は受領のみ・estimates へ未適用（Stage D まで）", () => {
     const base = buildDayStateRecord(input());

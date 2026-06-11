@@ -67,6 +67,7 @@ export function isNightShiftSpan(startTime?: string, endTime?: string): boolean 
   const start = toAbsMin(startTime ?? "");
   const end = toAbsMin(endTime ?? "");
   if (start === null || end === null) return null;
+  if (start === end) return null; // ゼロ長/24h は判別不能（データ不備の可能性）— 捏造しない
   // 夜帯 = [22:00, 翌05:00) = [1320, 1740)。勤務帯 [start, spanEnd)（跨ぎは +24h）。
   // 01:00-06:00 のような「翌日側だけの夜勤」は勤務帯を +24h して同じ帯と比較する。
   const NIGHT_START = 22 * 60;

@@ -218,6 +218,9 @@ export interface DayStateBuildInput {
   bodyEchoChest?: BodyEchoChest;
   emotionHint?: OrbitEmotion;
   socialBandwidthSignal?: SocialBandwidthValue;
+  // 対人予定密度（§3.3 ③）: DayConditions.withWhom / DayState.social の many_people 連続から
+  // 呼び出し側が導出して渡す（Stage 1 配線。Stage 0 は fixture 供給）
+  interpersonalLoadHint?: "high" | "low";
   estimatedWalkLevel?: EstimatedWalkLevel;
   heartHint?: HeartHint;
   personaCoefficients?: PersonaCoefficientsV0; // Stage 0: 受領のみ・estimates へ未適用（適用は Stage D 契約）

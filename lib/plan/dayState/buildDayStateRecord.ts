@@ -119,7 +119,9 @@ function deriveEmotionalReserve(input: DayStateBuildInput): ConfidentValue<Reser
   ) {
     return cv("low", 0.4, "inferred");
   }
-  // ③ HDM heart 状態（optional input・0.3 上限）
+  // ③ 対人予定密度（inferred 0.3 上限）
+  if (input.interpersonalLoadHint === "high") return cv("low", 0.3, "inferred");
+  // ④ HDM heart 状態（optional input・0.3 上限）
   const hint = input.heartHint;
   if (hint && (hint.psychologicalCapacity !== undefined || hint.emotionalLoad !== undefined)) {
     const capacity = hint.psychologicalCapacity ?? 0.5;
@@ -247,7 +249,6 @@ export function buildDayStateRecord(input: DayStateBuildInput): DayStateRecordV0
 
 const RESERVE_ORDER: ReserveLevel[] = ["low", "medium", "high"];
 const ENERGY_ORDER: EnergyLevelValue[] = ["depleted", "low", "medium", "high"];
-const RECOVERY_ORDER: RecoveryNeedLevel[] = ["low", "medium", "high"];
 const OUTING_ORDER: OutingToleranceLevel[] = ["low", "medium", "high"];
 
 function shiftOrdered<T extends string>(order: readonly T[], current: T, dir: 1 | -1, fallback: T): T {
@@ -262,7 +263,8 @@ function shiftOrdered<T extends string>(order: readonly T[], current: T, dir: 1 
  */
 export function applyUserCorrection(record: DayStateRecordV0, correction: UserCorrection): DayStateRecordV0 {
   const field: EstimateFieldKey = correction.field;
-  if (field === "dayFeasibility" || field === "dailyMode") return record;
+  // recoveryNeed は系統タップの対象外（§3.2: 内部保持・周辺カード材料のみ）
+  if (field === "dayFeasibility" || field === "dailyMode" || field === "recoveryNeed") return record;
 
   const next: DayStateRecordV0 = {
     ...record,
@@ -294,9 +296,6 @@ export function applyUserCorrection(record: DayStateRecordV0, correction: UserCo
       break;
     case "outingTolerance":
       next.estimates.outingTolerance = apply(record.estimates.outingTolerance, OUTING_ORDER, "medium");
-      break;
-    case "recoveryNeed":
-      next.estimates.recoveryNeed = apply(record.estimates.recoveryNeed, RECOVERY_ORDER, "medium");
       break;
   }
   return next;

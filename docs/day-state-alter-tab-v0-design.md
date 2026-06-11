@@ -78,7 +78,7 @@ type MomentStateV0 = {
                 startHHMM: string; endHHMM: string } | null;   // 今いる位置（flowTimeline と同語彙）
   nextFixedEventAt: string | null;          // fixed = latencyTolerance ∈ {strict, tight}（dayGraphTypes.ts:168 にノード付与済み）
   minutesUntilNextFixedEvent: number | null;
-  departureDeadlineHHMM: string | null;     // 次 fixed event 開始 − resolved 移動分数。resolved segment が無ければ null（捏造禁止）
+  departureDeadlineHHMM: string | null;     // 次 fixed event に接続する resolved travel の開始時刻（接続判定窓 = DEPARTURE_TRAVEL_ATTACH_WINDOW_MIN 90 分・named constant）。無ければ null（捏造禁止）
   minutesUntilDeparture: number | null;
   eveningSlackRemainingMin: number | null;  // now 以降の evening/night gap 残分数（夜の余白カードの now 補正）
   timePressure: "low" | "medium" | "high" | "unknown";
@@ -298,7 +298,7 @@ type EvidenceTag =
 |---|---|---|
 | energyLevel（体バッテリー） | ①本人タップ/moodCode（user_confirmed 0.9）②shift.isNightShift=true → "low"（inferred 0.5）③前日 carryOver（B1 解錠後）④なし → "unknown"（0） | |
 | focusReserve（脳バッテリー） | ①本人補正のみ確度高。②proxy: largestFreeBlockMin ≥ 90 かつ density ≠ packed → "medium"（inferred **0.3 上限**）③なし → "unknown" | 弱いことを仕様として明記 |
-| emotionalReserve（心臓バッテリー・v0.1 新設） | ①bodyEcho.chest（user 入力: tight→low / open→high / normal→medium。user_confirmed 0.85）②moodCode・DayState.emotion（tired/anxious/frustrated → low 寄り。inferred 0.4）③対人予定密度（DayConditions.withWhom / DayState.social の many_people 連続。inferred **0.3 上限**）④HDM heart 状態（psychologicalCapacity / emotionalLoad）— **optional input（heartHint?）として受領**。Stage 0 の pure 関数は `heartIntegration.ts` を import しない（依存を濃くしない。値は将来の呼び出し側が渡す）。対話文脈由来のため 0.3 上限・belief 書き戻し禁止⑤なし → "unknown" | 弱い前提を仕様化 |
+| emotionalReserve（心臓バッテリー・v0.1 新設） | ①bodyEcho.chest（user 入力: tight→low / open→high / normal→medium。user_confirmed 0.85）②moodCode・DayState.emotion（tired/anxious/frustrated → low 寄り。inferred 0.4）③対人予定密度（入力チャネル = `interpersonalLoadHint?: "high"|"low"`。DayConditions.withWhom / DayState.social の many_people 連続から呼び出し側が導出。inferred **0.3 上限**）④HDM heart 状態（psychologicalCapacity / emotionalLoad）— **optional input（heartHint?）として受領**。Stage 0 の pure 関数は `heartIntegration.ts` を import しない（依存を濃くしない。値は将来の呼び出し側が渡す）。対話文脈由来のため 0.3 上限・belief 書き戻し禁止⑤なし → "unknown" | 弱い前提を仕様化 |
 | outingTolerance（外出耐性・v0.1 新設） | combine: travelChainMin（多いほど低）× weather（雨/猛暑で低）× shift 疲労 × socialBandwidth 信号（solo_preferred は対人外出のみ低）× estimatedWalkLevel（morning plan の `dayConditions.estimatedWalkLevel`〔lib/alter-morning/types.ts:633、optional〕を **optional input として受領**。無い日は combine から除外して重み再正規化。**勝手な歩行量推定は禁止**）× 本人補正。**socialBandwidth 単独で決めない**（GPT 指摘 1 対応）。**最低条件: grounded signal（travelChainMin・weather・shift・estimatedWalkLevel・観測済み socialBandwidth・本人補正のうち実在するもの）が 2 つ未満なら "unknown"**（薄い入力で推定しすぎない） | 入力数に応じ 0.3-0.6 |
 | dayFeasibility（成立見込み・v0.1 新設） | facts のみから: density=packed ∧ travelChainMin 大 ∧ eveningSlackMin<60 → "likely_fragile" / sparse ∧ 余白充分 → "likely_steady" / 中間 → "mixed"。**これは day-level proxy であり、EventRealityNode / Mobility 解決状態を含む本物の成立予測ではない**（本物は §2.5(a) adapter + Phase B 以降）。表示文は固定テーブルから生成し「今日の流れは大きく崩れにくそうです」程度に抑える（断定・強い主張禁止） | 0.4-0.6（事実由来でやや高め） |
 | recoveryNeed | energyLevel ∈ {low, depleted} → "high"。eveningSlackMin < 60 で 1 段階上げ | energyLevel の confidence × 0.8 |
@@ -352,7 +352,7 @@ type EvidenceTag =
 | 2 足りなかった | low | 見立て low → match / medium → match（±1 内）/ high → **over** / depleted → under |
 | 1 まったく足りなかった | depleted | 見立て depleted → match / low → match（±1 内）/ medium・high → **over** |
 
-（unknown は採点対象外として記録のみ。recoveryNeed は dayFelt 1-2 → actual "high"、3 → "medium"、4-5 → "low" として同規約で判定）
+（unknown は採点対象外として記録のみ。recoveryNeed は dayFelt 1-2 → actual "high"、3 → "medium"、4-5 → "low"。**裁定（Stage 0 監査 MED-1）: ±1 吸収は 4 値の energyLevel のみ。3 値スケール（recoveryNeed）は吸収なし＝1 段差も over/under**（吸収を入れると凍結 medium が永遠に match となり学習信号が消えるため。§5.2 の明示セルが正））
 
 禁止リスト（採点不能のため正本化・表示禁止): 連続値スコア全般、collapseRisk 数値、軸由来の「性格だから」帰属、本人が入力していない感情状態の断定。
 

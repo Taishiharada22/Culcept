@@ -10,7 +10,7 @@ Stage 0: **pure 関数 4 本 + 型 + fixture テストのみ**を実装する。
 
 | 関数 | 入力 | 出力 | 契約 § |
 |---|---|---|---|
-| `buildDayStateRecord()` | facts 入力（anchors / dayIndicators / shift / weather / DayGraph 由来値）+ 既存シグナル（moodCode / bodyEcho / socialBandwidth / **estimatedWalkLevel?**〔dayConditions 由来 optional〕）+ **heartHint?**〔HDM 由来 optional input。import 禁止〕+ **personaCoefficients?**〔`PersonaCoefficientsV0`（設計書 §8 で凍結）。optional input・実導出は Stage D〕 | `DayStateRecordV0`（estimatesFrozen 凍結含む） | 設計書 §3 |
+| `buildDayStateRecord()` | facts 入力（anchors / dayIndicators / shift / weather / DayGraph 由来値）+ 既存シグナル（moodCode / bodyEcho / socialBandwidth / **estimatedWalkLevel?**〔dayConditions 由来 optional〕/ **interpersonalLoadHint?**〔対人密度 optional・§3.3 ③〕）+ **heartHint?**〔HDM 由来 optional input。import 禁止〕+ **personaCoefficients?**〔`PersonaCoefficientsV0`（設計書 §8 で凍結）。optional input・実導出は Stage D〕 | `DayStateRecordV0`（estimatesFrozen 凍結含む） | 設計書 §3 |
 | `gradeNightCheck()` | `DayStateRecordV0` + Night Check 回答（dayFelt / planVerdict / driftSelections） | `NightCheckGradeV0`（下記。**戻り値型も凍結済み**） | 設計書 §4-5 |
 | `deriveMomentState()` | `DayStateRecordV0` + DayGraph + 現在時刻（**引数で渡す**。Date.now 直呼びは fixture を壊すので注入） | `MomentStateV0`（**設計書 §2.1 で 14 フィールド凍結済み**。勝手な増減禁止） | 設計書 §2.1 |
 | `buildAlterBatteryViewModel()` | `DayStateRecordV0` + `MomentStateV0` + **yesterdayRecord?**〔前日レコード optional。Morning Reveal 表示用 — 事実の再掲なので Stage 1 で読取可。見立てへの数値利用は B1 後〕 | `AlterBatteryViewModel`（morningReveal 含む） | visual-contract §4 |

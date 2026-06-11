@@ -121,7 +121,9 @@ CEO 提供の参照画像（iPhone モック）を精査した結果:
 ## 4. ViewModel 契約（Session A が生成し、Session B が読むだけの境界面)
 
 ```ts
-// 正本: buildAlterBatteryViewModel(record: DayStateRecordV0, moment: MomentStateV0, yesterdayRecord?: DayStateRecordV0 | null) で導出する（handoff-A の 3 入力と同一）。
+// 正本: buildAlterBatteryViewModel(record, moment, yesterdayRecord?, segments?) で導出する。
+// 第 4 引数 segments?（DaySegmentLite[]）は v0.3 監査で正式化: record は segment を保持しない（store slow）ため、
+// 「今日の流れ」の完全表示には build/derive と同じ lite segments を共有する。未提供時は nowSegment のみの縮退表示。
 // Session B はこの型だけを見る。ロジックの再定義禁止。
 type Band = "very_low" | "low" | "medium" | "high" | "unknown";
 type BatteryZone = {
@@ -165,7 +167,8 @@ type AlterBatteryViewModel = {
   } | null;
   alterMessage: string;          // 観測トーン 1-2 行。禁止語 regression 対象
   quickReplies: string[];        // §3.6 の 5 チップ
-  nightCheck?: {                 // 表示状態（設問・チップ文言は設計書 §5 が正本）
+  nightCheck: {                  // 表示状態（設問・チップ文言は設計書 §5 が正本）
+    // v0.3 監査で「常時返却 + state='hidden'」に統一（optional 廃止 — Session B の分岐を単純化）
     state: "hidden" | "main" | "followup" | "answered" | "carried_over";
     question: string; chips: string[];
   };
