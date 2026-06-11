@@ -48,9 +48,8 @@ export function HumanBatteryCard({ battery, onZoneTap, pulseZone = null }: Human
         </div>
       </div>
 
-      <p className="mt-2 text-[10px] text-slate-400">
-        これは診断ではなく、今日を組むための見立てです。タップで補正できます。
-      </p>
+      {/* サブコピーは §3.2 の候補から 1 行のみ（上部）。ここは補正アフォーダンスの案内だけ */}
+      <p className="mt-2 text-[10px] text-slate-400">タップで補正できます</p>
     </GlassCard>
   );
 }

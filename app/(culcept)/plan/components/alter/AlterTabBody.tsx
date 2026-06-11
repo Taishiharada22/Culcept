@@ -232,26 +232,30 @@ export function AlterTabBody({
         </FadeInView>
       </div>
 
-      {/* 補正シート（系統 / 外出耐性 / 睡眠入力） */}
+      {/* 補正シート（系統 / 外出耐性 / 睡眠入力）
+          AnimatePresence の直接子は key 付き motion 要素にする（Fragment で包むと exit が完了しない） */}
       <AnimatePresence>
         {sheet !== null && (
-          <>
-            <motion.button
-              type="button"
-              aria-label="シートを閉じる"
-              className="fixed inset-0 z-40 bg-slate-900/20"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSheet(null)}
-            />
-            <motion.div
-              className="fixed inset-x-0 bottom-0 z-50"
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            >
+          <motion.button
+            key="correction-backdrop"
+            type="button"
+            aria-label="シートを閉じる"
+            className="fixed inset-0 z-40 bg-slate-900/20"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setSheet(null)}
+          />
+        )}
+        {sheet !== null && (
+          <motion.div
+            key="correction-sheet"
+            className="fixed inset-x-0 bottom-0 z-50"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", stiffness: 320, damping: 32 }}
+          >
               <div className="mx-auto max-w-3xl rounded-t-3xl border border-white/90 bg-white/95 p-5 pb-8 shadow-2xl backdrop-blur-xl">
                 <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
                 {sheet.kind === "correction" ? (
@@ -290,8 +294,7 @@ export function AlterTabBody({
                   </>
                 )}
               </div>
-            </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
