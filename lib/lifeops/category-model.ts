@@ -69,13 +69,17 @@ export type GrowthCategoryId =
   | "weekly_review" // 週次レビュー
   | "skill_practice"; // スキル練習
 
+/** 人間関係群（A.6 群 5）。touchpoint 詳細は relationship-model（dueReason 側）＝カテゴリ爆発を防ぐ単一受け皿。 */
+export type RelationshipCategoryId = "relationship_care";
+
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
 export type LifeOpsCategoryId =
   | BodyAppearanceCategoryId
   | PreEventPrepCategoryId
   | DailyUpkeepCategoryId
   | MoneyAdminCategoryId
-  | GrowthCategoryId;
+  | GrowthCategoryId
+  | RelationshipCategoryId;
 
 /**
  * 既定実行レベル上限の **ヒント**（A.5 L0–L5 の段階）。**正本ではない**:
@@ -177,8 +181,16 @@ const GROWTH: readonly LifeOpsCategorySpec[] = [
   { id: "skill_practice", group: "growth", label: "スキル練習", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
+/**
+ * 人間関係群（A.6 群 5）。**単一受け皿カテゴリ**（touchpoint 25 種の詳細は relationship-model・dueReason 側）。
+ *   L2=suggest（permission 正本は assessRelationshipPermission＝確認必須・自動送信/購入等 blocked）。
+ */
+const RELATIONSHIP: readonly LifeOpsCategorySpec[] = [
+  { id: "relationship_care", group: "relationship", label: "人間関係", cyclic: false, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+];
+
 /** 全カテゴリ（群横断・定義順）。 */
-const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN, ...GROWTH];
+const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN, ...GROWTH, ...RELATIONSHIP];
 
 /** カテゴリ id → spec（正本辞書）。 */
 export const LIFE_OPS_CATEGORY_MODEL: Record<LifeOpsCategoryId, LifeOpsCategorySpec> = Object.fromEntries(

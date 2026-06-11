@@ -14,6 +14,7 @@
 
 import type { DueReason, EventKind, LifeOpsCandidate } from "./candidate-types";
 import { getCategorySpec, type LifeOpsCategoryId } from "./category-model";
+import { getTouchpointSpec } from "./relationship-model";
 import { assessLifeOpsPermission, type LifeOpsAction, type PermissionAssessment } from "./permission";
 import { buildBookingLinks, type BookingLink } from "./booking-link";
 
@@ -98,7 +99,26 @@ function reasonText(d: DueReason): string {
     }
     return unit ? `今日は${unit}だけでも、戻るきっかけになります` : "今日は5分だけでも、戻るきっかけになります"; // gentle_restart
   }
+  if (d.kind === "relationship") return relationshipReasonText(d);
   return d.overdue ? "期日を過ぎています" : `期日まで${d.daysUntilDeadline}日です`; // deadline
+}
+
+/** 人間関係の理由文（低圧・redacted・断定/送信誘導/感情推定なし・personRef を含まない）。 */
+function relationshipReasonText(d: Extract<DueReason, { kind: "relationship" }>): string {
+  const tp = d.touchpointId;
+  if (tp === "birthday" || tp === "anniversary" || tp === "seasonal_gift") {
+    return d.daysUntil === 0
+      ? "今日が大切な日です。ひとこと添えると自然です"
+      : `${d.daysUntil}日後に大切な日があります。ひとこと考えておくと安心です`;
+  }
+  if (tp === "long_time_no_contact") return "最近少し間が空いています。軽く近況を思い出しておくと自然です";
+  if (tp === "visit_family") return "少し間が空いています。顔を見せるタイミングを考えておくと自然です";
+  if (tp === "borrowed_item_return") return "借りたものを返す機会をつくると、すっきりします";
+  if (tp === "pre_event_encouragement") return "大事な日が近い人がいます。ひとこと考えておくと自然です";
+  if (tp === "post_event_result_check") return "大事な日が終わった頃です。様子をきいてみるのも自然です";
+  if (tp === "post_meeting_followup") return "先日会った流れで、ひとこと添えると自然です";
+  // thank_you_followup / return_gift / introduction_thanks / hosted_meal_thanks / support_thanks
+  return "お礼を一言だけ整えておくと、気持ちよく区切れます";
 }
 
 /** evidence → 低圧の根拠文（補足行・責めない）。 */
@@ -109,10 +129,13 @@ const HABIT_EVIDENCE_NOTE: Record<string, string> = {
   long_pause: "間が空くのは自然なことです",
 };
 
-/** 補足行: event_prep=「◯日前が自然」/ habit=evidence 根拠文（あれば）。 */
+/** 補足行: event_prep=「◯日前が自然」/ habit=evidence 根拠文 / relationship=gift 添付時の控えめな案内。 */
 function timingHint(d: DueReason): string | null {
   if (d.kind === "event_prep") return `${d.recommendedLeadDays}日前が自然です`;
   if (d.kind === "habit" && d.neuron?.evidenceKind) return HABIT_EVIDENCE_NOTE[d.neuron.evidenceKind] ?? null;
+  if (d.kind === "relationship" && d.giftRecommendations && d.giftRecommendations.length > 0) {
+    return "相手の最近の関心に沿った贈り物の候補を用意できます"; // 商品名は出さない（metadata 参照）
+  }
   return null;
 }
 
@@ -134,9 +157,14 @@ export function toLifeOpsCardViewModel(
   assessment: PermissionAssessment,
   opts: CardPresenterOptions = {}
 ): LifeOpsCardViewModel {
+  const d = candidate.dueReason;
+  const title =
+    d.kind === "relationship"
+      ? (getTouchpointSpec(d.touchpointId)?.label ?? getCategorySpec(candidate.category)?.label ?? candidate.category)
+      : (getCategorySpec(candidate.category)?.label ?? candidate.category);
   return {
     category: candidate.category,
-    title: getCategorySpec(candidate.category)?.label ?? candidate.category,
+    title,
     reasonText: reasonText(candidate.dueReason),
     timingHint: timingHint(candidate.dueReason),
     actionLabel: ACTION_LABEL[assessment.maxAllowedAction],

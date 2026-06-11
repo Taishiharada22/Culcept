@@ -9,6 +9,8 @@
 
 import type { LifeOpsCategoryId, LifeOpsDefaultMaxLevelHint, LifeOpsRiskFlag } from "./category-model";
 import type { BeautyMenu, CadencePhase } from "./cadence-model";
+import type { RelationKind, RelationshipTouchpointId } from "./relationship-model";
+import type { GiftRecommendation } from "./gift-intelligence";
 
 /** 予定前準備の対象イベント種（A.3）。dueReason 契約の一部ゆえ seam 型に置く。 */
 export type EventKind =
@@ -86,7 +88,23 @@ export interface HabitDueReason {
 }
 
 /** due 根拠の union（周期 / イベント前 / 期限 / 繰り返し / 習慣）。 */
-export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason | RecurringDueReason | HabitDueReason;
+/**
+ * 人間関係の due 根拠（touchpoint が主体・gift は optional metadata）。
+ *   personRef は opaque token のみ（実名/連絡先は構造的に不可）。低圧・末尾合流。
+ */
+export interface RelationshipDueReason {
+  readonly kind: "relationship";
+  readonly touchpointId: RelationshipTouchpointId;
+  readonly relationKind: RelationKind;
+  readonly personRef: string; // opaque（表示解決は将来 UI のローカル責務）
+  readonly daysUntil: number | null; // annual/pre-event/followup の残日数
+  readonly daysSince: number | null; // cadence/post-event の経過日数
+  readonly overdue: boolean; // followup 期限超過（責めない・事実のみ）
+  /** gift touchpoint かつ有意な signal があるときだけ最大 3 件（なくても candidate は成立）。 */
+  readonly giftRecommendations?: readonly GiftRecommendation[];
+}
+
+export type DueReason = CycleDueReason | EventPrepDueReason | DeadlineDueReason | RecurringDueReason | HabitDueReason | RelationshipDueReason;
 
 /** §4 candidate（縦⇄横 seam・横が配置/trigger/場所解決する入力）。 */
 export interface LifeOpsCandidate {

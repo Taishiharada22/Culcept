@@ -18,6 +18,7 @@ import { generateEventPrepCandidates, generateOneshotPrepCandidates, type Upcomi
 import { generateDeadlineCandidates, type DeadlineObservation } from "./deadline-engine";
 import { generateRecurringCandidates, type RecurringObservation } from "./recurrence-model";
 import { generateHabitCandidates, type HabitObservation } from "./habit-model";
+import { generateRelationshipCandidates, type RelationshipObservation } from "./relationship-candidates";
 import type { CadenceObservation, LifeOpsCandidate } from "./candidate-types";
 
 /** 縦の入力（全て注入・calendar/実データ源 非接触）。 */
@@ -27,10 +28,14 @@ export interface LifeOpsInputs {
   readonly deadlineObservations?: readonly DeadlineObservation[];
   readonly recurringObservations?: readonly RecurringObservation[];
   readonly habitObservations?: readonly HabitObservation[];
+  readonly relationshipObservations?: readonly RelationshipObservation[];
 }
 
-/** dedup key（category × menu）。 */
+/** dedup key（通常 category×menu・relationship のみ人物×接点ごとに独立）。 */
 function candidateKey(c: LifeOpsCandidate): string {
+  if (c.dueReason.kind === "relationship") {
+    return `${c.category}:${c.dueReason.touchpointId}:${c.dueReason.personRef}`;
+  }
   return `${c.category}:${c.menu ?? ""}`;
 }
 
@@ -45,8 +50,9 @@ export function collectLifeOpsCandidates(inputs: LifeOpsInputs, nowISO: string):
   const deadlineObs = inputs.deadlineObservations ?? [];
   const recurringObs = inputs.recurringObservations ?? [];
   const habitObs = inputs.habitObservations ?? [];
+  const relationshipObs = inputs.relationshipObservations ?? [];
 
-  // 優先順位: deadline → recurring → event 前倒し → one-shot → 周期 → habit（低圧ゆえ末尾）
+  // 優先順位: deadline → recurring → event 前倒し → one-shot → 周期 → habit → relationship（低圧・高 safety ゆえ末尾）
   const ordered: readonly LifeOpsCandidate[] = [
     ...generateDeadlineCandidates(deadlineObs, nowISO),
     ...generateRecurringCandidates(recurringObs, nowISO),
@@ -54,6 +60,7 @@ export function collectLifeOpsCandidates(inputs: LifeOpsInputs, nowISO: string):
     ...generateOneshotPrepCandidates(events, nowISO),
     ...generateLifeOpsCandidates(cadenceObs, nowISO),
     ...generateHabitCandidates(habitObs),
+    ...generateRelationshipCandidates(relationshipObs, nowISO),
   ];
 
   const seen = new Set<string>();
