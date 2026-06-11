@@ -22,8 +22,6 @@ import { buildScreenViewModel } from "../components/alter/screenViewModel";
 import overPng from "../components/alter/assets/over.png";
 import {
   MOCK_ALTER_BATTERY_VM,
-  MOCK_ALTER_MESSAGE_TIME,
-  MOCK_CHAT_EXCHANGE,
   MOCK_VM_ANSWERED,
   MOCK_VM_CARRIED_OVER,
   MOCK_VM_COLD_START,
@@ -95,11 +93,8 @@ export default async function DevAlterTabPage({
         </div>
       </div>
 
-      <AlterTabBody
-        screen={buildScreenViewModel(variant.vm)}
-        recentExchange={variant.withChat ? MOCK_CHAT_EXCHANGE : undefined}
-        alterMessageTime={variant.withChat ? MOCK_ALTER_MESSAGE_TIME : undefined}
-      />
+      {/* B13: チャット欄廃止（CEO 判断）— 吹き出し mock の供給も廃止 */}
+      <AlterTabBody screen={buildScreenViewModel(variant.vm)} />
 
       {/* over.png 半透明 overlay（dev 位置合わせ専用。本番背景貼りではない） */}
       {overlayOpacity > 0 && (

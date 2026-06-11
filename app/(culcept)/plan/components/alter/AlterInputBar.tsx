@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * AlterInputBar — ミニ Composer（v2: アバター + マイク + 送信。見た目のみ）
+ * AlterInputBar — 状態入力スリット（B13・CEO 判断でチャット欄から再設計）
  *
- * 正本: docs/alter-tab-visual-contract.md §3.6 / handoff HARD-6
- * 送信・音声はモック（実接続は Stage 1: 既存 `/api/stargazer/alter` source:"plan"）。
+ *  - チャット欄ではない: 吹き出し履歴を持たず、このタブ内で会話を展開しない
+ *  - 「いまの状態をひとことで伝える」小さな入力口（Stage 1.5 センサー化の入口）
+ *  - 送信はモックコールバック + 親側の短い ack のみ。実接続（既存 Alter route source:"plan"
+ *    → DayStateRecord 構造抽出）は Stage 1.5
+ *  - 操縦席を邪魔しない: 小さく・軽く（アバター/マイクなし・薄い枠）
  */
 
 import { useState } from "react";
-import { AlterAvatar } from "./AlterChatPreview";
-import { MicIcon, SendIcon } from "./alterIcons";
+import { SendIcon } from "./alterIcons";
 
 export interface AlterInputBarProps {
   onSend?: (message: string) => void;
@@ -26,38 +28,28 @@ export function AlterInputBar({ onSend }: AlterInputBarProps) {
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <AlterAvatar size={36} />
-      <form
-        className="flex min-w-0 flex-1 items-center gap-1 rounded-full border border-white bg-white/90 py-1.5 pl-4 pr-1.5 shadow-sm backdrop-blur-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
+    <form
+      className="flex items-center gap-1 rounded-full border border-indigo-100/80 bg-white/75 py-1 pl-3.5 pr-1 shadow-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="いまの状態をひとことで…"
+        className="min-w-0 flex-1 bg-transparent text-[11.5px] text-slate-700 outline-none placeholder:text-slate-400"
+        aria-label="いまの状態をひとことで伝える"
+      />
+      <button
+        type="submit"
+        className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 p-1.5 text-white shadow-sm transition-opacity hover:opacity-90"
+        aria-label="送信"
       >
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="Alterに話しかける…"
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-slate-700 outline-none placeholder:text-slate-400"
-          aria-label="Alterに話しかける"
-        />
-        <button
-          type="button"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100"
-          aria-label="音声入力（準備中）"
-        >
-          <MicIcon size={14} />
-        </button>
-        <button
-          type="submit"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 text-white shadow-sm transition-opacity hover:opacity-90"
-          aria-label="送信"
-        >
-          <SendIcon size={13} />
-        </button>
-      </form>
-    </div>
+        <SendIcon size={11} />
+      </button>
+    </form>
   );
 }

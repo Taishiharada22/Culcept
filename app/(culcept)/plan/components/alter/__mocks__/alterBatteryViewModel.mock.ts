@@ -135,14 +135,15 @@ export const MOCK_VM_VISUAL: AlterBatteryViewModel = {
     body: { label: "からだの余力", band: "medium", visualFill: 0.62, confidence: "medium",
             source: "見立て", evidence: ["休みの日"], correctable: true },
   },
+  contextCards: {
+    ...MOCK_ALTER_BATTERY_VM.contextCards,
+    // B13: 状態の背景の数値が「根拠あり」で出る状態を検証するため、本人申告・前夜採点済みの想定にする
+    sleep: { label: "睡眠", band: "low", text: "眠りが浅かったようです", source: "user_reported", correctable: true },
+    recoveryQuality: { label: "回復の質", band: "medium", source: "night_check_derived" },
+  },
   morningReveal: null,
   nightCheck: { state: "hidden", question: NIGHT_CHECK_QUESTION, chips: NIGHT_CHECK_CHIPS },
 };
 
-/** 会話エリアの直近 1-2 往復 mock（VM の外。実チャット接続は Stage 1 — useAlterChat 経由） */
-export type MockChatTurn = { role: "user" | "alter"; text: string; time?: string };
-export const MOCK_ALTER_MESSAGE_TIME = "09:30";
-export const MOCK_CHAT_EXCHANGE: MockChatTurn[] = [
-  { role: "user", text: "少し疲れてる。外出は軽めにしたい。", time: "09:31" },
-  { role: "alter", text: "受け取りました。外出は軽めに見ておきます。", time: "09:31" },
-];
+// B13（CEO 判断）: チャット欄廃止に伴い、吹き出し往復 mock（MOCK_CHAT_EXCHANGE / 時刻）は削除した。
+// 入力は「状態入力スリット」となり、会話は本体 Alter 面の管轄。

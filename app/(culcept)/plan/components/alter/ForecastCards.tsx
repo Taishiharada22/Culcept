@@ -9,19 +9,12 @@
 import type { AlterScreenViewModel } from "./screenViewModel";
 import { BatteryIcon, BrainIcon, CarryIcon, LeafIcon, MoonIcon, PulseIcon, TargetIcon, WalkIcon } from "./alterIcons";
 
-function Sparkline({ data, color }: { data: number[]; color: string }) {
-  const w = 56;
-  const h = 16;
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
-  const span = Math.max(max - min, 1);
-  const pts = data
-    .map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / span) * h}`)
-    .join(" ");
+/** % バー（B13: スパークラインは「存在しない履歴」を示唆するため廃止し、現在値のバーに置換） */
+function PctBar({ pct, barClass }: { pct: number; barClass: string }) {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-4 w-14" aria-hidden="true">
-      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div className="h-1.5 w-14 overflow-hidden rounded-full bg-slate-100">
+      <div className={`h-full rounded-full ${barClass}`} style={{ width: `${Math.min(Math.max(pct, 0), 100)}%` }} />
+    </div>
   );
 }
 
@@ -168,7 +161,7 @@ export function ForecastGrid({
             {carryOver.pct}
             <span className="text-[11px] font-medium text-slate-400">%</span>
           </span>
-          <Sparkline data={carryOver.spark} color="#38bdf8" />
+          <PctBar pct={carryOver.pct} barClass="bg-gradient-to-r from-sky-300 to-blue-400" />
         </div>
         <div className="mt-0.5 text-[8.5px] text-slate-400">{carryOver.note}</div>
       </div>
@@ -184,7 +177,7 @@ export function ForecastGrid({
             {feasibility.pct}
             <span className="text-[11px] font-medium text-slate-400">%</span>
           </span>
-          <Sparkline data={feasibility.spark} color="#a78bfa" />
+          <PctBar pct={feasibility.pct} barClass="bg-gradient-to-r from-violet-300 to-purple-400" />
         </div>
         <div className="mt-0.5 text-[8.5px] text-slate-400">{feasibility.note}</div>
       </div>

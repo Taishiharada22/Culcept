@@ -20,7 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { AlterBatteryViewModel } from "@/lib/plan/dayState/dayStateTypes";
-import { AlterChatPreview, type AlterChatTurn } from "./AlterChatPreview";
+import { AlterAvatar } from "./AlterChatPreview";
 import { AlterCtaRow } from "./AlterCtaRow";
 import { AlterInputBar } from "./AlterInputBar";
 import { AlterQuickReplies } from "./AlterQuickReplies";
@@ -39,9 +39,6 @@ export type SleepChoice = "よく眠れた" | "浅い" | "短い";
 export interface AlterTabBodyProps {
   /** over.png 表示 VM（基底 AlterBatteryViewModel を内包）。CEO 2026-06-11 契約緩和 */
   screen: AlterScreenViewModel;
-  /** 直近 1-2 往復（mock。実チャット接続は Stage 1） */
-  recentExchange?: AlterChatTurn[];
-  alterMessageTime?: string;
   onCorrection?: (target: CorrectionTarget, direction: CorrectionDirection) => void;
   onSleepInput?: (choice: SleepChoice) => void;
   onNightCheckAnswer?: (chip: string) => void;
@@ -105,8 +102,6 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
 
 export function AlterTabBody({
   screen,
-  recentExchange,
-  alterMessageTime,
   onCorrection,
   onSleepInput,
   onNightCheckAnswer,
@@ -219,13 +214,23 @@ export function AlterTabBody({
         {/* 5'. Morning Reveal（朝のみ・null なら描画なし） */}
         {vm.morningReveal !== null && <MorningRevealCard morningReveal={vm.morningReveal} />}
 
-        {/* 6-7. 会話エリア + CTA + 入力バー（下部で一体化した操縦席パネル） */}
+        {/* 6. cockpit input panel（B13・CEO 判断）: 吹き出し往復は廃止。
+            alterMessage 1 行（見立て要約）+ チップ（状態補正/センサー入口）+ CTA（操作盤）+
+            状態入力スリット（会話を展開しない・送信は短い ack のみ） */}
         <div className="rounded-3xl border border-white bg-gradient-to-b from-white/85 via-indigo-50/50 to-violet-50/60 p-3 shadow-[0_10px_34px_rgba(99,102,241,0.18)] backdrop-blur-xl">
           <div className="space-y-2.5">
-            <AlterChatPreview alterMessage={vm.alterMessage} alterMessageTime={alterMessageTime} recentExchange={recentExchange} />
+            <div className="flex items-center gap-2">
+              <AlterAvatar size={28} />
+              <p className="min-w-0 text-[12.5px] leading-snug text-slate-700">{vm.alterMessage}</p>
+            </div>
             {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}
             <AlterCtaRow onCompose={onCompose} onViewAdjustments={onViewAdjustments} />
-            <AlterInputBar onSend={onSend} />
+            <AlterInputBar
+              onSend={(m) => {
+                onSend?.(m);
+                showAck("受け取りました");
+              }}
+            />
           </div>
         </div>
       </div>
