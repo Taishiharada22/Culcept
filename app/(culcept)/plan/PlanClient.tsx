@@ -123,6 +123,7 @@ import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
+import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken } from "./LifeOpsSourceInputCard";
 import type { LifeOpsMainlineCardDto } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpers";
 import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
@@ -198,6 +199,13 @@ export interface PlanClientProps {
   lifeOpsAction?: (formData: FormData) => Promise<void>;
   lifeOpsActionResult?: LifeOpsMainlineResultToken;
   lifeOpsPendingDone?: { readonly candidateKey: string; readonly label: string };
+  /**
+   * A-4-c33: 構造化 source 登録入口（**候補 card と独立・source 0 件でも表示**＝bootstrap）。
+   *   server が mainline gate ∧ write flag 通過時のみ渡す（default OFF → 不渡し=非表示）。
+   */
+  lifeOpsInputCategories?: readonly { readonly id: string; readonly label: string }[];
+  lifeOpsInputAction?: (formData: FormData) => Promise<void>;
+  lifeOpsInputResult?: LifeOpsSourceInputResultToken;
 }
 
 export default function PlanClient({
@@ -207,6 +215,9 @@ export default function PlanClient({
   lifeOpsAction,
   lifeOpsActionResult,
   lifeOpsPendingDone,
+  lifeOpsInputCategories,
+  lifeOpsInputAction,
+  lifeOpsInputResult,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -767,6 +778,12 @@ export default function PlanClient({
       {lifeOpsCard && lifeOpsAction && (
         <div className="mx-auto max-w-3xl">
           <LifeOpsMainlineCard card={lifeOpsCard} feedbackAction={lifeOpsAction} actionResult={lifeOpsActionResult} pendingDone={lifeOpsPendingDone} />
+        </div>
+      )}
+      {/* A-4-c33: 登録入口（候補 card と独立＝**候補 0 件でも出る**・gated・bootstrap） */}
+      {lifeOpsInputCategories && lifeOpsInputAction && (
+        <div className="mx-auto max-w-3xl">
+          <LifeOpsSourceInputCard categories={lifeOpsInputCategories} inputAction={lifeOpsInputAction} result={lifeOpsInputResult} />
         </div>
       )}
       {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小、 9a-impl Step α で useNewShell 統一) ── */}

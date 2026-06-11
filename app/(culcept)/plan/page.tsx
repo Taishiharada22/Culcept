@@ -30,7 +30,10 @@ import { computeLifeOpsMainlineModel } from "@/lib/plan/reality/lifeops/lifeops-
 import { buildLifeOpsMainlineCardDto, type LifeOpsMainlineCardDto } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { parseLifeOpsDoneConfirmToken } from "@/lib/plan/reality/lifeops/lifeops-action-request";
 import { submitLifeOpsMainlineFeedbackAction } from "./_actions/lifeops-feedback-mainline";
+import { submitLifeOpsStructuredSourceAction } from "./_actions/lifeops-structured-input";
+import { listLifeOpsDeadlineInputCategories } from "@/lib/plan/reality/lifeops/lifeops-structured-write";
 import type { LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
+import type { LifeOpsSourceInputResultToken } from "./LifeOpsSourceInputCard";
 
 import PlanClient from "./PlanClient";
 
@@ -38,6 +41,8 @@ export const dynamic = "force-dynamic";
 
 /** A-4-c23: 本線 card の PRG token allowlist（URL 生値を表示系へ流さない）。 */
 const LIFEOPS_MAINLINE_FB_TOKENS = new Set(["ok", "ok_done", "gate_off", "duplicate_cooldown", "insert_failed", "invalid", "denied"]);
+/** A-4-c33: 登録入口（structured source input）の token allowlist。 */
+const LIFEOPS_SRC_TOKENS = new Set(["ok", "already_exists", "invalid", "gate_off", "denied"]);
 
 export default async function PlanPage({
   searchParams,
@@ -66,6 +71,8 @@ export default async function PlanPage({
   let lifeOpsCard: LifeOpsMainlineCardDto | undefined;
   let lifeOpsActionResult: LifeOpsMainlineResultToken | undefined;
   let lifeOpsPendingDone: { candidateKey: string; label: string } | undefined;
+  let lifeOpsInputCategories: readonly { id: string; label: string }[] | undefined;
+  let lifeOpsInputResult: LifeOpsSourceInputResultToken | undefined;
   if (
     isLifeOpsMainlineAllowed({
       mainline: PLAN_FLAGS.lifeopsMainline,
@@ -88,6 +95,14 @@ export default async function PlanPage({
       if (hit) lifeOpsPendingDone = { candidateKey: confirmKey, label: hit.label };
       else lifeOpsActionResult = lifeOpsActionResult ?? "invalid";
     }
+
+    // A-4-c33: 登録入口（候補 card と独立・**source 0 件でも出る**＝bootstrap）。write flag も ON の時だけ。
+    if (PLAN_FLAGS.lifeopsStructuredSourceWrite) {
+      lifeOpsInputCategories = listLifeOpsDeadlineInputCategories();
+      const srcRaw = sp?.lifeopsSrc;
+      lifeOpsInputResult =
+        typeof srcRaw === "string" && LIFEOPS_SRC_TOKENS.has(srcRaw) ? (srcRaw as LifeOpsSourceInputResultToken) : undefined;
+    }
   }
 
   // 3. Hand-off to client
@@ -100,6 +115,9 @@ export default async function PlanPage({
       lifeOpsAction={lifeOpsCard ? submitLifeOpsMainlineFeedbackAction : undefined}
       lifeOpsActionResult={lifeOpsActionResult}
       lifeOpsPendingDone={lifeOpsPendingDone}
+      lifeOpsInputCategories={lifeOpsInputCategories}
+      lifeOpsInputAction={lifeOpsInputCategories ? submitLifeOpsStructuredSourceAction : undefined}
+      lifeOpsInputResult={lifeOpsInputResult}
     />
   );
 }

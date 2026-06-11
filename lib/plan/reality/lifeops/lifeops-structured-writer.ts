@@ -16,7 +16,11 @@ import "server-only";
  *   - **本 slice では呼び出し元なし（dormant）**。実 write smoke は別 GO（mini-design §1-10 の計画に従う）。
  */
 
-import { LIFEOPS_STRUCTURED_SOURCES_TABLE, type LifeOpsStructuredSourceRow } from "./lifeops-structured-storage";
+import {
+  LIFEOPS_STRUCTURED_SOURCES_TABLE,
+  LIFEOPS_STRUCTURED_SOURCE_COLUMNS_SQL,
+  type LifeOpsStructuredSourceRow,
+} from "./lifeops-structured-storage";
 import {
   buildLifeOpsStructuredInsertRow,
   hasActiveStructuredDuplicate,
@@ -57,6 +61,36 @@ export interface LifeOpsStructuredSourceWriter {
     input: LifeOpsStructuredSourceInput,
     opts?: { readonly existing?: readonly LifeOpsStructuredSourceRow[] },
   ): Promise<LifeOpsStructuredWriteResult>;
+}
+
+interface GuardSelectChain {
+  eq(column: string, value: string): GuardSelectChain;
+  limit(n: number): PromiseLike<{ readonly data: readonly Record<string, unknown>[] | null; readonly error: { readonly message: string } | null }>;
+}
+/** duplicate guard 用 read client（select のみ・実 Supabase client が structural に満たす）。 */
+export interface LifeOpsStructuredGuardReadClient {
+  from(table: string): { select(columns: string): GuardSelectChain };
+}
+
+/**
+ * A-4-c33: duplicate guard 用の **active rows 読み口**（c32 finding 対応・server-only・**write gate 配下**）。
+ *   duplicate 判定は write 操作の一部＝write flag OFF / production → **query 0**（fail-closed-to-empty）。
+ *   column-restricted（c27 COLUMNS）・active のみ・LIMIT 100。**rows は UI/DTO へ出さず server action 内で writer へ渡すだけ**。
+ */
+export async function readActiveStructuredRowsForDuplicateGuard(
+  client: LifeOpsStructuredGuardReadClient,
+  userId: string,
+  env: LifeOpsStructuredWriteEnv,
+): Promise<readonly LifeOpsStructuredSourceRow[]> {
+  if (!isLifeOpsStructuredSourceWriteAllowed(env)) return []; // write 不能なら duplicate 判定も不要（query 0）
+  const res = await client
+    .from(LIFEOPS_STRUCTURED_SOURCES_TABLE)
+    .select(LIFEOPS_STRUCTURED_SOURCE_COLUMNS_SQL)
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .limit(100);
+  if (res.error || !res.data) return []; // fail-open（読めない時は guard 縮退・writer の DB 制約が最終防壁）
+  return res.data as unknown as readonly LifeOpsStructuredSourceRow[];
 }
 
 /**

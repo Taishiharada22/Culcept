@@ -170,8 +170,9 @@ describe("c31 — writer（⑫⑬・fake client・insert 1 件のみ）", () => 
     for (const rel of fs.readdirSync(path.join(process.cwd(), "app"), { recursive: true }) as string[]) {
       const s = rel.toString();
       if (!/\.(ts|tsx)$/.test(s)) continue;
-      if (fs.readFileSync(path.join(process.cwd(), "app", s), "utf8").includes("lifeops-structured-writer")) offenders.push(s);
+      if (fs.readFileSync(path.join(process.cwd(), "app", s), "utf8").includes("lifeops-structured-writer")) offenders.push(s.replace(/\\/g, "/"));
     }
-    expect(offenders).toEqual([]); // UI 入力 slice（別 CEO GO）まで呼び出し元なし
+    // A-4-c33: 登録入口 server action だけが公認 consumer（"use server"・無断拡散を検出）。
+    expect(offenders.sort()).toEqual(["(culcept)/plan/_actions/lifeops-structured-input.ts"]);
   });
 });

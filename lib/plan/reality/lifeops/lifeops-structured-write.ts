@@ -15,12 +15,22 @@
  *   - payload に **id/created_at/updated_at を含めない**（DB DEFAULT・c12「明示 null は DEFAULT を殺す」教訓）。
  */
 
-import type { LifeOpsCategoryId } from "../../../lifeops/category-model";
+import { LIFE_OPS_CATEGORY_MODEL, type LifeOpsCategoryId } from "../../../lifeops/category-model";
 import type { BeautyMenu } from "../../../lifeops/cadence-model";
 import { lifeOpsFeedbackHandle, parseLifeOpsFeedbackHandle } from "./lifeops-feedback-source";
 import { deriveLifeOpsOccurrenceKey, deriveLifeOpsCadenceOccurrenceKey } from "./lifeops-structured-source";
 import type { LifeOpsStructuredSourceRow } from "./lifeops-structured-storage";
 import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+
+/**
+ * A-4-c33: deadline 入力 picker の選択肢（**辞書 `money_admin` group 由来**・表示名は辞書 label・自由文なし）。
+ *   GPT 例の「支払い/書類提出」等は辞書未登録のため出ない（辞書拡張=別 slice・c27 の app-layer validation 方針と整合）。
+ */
+export function listLifeOpsDeadlineInputCategories(): readonly { readonly id: LifeOpsCategoryId; readonly label: string }[] {
+  return Object.entries(LIFE_OPS_CATEGORY_MODEL)
+    .filter(([, def]) => (def as { group: string }).group === "money_admin")
+    .map(([id, def]) => ({ id: id as LifeOpsCategoryId, label: (def as { label: string }).label }));
+}
 
 /** UI から将来渡してよい入力（**構造化値のみ**・自由文/owner/id 系 field は存在しない）。 */
 export interface LifeOpsStructuredDeadlineInput {

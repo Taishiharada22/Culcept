@@ -41,6 +41,7 @@ describe("c19/c23 — mainline gate consumer は公認 2 file のみ（無断拡
     }
     expect(offenders.sort()).toEqual([
       "(culcept)/plan/_actions/lifeops-feedback-mainline.ts", // A-4-c23 本線 server action（gate+flag）
+      "(culcept)/plan/_actions/lifeops-structured-input.ts", // A-4-c33 登録入口 server action（gate）
       "(culcept)/plan/page.tsx", // A-4-c23 本線 card の gated 合成（gate+flag）
     ]);
   });

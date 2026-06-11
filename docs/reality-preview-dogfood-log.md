@@ -282,3 +282,13 @@
 - ★c31 writer contract が実 DB の RLS/CHECK/reader/normalizer/duplicate と噛み合うことを実証＝**UI 入力は本当に表層になった**
 - finding（c33 へ）: duplicate guard の existing は row 形だが c29 reader は c26 DTO を返す → UI server action 用に「active rows の column-restricted 読み」か「DTO 受けの guard overload」を c33 で整備
 - full suite 20567 GREEN・tsc 55
+
+### [2026-06-11] record 46 — A-4-c33 structured source input UI（staging gated・deadline first・CEO smoke 手順で停止）
+- ★設計核心: **登録入口（生活まわりを登録）≠ 候補 card** — source 0 件（候補 card null）でも入口が出る独立 card で bootstrap 問題を解消。表示条件=mainline gate ∧ LIFEOPS_STRUCTURED_SOURCE_WRITE（default OFF→props 不渡し=非表示・production 二重 deny）
+- UI: 種類=辞書 money_admin group 由来 enum picker（確定申告/免許の更新/パスポートの更新・表示名は辞書 label）+ `<input type="date">` + 登録。**入力要素は select/date/hidden のみ**（text/textarea 不存在 lock・送れる field は categoryId/dueDateISO/sourceType の 3 名のみを HTML lock）。GPT 例の支払い/書類提出は辞書未登録=picker 対象外（辞書拡張は別 slice）
+- server action（`_actions/lifeops-structured-input.ts`）: formData から読むのは **4 名のみ**（occurrence/user_id/id/confidence/status を読まない static lock・action 内で occurrence を組み立てない）→ mainline gate→auth 注入→**c31 builder（writer 経由・occurrence 自動生成）**→duplicate guard→PRG `/plan?lifeopsSrc=`
+- c32 finding 対応: `readActiveStructuredRowsForDuplicateGuard`（writer module 内・**write gate 配下=OFF/production で query 0** を fake lock・column-restricted・rows は UI/DTO 非搬出）
+- 文言: 成功「登録しました。生活まわりの提案に反映します。」/重複「同じ期限はすでに登録されています。」/不正「期限日を確認してください。」+footnote「予定には追加しません。生活提案の材料として使います。」（success のみ成功色）
+- lock 進化 2 件: c31 writer consumer=input action を公認／c19 mainline gate consumer=3 file へ
+- ⚠flake 3 回目（proposalPlanClientHelpers の PlanClient import・単体 36/36 PASS・再実行 green=並列 import race と推定・watch 継続）
+- GPT 16 lock（24 case 相当）・full suite 20576 GREEN・tsc 55
