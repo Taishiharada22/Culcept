@@ -1,5 +1,9 @@
 # Handoff: Session B — Alter Tab UI / Layout（mock 試作）
 
+> **歴史的文書（2026-06-12 注記）**: Session B は正式 close 済み（branch `claude/session-b-ui-from-7a817ab1`・HEAD `9cdbfd5d`）。
+> 本書の数値禁止条項（HARD 3 等）は 2026-06-11 の CEO visual policy 緩和により **visual-contract 改訂版（§0.1）を正とする**。
+> 将来の消費者は `docs/alter-tab-visual-contract.md`（v0.1）と `docs/day-state-stage1-preflight.md` を参照すること。
+
 - 日付: 2026-06-11 / 発行: 契約凍結セッション（claude/xenodochial-chatelet-0023b2）
 - 前提: CEO が Session B 起動を承認していること（設計書 §10.4-3）
 - 読むべき契約（読み取り専用・変更禁止）: ①`docs/alter-tab-visual-contract.md`（視覚正本 — 全節）②`docs/day-state-alter-tab-v0-design.md` §7（タブ構成）・§9（人体バッテリー）③`docs/day-state-stage0-closeout.md`（Stage 0 の実装範囲と境界）④参照画像（CEO 提供 iPhone モック — 意図的に再現しない要素は visual-contract §2）
