@@ -32,11 +32,11 @@ export interface HumanBatteryFigureProps {
   className?: string;
 }
 
-// body.png 内のゾーン境界（v6 clean mask の alpha 行幅実測: 頭 2-8% / 肩 9% / 胴下〜）
-const HEAD_TOP_PCT = 2;
-const NECK_PCT = 9; // 頭部容器の下端（肩の手前）
-const BODY_TOP_PCT = 9; // 体ゾーンの上端
-const HEART_CENTER = { xPct: 45, yPct: 15 }; // 胸の左上（CEO 指示）
+// body.png 内のゾーン境界（alpha 行幅の実測値: 頭 1-12% / 首くびれ 12% / 肩開始 18%）
+const HEAD_TOP_PCT = 1;
+const NECK_PCT = 12; // 頭部容器の下端（顎）
+const BODY_TOP_PCT = 16; // 体ゾーンの上端（肩の手前）
+const HEART_CENTER = { xPct: 45.5, yPct: 18.5 }; // 胸の左上（CEO B5 指示）
 const FEET_PCT = 99;
 
 const bodyMaskStyle: React.CSSProperties = {
@@ -123,24 +123,27 @@ export function HumanBatteryFigure({
         </>
       )}
 
-      {/* 2. base human body（器。連続輪郭の clean シルエット・均一フィル。1 回描画で solid に） */}
+      {/* 2. base human body（器。芯のある半透明 — blur なし・色は液体レイヤーのみが持つ） */}
       <img
         src={bodyImg.src}
         alt=""
         aria-hidden="true"
-        className={`absolute inset-0 h-full w-full select-none drop-shadow-[0_2px_6px_rgba(99,102,241,0.18)] ${allUnknown ? "opacity-40 saturate-0" : ""}`}
+        className={`absolute inset-0 h-full w-full select-none ${allUnknown ? "opacity-35 saturate-0" : ""}`}
         draggable={false}
       />
       {!allUnknown && (
-        /* ガラス光沢（上左からの薄いシーン。blur なし） */
-        <div
-          className="absolute inset-0"
-          style={{
-            ...bodyMaskStyle,
-            background:
-              "linear-gradient(118deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.15) 13%, rgba(255,255,255,0) 24%)",
-          }}
-        />
+        <>
+          <img src={bodyImg.src} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full select-none opacity-85" draggable={false} />
+          {/* ガラス光沢（上左からの薄いシーン。blur なし） */}
+          <div
+            className="absolute inset-0"
+            style={{
+              ...bodyMaskStyle,
+              background:
+                "linear-gradient(112deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.12) 14%, rgba(255,255,255,0) 26%)",
+            }}
+          />
+        </>
       )}
 
       {!allUnknown && (
