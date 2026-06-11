@@ -1,22 +1,24 @@
 "use client";
 
 /**
- * AlterTabBody — Alter タブのコンテンツ領域（構成ルート）
+ * AlterTabBody — Alter タブのコンテンツ領域（構成ルート・v2: 参照画像レイアウト）
  *
- * 正本: docs/alter-tab-visual-contract.md §3（画面構成）/ §5（コンポーネントマップ）
+ * 正本: docs/alter-tab-visual-contract.md §3 / §5
+ * 構成（参照画像準拠）:
+ *  1. ヘッダー
+ *  2. 上段 2 カラング: あなたのバッテリー（人体 + コールアウト + コネクタ）| 状態の背景（昨日までの影響）
+ *  3. 周辺カード 2x2（外出耐性 / 夜の余白 / 持ち越し / 成立見込み）
+ *  4. 今日の流れ（事実横帯。予測曲線なし）
+ *  5. Night Check / 5'. Morning Reveal
+ *  6-7. 会話エリア（見立てメッセージ → チップ → 直近往復）→ CTA → 入力バー
  * 規律:
- *  - データは props の AlterBatteryViewModel のみ（mock）。fetch / hook 接続 / 保存なし
- *  - セグメントタブ・ボトムナビは作らない（PlanClient / グローバルナビ管轄）
- *  - 構成比: 人体バッテリー > 周辺カード > 今日の流れ > 会話（チャットは主役にしない）
+ *  - データは props の AlterBatteryViewModel のみ（mock）。fetch / 保存なし
  *  - コールドスタート（全系統 unknown）: チップ列を人体直下に昇格（§3.6）
- *  - Morning Reveal は §3.5'（B1 前は「記録した」系固定文のみ。反映済み表現禁止）
- *  - 補正シートの選択は視覚フィードバック + モックコールバックのみ
- *    （水位・帯語・source の実更新は Session A の applyUserCorrection — Stage 1 配線）
+ *  - 補正シートの選択は視覚フィードバック + モックコールバックのみ（実更新は Stage 1 の applyUserCorrection）
  */
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { FadeInView } from "@/components/ui/glassmorphism-design";
 import type { AlterBatteryViewModel } from "@/lib/plan/dayState/dayStateTypes";
 import { AlterChatPreview, type AlterChatTurn } from "./AlterChatPreview";
 import { AlterCtaRow } from "./AlterCtaRow";
@@ -25,9 +27,10 @@ import { AlterInputBar } from "./AlterInputBar";
 import { AlterQuickReplies } from "./AlterQuickReplies";
 import { HumanBatteryCard } from "./HumanBatteryCard";
 import { NightCheckCard } from "./NightCheckCard";
-import { RealityContextCards, type ContextSheetTarget } from "./RealityContextCards";
+import { ContextCardGrid, StateBackgroundColumn, type ContextSheetTarget } from "./RealityContextCards";
 import { TodayFlowStrip } from "./TodayFlowStrip";
 import { BAND_LABEL, type ZoneKey } from "./bandDisplay";
+import { SunIcon } from "./alterIcons";
 
 export type CorrectionTarget = ZoneKey | "outingTolerance";
 export type CorrectionDirection = "lower" | "match" | "higher";
@@ -37,6 +40,7 @@ export interface AlterTabBodyProps {
   vm: AlterBatteryViewModel;
   /** 直近 1-2 往復（mock。実チャット接続は Stage 1） */
   recentExchange?: AlterChatTurn[];
+  alterMessageTime?: string;
   onCorrection?: (target: CorrectionTarget, direction: CorrectionDirection) => void;
   onSleepInput?: (choice: SleepChoice) => void;
   onNightCheckAnswer?: (chip: string) => void;
@@ -63,33 +67,28 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
   if (dismissed) return null;
 
   return (
-    <div className="rounded-3xl border border-violet-100 bg-gradient-to-br from-violet-50/80 to-white/70 p-4 shadow-sm backdrop-blur-sm">
+    <div className="rounded-3xl border border-violet-100 bg-gradient-to-br from-violet-50/80 to-white/80 p-3.5 shadow-sm backdrop-blur-sm">
       <div className="flex items-center gap-1.5">
-        <span className="text-violet-400">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2 v3 M12 19 v3 M2 12 h3 M19 12 h3 M4.5 4.5 l2 2 M17.5 17.5 l2 2 M19.5 4.5 l-2 2 M6.5 17.5 l-2 2" />
-          </svg>
+        <span className="flex h-5 w-5 items-center justify-center rounded-md bg-violet-100/90 text-violet-500">
+          <SunIcon size={11} />
         </span>
-        <span className="text-[11px] font-medium text-slate-500">きのうの答え合わせ</span>
+        <span className="text-[10px] font-medium text-slate-500">きのうの答え合わせ</span>
         <button
           type="button"
           onClick={() => setDismissed(true)}
           className="ml-auto rounded-full p-1 text-slate-300 transition-colors hover:text-slate-500"
           aria-label="閉じる"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
             <path d="M6 6 L18 18 M18 6 L6 18" />
           </svg>
         </button>
       </div>
-      <div className="mt-2 space-y-1.5">
+      <div className="mt-1.5 space-y-1">
         {morningReveal.items.map((item) => (
-          <p key={item.label} className="text-[13px] leading-relaxed text-slate-700">
+          <p key={item.label} className="text-[12.5px] leading-relaxed text-slate-700">
             {item.verdict === "match" ? (
-              <>
-                きのうの「{item.label} {BAND_LABEL[item.estimatedBand]}」は、見立てどおりだったようです。
-              </>
+              <>きのうの「{item.label} {BAND_LABEL[item.estimatedBand]}」は、見立てどおりだったようです。</>
             ) : (
               <>
                 きのうは「{item.label} {BAND_LABEL[item.estimatedBand]}」と見ていました。実際は「
@@ -99,7 +98,7 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
           </p>
         ))}
       </div>
-      <p className="mt-2 text-[11px] text-slate-400">{morningReveal.adjustmentNote}</p>
+      <p className="mt-1.5 text-[10px] text-slate-400">{morningReveal.adjustmentNote}</p>
     </div>
   );
 }
@@ -107,6 +106,7 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
 export function AlterTabBody({
   vm,
   recentExchange,
+  alterMessageTime,
   onCorrection,
   onSleepInput,
   onNightCheckAnswer,
@@ -169,67 +169,60 @@ export function AlterTabBody({
     <div className="relative min-h-screen">
       <AlterHeader onSettingsTap={onSettingsTap} />
 
-      <div className="mx-auto max-w-3xl space-y-10 px-4 py-3 pb-24">
-        {/* 2. メインカード: あなたのバッテリー */}
-        <FadeInView>
-          <HumanBatteryCard battery={vm.battery} onZoneTap={(z) => setSheet({ kind: "correction", target: z })} pulseZone={pulseZone} />
-          <AnimatePresence>
-            {ack && (
-              <motion.p
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="mt-2 px-2 text-center text-[11px] text-indigo-400"
-              >
-                {ack}
-              </motion.p>
-            )}
-          </AnimatePresence>
-          {/* コールドスタート: チップ列を人体直下に昇格（§3.6） */}
-          {isColdStart && (
-            <div className="mt-3">
-              <AlterQuickReplies
-                quickReplies={vm.quickReplies}
-                lead="まだ読めていません。いまの感じをタップで教えてもらえると、今日の見立てが始まります"
-                onSelect={onQuickReply}
-              />
-            </div>
+      <div className="mx-auto max-w-3xl space-y-2 px-3 pb-24 pt-2">
+        {/* 2. あなたのバッテリー（全幅・人体中央 + 左右コールアウト） */}
+        <HumanBatteryCard
+          battery={vm.battery}
+          onZoneTap={(z) => setSheet({ kind: "correction", target: z })}
+          pulseZone={pulseZone}
+        />
+
+        {/* 2'. 状態の背景（昨日までの影響） */}
+        <StateBackgroundColumn cards={vm.contextCards} onCardTap={handleContextCardTap} />
+
+        <AnimatePresence>
+          {ack && (
+            <motion.p
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="px-2 text-center text-[10.5px] text-indigo-400"
+            >
+              {ack}
+            </motion.p>
           )}
-        </FadeInView>
+        </AnimatePresence>
 
-        {/* 3. 周辺カード */}
-        <FadeInView delay={0.05}>
-          <RealityContextCards cards={vm.contextCards} onCardTap={handleContextCardTap} />
-        </FadeInView>
+        {/* コールドスタート: チップ列を人体直下に昇格（§3.6） */}
+        {isColdStart && (
+          <div className="rounded-3xl border border-white bg-white/80 p-3 shadow-sm backdrop-blur-sm">
+            <AlterQuickReplies
+              quickReplies={vm.quickReplies}
+              lead="まだ読めていません。いまの感じをタップで教えてもらえると、今日の見立てが始まります"
+              onSelect={onQuickReply}
+            />
+          </div>
+        )}
 
-        {/* 4. 今日の流れ（事実ベース） */}
-        <FadeInView delay={0.1}>
-          <TodayFlowStrip flowTimeline={vm.flowTimeline} />
-        </FadeInView>
+        {/* 3. 周辺カード 2x2 */}
+        <ContextCardGrid cards={vm.contextCards} onCardTap={handleContextCardTap} />
+
+        {/* 4. 今日の流れ（事実横帯） */}
+        <TodayFlowStrip flowTimeline={vm.flowTimeline} />
 
         {/* 5. Night Check（state=hidden なら描画なし） */}
-        {vm.nightCheck.state !== "hidden" && (
-          <FadeInView delay={0.1}>
-            <NightCheckCard nightCheck={vm.nightCheck} onAnswer={onNightCheckAnswer} />
-          </FadeInView>
-        )}
+        <NightCheckCard nightCheck={vm.nightCheck} onAnswer={onNightCheckAnswer} />
 
         {/* 5'. Morning Reveal（朝のみ・null なら描画なし） */}
-        {vm.morningReveal !== null && (
-          <FadeInView delay={0.1}>
-            <MorningRevealCard morningReveal={vm.morningReveal} />
-          </FadeInView>
-        )}
+        {vm.morningReveal !== null && <MorningRevealCard morningReveal={vm.morningReveal} />}
 
-        {/* 6-7. 会話エリア（コンパクト）: 見立てメッセージ → チップ列 → 直近往復 → CTA → 入力バー */}
-        <FadeInView delay={0.15}>
-          <div className="space-y-3">
-            <AlterChatPreview alterMessage={vm.alterMessage} recentExchange={recentExchange} />
-            {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}
-            <AlterCtaRow onCompose={onCompose} onViewAdjustments={onViewAdjustments} />
-            <AlterInputBar onSend={onSend} />
-          </div>
-        </FadeInView>
+        {/* 6-7. 会話エリア → CTA → 入力バー */}
+        <div className="space-y-2 pt-1">
+          <AlterChatPreview alterMessage={vm.alterMessage} alterMessageTime={alterMessageTime} recentExchange={recentExchange} />
+          {!isColdStart && <AlterQuickReplies quickReplies={vm.quickReplies} onSelect={onQuickReply} />}
+          <AlterCtaRow onCompose={onCompose} onViewAdjustments={onViewAdjustments} />
+          <AlterInputBar onSend={onSend} />
+        </div>
       </div>
 
       {/* 補正シート（系統 / 外出耐性 / 睡眠入力）
@@ -256,44 +249,44 @@ export function AlterTabBody({
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
           >
-              <div className="mx-auto max-w-3xl rounded-t-3xl border border-white/90 bg-white/95 p-5 pb-8 shadow-2xl backdrop-blur-xl">
-                <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-                {sheet.kind === "correction" ? (
-                  <>
-                    <p className="text-sm font-semibold text-slate-800">
-                      {sheetZoneLabel}の見立て、合っていますか？
-                    </p>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {CORRECTION_CHOICES.map((choice) => (
-                        <button
-                          key={choice.direction}
-                          type="button"
-                          onClick={() => handleCorrection(choice.direction)}
-                          className="rounded-2xl border border-slate-200 bg-white px-2 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50"
-                        >
-                          {choice.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm font-semibold text-slate-800">昨夜の眠りは、どうでしたか？</p>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {SLEEP_CHOICES.map((choice) => (
-                        <button
-                          key={choice}
-                          type="button"
-                          onClick={() => handleSleep(choice)}
-                          className="rounded-2xl border border-slate-200 bg-white px-2 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-violet-200 hover:bg-violet-50"
-                        >
-                          {choice}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+            <div className="mx-auto max-w-3xl rounded-t-3xl border border-white/90 bg-white/95 p-5 pb-8 shadow-2xl backdrop-blur-xl">
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
+              {sheet.kind === "correction" ? (
+                <>
+                  <p className="text-sm font-semibold text-slate-800">
+                    {sheetZoneLabel}の見立て、合っていますか？
+                  </p>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {CORRECTION_CHOICES.map((choice) => (
+                      <button
+                        key={choice.direction}
+                        type="button"
+                        onClick={() => handleCorrection(choice.direction)}
+                        className="rounded-2xl border border-slate-200 bg-white px-2 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50"
+                      >
+                        {choice.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-slate-800">昨夜の眠りは、どうでしたか？</p>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {SLEEP_CHOICES.map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => handleSleep(choice)}
+                        className="rounded-2xl border border-slate-200 bg-white px-2 py-2.5 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-violet-200 hover:bg-violet-50"
+                      >
+                        {choice}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

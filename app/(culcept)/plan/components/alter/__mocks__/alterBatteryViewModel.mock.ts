@@ -121,8 +121,9 @@ export const MOCK_VM_COLD_START: AlterBatteryViewModel = {
 };
 
 /** 会話エリアの直近 1-2 往復 mock（VM の外。実チャット接続は Stage 1 — useAlterChat 経由） */
-export type MockChatTurn = { role: "user" | "alter"; text: string };
+export type MockChatTurn = { role: "user" | "alter"; text: string; time?: string };
+export const MOCK_ALTER_MESSAGE_TIME = "09:30";
 export const MOCK_CHAT_EXCHANGE: MockChatTurn[] = [
-  { role: "user", text: "少し疲れてる。外出は軽めにしたい。" },
-  { role: "alter", text: "受け取りました。外出は軽めに見ておきます。" },
+  { role: "user", text: "少し疲れてる。外出は軽めにしたい。", time: "09:31" },
+  { role: "alter", text: "受け取りました。外出は軽めに見ておきます。", time: "09:31" },
 ];

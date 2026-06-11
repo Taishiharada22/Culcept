@@ -20,6 +20,7 @@ import { isCandidateActionsPreviewHostAllowed } from "@/lib/plan/reality/candida
 import { AlterTabBody } from "../components/alter/AlterTabBody";
 import {
   MOCK_ALTER_BATTERY_VM,
+  MOCK_ALTER_MESSAGE_TIME,
   MOCK_CHAT_EXCHANGE,
   MOCK_VM_ANSWERED,
   MOCK_VM_CARRIED_OVER,
@@ -87,7 +88,11 @@ export default async function DevAlterTabPage({
         </div>
       </div>
 
-      <AlterTabBody vm={variant.vm} recentExchange={variant.withChat ? MOCK_CHAT_EXCHANGE : undefined} />
+      <AlterTabBody
+        vm={variant.vm}
+        recentExchange={variant.withChat ? MOCK_CHAT_EXCHANGE : undefined}
+        alterMessageTime={variant.withChat ? MOCK_ALTER_MESSAGE_TIME : undefined}
+      />
     </div>
   );
 }
