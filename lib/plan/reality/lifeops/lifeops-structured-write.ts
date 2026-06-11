@@ -16,7 +16,7 @@
  */
 
 import { LIFE_OPS_CATEGORY_MODEL, type LifeOpsCategoryId } from "../../../lifeops/category-model";
-import type { BeautyMenu } from "../../../lifeops/cadence-model";
+import { listMvpCadences, cadenceKey, type BeautyMenu } from "../../../lifeops/cadence-model";
 import { lifeOpsFeedbackHandle, parseLifeOpsFeedbackHandle } from "./lifeops-feedback-source";
 import { deriveLifeOpsOccurrenceKey, deriveLifeOpsCadenceOccurrenceKey } from "./lifeops-structured-source";
 import type { LifeOpsStructuredSourceRow } from "./lifeops-structured-storage";
@@ -30,6 +30,26 @@ export function listLifeOpsDeadlineInputCategories(): readonly { readonly id: Li
   return Object.entries(LIFE_OPS_CATEGORY_MODEL)
     .filter(([, def]) => (def as { group: string }).group === "money_admin")
     .map(([id, def]) => ({ id: id as LifeOpsCategoryId, label: (def as { label: string }).label }));
+}
+
+/** menu の表示名（固定 3 語辞書・display 専用）。 */
+const MENU_LABELS: Record<BeautyMenu, string> = { cut: "カット", color: "カラー", treatment: "トリートメント" };
+
+/**
+ * A-4-c34: cadence 入力 picker の選択肢（**L-2 `listMvpCadences()` 由来の spec 実在 5 組のみ**）。
+ *   spec なし category は候補化されない（normalizer→unknown→engine skip）ため picker に出さない＝
+ *   「登録したのに何も起きない」混乱を構造的に排除。value は `cadenceKey()` 形式（`beauty_salon:cut`/`eyebrow`）の
+ *   **lookup encoding**（server は信頼せず split→c31 builder の辞書 roundtrip が実検証）。label は辞書 label+menu 名。
+ */
+export function listLifeOpsCadenceInputOptions(): readonly { readonly value: string; readonly label: string }[] {
+  return listMvpCadences().map((spec) => {
+    const def = LIFE_OPS_CATEGORY_MODEL[spec.categoryId as LifeOpsCategoryId] as { label: string } | undefined;
+    const base = def?.label ?? spec.categoryId;
+    return {
+      value: cadenceKey(spec.categoryId as LifeOpsCategoryId, spec.menu),
+      label: spec.menu ? `${base}（${MENU_LABELS[spec.menu]}）` : base,
+    };
+  });
 }
 
 /** UI から将来渡してよい入力（**構造化値のみ**・自由文/owner/id 系 field は存在しない）。 */
@@ -66,7 +86,8 @@ export type LifeOpsStructuredWriteInvalidReason =
   | "invalid_iso" // dueDate/lastCompleted の ISO 不正
   | "missing_due" // deadline に dueDate なし
   | "missing_cadence_fields" // cadence に last も interval もない
-  | "invalid_interval"; // interval が整数 (0,730] でない
+  | "invalid_interval" // interval が整数 (0,730] でない
+  | "future_date"; // A-4-c34: cadence の lastCompleted が未来（「前回やった日」は過去の事実・nowMs 注入時のみ判定）
 
 export type LifeOpsStructuredWriteBuildResult =
   | { readonly ok: true; readonly row: LifeOpsStructuredSourceInsertRow }
@@ -74,8 +95,12 @@ export type LifeOpsStructuredWriteBuildResult =
 
 /**
  * input → 検証 + insert row（**occurrence_key 自動生成・deterministic**）。invalid は ok:false（throw しない）。
+ *   opts.nowMs（caller 注入・pure 維持）: cadence の lastCompleted 未来チェックに使用（A-4-c34・省略時は判定しない=後方互換）。
  */
-export function buildLifeOpsStructuredInsertRow(input: LifeOpsStructuredSourceInput): LifeOpsStructuredWriteBuildResult {
+export function buildLifeOpsStructuredInsertRow(
+  input: LifeOpsStructuredSourceInput,
+  opts?: { readonly nowMs?: number },
+): LifeOpsStructuredWriteBuildResult {
   const menu = input.menu ?? null;
   const parsed = parseLifeOpsFeedbackHandle(lifeOpsFeedbackHandle(input.categoryId, menu));
   if (!parsed || parsed.categoryId !== input.categoryId || parsed.menu !== menu) {
@@ -104,6 +129,9 @@ export function buildLifeOpsStructuredInsertRow(input: LifeOpsStructuredSourceIn
   const interval = input.typicalIntervalDays;
   if (last === null && interval === undefined) return { ok: false, reason: "missing_cadence_fields" };
   if (last !== null && Number.isNaN(Date.parse(last))) return { ok: false, reason: "invalid_iso" };
+  if (last !== null && opts?.nowMs !== undefined && Date.parse(last) > opts.nowMs) {
+    return { ok: false, reason: "future_date" }; // 「前回やった日」は過去の事実（A-4-c34・now は caller 注入＝pure 維持）
+  }
   if (interval !== undefined && (!Number.isInteger(interval) || interval <= 0 || interval > 730)) {
     return { ok: false, reason: "invalid_interval" }; // DB CHECK と同範囲
   }

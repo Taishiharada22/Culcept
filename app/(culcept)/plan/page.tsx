@@ -31,9 +31,9 @@ import { buildLifeOpsMainlineCardDto, type LifeOpsMainlineCardDto } from "@/lib/
 import { parseLifeOpsDoneConfirmToken } from "@/lib/plan/reality/lifeops/lifeops-action-request";
 import { submitLifeOpsMainlineFeedbackAction } from "./_actions/lifeops-feedback-mainline";
 import { submitLifeOpsStructuredSourceAction } from "./_actions/lifeops-structured-input";
-import { listLifeOpsDeadlineInputCategories } from "@/lib/plan/reality/lifeops/lifeops-structured-write";
+import { listLifeOpsDeadlineInputCategories, listLifeOpsCadenceInputOptions } from "@/lib/plan/reality/lifeops/lifeops-structured-write";
 import type { LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
-import type { LifeOpsSourceInputResultToken } from "./LifeOpsSourceInputCard";
+import type { LifeOpsSourceInputResultToken, LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 
 import PlanClient from "./PlanClient";
 
@@ -72,7 +72,9 @@ export default async function PlanPage({
   let lifeOpsActionResult: LifeOpsMainlineResultToken | undefined;
   let lifeOpsPendingDone: { candidateKey: string; label: string } | undefined;
   let lifeOpsInputCategories: readonly { id: string; label: string }[] | undefined;
+  let lifeOpsCadenceOptions: readonly { value: string; label: string }[] | undefined;
   let lifeOpsInputResult: LifeOpsSourceInputResultToken | undefined;
+  let lifeOpsInputResultType: LifeOpsSourceInputSourceType | undefined;
   if (
     isLifeOpsMainlineAllowed({
       mainline: PLAN_FLAGS.lifeopsMainline,
@@ -99,9 +101,12 @@ export default async function PlanPage({
     // A-4-c33: 登録入口（候補 card と独立・**source 0 件でも出る**＝bootstrap）。write flag も ON の時だけ。
     if (PLAN_FLAGS.lifeopsStructuredSourceWrite) {
       lifeOpsInputCategories = listLifeOpsDeadlineInputCategories();
+      lifeOpsCadenceOptions = listLifeOpsCadenceInputOptions(); // A-4-c34: L-2 spec 実在 5 組のみ
       const srcRaw = sp?.lifeopsSrc;
       lifeOpsInputResult =
         typeof srcRaw === "string" && LIFEOPS_SRC_TOKENS.has(srcRaw) ? (srcRaw as LifeOpsSourceInputResultToken) : undefined;
+      // A-4-c34: type も allowlist 検証（文言の出し分けのみに使用・既定 deadline）。
+      lifeOpsInputResultType = sp?.lifeopsSrcType === "cadence" ? "cadence" : "deadline";
     }
   }
 
@@ -116,8 +121,10 @@ export default async function PlanPage({
       lifeOpsActionResult={lifeOpsActionResult}
       lifeOpsPendingDone={lifeOpsPendingDone}
       lifeOpsInputCategories={lifeOpsInputCategories}
+      lifeOpsCadenceOptions={lifeOpsCadenceOptions}
       lifeOpsInputAction={lifeOpsInputCategories ? submitLifeOpsStructuredSourceAction : undefined}
       lifeOpsInputResult={lifeOpsInputResult}
+      lifeOpsInputResultType={lifeOpsInputResultType}
     />
   );
 }

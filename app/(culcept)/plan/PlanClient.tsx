@@ -123,7 +123,7 @@ import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
-import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken } from "./LifeOpsSourceInputCard";
+import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken, type LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 import type { LifeOpsMainlineCardDto } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpers";
 import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
@@ -204,8 +204,11 @@ export interface PlanClientProps {
    *   server が mainline gate ∧ write flag 通過時のみ渡す（default OFF → 不渡し=非表示）。
    */
   lifeOpsInputCategories?: readonly { readonly id: string; readonly label: string }[];
+  /** A-4-c34: 周期 picker（L-2 spec 実在組のみ・server 導出）。 */
+  lifeOpsCadenceOptions?: readonly { readonly value: string; readonly label: string }[];
   lifeOpsInputAction?: (formData: FormData) => Promise<void>;
   lifeOpsInputResult?: LifeOpsSourceInputResultToken;
+  lifeOpsInputResultType?: LifeOpsSourceInputSourceType;
 }
 
 export default function PlanClient({
@@ -216,8 +219,10 @@ export default function PlanClient({
   lifeOpsActionResult,
   lifeOpsPendingDone,
   lifeOpsInputCategories,
+  lifeOpsCadenceOptions,
   lifeOpsInputAction,
   lifeOpsInputResult,
+  lifeOpsInputResultType,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -780,10 +785,16 @@ export default function PlanClient({
           <LifeOpsMainlineCard card={lifeOpsCard} feedbackAction={lifeOpsAction} actionResult={lifeOpsActionResult} pendingDone={lifeOpsPendingDone} />
         </div>
       )}
-      {/* A-4-c33: 登録入口（候補 card と独立＝**候補 0 件でも出る**・gated・bootstrap） */}
-      {lifeOpsInputCategories && lifeOpsInputAction && (
+      {/* A-4-c33/c34: 登録入口（候補 card と独立＝**候補 0 件でも出る**・gated・bootstrap・期限+周期） */}
+      {lifeOpsInputCategories && lifeOpsCadenceOptions && lifeOpsInputAction && (
         <div className="mx-auto max-w-3xl">
-          <LifeOpsSourceInputCard categories={lifeOpsInputCategories} inputAction={lifeOpsInputAction} result={lifeOpsInputResult} />
+          <LifeOpsSourceInputCard
+            categories={lifeOpsInputCategories}
+            cadenceOptions={lifeOpsCadenceOptions}
+            inputAction={lifeOpsInputAction}
+            result={lifeOpsInputResult}
+            resultSourceType={lifeOpsInputResultType}
+          />
         </div>
       )}
       {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小、 9a-impl Step α で useNewShell 統一) ── */}

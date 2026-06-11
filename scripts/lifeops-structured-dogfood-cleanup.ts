@@ -36,12 +36,14 @@ const PROJECT_REF = process.env.STAGING_SUPABASE_PROJECT_REF ?? "";
 const EMAIL = process.env.STAGING_USER_A_EMAIL ?? "";
 const PASSWORD = process.env.STAGING_USER_A_PASSWORD ?? "";
 const CATEGORY = process.env.LIFEOPS_STRUCTURED_CLEANUP_CATEGORY ?? "tax_filing";
+const SOURCE_TYPE = process.env.LIFEOPS_STRUCTURED_CLEANUP_TYPE ?? "deadline"; // A-4-c34: deadline|cadence
 const MAX_DELETE = Number(process.env.LIFEOPS_STRUCTURED_CLEANUP_MAX ?? "2");
 
 function preflight(): void {
   if (!GO) fatal("GO 未設定（LIFEOPS_STRUCTURED_CLEANUP_GO=1）。");
   if (process.env.NODE_ENV === "production") fatal("NODE_ENV=production 不可。");
   if (!/^[a-z_]+$/.test(CATEGORY)) fatal("CATEGORY 不正（辞書 id 形式のみ）。");
+  if (!["deadline", "cadence"].includes(SOURCE_TYPE)) fatal("TYPE 不正（deadline|cadence）。");
   if (!Number.isInteger(MAX_DELETE) || MAX_DELETE < 1 || MAX_DELETE > 5) fatal("MAX 不正（1..5）。");
   for (const [k, v] of [["URL", SB_URL], ["ANON", SB_ANON], ["REF", PROJECT_REF], ["EMAIL", EMAIL], ["PW", PASSWORD]]) if (!v) fatal(`Missing ${k}`);
   if (/service_role/i.test(SB_ANON)) fatal("anon key に service_role 混入。");
@@ -52,7 +54,7 @@ function preflight(): void {
   const ref = host.match(/^([a-z0-9]+)\.supabase\.(co|in)$/)?.[1];
   if (ref === PRODUCTION_PROJECT_REF) fatal("PRODUCTION GUARD: host 本番。");
   if (ref !== STAGING_PROJECT_REF) fatal("STAGING GUARD: host ref 不一致。");
-  log(`▶ target = staging host ${host}（c33b structured cleanup・category=${CATEGORY}・mode=${CONFIRM ? "DELETE" : "check-only"}・max=${MAX_DELETE}）`);
+  log(`▶ target = staging host ${host}（c33b structured cleanup・type=${SOURCE_TYPE}・category=${CATEGORY}・mode=${CONFIRM ? "DELETE" : "check-only"}・max=${MAX_DELETE}）`);
 }
 
 async function main(): Promise<void> {
@@ -69,12 +71,12 @@ async function main(): Promise<void> {
   const sel = await sb
     .from(LIFEOPS_STRUCTURED_SOURCES_TABLE)
     .select("occurrence_key")
-    .eq("source_type", "deadline")
+    .eq("source_type", SOURCE_TYPE)
     .eq("category_id", CATEGORY)
     .eq("status", "active");
   if (sel.error) fatal(`select 失敗: ${sel.error.message}`);
   const rows = (sel.data ?? []) as { occurrence_key: string | null }[];
-  log(`▶ matched（deadline ∧ ${CATEGORY} ∧ active）: ${rows.length} 件 ${rows.map((r) => r.occurrence_key ?? "(null)").join(", ")}`);
+  log(`▶ matched（${SOURCE_TYPE} ∧ ${CATEGORY} ∧ active）: ${rows.length} 件 ${rows.map((r) => r.occurrence_key ?? "(null)").join(", ")}`);
 
   if (rows.length === 0) {
     log("\n✅ PASS — 対象 0 件（cleanup 不要・冪等）。");
@@ -91,7 +93,7 @@ async function main(): Promise<void> {
   const del = await sb
     .from(LIFEOPS_STRUCTURED_SOURCES_TABLE)
     .delete()
-    .eq("source_type", "deadline")
+    .eq("source_type", SOURCE_TYPE)
     .eq("category_id", CATEGORY)
     .eq("status", "active");
   if (del.error) fatal(`delete 失敗: ${del.error.message}`);

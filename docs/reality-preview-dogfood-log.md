@@ -298,3 +298,11 @@
 - ★**UI 経由の occurrence key が正形式**: `license_renewal:2026-06-11` / `license_renewal:2026-06-12`（`::` なし・dueDate 由来＝c32 補正が本線 UI で実証・c30 finding 完全クローズ）
 - cleanup（CEO 委任→Claude 実行）: 新 guarded script `lifeops-structured-dogfood-cleanup.ts`（check→confirm 二段・category 指定・上限件数 guard）で **exact 2 件削除（total 2→0）** → 最終 smoke 全 0（M1=0/structured=0/normalized=0）
 - 学び: CEO は picker から tax_filing でなく license_renewal を選択（想定 category 決め打ちの cleanup 手順は脆い）→ 本 script は category パラメータ化+全 money_admin 走査で対応
+
+### [2026-06-11] record 48 — A-4-c34 cadence input UI（staging gated・CEO smoke 手順で停止）
+- ★audit 確定 2 点: ①**interval-only は候補にならない**（normalizer が interval を L-9 予約 drop→unknown→engine skip）→ GPT 指示どおり lastCompletedAt **必須**が正解 ②**候補化には L-2 spec 必須** → picker は `listMvpCadences()` 由来の **spec 実在 5 組のみ**（美容院カット/カラー・眉・食料品・日用品＝「登録したのに何も起きない」混乱を構造排除）
+- UI: 種類 switcher（client state 必要）は置かず **期限/周期の 2 独立 form を縦積み**（presentational 維持・JS 不要）。入力要素 select/date/number/hidden のみ・送信 field 全集合 6 名を HTML lock
+- cadenceOption=`cadenceKey()` 形式の lookup encoding（信頼せず split→builder 辞書 roundtrip が実検証）。**future date=invalid**（builder を opts.nowMs で拡張=pure 維持・新 reason future_date・deadline の未来 dueDate は対象外）
+- PRG に lifeopsSrcType 追加（allowlist 検証）→ type 別文言（周期=「同じ周期は…」「前回の日付を…」・deadline 側不変 lock）。occurrence=c32 形式（eyebrow:cadence・:: なし）
+- cleanup script に TYPE param（deadline|cadence）追加。c34b CEO smoke checklist は報告で提示（Claude は UI 不実行）
+- GPT 18 lock（更新+新規 4 block）・reality 1482・full suite 20580 GREEN・tsc 55

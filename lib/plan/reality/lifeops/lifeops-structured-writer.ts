@@ -59,7 +59,7 @@ export interface LifeOpsStructuredSourceWriter {
    */
   writeSource(
     input: LifeOpsStructuredSourceInput,
-    opts?: { readonly existing?: readonly LifeOpsStructuredSourceRow[] },
+    opts?: { readonly existing?: readonly LifeOpsStructuredSourceRow[]; readonly nowMs?: number },
   ): Promise<LifeOpsStructuredWriteResult>;
 }
 
@@ -104,7 +104,7 @@ export function createLifeOpsStructuredSourceWriter(
   return {
     async writeSource(input, opts) {
       if (!isLifeOpsStructuredSourceWriteAllowed(env)) return { written: false, reason: "gate_off" }; // query 0
-      const built = buildLifeOpsStructuredInsertRow(input);
+      const built = buildLifeOpsStructuredInsertRow(input, { nowMs: opts?.nowMs }); // future_date 判定は caller の now 注入時のみ
       if (!built.ok) return { written: false, reason: built.reason }; // query 0
       if (hasActiveStructuredDuplicate(opts?.existing ?? [], built.row)) {
         return { written: false, reason: "already_exists" }; // query 0・2 件作らない

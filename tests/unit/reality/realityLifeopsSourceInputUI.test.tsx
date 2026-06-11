@@ -12,7 +12,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import * as fs from "fs";
 import * as path from "path";
 import { LifeOpsSourceInputCard } from "@/app/(culcept)/plan/LifeOpsSourceInputCard";
-import { listLifeOpsDeadlineInputCategories, buildLifeOpsStructuredInsertRow } from "@/lib/plan/reality/lifeops/lifeops-structured-write";
+import {
+  listLifeOpsDeadlineInputCategories,
+  listLifeOpsCadenceInputOptions,
+  buildLifeOpsStructuredInsertRow,
+} from "@/lib/plan/reality/lifeops/lifeops-structured-write";
 import { readActiveStructuredRowsForDuplicateGuard, type LifeOpsStructuredGuardReadClient } from "@/lib/plan/reality/lifeops/lifeops-structured-writer";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
 import { isLifeOpsStructuredSourceWriteAllowed } from "@/lib/plan/reality/lifeops/lifeops-structured-write";
@@ -23,8 +27,11 @@ const STAGING_URL = `https://${STAGING_PROJECT_REF}.supabase.co`;
 const PROD_URL = `https://${PRODUCTION_PROJECT_REF}.supabase.co`;
 const noop = async (_: FormData) => {};
 const cats = listLifeOpsDeadlineInputCategories();
-const render = (result?: "ok" | "already_exists" | "invalid") =>
-  renderToStaticMarkup(<LifeOpsSourceInputCard categories={cats} inputAction={noop} result={result} />);
+const cadenceOpts = listLifeOpsCadenceInputOptions();
+const render = (result?: "ok" | "already_exists" | "invalid", resultSourceType?: "deadline" | "cadence") =>
+  renderToStaticMarkup(
+    <LifeOpsSourceInputCard categories={cats} cadenceOptions={cadenceOpts} inputAction={noop} result={result} resultSourceType={resultSourceType} />,
+  );
 
 describe("c33 — gate（①②③・page 配線 static）", () => {
   it("①②production/default OFF では gate false（page は props 不渡し=非表示）③staging+両 flag で true", () => {
@@ -53,18 +60,21 @@ describe("c33 — render contract（④⑤⑥⑬・bootstrap 分離）", () => {
   it("⑤候補 card の null 挙動は不変（PlanClient は入口と候補を別条件で render・static）", () => {
     const src = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/PlanClient.tsx"), "utf8");
     expect(src).toContain("{lifeOpsCard && lifeOpsAction && (");
-    expect(src).toContain("{lifeOpsInputCategories && lifeOpsInputAction && ("); // 独立条件（lifeOpsCard 非依存）
+    expect(src).toContain("{lifeOpsInputCategories && lifeOpsCadenceOptions && lifeOpsInputAction && ("); // 独立条件（lifeOpsCard 非依存・c34）
   });
-  it("⑥free text 入力欄が存在しない（input は hidden/date のみ・textarea/type=text なし）⑦⑧禁止 field 名なし", () => {
+  it("⑥free text 入力欄が存在しない（input は hidden/date/number のみ・textarea/type=text なし）⑦⑧禁止 field 名なし", () => {
     const h = render();
     expect(h).not.toContain("<textarea");
     expect(h).not.toContain('type="text"');
     const inputTypes = [...h.matchAll(/<input[^>]*type="([a-z]+)"/g)].map((m) => m[1]).sort();
-    expect([...new Set(inputTypes)].sort()).toEqual(["date", "hidden"].sort());
+    expect([...new Set(inputTypes)].sort()).toEqual(["date", "hidden", "number"].sort()); // c34: 周期日数 number 追加
     for (const banned of ['name="occurrence_key"', 'name="user_id"', 'name="id"', 'name="confidence"', 'name="status"', 'name="title"', 'name="memo"', 'name="note"']) {
       expect(h).not.toContain(banned);
     }
-    expect([...h.matchAll(/name="([a-zA-Z_]+)"/g)].map((m) => m[1]).sort()).toEqual(["categoryId", "dueDateISO", "sourceType"].sort()); // 送れるのは 3 名のみ
+    // 送れる field 名の全集合（期限 form 3 + 周期 form 4・sourceType は両 form の hidden）
+    expect([...new Set([...h.matchAll(/name="([a-zA-Z_]+)"/g)].map((m) => m[1]))].sort()).toEqual(
+      ["cadenceOption", "categoryId", "dueDateISO", "lastCompletedAtISO", "sourceType", "typicalIntervalDays"].sort(),
+    );
   });
   it("⑫結果表示: success は成功色・duplicate/invalid は notice（文言固定）⑬390px flex-wrap", () => {
     expect(render("ok")).toContain("登録しました。生活まわりの提案に反映します。");
@@ -90,9 +100,9 @@ describe("c33 — server action（⑦⑧⑨⑩⑪・static + pure）", () => {
       expect(action).toContain(required);
     }
   });
-  it("⑦⑧formData から読むのは 4 名のみ（occurrence_key/user_id/id/confidence/status を読まない）", () => {
+  it("⑦⑧formData から読むのは許可 7 名のみ（occurrence_key/user_id/id/confidence/status を読まない）", () => {
     const gets = [...action.matchAll(/formData\.get\("([a-zA-Z_]+)"\)/g)].map((m) => m[1]).sort();
-    expect(gets).toEqual(["categoryId", "dueDateISO", "menu", "sourceType"].sort());
+    expect(gets).toEqual(["cadenceOption", "categoryId", "dueDateISO", "lastCompletedAtISO", "menu", "sourceType", "typicalIntervalDays"].sort());
     for (const banned of ['formData.get("occurrence_key")', 'formData.get("user_id")', 'formData.get("id")', 'formData.get("confidence")', 'formData.get("status")'] ) {
       expect(action).not.toContain(banned);
     }
@@ -115,6 +125,50 @@ describe("c33 — server action（⑦⑧⑨⑩⑪・static + pure）", () => {
     expect(counter.queries).toBe(0); // default OFF / production → query 0
     await readActiveStructuredRowsForDuplicateGuard(fake, "u", { master: true, write: true, supabaseUrl: STAGING_URL });
     expect(counter.queries).toBe(1); // staging+flags のみ
+  });
+  it("★c34: cadence picker は L-2 spec 実在 5 組のみ（辞書 label+menu 名・value は cadenceKey 形式）", () => {
+    expect(cadenceOpts.map((o) => o.value).sort()).toEqual(
+      ["beauty_salon:color", "beauty_salon:cut", "daily_necessities", "eyebrow", "groceries"].sort(),
+    );
+    expect(cadenceOpts.find((o) => o.value === "beauty_salon:cut")!.label).toBe("美容院（カット）");
+    expect(cadenceOpts.find((o) => o.value === "eyebrow")!.label).toBe("眉");
+    const h = render();
+    expect(h).toContain("lifeops-cadence-input-form");
+    expect(h).toContain("前回やった日");
+    expect(h).toContain("周期日数（任意）");
+    expect(h).toContain("美容院（カット）");
+    // 期限 form は不変（共存 lock）
+    expect(h).toContain("lifeops-source-input-form");
+    expect(h).toContain("期限日");
+  });
+  it("★c34: type 別文言（cadence=同じ周期/前回の日付・deadline 側は不変）", () => {
+    expect(render("already_exists", "cadence")).toContain("同じ周期はすでに登録されています。");
+    expect(render("invalid", "cadence")).toContain("前回の日付を確認してください。");
+    expect(render("already_exists", "deadline")).toContain("同じ期限はすでに登録されています。");
+    expect(render("invalid")).toContain("期限日を確認してください。"); // 既定=deadline
+    expect(render("ok", "cadence")).toContain("登録しました。生活まわりの提案に反映します。"); // 成功は共通
+  });
+  it("★c34: future date は invalid（builder の future_date・nowMs 注入時のみ・過去は ok・後方互換）", () => {
+    const NOW = Date.parse("2026-06-11T09:00:00+09:00");
+    const cad = (last: string) => ({ sourceType: "cadence" as const, categoryId: "eyebrow" as const, lastCompletedAtISO: last });
+    expect(buildLifeOpsStructuredInsertRow(cad("2026-06-20"), { nowMs: NOW })).toEqual({ ok: false, reason: "future_date" });
+    const past = buildLifeOpsStructuredInsertRow(cad("2026-05-20"), { nowMs: NOW });
+    expect(past.ok && past.row.occurrence_key === "eyebrow:cadence" && !past.row.occurrence_key.includes("::")).toBe(true);
+    expect(buildLifeOpsStructuredInsertRow(cad("2026-06-20")).ok).toBe(true); // nowMs 省略=判定なし（後方互換）
+    // deadline の未来 dueDate は正当（future_date 対象外）
+    const dl = buildLifeOpsStructuredInsertRow({ sourceType: "deadline", categoryId: "tax_filing", dueDateISO: "2026-07-01" }, { nowMs: NOW });
+    expect(dl.ok).toBe(true);
+  });
+  it("★c34: action は cadence 分岐で nowMs を注入・cleanup script は TYPE param 対応（static）", () => {
+    expect(action).toContain('sourceTypeRaw === "cadence"');
+    expect(action).toContain("nowMs: Date.now()");
+    expect(action).toContain("lifeopsSrcType=");
+    const cleanup = fs.readFileSync(path.join(process.cwd(), "scripts/lifeops-structured-dogfood-cleanup.ts"), "utf8");
+    expect(cleanup).toContain("LIFEOPS_STRUCTURED_CLEANUP_TYPE");
+    expect(cleanup).toContain('.eq("source_type", SOURCE_TYPE)');
+    const page = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/page.tsx"), "utf8");
+    expect(page).toContain("listLifeOpsCadenceInputOptions");
+    expect(page).toContain('sp?.lifeopsSrcType === "cadence"'); // type も検証して渡す
   });
   it("⑭⑮既存 tab 不干渉・action に notification/R4/external なし", () => {
     for (const rel of ["app/(culcept)/plan/tabs/CalendarTab.tsx", "app/(culcept)/plan/tabs/FlowTab.tsx", "app/(culcept)/plan/tabs/MapTab.tsx"]) {
