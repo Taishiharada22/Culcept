@@ -8,10 +8,16 @@
  *  - x 軸 06:00-24:00 / y 0-100%。数値表示可
  */
 
-import type { AlterScreenViewModel } from "./screenViewModel";
+import { useEffect, useState } from "react";
+import { jstNowMinutes, type AlterScreenViewModel } from "./screenViewModel";
 
 export interface ResourceTrendChartProps {
   trend: AlterScreenViewModel["trend"];
+}
+
+function minToHHMM(min: number): string {
+  const m = Math.min(Math.max(Math.round(min), DAY_START), DAY_END);
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
 const W = 320;
@@ -55,12 +61,32 @@ function areaPath(points: Array<{ t: string; v: number }>): string {
 const X_TICKS = ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00", "24:00"];
 
 export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
+  // now マーカーを 1 分ごとに日本時間で自動更新（B15・CEO 指示③）。
+  // 初回 SSR は VM の nowMarker（server JST）。mount 後にクライアント時計で同期し 60s 間隔で進む。
+  const [nowHHMM, setNowHHMM] = useState(trend.nowMarker);
+  useEffect(() => {
+    const tick = () => setNowHHMM(minToHHMM(jstNowMinutes(new Date())));
+    tick();
+    // 次の分境界に合わせてから 60s 間隔に入る
+    const now = new Date();
+    const msToNextMinute = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const align = setTimeout(() => {
+      tick();
+      interval = setInterval(tick, 60000);
+    }, msToNextMinute);
+    return () => {
+      clearTimeout(align);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
+
   const energy = trend.points.map((p) => ({ t: p.t, v: p.energy }));
   const focus = trend.points.map((p) => ({ t: p.t, v: p.focus }));
   const load = trend.points.map((p) => ({ t: p.t, v: p.load }));
   const bandX1 = xOf(trend.recoveryBand[0]);
   const bandX2 = xOf(trend.recoveryBand[1]);
-  const nowX = xOf(trend.nowMarker);
+  const nowX = xOf(nowHHMM);
 
   const legend = [
     { label: "体力", color: "#3b82f6" },
@@ -122,7 +148,7 @@ export function ResourceTrendChart({ trend }: ResourceTrendChartProps) {
         <g transform={`translate(${nowX}, ${PAD_T - 1})`}>
           <rect x={-13} y={-2} width={26} height={9} rx={4.5} fill="#6366f1" />
           <text x={0} y={4.5} textAnchor="middle" fontSize={6} fill="#fff" className="tabular-nums">
-            {trend.nowMarker}
+            {nowHHMM}
           </text>
         </g>
 

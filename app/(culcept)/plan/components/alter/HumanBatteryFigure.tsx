@@ -34,7 +34,7 @@ export interface HumanBatteryFigureProps {
 // body.png 内のゾーン境界 — _processAssets.mjs が crop 後フレームで機械算出した値を転記する
 //（手動目測の禁止。再生成時はパイプライン出力 "ZONES(crop後・転記用)" と同期させること）
 const HEAD_TOP_PCT = 0.5;
-const NECK_PCT = 14; // 頭部容器の下端 = 顎の直下（診断画像 _chin.png で顎=13% を視覚確定。機械値 12.2 は口元）
+const NECK_PCT = 11; // 頭部の水の下端 = 口元〜顎の上（B15: 14% は首にかかるため上げた。診断 _chin2.png で 11%=鼻下）
 const BODY_TOP_PCT = 17.5; // 肩（体ゾーンの上端）
 const HEART_CENTER = { xPct: 46, yPct: 24 }; // 胸（CEO 指示: 右上=ビューア左上へ補正）
 const FEET_PCT = 99.4;
@@ -146,13 +146,13 @@ export function HumanBatteryFigure({
                   height: `${bodyLiquidHeightPct + (100 - FEET_PCT)}%`,
                 }}
               >
-                {/* 液体本体（B14・CEO 指示③: 自然で淡い水色。濃すぎ・不自然な原色を避ける）
-                    上=淡いアクア → 下=やわらかいスカイブルー。透過を上げて器に馴染ませる */}
+                {/* 液体本体（B15・CEO 指示②: からだ = 澄んだ水のブルー。greyish を脱して鮮明な sky 系へ）
+                    上=sky-300 → 下=sky-600 */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(186,230,253,0.62) 0%, rgba(125,211,252,0.66) 35%, rgba(96,165,250,0.72) 100%)",
+                      "linear-gradient(to bottom, rgba(125,211,252,0.66) 0%, rgba(56,189,248,0.74) 38%, rgba(2,132,199,0.84) 100%)",
                   }}
                 />
                 {/* 水面: 白いライン + 直下の明るい帯（水面近くのハイライト） */}
@@ -183,13 +183,13 @@ export function HumanBatteryFigure({
                 className="absolute inset-x-0"
                 style={{ top: `${NECK_PCT - brainLiquidHeightPct}%`, height: `${brainLiquidHeightPct}%` }}
               >
-                {/* 液体本体（B14・CEO 指示③: 自然で淡い紫。濃すぎを避ける）
-                    上=淡いラベンダー → 下=やわらかいバイオレット。透過を上げて器に馴染ませる */}
+                {/* 液体本体（B15・CEO 指示②: 集中 = 澄んだバイオレット。greyish ラベンダーを脱して鮮明な violet 系へ）
+                    上=violet-300 → 下=violet-600 */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      "linear-gradient(to bottom, rgba(216,205,251,0.62) 0%, rgba(167,139,250,0.68) 40%, rgba(139,92,246,0.74) 100%)",
+                      "linear-gradient(to bottom, rgba(196,181,253,0.66) 0%, rgba(167,139,250,0.74) 40%, rgba(124,58,237,0.84) 100%)",
                   }}
                 />
                 {/* 水面: 白いライン + 直下の明るいラベンダー帯（光の縁） */}
