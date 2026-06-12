@@ -50,7 +50,7 @@
 |---|---|---|
 | **W1** | B branch merge（`claude/session-b-ui-from-7a817ab1` → A 系。全新規 30 ファイルのため conflict リスク低）+ 衛生一式（H-1 睡眠導線復旧 / W1-1〜W1-6） | CEO の merge 指示。UI コードに触るのはこの W から |
 | **W2** | pure 追補（lib/plan/dayState）: C-1 timeBucket unknown / C-2 dailyModeHint+confidence input / C-3 followup state / （任意 C-4）+ fixture 追補 | 契約 v0.4 準拠。runtime 不接続のまま |
-| **W3** | 配線: PlanClient TABS に alter 追加（const flag 既定 OFF）+ adapter 層（anchors/DayGraph→DaySegmentLite・resolveDailyMode・interpersonalLoadHint・estimatedWalkLevel・weather・shift・jstNow 注入）→ 実 VM → screenViewModel 接続 | 「UI 追加」stop gate 解錠（CEO）。D-3 の順序 |
+| **W3** | **詳細実行計画を `docs/day-state-w3-execution-plan.md` に確定（2026-06-12）**。W3a = タブ配線 + adapter（**新規 Supabase read ゼロ** — 既存 FetchState/dayGraphByDate のみ。weather は正直に null）/ W3b = server 供給系（dailyModeHint=personality read・morning history read・weather 導線 — **各 read を個別 CEO 承認**） | W3a =「UI 追加」解錠（D-3: 7 日判断後）。W3b = read 毎の承認 |
 | **W4** | localStorage dogfood: `plan_day_state_v0` / `plan_night_check_v0` / `plan_morning_reveal_v0` + 補正 UI→`applyUserCorrection` + Night Check→`gradeNightCheck` + Morning Reveal 初表示 | 「新規データ保存」stop gate 解錠（CEO） |
 | **W5** | 状態入力スリット → 既存 route `source:"plan"` 送信のみ（会話→構造抽出は Stage 1.5 のまま・センサー未完） | — |
 | **W6** | dogfood 計測 7-14 日（開封率 / Night Check 回答率 / 補正率 / 見立て match 率 baseline）+ 28 日減衰チェック | — |
