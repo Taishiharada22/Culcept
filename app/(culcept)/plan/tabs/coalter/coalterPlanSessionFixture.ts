@@ -106,7 +106,13 @@ export interface ChatMessageFixture {
 
 export interface CoAlterPlanSessionFixture {
   readonly id: string;
-  /** null = solo（本 fixture はペア前提） */
+  /**
+   * @deprecated 契約 v0.1（CEO 承認 2026-06-12）で **root pairStateId は廃止**。
+   * session の identity 正本は `participants`（→ `coalterPlanSessionContract.ts` の
+   * `CoAlterPlanSession`）。本 field は fixture 後方互換のため残すだけで **読まれない**
+   * （`buildSessionContractFromFixture` も無視）。thread への参照は `attachedThreadRef?`。
+   * 新コードはこの field に依存しないこと。
+   */
   readonly pairStateId: string | null;
   readonly mode: CoAlterPlanMode;
   readonly window:
