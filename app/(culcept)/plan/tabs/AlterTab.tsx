@@ -424,6 +424,18 @@ export function AlterTab({
         const mood = QUICK_REPLY_TO_MOOD[chip];
         if (mood) setMoodCode(mood);
       }}
+      onSend={(message) => {
+        // W5: 状態入力スリット → 既存 alter route へ source:"plan" で送信（入口確認まで）。
+        // 会話展開・返答表示は行わない（会話→構造抽出は Stage 1.5 の別契約 — センサー未完）。
+        // 表示は AlterTabBody の ack「受け取りました」のみ。失敗は silent（fire-and-forget）。
+        const text = message.trim();
+        if (!text) return;
+        void fetch("/api/stargazer/alter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, source: "plan" }),
+        }).catch(() => {});
+      }}
     />
   );
 }
