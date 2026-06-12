@@ -60,11 +60,11 @@ describe("値ドメイン as-const の網羅性", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// §2 ★ CEO 3-source 分離: participant の出自が pair モデルに縛られないこと
+// §2 ★ participant = 3 external/session カテゴリ + self: pair モデルに縛られないこと
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("ParticipantSourceRef — domain-neutral 3-source 分離", () => {
-  it("4 kind（self + 3 source）が定数として揃う", () => {
+describe("ParticipantSourceRef — domain-neutral（3 external/session カテゴリ + self）", () => {
+  it("4 kind（self + 3 external/session source）が定数として揃う", () => {
     expect(PARTICIPANT_SOURCE_KINDS).toEqual([
       "self",
       "talk_pair_member",

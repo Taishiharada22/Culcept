@@ -3,7 +3,7 @@
  *
  * 設計: docs/travel-mode-plan-os-extension-design.md §4.1/§4.2/§6 +
  *       docs/coalter-travel-domain-greenfield-design.md（18 アイデア）+
- *       CEO アーキテクチャ注記 2026-06-12（participant 3-source 分離）
+ *       CEO アーキテクチャ注記 2026-06-12（participant = 3 つの external/session source カテゴリ + self）
  *
  * このファイルの厳格な性質:
  *   - **型と as-const データ定数のみ**（関数・ロジック・I/O・runtime 副作用は一切なし）。
@@ -15,8 +15,10 @@
  *
  * ★ CEO アーキテクチャ注記（最重要・型で担保）:
  *   将来の /plan CoAlter のパートナーが旧 /talk `coalter_pair_states` から来ると
- *   仮定しない。participant の出自は `ParticipantSourceRef` の discriminated union
- *   で 3 系統に分離し、travel core はその中身を読まない（preference 供給は外部 port）。
+ *   仮定しない。participant の出自は `ParticipantSourceRef` の discriminated union で
+ *   **3 つの external/session source カテゴリ + first-party の self** に分離し、travel
+ *   core はその中身を読まない（preference 供給は外部 port）。self は外部パートナー
+ *   ソースではなく、当事者本人（単独 / セッション主体）のケースである点に注意。
  *
  * 18 アイデアのうち本 T1A で型化するもの: Itinerary Graph(1) / CSP severity(5,13) /
  *   Pareto tradeoff(3) / Fatigue load(6) / Budget band(7) / Uncertainty(8) /
@@ -110,16 +112,17 @@ export interface PlaceRef {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// §3 Participant（domain-neutral・★ CEO 3-source 分離）
+// §3 Participant（domain-neutral・★ 3 つの external/session source カテゴリ + self）
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * participant の出自。travel core は **kind を読まない**（discriminated union として
- * 受け取り、外部の preference port がこの ref を解決する）。3 系統を最初から分離:
- *   - self            … 単独利用 / セッション主体
- *   - talk_pair_member … 旧 /talk CoAlter pair（coalter_pair_states）由来
- *   - culcept_relation … Culcept 側の partner / relationship データ由来
- *   - plan_session     … 新 CoAlterPlanSession.participants 由来
+ * 受け取り、外部の preference port がこの ref を解決する）。
+ * **3 つの external/session source カテゴリ + first-party の self** を分離:
+ *   - self            … first-party（単独利用 / セッション主体）。external partner source ではない
+ *   - talk_pair_member … [external/session ①] 旧 /talk CoAlter pair（coalter_pair_states）由来
+ *   - culcept_relation … [external/session ②] Culcept 側の partner / relationship データ由来
+ *   - plan_session     … [external/session ③] 新 CoAlterPlanSession.participants 由来
  */
 export type ParticipantSourceRef =
   | { kind: "self"; userId: string }
