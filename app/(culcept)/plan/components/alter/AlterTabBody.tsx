@@ -8,7 +8,7 @@
  *  1. ヘッダー
  *  2. 上段 2 カラング: あなたのバッテリー（人体 + コールアウト + コネクタ）| 状態の背景（昨日までの影響）
  *  3. 周辺カード 2x2（外出耐性 / 夜の余白 / 持ち越し / 成立見込み）
- *  4. 今日の流れ（事実横帯。予測曲線なし）
+ *  4. 今日の推移予測（B5 改名）+ 流れレール（W1・D-1: flowTimeline の事実マーカーを統合）
  *  5. Night Check / 5'. Morning Reveal
  *  6-7. 会話エリア（見立てメッセージ → チップ → 直近往復）→ CTA → 入力バー
  * 規律:
@@ -20,7 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { AlterBatteryViewModel } from "@/lib/plan/dayState/dayStateTypes";
-import { AlterAvatar } from "./AlterChatPreview";
+import { AlterAvatar } from "./AlterAvatar";
 import { AlterCtaRow } from "./AlterCtaRow";
 import { AlterInputBar } from "./AlterInputBar";
 import { AlterQuickReplies } from "./AlterQuickReplies";
@@ -170,7 +170,7 @@ export function AlterTabBody({
             onOutingTap={() => setSheet({ kind: "correction", target: "outingTolerance" })}
             pulseZone={pulseZone}
           />
-          <StateBackgroundPanel stateBg={screen.stateBg} />
+          <StateBackgroundPanel stateBg={screen.stateBg} onSleepTap={() => setSheet({ kind: "sleep" })} />
         </div>
 
         <AnimatePresence>
@@ -205,8 +205,8 @@ export function AlterTabBody({
           feasibility={screen.feasibility}
         />
 
-        {/* 今日のリソース推移予測（over.png のグラフ） */}
-        <ResourceTrendChart trend={screen.trend} />
+        {/* 今日の推移予測 + 流れレール（D-1: 事実セグメントをチャート下部に統合） */}
+        <ResourceTrendChart trend={screen.trend} segments={vm.flowTimeline.segments} />
 
         {/* Night Check（state=hidden なら描画なし） */}
         <NightCheckCard nightCheck={vm.nightCheck} onAnswer={onNightCheckAnswer} />

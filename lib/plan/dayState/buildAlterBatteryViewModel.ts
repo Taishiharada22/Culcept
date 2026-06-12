@@ -3,7 +3,7 @@
  *
  * 正本: docs/alter-tab-visual-contract.md §4（Session B はこの出力だけを見る）
  * 規律:
- *  - 数値非表示: visualFill は描画専用。テキストは帯語のみ。% / 点数 / 確率を文字列に出さない。
+ *  - 正本 VM の文字列に数値（% / 点数 / 確率）を出さない（数値化は表示 derived 層の責務 — visual-contract §0.1 緩和後も VM 層の規律は不変）。visualFill は描画専用。
  *  - N-3 禁止語（おすすめ/これをした方がいい/最適/推奨/改善/警告/危険/注意/リスク）を生成文字列に含めない
  *    （テストで regression 検証）。断定形ではなく観測トーン（〜に見ています / 〜そうです）。
  *  - sleep: source ≠ user_reported なら band は必ず "unknown"。recoveryQuality: 導出源は前夜 Night Check のみ。

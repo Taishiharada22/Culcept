@@ -34,14 +34,14 @@ import {
 export const dynamic = "force-dynamic";
 
 const VARIANTS = {
-  morning: { vm: MOCK_ALTER_BATTERY_VM, label: "朝（Reveal あり）", withChat: true },
-  visual: { vm: MOCK_VM_VISUAL, label: "理想比較（検証用）", withChat: true },
-  night: { vm: MOCK_VM_NIGHT_MAIN, label: "夜（Night Check 主問）", withChat: true },
-  followup: { vm: MOCK_VM_NIGHT_FOLLOWUP, label: "夜（followup）", withChat: true },
-  answered: { vm: MOCK_VM_ANSWERED, label: "夜（回答済み）", withChat: true },
-  carried: { vm: MOCK_VM_CARRIED_OVER, label: "朝（繰り越し）", withChat: true },
-  unknown: { vm: MOCK_VM_UNKNOWN_BRAIN, label: "脳 unknown", withChat: true },
-  coldstart: { vm: MOCK_VM_COLD_START, label: "コールドスタート", withChat: false },
+  morning: { vm: MOCK_ALTER_BATTERY_VM, label: "朝（Reveal あり）" },
+  visual: { vm: MOCK_VM_VISUAL, label: "理想比較（検証用）" },
+  night: { vm: MOCK_VM_NIGHT_MAIN, label: "夜（Night Check 主問）" },
+  followup: { vm: MOCK_VM_NIGHT_FOLLOWUP, label: "夜（followup）" },
+  answered: { vm: MOCK_VM_ANSWERED, label: "夜（回答済み）" },
+  carried: { vm: MOCK_VM_CARRIED_OVER, label: "朝（繰り越し）" },
+  unknown: { vm: MOCK_VM_UNKNOWN_BRAIN, label: "脳 unknown" },
+  coldstart: { vm: MOCK_VM_COLD_START, label: "コールドスタート" },
 } as const;
 
 type VariantKey = keyof typeof VARIANTS;

@@ -233,7 +233,7 @@ export type Band = "very_low" | "low" | "medium" | "high" | "unknown";
 export interface BatteryZoneVM {
   label: string;
   band: Band;
-  visualFill: number; // 0-1 描画専用。画面に数値として出さない
+  visualFill: number; // 0-1 描画専用。正本 VM の文字列に数値を出さない（数値化 = derived 層の責務。visual-contract §0.1/§4.1）
   confidence: "low" | "medium" | "high";
   source: "見立て" | "本人";
   evidence: string[]; // EvidenceTag → 日本語語彙に変換済み（表示用）

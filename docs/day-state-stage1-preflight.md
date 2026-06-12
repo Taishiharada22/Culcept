@@ -9,10 +9,10 @@
 
 ## 1. Stage 1 前ブロッカー一覧
 
-### 🔴 HIGH（W1 で解消必須）
+### 🔴 HIGH（W1 で解消必須）→ **W1 で解消済み（2026-06-12）**
 | # | 事項 | 内容 |
 |---|---|---|
-| H-1 | **睡眠入力導線の喪失**（B closeout の stale 項目） | closeout「睡眠シート ✅」は初版時点の記録であり、**最終 UI では導線が消滅**（トリガーが dead code の RealityContextCards.tsx:79 にのみ存在。現用 StateBackgroundPanel の睡眠セルにタップハンドラなし）。`user_reported` の睡眠 h 表示（visual-contract §0.1）は本導線が前提。**W1 で復旧、または正式廃止の CEO 判断** |
+| H-1 | **睡眠入力導線の喪失**（B closeout の stale 項目） | closeout「睡眠シート ✅」は初版時点の記録であり、**最終 UI では導線が消滅**（トリガーが dead code の RealityContextCards.tsx:79 にのみ存在。現用 StateBackgroundPanel の睡眠セルにタップハンドラなし）。`user_reported` の睡眠 h 表示（visual-contract §0.1）は本導線が前提。**W1 で復旧、または正式廃止の CEO 判断** → ✅ **復旧済み**: StateBackgroundPanel の睡眠セルをタップ可能化し AlterTabBody の睡眠シート（よく眠れた/浅い/短い）へ接続（ack/local UI のみ・保存なし） |
 
 ### 🟡 契約 → 実装（W2 で実装。契約は v0.4 で確定済み）
 | # | 事項 | 内容 |
@@ -22,7 +22,7 @@
 | C-3 | builder が `nightCheck.state="followup"` を出力しない | B closeout 記録事項。W2 で状態機械に追加 |
 | C-4 | Morning Reveal の dayFelt アンカー語（「少し余った」等）が VM にない | 帯語代用中。アンカー語表示は additive 改訂（W2 任意） |
 
-### 🟡 W1 衛生（B branch merge 直後に実施）
+### 🟡 W1 衛生（B branch merge 直後に実施）→ **W1 で全件処理済み（2026-06-12）**: W1-1 ✅（unknown は `—`+note・bar 0）/ W1-2 ✅（RefBadge「参考値」を睡眠h・体質スタミナ・消耗予測・回復見込み・推移チャートに付与）/ W1-3 ✅（AlterHeader・TodayFlowStrip・RealityContextCards・AlterChatPreview を削除、AlterAvatar.tsx へ移設、withChat prop 除去 — importer 0 を機械確認）/ W1-4 ✅（B 側 2 + main 側 2 のコメント精密化・ロジック不変）/ W1-5 ✅（MitateBadge に zone.source 配線・本人=インディゴ表示・confidence は title 保持）/ W1-6 ✅（assets/README.md で superseded 記録・残置）
 | # | 事項 | 内容 |
 |---|---|---|
 | W1-1 | **unknown→0% の修正（禁止事項）** | band→% 写像 5 表が unknown=0 のまま StateBackgroundPanel / ForecastGrid が「0%」を無条件描画。**unknown は `—` /「まだ読めていません」へ**（visual-contract §0.1。0 は実測風に読める） |
@@ -35,7 +35,7 @@
 ### 🟠 Stage 1 判断事項（CEO）
 | # | 事項 | 内容 |
 |---|---|---|
-| D-1 | **「今日の流れ」事実帯の消滅** | ResourceTrendChart への置換で予定ラベル等の事実表示が render 木から消滅（flowTimeline.segments の label がどこにも描画されない）。**復旧（横帯併設）or 推移予測へ統合（チャートに予定マーカー重畳）を Stage 1 で判断** |
+| D-1 | **「今日の流れ」事実帯の消滅** | ResourceTrendChart への置換で予定ラベル等の事実表示が render 木から消滅（flowTimeline.segments の label がどこにも描画されない）。CEO 判断（2026-06-12）= **推移予測へ統合** → ✅ **W1 で実施**: ResourceTrendChart 下部に流れレール（実セグメント由来のみ・event/travel/余白・予定ラベル最大 3 件・凡例追加） |
 | D-2 | 緩和の本番 activation 再裁定 | 数値・mock_reference 表示は dogfood 検証まで許可済み。**本番一般公開前に再裁定**（visual-contract §0.1） |
 | D-3 | A0-A4 dogfood 7 日判断（6/16 頃）との順序 | タブ配線 ON（tab bar ピル = 共有表面の変化）は 7 日判断後を推奨（N-3 監査対象） |
 
