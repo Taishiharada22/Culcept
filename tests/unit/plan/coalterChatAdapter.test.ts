@@ -68,19 +68,21 @@ describe("coalterChatAdapter（TalkBridge-T1a + contract correction）", () => {
     }
   });
 
-  it("fixture は participant source ではない: fixture participant は plan_session 出自（fixture でない）", () => {
+  it("fixture は participant source ではない: fixture participant は plan_session 出自で identityState resolved", () => {
     const session = COALTER_PLAN_SESSION_FIXTURES.daily;
     const view = createFixtureChatAdapter(session).getParticipants();
 
     for (const p of view) {
       // ★ 訂正の核: fixture data 由来でも identity source は **plan_session**（fixture ではない）
-      //   （source は T1b で optional 化＝未解決 participant 用。fixture では必ず付く）
-      expect(p.source).toBeDefined();
-      expect(p.source?.kind).toBe("plan_session");
-      expect(p.source?.kind).not.toBe("fixture");
-      if (p.source?.kind === "plan_session") {
-        expect(p.source.planSessionId).toBe(session.id);
-        expect(p.source.userId).toBe(p.id);
+      //   T1b-2: optional source は identityState discriminated union に置換。fixture は resolved。
+      expect(p.identityState).toBe("resolved");
+      if (p.identityState === "resolved") {
+        expect(p.source.kind).toBe("plan_session");
+        expect(p.source.kind).not.toBe("fixture");
+        if (p.source.kind === "plan_session") {
+          expect(p.source.planSessionId).toBe(session.id);
+          expect(p.source.userId).toBe(p.id);
+        }
       }
     }
   });
@@ -147,6 +149,7 @@ describe("coalterChatAdapter（TalkBridge-T1a + contract correction）", () => {
           name: "あなた",
           initial: "あ",
           tone: "sky",
+          identityState: "resolved",
           source: { kind: "self", userId: "u-self" },
         },
         {
@@ -154,16 +157,18 @@ describe("coalterChatAdapter（TalkBridge-T1a + contract correction）", () => {
           name: "Partner",
           initial: "P",
           tone: "rose",
+          identityState: "resolved",
           source: { kind: "culcept_relation", relationId: "rel-9", userId: "u-partner" },
         },
       ],
       getViewer: () => null,
       getInitialMessages: () => [],
     };
-    expect(relationAdapter.getParticipants().map((p) => p.source?.kind)).toEqual([
-      "self",
-      "culcept_relation",
-    ]);
+    expect(
+      relationAdapter
+        .getParticipants()
+        .map((p) => (p.identityState === "resolved" ? p.source.kind : null)),
+    ).toEqual(["self", "culcept_relation"]);
   });
 
   it("live flag OFF/ON いずれも fixture（resolver 分岐は T1b 接続点のみ・実 API 経路なし）", () => {

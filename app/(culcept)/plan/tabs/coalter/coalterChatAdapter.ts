@@ -84,21 +84,33 @@ export type CoAlterParticipantSource =
 // View 型（UI が見る唯一の形。fixture 型への import 依存はここで切る）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export interface CoAlterChatParticipant {
+interface CoAlterChatParticipantBase {
   readonly id: string;
   readonly name: string;
   readonly initial: string;
   readonly tone: "sky" | "rose";
-  /**
-   * identity 出自（**fixture ではなく** plan_session 等の正規 source）。
-   *
-   * T1b: **未解決（unresolved）の場合は省略する**。talk thread の messages API は
-   * senderId しか返さず名前解決 API は T1b scope 外のため、live 閲覧の参加者は
-   * 匿名メンバーとして表示し source を持たない（= thread 参加者を旧 /talk pair と
-   * **断定しない**。無理に talk_pair_member を名乗らせない）。union 4 kinds は不変。
-   */
-  readonly source?: CoAlterParticipantSource;
 }
+
+/**
+ * participant の識別状態（T1b-2 で optional `source?` を置き換えた discriminated union）。
+ *
+ *   - "unresolved"       : 匿名 read-only preview（表示名も source も不明・T1b の匿名メンバー）
+ *   - "display_resolved" : 表示名は判明したが source は未確定（relation/connection id 欠落時）。
+ *                          **名前が出せること ≠ source が解決したこと**（CEO T1b-2 要件 2）
+ *   - "resolved"         : 正規の `CoAlterParticipantSource` を持つ。**送信・既読・consent・
+ *                          fairness 等の相互作用はこの状態のみを主語にできる**
+ *
+ * hardening 規則（closeout §2.3/§6）: unresolved / display_resolved は read-only 経路限定。
+ * source の捏造禁止（relationId/pairStateId を invent しない）。`talk_pair_member` は
+ * `coalter_pair_states` の権威解決があるときのみ＝**thread message から推論しない**。
+ */
+export type CoAlterChatParticipant =
+  | (CoAlterChatParticipantBase & { readonly identityState: "unresolved" })
+  | (CoAlterChatParticipantBase & { readonly identityState: "display_resolved" })
+  | (CoAlterChatParticipantBase & {
+      readonly identityState: "resolved";
+      readonly source: CoAlterParticipantSource;
+    });
 
 export interface CoAlterChatMessage {
   readonly id: string;
@@ -181,6 +193,7 @@ function toChatParticipant(
     name: p.name,
     initial: p.initial,
     tone: p.tone,
+    identityState: "resolved",
     source: { kind: "plan_session", planSessionId, userId: p.id },
   };
 }
@@ -269,7 +282,8 @@ const ANON_MEMBER_LABELS = ["A", "B", "C", "D"] as const;
 
 /**
  * sender 出現順 → 匿名 participant 導出（pure）。
- * source は付けない（unresolved）。旧 /talk pair（talk_pair_member）と**断定しない**。
+ * identityState "unresolved"（表示名も source も不明）。旧 /talk pair（talk_pair_member）と
+ * **断定しない**（T1b-2 enrich が失敗した場合もこの形で表示し続ける＝fail-closed）。
  */
 export function deriveAnonymousTalkParticipants(
   senderIdsInOrder: readonly string[],
@@ -285,7 +299,7 @@ export function deriveAnonymousTalkParticipants(
       name: `メンバー ${label}`,
       initial: label,
       tone: i % 2 === 0 ? ("sky" as const) : ("rose" as const),
-      // source なし = identity 未解決（T1b read-only preview）
+      identityState: "unresolved" as const,
     };
   });
 }
@@ -406,4 +420,173 @@ export function createTalkThreadReadonlyAdapter(
     getViewer: () => null,
     getInitialMessages: () => data.messages,
   };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T1b-2: participant metadata 解決（read-only・既存 GET /api/talk/threads のみ）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 対象 thread の metadata（既存 threads 一覧 route が露出する形のみ・grounded）。
+ *   threads route の response: { ok, threads: [{ threadId, connectionId,
+ *   counterpart: { userId, displayName|null, avatarUrl|null }, ... }] }
+ *
+ * 注: 表示名解決は **既存 /api/talk/threads の内部実装**（service_role による
+ * auth.users metadata 読み）に依存する。/plan 側は endpoint を read-only 消費する
+ * だけで、service_role/admin client を import・配線しない（CEO guardrail）。
+ */
+export interface TalkThreadMetadata {
+  readonly threadId: string;
+  /** genome_connections id。culcept_relation の relationId に使える唯一の正規値 */
+  readonly connectionId: string | null;
+  readonly counterpartUserId: string;
+  readonly counterpartDisplayName: string | null;
+}
+
+/** GET /api/talk/threads のレスポンス shape（route.ts 実装より・必要 field のみ）。 */
+interface TalkThreadsListPayload {
+  readonly ok?: boolean;
+  readonly threads?: ReadonlyArray<{
+    readonly threadId?: string;
+    readonly connectionId?: string | null;
+    readonly counterpart?: {
+      readonly userId?: string;
+      readonly displayName?: string | null;
+    } | null;
+  }>;
+}
+
+export type TalkThreadMetadataFailure =
+  | "unauthorized"
+  | "forbidden"
+  | "http_error"
+  | "invalid_payload"
+  /** 一覧は取れたが対象 threadId が無い */
+  | "thread_not_listed"
+  /** 対象は居たが counterpart.userId が欠落（source 構築の必須 field 不足） */
+  | "missing_counterpart"
+  | "network_error";
+
+export type TalkThreadMetadataResult =
+  | { readonly ok: true; readonly metadata: TalkThreadMetadata }
+  | { readonly ok: false; readonly reason: TalkThreadMetadataFailure };
+
+/**
+ * 既存 `GET /api/talk/threads` を 1 回読み、対象 threadId の metadata を返す。
+ *   - fetchImpl は `(url) => Response` 形＝**POST/PATCH/DELETE 構文上不可**（T1b と同型）
+ *   - 失敗・不一致・field 欠落はすべて fail-closed（throw しない → 呼び出し側は
+ *     T1b の匿名表示のまま。**fake source を作らない**）
+ */
+export async function fetchTalkThreadMetadataOnce(
+  threadId: string,
+  fetchImpl: (url: string) => Promise<Response> = (url) => fetch(url),
+): Promise<TalkThreadMetadataResult> {
+  try {
+    const res = await fetchImpl("/api/talk/threads");
+    if (!res.ok) {
+      const reason: TalkThreadMetadataFailure =
+        res.status === 401 ? "unauthorized" : res.status === 403 ? "forbidden" : "http_error";
+      return { ok: false, reason };
+    }
+    const payload = (await res.json()) as TalkThreadsListPayload;
+    if (payload.ok !== true || !Array.isArray(payload.threads)) {
+      return { ok: false, reason: "invalid_payload" };
+    }
+    const hit = payload.threads.find((t) => t.threadId === threadId);
+    if (!hit) {
+      return { ok: false, reason: "thread_not_listed" };
+    }
+    const counterpartUserId = hit.counterpart?.userId;
+    if (typeof counterpartUserId !== "string" || counterpartUserId.length === 0) {
+      return { ok: false, reason: "missing_counterpart" };
+    }
+    return {
+      ok: true,
+      metadata: {
+        threadId,
+        connectionId:
+          typeof hit.connectionId === "string" && hit.connectionId.length > 0
+            ? hit.connectionId
+            : null,
+        counterpartUserId,
+        counterpartDisplayName:
+          typeof hit.counterpart?.displayName === "string" &&
+          hit.counterpart.displayName.trim().length > 0
+            ? hit.counterpart.displayName.trim()
+            : null,
+      },
+    };
+  } catch {
+    return { ok: false, reason: "network_error" };
+  }
+}
+
+/**
+ * 匿名 participants を thread metadata で**可能な範囲だけ**解決する（pure・捏造ゼロ）。
+ *
+ * 解決規則（CEO T1b-2 要件 2/4・display と source の分離）:
+ *   - counterpart（id === counterpartUserId）:
+ *       - connectionId あり → `identityState: "resolved"` + `culcept_relation
+ *         { relationId: connectionId, userId }`（**talk_pair_member にしない**）
+ *       - connectionId なし ∧ displayName あり → `"display_resolved"`（source なし＝正直）
+ *       - どちらも無し → 匿名のまま
+ *       - 表示名: displayName があれば適用。無ければ匿名ラベル維持（source-resolved でも
+ *         名前は捏造しない＝display と source は独立）
+ *   - counterpart 以外の sender が**ちょうど 1 人**の場合のみ、その 1 人を本人と演繹し
+ *     `self` で resolve（根拠: threads 一覧は自分参加 connection のみ・messages route は
+ *     参加者 403 ガード ⇒ sender ∈ {自分, counterpart}）。表示は役割ラベル「あなた」
+ *     （本人の表示名は endpoint が返さないため捏造しない）
+ *   - counterpart 以外が 0 人 or 2 人以上（前提が崩れた場合）→ 該当者は匿名のまま
+ *   - `talk_pair_member` は**本関数のどの経路からも生成されない**（pairStateId の権威なし）
+ */
+export function resolveParticipantsWithThreadMetadata(
+  participants: readonly CoAlterChatParticipant[],
+  metadata: TalkThreadMetadata,
+): readonly CoAlterChatParticipant[] {
+  const nonCounterpart = participants.filter((p) => p.id !== metadata.counterpartUserId);
+  const selfId = nonCounterpart.length === 1 ? nonCounterpart[0].id : null;
+
+  return participants.map((p) => {
+    if (p.id === metadata.counterpartUserId) {
+      const name = metadata.counterpartDisplayName ?? p.name;
+      const initial = metadata.counterpartDisplayName
+        ? metadata.counterpartDisplayName.charAt(0)
+        : p.initial;
+      if (metadata.connectionId) {
+        return {
+          id: p.id,
+          name,
+          initial,
+          tone: p.tone,
+          identityState: "resolved" as const,
+          source: {
+            kind: "culcept_relation" as const,
+            relationId: metadata.connectionId,
+            userId: p.id,
+          },
+        };
+      }
+      if (metadata.counterpartDisplayName) {
+        return {
+          id: p.id,
+          name,
+          initial,
+          tone: p.tone,
+          identityState: "display_resolved" as const,
+        };
+      }
+      return p; // 解決材料なし → 匿名のまま（fake source なし）
+    }
+    if (selfId !== null && p.id === selfId) {
+      return {
+        id: p.id,
+        name: "あなた",
+        initial: "あ",
+        tone: p.tone,
+        identityState: "resolved" as const,
+        source: { kind: "self" as const, userId: p.id },
+      };
+    }
+    return p;
+  });
 }

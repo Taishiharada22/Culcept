@@ -179,7 +179,7 @@ describe("coalterChatAdapter talk_thread read-only（TalkBridge-T1b）", () => {
     }
   });
 
-  it("匿名 participant 導出: 出現順 A/B・tone 交互・source なし（unresolved・pair と断定しない）", () => {
+  it("匿名 participant 導出: 出現順 A/B・tone 交互・identityState unresolved（pair と断定しない）", () => {
     const participants = deriveAnonymousTalkParticipants([
       "user-aaa",
       "user-bbb",
@@ -191,16 +191,18 @@ describe("coalterChatAdapter talk_thread read-only（TalkBridge-T1b）", () => {
       name: "メンバー A",
       initial: "A",
       tone: "sky",
+      identityState: "unresolved",
     });
     expect(participants[1]).toMatchObject({
       id: "user-bbb",
       name: "メンバー B",
       initial: "B",
       tone: "rose",
+      identityState: "unresolved",
     });
-    // ★ identity 未解決: source を持たない（talk_pair_member を名乗らせない）
+    // ★ identity 未解決: source field 自体を持たない（talk_pair_member を名乗らせない）
     for (const p of participants) {
-      expect(p.source).toBeUndefined();
+      expect("source" in p).toBe(false);
     }
   });
 
