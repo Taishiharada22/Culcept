@@ -13,6 +13,28 @@
 | W4 | `cba56c00` | localStorage dogfood（3 キー・凍結正本化・Reveal 既読） |
 | W5 | `13e20bae` | 入力スリット → 既存 alter route `source:"plan"`（入口のみ） |
 | W6 | `38ad79b9` | regression 監査の採用修正 4 件 + 裁定 2 件 |
+| **W6-smoke-fix** | `999d6e5d` | **CEO 実機 smoke の 2 FAIL 修正**（下記 §10） |
+
+## 10. W6-smoke-fix（CEO 実機 smoke の 2 FAIL 修正・2026-06-13）
+
+CEO の認証済み実機確認で 2 件の FAIL を検出 → root cause を特定して修正。pre-production closeout は本修正を受けて再提出。
+
+### FAIL 2: 23:17 に Night Check が出ない — **root cause = 時刻ソースの分裂**
+- `screenViewModel.jstNowMinutes` は UTC+9 を明示計算して**常に JST**（ResourceTrendChart の now marker = 23:17）。一方 `adapter.toHHMM`/`subjectiveDateFor` は素の `now.getHours()` = **ブラウザ local TZ**。CEO 環境のブラウザ TZ が JST 以外（例: UTC 14:17）だと `deriveMomentState` の timeBucket が afternoon と誤判定し、Night Check 窓が開かない。チャート（JST）と gating（local）が分裂していた。
+- 修正: `adapter.toJstWallClock(now)`（jstNowMinutes と同一換算）を追加し、タブ内の「今」を JST 壁時計に一本化。`dayInput`（toHHMM/subjectiveDateFor）・`deriveMomentState`・補正/Night Check の timestamp・チャート now marker が**全て同一 JST ソース**に。
+- 実証: `buildAlterScreen` fixture で JST 23:17→main / 21:00→main / 13:00→hidden / 深夜 02:00（前日キー）→main。テストは「raw getHours() なら 14=afternoon になる」バグ値も明示的に assert。
+
+### FAIL 1: 補正しても水位が変わらない — **root cause = 中央メーターにタップ導線なし（UX）**
+- pure チェーン（`applyUserCorrection`→`estimates`→band/source）は正しい（fixture で unknown→medium・source 本人・連続補正で high まで実証）。estimatesFrozen 正本化も estimates を遮断しない（CEO 懸念点を fixture で反証）。
+- 真因: 補正シートのトリガが**左右の小さい BatteryCallout バッジのみ**で、CEO が直感的にタップする**中央の人体メーター（水位本体・HumanBatteryFigure）にはハンドラが無かった**。「どこを押せば水位を直せるか」が不明瞭。
+- 修正: HumanBatteryCard の中央人体上に**透明タップ領域 3 つ**（脳/心/体）を重ね、`onZoneTap` に配線（絵は不変・z はバッジの下）。中央タップ→補正シート→水位即時反映。
+
+### 構造改善（テスタビリティ）
+- container ロジック（旧 built useMemo の中身）を `app/(culcept)/plan/tabs/buildAlterScreen.ts`（pure）に抽出。AlterTab は本関数を useMemo で呼ぶだけに。これにより「補正→VM」「Night Check 窓」が node で fixture 検証可能になった（+9 tests）。
+
+### 検証
+- 全 20,256 PASS（+9）/ FAIL 2 = 事前存在の reality 静的安全（不変）・tsc 55 不変・build exit 0・route smoke（flag ON: /plan 307 / hints 未認証 401 / 不正 date 400）PASS
+- **未検証（CEO 依頼）**: 認証済みブラウザでの再 smoke — ①23 時台に ALTER タブで Night Check 主問が出る ②中央人体（脳/心/体）タップ→補正シート→水位・%・source 即時変化 ③回答で `plan_night_check_v0`(+`__ts`) 保存・reload 保持 ④翌朝 Morning Reveal 接続。**production gate 未通過で停止**。
 
 ## 1. touched / deleted files（全 W 合計）
 
