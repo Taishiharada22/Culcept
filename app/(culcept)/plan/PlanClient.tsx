@@ -224,6 +224,11 @@ export interface PlanClientProps {
   lifeOpsInputResultType?: LifeOpsSourceInputSourceType;
   /** A-4-c39: Moment read-only surface（**surfaced 非 null の時だけ server が渡す**＝沈黙時は不渡し）。 */
   lifeOpsMoment?: { readonly phrase: string; readonly cautions: readonly string[] };
+  /**
+   * C-1: 認証 self の userId（server＝PlanPage の auth.getUser 由来）。CoAlter タブの relation
+   * binding が self を **推論せず** server 値から取るために渡す。表示には使わない（raw userId 非表示）。
+   */
+  viewerUserId?: string;
 }
 
 export default function PlanClient({
@@ -239,6 +244,7 @@ export default function PlanClient({
   lifeOpsInputResult,
   lifeOpsInputResultType,
   lifeOpsMoment,
+  viewerUserId,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -981,7 +987,7 @@ export default function PlanClient({
       >
         {/* CoAlter タブは fixture-only (= anchors fetch の loading/error/empty に依存しない)。
           * 既存 3 タブの state-gated 描画は else 側でそのまま不変。 */}
-        {activeTab === "coalter" && <CoAlterTab />}
+        {activeTab === "coalter" && <CoAlterTab viewerUserId={viewerUserId} />}
         {activeTab !== "coalter" && state.kind === "loading" && <LoadingState />}
         {activeTab !== "coalter" && state.kind === "error" && (
           <ErrorState

@@ -408,6 +408,34 @@ export const PLAN_FLAGS = {
   coalterChatDevThreadId: (process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_THREAD_ID ?? "").trim(),
 
   /**
+   * TalkBridge-C1: relation metadata binding（**read-only・default OFF・C-1 専用 gate**）。
+   *   true  : C-1 前提（viewerUserId + dev counterpart）充足時に既存 `GET /api/genome-connections`
+   *           を 1 回読み、accepted connection の counterpart を `culcept_relation` に解決して
+   *           session participants を bind（read-only・失敗は fixture へ fail-closed）。
+   *   false : fixture のまま（**本番デフォルト**・fetch 0・現行動作不変）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_RELATION_LIVE=true で有効化（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-plan-tab-c1-relation-binding-preflight.md（CEO 承認 2026-06-12）。
+   * ★ chat live（read）とは **独立 gate**（capabilities は単一スイッチにしない原則）。relation 源は
+   *   genome-connections のみ＝**`/api/talk/threads` は使わない**・service_role 非依存。
+   */
+  coalterRelationLive: process.env.NEXT_PUBLIC_PLAN_COALTER_RELATION_LIVE === "true",
+
+  /**
+   * TalkBridge-C1: relation 解決対象の counterpart userId（**dev/local 注入専用・default 空**）。
+   *   - 空（既定）: 解決対象なし＝coalterRelationLive が ON でも fixture のまま（fetch 0・**勝手に選ばない**）
+   *   - 非空 ∧ coalterRelationLive=true ∧ viewerUserId あり: genome-connections を読み、その userId が
+   *     accepted connection の counterpart のときだけ resolve。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_DEV_COUNTERPART_USER_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
+   * 制約: **thread picker / counterpart picker は作らない**（明示注入のみ・production 未設定＝空）。
+   *   production の counterpart は session 作成由来（C-1 範囲外）。
+   */
+  coalterDevCounterpartUserId: (
+    process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_COUNTERPART_USER_ID ?? ""
+  ).trim(),
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。

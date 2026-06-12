@@ -34,6 +34,8 @@ import {
 // async な live read（talk_thread read-only）は hook 内部に閉じる（fixture が既定・
 // flag OFF / threadId 未注入で現行動作完全不変・失敗は fixture へ fail-closed）。
 import { useCoAlterChatAdapter } from "./useCoAlterChatAdapter";
+// C-1: relation metadata binding（read-only・既存 GET /api/genome-connections のみ・flag OFF 既定）。
+import { useCoAlterRelationBinding } from "./useCoAlterRelationBinding";
 import {
   CalendarMiniIcon,
   ChatRoundIcon,
@@ -88,7 +90,16 @@ function shrinkHeightPct(sharePct: number): number {
   return Math.max(56, Math.round(100 - (SHRINK_BELOW_PCT - sharePct) * 1.7));
 }
 
-export function CoAlterTab() {
+export interface CoAlterTabProps {
+  /**
+   * C-1: 認証 self の userId（server＝PlanPage の auth.getUser 由来）。
+   * **client 推論しない**ための self 正本。未指定なら relation binding は self を解決できず unbound。
+   * 表示には使わない（raw userId を UI に出さない）。
+   */
+  readonly viewerUserId?: string;
+}
+
+export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
   // モード未選択（null）の間も daily の内容を仮表示する（reference の「モードを選ぶ」状態）
   const [modeChoice, setModeChoice] = useState<CoAlterPlanMode | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -122,6 +133,33 @@ export function CoAlterTab() {
     devThreadId: PLAN_FLAGS.coalterChatDevThreadId,
   });
   const chatParticipants = chatAdapter.getParticipants();
+
+  // ── C-1: relation metadata binding（read-only・flag OFF / 前提欠落 = fixture = fetch 0） ──
+  //   bound 時は header の「セッション参加者」を解決済み identity（culcept_relation + self）で表示。
+  //   失敗/未解決/未認証/対象未注入 → fixture のまま（fail-closed）。chat 本文は触らない（messages は別 slice）。
+  const relationBinding = useCoAlterRelationBinding({
+    enabled: PLAN_FLAGS.coalterRelationLive,
+    viewerUserId: viewerUserId ?? null,
+    targetCounterpartUserIds: PLAN_FLAGS.coalterDevCounterpartUserId
+      ? [PLAN_FLAGS.coalterDevCounterpartUserId]
+      : [],
+  });
+  // header 用の正規化（{id,name,initial,tone}）。bound なら解決済み participants、それ以外は fixture。
+  const headerParticipants =
+    relationBinding.state === "bound" && relationBinding.participants
+      ? relationBinding.participants.map((p) => ({
+          id: p.userId,
+          name: p.displayName,
+          initial: p.initial,
+          tone: p.tone,
+        }))
+      : chatParticipants.map((p) => ({
+          id: p.id,
+          name: p.name,
+          initial: p.initial,
+          tone: p.tone,
+        }));
+
   // local echo は fixture（send: "local_echo"）のみ。live read-only（send: "none"）では
   // 実 thread に偽メッセージを乗せない。
   const canLocalEcho = chatAdapter.capabilities.send === "local_echo";
@@ -380,7 +418,7 @@ export function CoAlterTab() {
         {/* 右側: ペアアバター / メニュー */}
         <div className="ml-auto flex items-center gap-2.5">
           <div className="flex items-start gap-1.5">
-            {chatParticipants.map((participant) => (
+            {headerParticipants.map((participant) => (
               <span key={participant.id} className="flex flex-col items-center gap-0.5">
                 <span
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white shadow-sm ring-2 ring-white ${AVATAR_TONE[participant.tone]}`}

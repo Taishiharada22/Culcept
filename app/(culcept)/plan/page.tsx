@@ -134,6 +134,9 @@ export default async function PlanPage({
       lifeOpsInputResult={lifeOpsInputResult}
       lifeOpsInputResultType={lifeOpsInputResultType}
       lifeOpsMoment={lifeOpsMoment}
+      // C-1: 認証 self の userId を read-only prop で渡す（CoAlter relation binding が self を
+      //   推論せず server 値から取るため。client に auth ロジックを増やさない）。
+      viewerUserId={auth.user.id}
     />
   );
 }
