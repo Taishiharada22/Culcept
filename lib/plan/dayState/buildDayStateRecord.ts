@@ -246,6 +246,7 @@ export function buildDayStateRecord(input: DayStateBuildInput): DayStateRecordV0
       moodCode: input.moodCode,
       sleepQuality: input.sleepQuality,
       corrections: [],
+      manualLevels: input.manualLevels,
     },
     evidence: collectEvidence(input, facts),
   };

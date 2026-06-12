@@ -17,6 +17,7 @@ import { deriveMomentState } from "@/lib/plan/dayState/deriveMomentState";
 import { buildAlterBatteryViewModel } from "@/lib/plan/dayState/buildAlterBatteryViewModel";
 import { gradeNightCheck } from "@/lib/plan/dayState/gradeNightCheck";
 import type {
+  BatteryFieldKey,
   DailyGuidanceMode,
   DayFelt,
   DayStateBuildInput,
@@ -63,6 +64,8 @@ export interface BuildAlterScreenInputs {
   sleepQuality?: SleepQualityInput;
   moodCode?: ActivityMoodCode;
   corrections: UserCorrection[];
+  /** 本人がカーソルで合わせた水位（0-100・3 系統）。設定系統は表示を本人値で上書き */
+  manualLevels?: Partial<Record<BatteryFieldKey, number>>;
   nightAnswer: AlterNightAnswer | null;
   hydrated: AlterScreenHydrated | null;
 }
@@ -87,6 +90,7 @@ export function buildAlterScreen(args: BuildAlterScreenInputs): AlterScreenResul
     dailyModeHint: args.hints.dailyModeHint,
     dailyModeHintConfidence: args.hints.dailyModeHintConfidence,
     estimatedWalkLevel: args.hints.estimatedWalkLevel,
+    manualLevels: args.manualLevels,
   });
   // W4: その日の初回凍結を正本に（facts/estimates 現在値は毎回最新・凍結だけ据え置き — 契約 §3.2）。
   // estimates（band/source の源）は触らないため、補正は estimates 経由で必ず反映される（FAIL 1 検証点）。

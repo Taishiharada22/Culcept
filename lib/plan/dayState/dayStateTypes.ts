@@ -88,6 +88,10 @@ export interface DayStateEstimates {
 
 export type EstimateFieldKey = keyof DayStateEstimates;
 
+// 人体メーター 3 系統（カーソルで % を直接合わせられる本人入力対象）。
+// 周辺カード（outingTolerance 等）は band ベースのまま（水位メーターを持たない）。
+export type BatteryFieldKey = "focusReserve" | "emotionalReserve" | "energyLevel";
+
 export interface UserCorrection {
   at: string; // "HH:MM"
   field: EstimateFieldKey;
@@ -99,6 +103,9 @@ export interface DayStateUserInputs {
   moodCode?: ActivityMoodCode;
   sleepQuality?: SleepQualityInput; // 睡眠カードのチップ入力（生理データ無しの唯一の睡眠源）
   corrections: UserCorrection[];
+  // 本人がカーソルで合わせた水位（0-100）。AI 見立て（estimates・band）とは別レイヤーで、
+  // 設定された系統は visualFill / 表示 % / source を本人値で上書きする（凍結＝AI 見立ては不変）。
+  manualLevels?: Partial<Record<BatteryFieldKey, number>>;
 }
 
 // ── Night Check ──
@@ -229,6 +236,8 @@ export interface DayStateBuildInput {
   // v0.4（W2・C-2）: dailyModeHint と併送する confidence（resolveDailyMode 入力 ConfidentValue 群の min）。
   // 固定 0.5 を廃止し、呼び出し側の確信度を反映。hint があり本値が無ければ暫定 0.5。
   dailyModeHintConfidence?: number;
+  // W6-smoke-fix-2: 本人がカーソルで合わせた水位（0-100）。設定系統は表示を本人値で上書き。
+  manualLevels?: Partial<Record<BatteryFieldKey, number>>;
 }
 
 // ── AlterBatteryViewModel（Session B が読むだけの境界面。visual-contract §4 が正本） ──

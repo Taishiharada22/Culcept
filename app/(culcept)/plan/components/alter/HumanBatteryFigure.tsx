@@ -223,31 +223,45 @@ export function HumanBatteryFigure({
             </motion.div>
           )}
 
-          {/* 5. heart — 心臓は 1 レイヤーのみ（B10）: CEO 透過 heart-mask の alpha にローズを流す。
-              SVG ハート path は削除 — アセットのハートと二重に見えていた正体。 */}
-          {!heartUnknown && heart > 0 && (
+          {/* 5. heart — 心臓も水位メーター（CEO 指示②: % が視覚で分かるよう下→上の液面に）。
+              固定サイズのハート形（heart.png alpha mask）の中を heart 分だけ下から満たす。
+              空の部分は淡いゴーストで残し、0-100% が一目で分かる。 */}
+          {!heartUnknown && (
             <motion.div
               className="pointer-events-none absolute"
               style={{
                 left: `${HEART_CENTER.xPct}%`,
                 top: `${HEART_CENTER.yPct}%`,
-                width: `${34 + 16 * heart}%`,
+                width: "44%", // サイズ固定（水位で大きさを変えない）
                 aspectRatio: `${heartImg.width} / ${heartImg.height}`,
                 transform: "translate(-50%, -50%)",
               }}
-              animate={{ scale: [1, 1.06, 1] }}
-              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+              animate={pulseZone === "heart" ? { opacity: [1, 0.55, 1] } : { scale: [1, 1.05, 1] }}
+              transition={pulseZone === "heart" ? { duration: 0.9 } : { duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
             >
-              {/* B14・CEO 指示③: 心臓は若干強め（body/brain を淡くしたぶん中核として立たせる） */}
-              <div
-                className="absolute inset-0"
-                style={{
-                  ...heartMaskStyle,
-                  background:
-                    "radial-gradient(circle at 50% 42%, rgba(236,72,153,1), rgba(244,114,182,0.9) 45%, rgba(251,113,133,0.6) 72%, rgba(253,164,175,0.32))",
-                  opacity: 0.7 + 0.3 * heart,
-                }}
-              />
+              {/* ハート形でクリップする器（この div の mask が子の液面をハート形に切り抜く） */}
+              <div className="absolute inset-0" style={heartMaskStyle}>
+                {/* 空の器（ゴースト・常時うっすら見える＝水位の基準線） */}
+                <div className="absolute inset-0" style={{ background: "rgba(251,113,133,0.16)" }} />
+                {/* 液体（下から heart 分だけ満ちる） */}
+                {heart > 0 && (
+                  <div className="absolute inset-x-0 bottom-0" style={{ height: `${heart * 100}%` }}>
+                    <div
+                      className="absolute inset-0"
+                      style={{
+                        background:
+                          "linear-gradient(to bottom, rgba(244,114,182,0.92) 0%, rgba(236,72,153,0.96) 45%, rgba(225,29,95,1) 100%)",
+                      }}
+                    />
+                    {/* 水面の白いライン */}
+                    <div
+                      className="absolute -top-px left-[8%] h-[2px] w-[84%] rounded-full"
+                      style={{ background: "linear-gradient(to right, rgba(255,255,255,0), rgba(255,255,255,0.95) 30%, rgba(255,255,255,0.95) 70%, rgba(255,255,255,0))" }}
+                    />
+                    <SurfaceWave />
+                  </div>
+                )}
+              </div>
             </motion.div>
           )}
         </>

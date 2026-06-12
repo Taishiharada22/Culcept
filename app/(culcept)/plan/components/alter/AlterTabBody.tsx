@@ -40,6 +40,8 @@ export interface AlterTabBodyProps {
   /** over.png 表示 VM（基底 AlterBatteryViewModel を内包）。CEO 2026-06-11 契約緩和 */
   screen: AlterScreenViewModel;
   onCorrection?: (target: CorrectionTarget, direction: CorrectionDirection) => void;
+  /** 人体メーター 3 系統をカーソルで合わせた水位（0-100）。CEO 指示③: チップ→カーソル */
+  onManualLevel?: (zone: ZoneKey, pct: number) => void;
   onSleepInput?: (choice: SleepChoice) => void;
   onNightCheckAnswer?: (chip: string) => void;
   onQuickReply?: (chip: string) => void;
@@ -110,6 +112,7 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
 export function AlterTabBody({
   screen,
   onCorrection,
+  onManualLevel,
   onSleepInput,
   onNightCheckAnswer,
   onQuickReply,
@@ -121,6 +124,8 @@ export function AlterTabBody({
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
   const [sleepChoice, setSleepChoice] = useState<SleepChoice | null>(null);
   const [pulseZone, setPulseZone] = useState<ZoneKey | null>(null);
+  // 補正シートのスライダー値（0-100）。シートを開いた時に現在の水位 % で初期化
+  const [sliderPct, setSliderPct] = useState<number>(50);
   const [ack, setAck] = useState<string | null>(null);
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -145,6 +150,23 @@ export function AlterTabBody({
         ? vm.contextCards.outingTolerance.label
         : vm.battery[sheet.target].label
       : null;
+
+  // 補正シートを開く。人体メーター 3 系統はスライダーを現在の水位 % で初期化（CEO 指示③）
+  const openCorrection = (target: CorrectionTarget) => {
+    if (target !== "outingTolerance") {
+      const pct = screen.meterPct[target]; // number | null（unknown は null）
+      setSliderPct(pct ?? 50);
+    }
+    setSheet({ kind: "correction", target });
+  };
+
+  // スライダー操作（ライブ反映: ドラッグ中も人体メーターが動く）
+  const handleSlider = (pct: number) => {
+    setSliderPct(pct);
+    if (sheet?.kind === "correction" && sheet.target !== "outingTolerance") {
+      onManualLevel?.(sheet.target, pct);
+    }
+  };
 
   const handleCorrection = (direction: CorrectionDirection) => {
     if (sheet?.kind !== "correction") return;
@@ -180,8 +202,8 @@ export function AlterTabBody({
             outingTolerance={vm.contextCards.outingTolerance}
             eveningSlack={vm.contextCards.eveningSlack}
             meterPct={screen.meterPct}
-            onZoneTap={(z) => setSheet({ kind: "correction", target: z })}
-            onOutingTap={() => setSheet({ kind: "correction", target: "outingTolerance" })}
+            onZoneTap={(z) => openCorrection(z)}
+            onOutingTap={() => openCorrection("outingTolerance")}
             pulseZone={pulseZone}
           />
           <StateBackgroundPanel stateBg={displayStateBg} onSleepTap={() => setSheet({ kind: "sleep" })} />
@@ -277,7 +299,42 @@ export function AlterTabBody({
           >
             <div className="mx-auto max-w-3xl rounded-t-3xl border border-white/90 bg-white/95 p-5 pb-8 shadow-2xl backdrop-blur-xl">
               <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-              {sheet.kind === "correction" ? (
+              {sheet.kind === "correction" && sheet.target !== "outingTolerance" ? (
+                // 人体メーター 3 系統: カーソルで水位 % を直接合わせる（CEO 指示③）
+                <>
+                  <div className="flex items-baseline justify-between">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {sheetZoneLabel}の今の感覚に、水位を合わせてください
+                    </p>
+                    <span className="text-lg font-bold tabular-nums text-indigo-600">{Math.round(sliderPct)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={sliderPct}
+                    onChange={(e) => handleSlider(Number(e.target.value))}
+                    aria-label={`${sheetZoneLabel}の水位（パーセント）`}
+                    className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-gradient-to-r from-slate-200 via-indigo-200 to-indigo-400 accent-indigo-500"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                    <span>からっぽ</span>
+                    <span>満タン</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSheet(null);
+                      showAck("水位を合わせました");
+                    }}
+                    className="mt-5 w-full rounded-2xl bg-indigo-500 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600"
+                  >
+                    完了
+                  </button>
+                </>
+              ) : sheet.kind === "correction" ? (
+                // 周辺カード（外出耐性）は水位メーターでないため従来の 3 択
                 <>
                   <p className="text-sm font-semibold text-slate-800">
                     {sheetZoneLabel}の見立て、合っていますか？

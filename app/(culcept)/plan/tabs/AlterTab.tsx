@@ -41,6 +41,7 @@ import {
   NIGHT_CHECK_FOLLOWUP_CHIPS,
 } from "@/lib/plan/dayState/buildAlterBatteryViewModel";
 import type {
+  BatteryFieldKey,
   DailyGuidanceMode,
   DayFelt,
   DayStateRecordV0,
@@ -72,6 +73,7 @@ import {
   type CorrectionTarget,
   type SleepChoice,
 } from "../components/alter/AlterTabBody";
+import type { ZoneKey } from "../components/alter/bandDisplay";
 
 export interface AlterTabProps {
   anchors: ExternalAnchor[];
@@ -99,6 +101,13 @@ const CORRECTION_TARGET_TO_FIELD: Record<CorrectionTarget, EstimateFieldKey> = {
   heart: "emotionalReserve",
   body: "energyLevel",
   outingTolerance: "outingTolerance",
+};
+
+/** 人体メーター 3 系統（ZoneKey）→ 水位 manualLevels の field */
+const ZONE_TO_BATTERY_FIELD: Record<ZoneKey, BatteryFieldKey> = {
+  brain: "focusReserve",
+  heart: "emotionalReserve",
+  body: "energyLevel",
 };
 
 /**
@@ -181,6 +190,8 @@ export function AlterTab({
   const [sleepQuality, setSleepQuality] = useState<SleepQualityInput | undefined>(undefined);
   const [moodCode, setMoodCode] = useState<ActivityMoodCode | undefined>(undefined);
   const [corrections, setCorrections] = useState<UserCorrection[]>([]);
+  // 本人がカーソルで合わせた水位（0-100・3 系統）。CEO 指示③
+  const [manualLevels, setManualLevels] = useState<Partial<Record<BatteryFieldKey, number>>>({});
   const [nightAnswer, setNightAnswer] = useState<NightAnswerState | null>(null);
 
   // シフト表取り込み source（image / pdf = SR 経路）の id 集合
@@ -283,6 +294,7 @@ export function AlterTab({
       setSleepQuality(undefined);
       setMoodCode(undefined);
       setCorrections([]);
+      setManualLevels({});
       setNightAnswer(null);
     }
     prevDateRef.current = subjectiveDate;
@@ -305,6 +317,9 @@ export function AlterTab({
       if (stored.userInputs.moodCode) setMoodCode(stored.userInputs.moodCode);
       if (stored.userInputs.sleepQuality) setSleepQuality(stored.userInputs.sleepQuality);
       if (stored.userInputs.corrections.length > 0) setCorrections(stored.userInputs.corrections);
+      if (stored.userInputs.manualLevels && Object.keys(stored.userInputs.manualLevels).length > 0) {
+        setManualLevels(stored.userInputs.manualLevels);
+      }
       // answeredFor が当日と一致する回答のみ復元（壊れたデータ・将来の繰り越し回答を当日に混ぜない）
       if (stored.nightCheck && stored.nightCheck.answeredFor === subjectiveDate) {
         setNightAnswer({
@@ -333,12 +348,13 @@ export function AlterTab({
       sleepQuality,
       moodCode,
       corrections,
+      manualLevels,
       nightAnswer,
       hydrated: hydrated
         ? { frozen: hydrated.frozen, yesterday: hydrated.yesterday, revealAlreadySeen: hydrated.revealAlreadySeen }
         : null,
     });
-  }, [jstNow, dayInput, weather, hints, sleepQuality, moodCode, corrections, nightAnswer, storageEnabled, hydration]);
+  }, [jstNow, dayInput, weather, hints, sleepQuality, moodCode, corrections, manualLevels, nightAnswer, storageEnabled, hydration]);
 
   // ── W4: 永続化（record + Night Check 同時 — 契約注意点 (i)。hydration 完了前は書かない） ──
   useEffect(() => {
@@ -381,6 +397,9 @@ export function AlterTab({
   return (
     <AlterTabBody
       screen={screen}
+      onManualLevel={(zone: ZoneKey, pct: number) =>
+        setManualLevels((prev) => ({ ...prev, [ZONE_TO_BATTERY_FIELD[zone]]: Math.round(pct) }))
+      }
       onSleepInput={(choice) => setSleepQuality(SLEEP_CHOICE_TO_QUALITY[choice])}
       onCorrection={(target: CorrectionTarget, direction: CorrectionDirection) =>
         setCorrections((prev) => [

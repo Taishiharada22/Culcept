@@ -114,7 +114,35 @@ function confidenceWord(c: number): BatteryZoneVM["confidence"] {
   return c >= 0.7 ? "high" : c >= 0.4 ? "medium" : "low";
 }
 
-function zone(label: string, band: Band, cvSource: ConfidentValue<unknown>, evidence: string[]): BatteryZoneVM {
+// 本人が合わせた水位 %（0-100）→ 表示 band（語彙・根拠用）。閾値は BAND_FILL の中点に対応。
+export function pctToBand(pct: number): Band {
+  const p = Math.min(100, Math.max(0, pct));
+  if (p < 20) return "very_low";
+  if (p < 45) return "low";
+  if (p < 70) return "medium";
+  return "high";
+}
+
+function zone(
+  label: string,
+  band: Band,
+  cvSource: ConfidentValue<unknown>,
+  evidence: string[],
+  // 本人がカーソルで合わせた水位（0-100）。設定時は visualFill / band / source を本人値で上書き。
+  manualPct?: number,
+): BatteryZoneVM {
+  if (manualPct !== undefined) {
+    const p = Math.min(100, Math.max(0, manualPct));
+    return {
+      label,
+      band: pctToBand(p),
+      visualFill: p / 100, // 0-100% を正確に描画（AI 見立ての BAND_FILL 上限 0.8 に縛られない）
+      confidence: "high",
+      source: "本人",
+      evidence,
+      correctable: true,
+    };
+  }
   return {
     label,
     band,
@@ -267,11 +295,14 @@ export function buildAlterBatteryViewModel(
   const sleepBand: Band =
     sleepSource === "user_reported" ? (sleepQuality === "good" ? "high" : "low") : "unknown";
 
+  // 本人がカーソルで合わせた水位（設定系統のみ表示を上書き。未設定は AI 見立て band）
+  const manual = record.userInputs.manualLevels ?? {};
+
   return {
     battery: {
-      brain: zone("集中の余力", reserveToBand(e.focusReserve.value), e.focusReserve, zoneEvidence(record.evidence, "brain")),
-      heart: zone("心の余力", reserveToBand(e.emotionalReserve.value), e.emotionalReserve, zoneEvidence(record.evidence, "heart")),
-      body: zone("からだの余力", energyToBand(e.energyLevel.value), e.energyLevel, zoneEvidence(record.evidence, "body")),
+      brain: zone("集中の余力", reserveToBand(e.focusReserve.value), e.focusReserve, zoneEvidence(record.evidence, "brain"), manual.focusReserve),
+      heart: zone("心の余力", reserveToBand(e.emotionalReserve.value), e.emotionalReserve, zoneEvidence(record.evidence, "heart"), manual.emotionalReserve),
+      body: zone("からだの余力", energyToBand(e.energyLevel.value), e.energyLevel, zoneEvidence(record.evidence, "body"), manual.energyLevel),
     },
     contextCards: {
       outingTolerance: {
