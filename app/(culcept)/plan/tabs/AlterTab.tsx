@@ -36,14 +36,10 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import type { BuildDayGraphResult } from "@/lib/plan/dayGraph/dayGraphTypes";
 import type { DayIndicatorViewModel } from "@/lib/plan/dayIndicatorView";
-import { applyUserCorrection, buildDayStateRecord } from "@/lib/plan/dayState/buildDayStateRecord";
-import { deriveMomentState } from "@/lib/plan/dayState/deriveMomentState";
 import {
-  buildAlterBatteryViewModel,
   NIGHT_CHECK_CHIPS,
   NIGHT_CHECK_FOLLOWUP_CHIPS,
 } from "@/lib/plan/dayState/buildAlterBatteryViewModel";
-import { gradeNightCheck } from "@/lib/plan/dayState/gradeNightCheck";
 import type {
   DailyGuidanceMode,
   DayFelt,
@@ -56,7 +52,8 @@ import type {
   WeatherCondition,
 } from "@/lib/plan/dayState/dayStateTypes";
 import type { ActivityMoodCode } from "@/lib/coalter/activity/intent";
-import { buildAlterDayInput, subjectiveDateFor, toHHMM } from "@/lib/plan/alterTab/adapter";
+import { buildAlterDayInput, subjectiveDateFor, toHHMM, toJstWallClock } from "@/lib/plan/alterTab/adapter";
+import { buildAlterScreen } from "./buildAlterScreen";
 import { addDaysIso } from "@/lib/plan/alterTab/dayStateHints";
 import {
   getBrowserStorage,
@@ -75,7 +72,6 @@ import {
   type CorrectionTarget,
   type SleepChoice,
 } from "../components/alter/AlterTabBody";
-import { buildScreenViewModel, jstNowMinutes } from "../components/alter/screenViewModel";
 
 export interface AlterTabProps {
   anchors: ExternalAnchor[];
@@ -177,6 +173,10 @@ export function AlterTab({
     return () => window.clearInterval(id);
   }, []);
 
+  // FAIL 2 対策: タブ内の「今」は JST 壁時計に一本化（ブラウザ TZ 非依存。
+  // チャート now marker = jstNowMinutes と同一ソースにし、timeBucket / 主観日の分裂を防ぐ）
+  const jstNow = useMemo(() => (now ? toJstWallClock(now) : null), [now]);
+
   // in-memory 本人入力（W3a: 保存なし。W4 で localStorage へ）
   const [sleepQuality, setSleepQuality] = useState<SleepQualityInput | undefined>(undefined);
   const [moodCode, setMoodCode] = useState<ActivityMoodCode | undefined>(undefined);
@@ -217,18 +217,19 @@ export function AlterTab({
   }, []);
 
   // adapter 入力（hints fetch と screen 構築で共有。estimates を含まない事実写像のみ）
+  // now ではなく jstNow を注入 → toHHMM / subjectiveDateFor が JST 評価（FAIL 2）。
   const dayInput = useMemo(() => {
-    if (!now) return null;
-    // 主観日キー（00:00-04:59 は前日）で暦日キーの Record / Map を引く — ずれは adapter 関数で吸収
-    const subjectiveKey = subjectiveDateFor(now);
+    if (!jstNow) return null;
+    // 主観日キー（00:00-04:59 JST は前日）で暦日キーの Record / Map を引く — ずれは adapter 関数で吸収
+    const subjectiveKey = subjectiveDateFor(jstNow);
     return buildAlterDayInput({
-      now,
+      now: jstNow,
       graphResult: dayGraphByDate?.[subjectiveKey],
       dayIndicatorVariant: dayIndicatorByIso?.get(subjectiveKey)?.variant,
       anchors,
       shiftSourceIds,
     });
-  }, [now, dayGraphByDate, dayIndicatorByIso, anchors, shiftSourceIds]);
+  }, [jstNow, dayGraphByDate, dayIndicatorByIso, anchors, shiftSourceIds]);
 
   // b-1/b-3 hints（主観日・本人入力が変わった時のみ refetch。1 分 tick では再取得しない）
   const [hints, setHints] = useState<DayStateHints>({});
@@ -322,63 +323,22 @@ export function AlterTab({
   }, [storageEnabled, subjectiveDate]);
 
   const built = useMemo(() => {
-    if (!now || !dayInput) return null;
-
-    const { date, input: factsInput } = dayInput;
-    const input = { ...factsInput, weather };
-    const hydrated = storageEnabled && hydration?.date === date ? hydration : null;
-
-    let record: DayStateRecordV0 = buildDayStateRecord({
-      ...input,
+    if (!jstNow || !dayInput) return null;
+    const hydrated = storageEnabled && hydration?.date === dayInput.date ? hydration : null;
+    return buildAlterScreen({
+      jstNow,
+      dayInput,
+      weather,
+      hints,
       sleepQuality,
       moodCode,
-      dailyModeHint: hints.dailyModeHint,
-      dailyModeHintConfidence: hints.dailyModeHintConfidence,
-      estimatedWalkLevel: hints.estimatedWalkLevel,
+      corrections,
+      nightAnswer,
+      hydrated: hydrated
+        ? { frozen: hydrated.frozen, yesterday: hydrated.yesterday, revealAlreadySeen: hydrated.revealAlreadySeen }
+        : null,
     });
-    // W4: その日の初回凍結を正本に（facts/estimates 現在値は毎回最新・凍結だけ据え置き — 契約 §3.2）
-    if (hydrated?.frozen) {
-      record = { ...record, estimatesFrozen: hydrated.frozen };
-    }
-    for (const c of corrections) {
-      record = applyUserCorrection(record, c);
-    }
-    let nightGrade: ReturnType<typeof gradeNightCheck> | null = null;
-    if (nightAnswer) {
-      nightGrade = gradeNightCheck(record, {
-        dayFelt: nightAnswer.dayFelt,
-        answeredAt: nightAnswer.answeredAt,
-        planVerdict: nightAnswer.planVerdict,
-      });
-      record = {
-        ...record,
-        nightCheck: {
-          answeredAt: nightAnswer.answeredAt,
-          answeredFor: date,
-          dayFelt: nightAnswer.dayFelt,
-          planVerdict: nightAnswer.planVerdict,
-          verdicts: nightGrade.verdicts,
-        },
-        carryOverOut: nightGrade.carryOverOut,
-      };
-    }
-
-    const moment = deriveMomentState({ nowHHMM: input.nowHHMM, segments: input.segments });
-    // yesterdayRecord: W4 で localStorage の前日 record（無ければ null = W3a と同じ縮退）
-    let vm = buildAlterBatteryViewModel(record, moment, hydrated?.yesterday ?? null, input.segments);
-    // Morning Reveal 1 朝 1 回（既読管理は §6.2 で storage/container 層の責務 — pure builder は
-    // storage を知れない）。null は VM 契約上の正規状態への選択であり、canonical VM の拡張ではない
-    if (vm.morningReveal && hydrated?.revealAlreadySeen) {
-      vm = { ...vm, morningReveal: null };
-    }
-    return {
-      date,
-      record,
-      nightGrade,
-      revealForDate: vm.morningReveal?.forDate ?? null,
-      screen: buildScreenViewModel(vm, { nowMinJst: jstNowMinutes(now) }),
-    };
-  }, [now, dayInput, weather, hints, sleepQuality, moodCode, corrections, nightAnswer, storageEnabled, hydration]);
+  }, [jstNow, dayInput, weather, hints, sleepQuality, moodCode, corrections, nightAnswer, storageEnabled, hydration]);
 
   // ── W4: 永続化（record + Night Check 同時 — 契約注意点 (i)。hydration 完了前は書かない） ──
   useEffect(() => {
@@ -425,13 +385,14 @@ export function AlterTab({
       onCorrection={(target: CorrectionTarget, direction: CorrectionDirection) =>
         setCorrections((prev) => [
           ...prev,
-          { at: toHHMM(new Date()), field: CORRECTION_TARGET_TO_FIELD[target], direction },
+          // 補正時刻も JST 壁時計（採点・lateNightEnd 判定が deriveMomentState と同一ソース）
+          { at: toHHMM(toJstWallClock(new Date())), field: CORRECTION_TARGET_TO_FIELD[target], direction },
         ])
       }
       onNightCheckAnswer={(chip) => {
         const felt = chipToDayFelt(chip);
         if (felt !== null) {
-          setNightAnswer({ dayFelt: felt, answeredAt: toHHMM(new Date()) });
+          setNightAnswer({ dayFelt: felt, answeredAt: toHHMM(toJstWallClock(new Date())) });
           return;
         }
         const verdict = FOLLOWUP_CHIP_TO_VERDICT[chip];

@@ -31,6 +31,25 @@ export function toHHMM(d: Date): string {
 }
 
 /**
+ * ブラウザ TZ に依存しない「JST 壁時計」の Date を返す。
+ * 返り値の getHours()/getMonth()/getDate() 等が JST の値になる（プロダクトは日本時間が正本）。
+ *
+ * 重要（W6-smoke-fix の FAIL 2 root cause）: screenViewModel.jstNowMinutes は UTC+9 を明示計算して
+ * 常に JST を返す（ResourceTrendChart の now marker）。一方 toHHMM/subjectiveDateFor は
+ * 素の getHours() = ブラウザ local TZ を見るため、JST 以外の TZ では timeBucket / 主観日が分裂し、
+ * Night Check 窓が開かない等の不整合が出る。Alter タブの「今」は本ヘルパー経由で JST に一本化する。
+ */
+export function toJstWallClock(now: Date): Date {
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utcMs + 9 * 3600000);
+}
+
+/** JST 壁時計の分（0-1439）。buildScreenViewModel の nowMinJst に渡す（jstNowMinutes と一致） */
+export function jstMinutesOf(jstWallClock: Date): number {
+  return jstWallClock.getHours() * 60 + jstWallClock.getMinutes();
+}
+
+/**
  * 主観日の暦日キー（"YYYY-MM-DD"）。深夜 00:00-04:59 は前日キーを返す。
  * dayGraphByDate / dayIndicatorByIso は暦日キーのため、この値で引くことで
  * 主観日 × 暦日のずれを adapter 側で吸収する（実行計画 §2.2）。
