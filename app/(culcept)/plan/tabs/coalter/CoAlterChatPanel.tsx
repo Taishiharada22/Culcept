@@ -17,9 +17,10 @@ import { useState } from "react";
 import {
   candidateLetter,
   type AdjustmentSuggestionFixture,
-  type ChatMessageFixture,
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
+// T1a: チャット面は adapter の view 型のみを見る（fixture / /talk payload への直接依存を持たない）
+import type { CoAlterChatMessage, CoAlterChatParticipant } from "./coalterChatAdapter";
 import { ConditionChip } from "./PlanIntelligencePanel";
 import {
   CheckIcon,
@@ -40,10 +41,10 @@ const PARTICIPANT_AVATAR_TONE: Record<"sky" | "rose", string> = {
 
 interface MessageGroup {
   author: string;
-  items: ChatMessageFixture[];
+  items: CoAlterChatMessage[];
 }
 
-function groupConsecutive(messages: readonly ChatMessageFixture[]): MessageGroup[] {
+function groupConsecutive(messages: readonly CoAlterChatMessage[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
   for (const message of messages) {
     const last = groups[groups.length - 1];
@@ -58,8 +59,10 @@ function groupConsecutive(messages: readonly ChatMessageFixture[]): MessageGroup
 
 export interface CoAlterChatPanelProps {
   readonly session: CoAlterPlanSessionFixture;
-  /** fixture messages + ローカル送信分（親で管理） */
-  readonly messages: readonly ChatMessageFixture[];
+  /** adapter 由来の参加者（出自は fixture / talk_thread / culcept_relation / self を抽象化） */
+  readonly participants: readonly CoAlterChatParticipant[];
+  /** adapter 初期 messages + ローカル送信分（親で管理） */
+  readonly messages: readonly CoAlterChatMessage[];
   readonly onSend: (text: string) => void;
   readonly selectedCandidateIndex: number;
   readonly appliedAdjustmentIds: ReadonlySet<string>;
@@ -74,6 +77,7 @@ export interface CoAlterChatPanelProps {
  */
 export function CoAlterChatPanel({
   session,
+  participants,
   messages,
   onSend,
   selectedCandidateIndex,
@@ -115,7 +119,7 @@ export function CoAlterChatPanel({
       {/* ── メッセージ列 ── */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pt-1">
         {groups.map((group) => (
-          <MessageGroupView key={group.items[0].id} group={group} session={session} />
+          <MessageGroupView key={group.items[0].id} group={group} participants={participants} />
         ))}
 
         {/* ── 共有コンディション（要約） — M5: shared のみ + 注記 ── */}
@@ -224,13 +228,13 @@ function QuickActionIcon({ icon }: { icon: AdjustmentSuggestionFixture["icon"] }
 
 function MessageGroupView({
   group,
-  session,
+  participants,
 }: {
   group: MessageGroup;
-  session: CoAlterPlanSessionFixture;
+  participants: readonly CoAlterChatParticipant[];
 }) {
   const isCoAlter = group.author === "coalter";
-  const participant = session.participants.find((p) => p.id === group.author);
+  const participant = participants.find((p) => p.id === group.author);
   const name = isCoAlter ? "CoAlter" : participant?.name ?? group.author;
 
   // 狭い container（ピンチで縮めた時・モバイル既定）では avatar を名前行に内包して

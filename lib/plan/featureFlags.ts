@@ -379,6 +379,18 @@ export const PLAN_FLAGS = {
   coalterPlanTabEnabled: process.env.NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED === "true",
 
   /**
+   * T1a: CoAlter タブのチャット live 接続（**dormant・default OFF・T1a では consumer 分岐なし**）。
+   *   true  : （T1b 以降）resolveCoAlterChatAdapter が read-only talk thread adapter を返す予定
+   *   false : fixture adapter（**本番デフォルト・現行動作・視覚的に完全不変**）
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE=true で有効化（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-plan-tab-talk-migration-design.md §4（T1a/T1b/T1c 分割・CEO 承認 2026-06-12）
+   * 制約: **T1a では ON でも fixture のまま**（live adapter 未実装＝実 API 呼び出しゼロ）。
+   *   T1b（read-only thread 表示）/ T1c（send/realtime）は各 CEO GO 後に分岐のみ追加。
+   */
+  coalterChatLive: process.env.NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE === "true",
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。

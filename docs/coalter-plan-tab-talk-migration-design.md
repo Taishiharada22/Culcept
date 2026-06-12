@@ -75,10 +75,18 @@ CEO 指示の確認:
 
 ## §4 段階移設計画
 
+**改訂（2026-06-12 CEO 承認）**: 方向性承認。ただし旧 T1（read+send+Realtime+既読の一括）は
+「純 UI 作業を超え、実 talk API・auth/RLS・DB write に触れうる」ため **T1a/T1b/T1c に分割**。
+製品方針の正本: 「今のデザイン（CoAlter タブのチャット欄）を正本にし、そこへ CoAlter の機能を
+引っ張ってくる（ベースは作った方）」。実装順序の正本: ①デザイン正本化（済）→ ②adapter 境界
+→ ③read-only /talk thread 表示 → ④send/realtime → ⑤useCoAlter → ⑥Plan Intelligence 側へ投影。
+
 | Phase | 内容 | /talk への影響 | gate |
 |---|---|---|---|
 | **T0（済）** | fixture チャット UI（現 CoAlterChatPanel） | なし | `NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED` |
-| **T1** | **新設 hook `usePlanTalkThread(threadId)`** を `app/(culcept)/plan/tabs/coalter/` 配下に新規作成。§1.2-A のうち read+send+Realtime+既読の最小集合を**新規実装**（API はそのまま `/api/talk/*` を呼ぶ・**ChatClient からの抽出 refactor はしない**＝/talk 不触） | **ゼロ**（ChatClient 不変） | 新 flag `NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE`（default OFF・fixture 共存: flag OFF=fixture） |
+| **T1a（済 2026-06-12）** | **chat adapter 境界 skeleton**（`coalterChatAdapter.ts`）。view 型 + source union（fixture / talk_thread / culcept_relation / self ＝ **旧 /talk pair を唯一の出自にしない**）+ fixture adapter（既定・現行動作）。**実 API 呼び出し・Realtime・POST・既読・typing・useCoAlter import は一切なし**。flag は dormant（ON でも fixture） | ゼロ | `NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE`（default OFF・OFF=視覚不変） |
+| **T1b（CEO GO 待ち）** | read-only talk thread adapter（`GET /api/talk/threads/[id]/messages` のみ・send/既読/typing/Realtime なし）。resolver の liveEnabled 分岐にのみ追加 | ゼロ | 同 flag + CEO GO |
+| **T1c（CEO GO 待ち）** | send + Realtime（channel 名は `plan-talk:{threadId}` に分離）+ 既読（チャットペイン可視時のみ） | ゼロ | 同 flag + CEO GO |
 | **T2** | threadId 解決導線: タブ header のペア表示にスレッド選択（既存 `GET /api/talk/threads` 再利用）。未選択/0 件は fixture 表示のまま | ゼロ | 同上 |
 | **T3** | CoAlter 対話接続: `useCoAlter(threadId)` を**そのまま import**（hook は自己完結・§1.2-B）。同意カード/カード dispatcher をチャット吹き出しとして再スタイル。soft trigger・awaitingAnswer の結線を CoAlterChatPanel 側に最小コピー | ゼロ（hook 共有・/talk 側継続動作） | 同上 + 既存 COALTER_FLAGS 尊重 |
 | **T4** | プラン側投影: Plan Shelf（planItems）→ 左パネル候補カードへ、調整操作 → `refine` へ。**backend 契約 v1 改訂後**（contract draft §4 の操作契約に合わせる） | ゼロ | CEO 別 GO |

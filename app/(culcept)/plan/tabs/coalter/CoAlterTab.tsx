@@ -19,7 +19,9 @@
  * /talk 機能の移設は docs/coalter-plan-tab-talk-migration-design.md（T1 以降・CEO GO 待ち）。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
 import {
   COALTER_MODE_LABELS,
@@ -28,6 +30,9 @@ import {
   type CoAlterPlanMode,
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
+// T1a: チャットの participant/message は adapter 境界経由で consume する
+// （fixture が既定・flag OFF で現行動作完全不変。live adapter は T1b 以降）。
+import { resolveCoAlterChatAdapter } from "./coalterChatAdapter";
 import {
   CalendarMiniIcon,
   ChatRoundIcon,
@@ -108,7 +113,18 @@ export function CoAlterTab() {
     0,
     session.candidates.findIndex((c) => c.id === ui.selectedCandidateId),
   );
-  const messages = [...session.messages, ...ui.sentMessages];
+
+  // ── T1a: チャット adapter 境界（実 API なし・flag OFF=fixture=現行動作） ──
+  const chatAdapter = useMemo(
+    () =>
+      resolveCoAlterChatAdapter({
+        session,
+        liveEnabled: PLAN_FLAGS.coalterChatLive,
+      }),
+    [session],
+  );
+  const chatParticipants = chatAdapter.getParticipants();
+  const messages = [...chatAdapter.getInitialMessages(), ...ui.sentMessages];
 
   // ── handlers（すべて local state のみ） ──
   const handleSelectCandidate = (candidateId: string) =>
@@ -128,7 +144,8 @@ export function CoAlterTab() {
     });
 
   const handleSend = (text: string) => {
-    const sender = session.participants[0];
+    const sender = chatAdapter.getViewer();
+    if (!sender) return; // viewer 不明（将来 source）の時は送らない
     const message: ChatMessageFixture = {
       id: `local-${session.id}-${ui.sentMessages.length + 1}`,
       author: sender.id,
@@ -359,7 +376,7 @@ export function CoAlterTab() {
         {/* 右側: ペアアバター / メニュー */}
         <div className="ml-auto flex items-center gap-2.5">
           <div className="flex items-start gap-1.5">
-            {session.participants.map((participant) => (
+            {chatParticipants.map((participant) => (
               <span key={participant.id} className="flex flex-col items-center gap-0.5">
                 <span
                   className={`inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white shadow-sm ring-2 ring-white ${AVATAR_TONE[participant.tone]}`}
@@ -459,6 +476,7 @@ export function CoAlterTab() {
         >
           <CoAlterChatPanel
             session={session}
+            participants={chatParticipants}
             messages={messages}
             onSend={handleSend}
             selectedCandidateIndex={selectedIndex}
