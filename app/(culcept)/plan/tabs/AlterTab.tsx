@@ -14,8 +14,13 @@
  *  - estimatesFrozen はマウント毎に再凍結（表示検証専用。match 率の蓄積は W4 から）
  *  - yesterdayRecord は null 固定（前日レコードは W4 の localStorage 読取から）
  *    → Morning Reveal / recoveryQuality は構造的に非表示・unknown（正直表示）
- *  - 新規 fetch / Supabase read / localStorage 接触ゼロ
  *  - now はこの component が評価して pure 層へ注入（mount 後 + 1 分 tick。SSR mismatch 防止で初期 null）
+ *
+ * W3b（read-only 供給系 — 実行計画 §3）:
+ *  - b-1/b-3: GET /api/plan/day-state-hints（bounded read・fail-open）→ dailyModeHint+confidence /
+ *    estimatedWalkLevel。失敗時は undefined のまま = W2 の保守的 fallback / unknown 表示
+ *  - b-2: weather は既存 weatherService（my-style・Open-Meteo・キー不要）を client 直で流用。
+ *    pop は既存 weatherInfoToDaily の規約値（rain 80 / else 10）。失敗時は null = 欠測の正直表示
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -32,15 +37,21 @@ import {
 } from "@/lib/plan/dayState/buildAlterBatteryViewModel";
 import { gradeNightCheck } from "@/lib/plan/dayState/gradeNightCheck";
 import type {
+  DailyGuidanceMode,
   DayFelt,
   DayStateRecordV0,
   EstimateFieldKey,
+  EstimatedWalkLevel,
   PlanVerdict,
   SleepQualityInput,
   UserCorrection,
+  WeatherCondition,
 } from "@/lib/plan/dayState/dayStateTypes";
 import type { ActivityMoodCode } from "@/lib/coalter/activity/intent";
 import { buildAlterDayInput, subjectiveDateFor, toHHMM } from "@/lib/plan/alterTab/adapter";
+import { isNightShiftSpan } from "@/lib/plan/dayState/timeOfDay";
+// W3b b-2: 既存 weatherService の流用（client-only・Open-Meteo・API キー不要。lib/shared 化は将来課題）
+import { fetchWeather, weatherInfoToDaily } from "@/app/(immersive)/my-style/_lib/weatherService";
 import {
   AlterTabBody,
   type CorrectionDirection,
@@ -100,6 +111,23 @@ interface NightAnswerState {
   planVerdict?: PlanVerdict;
 }
 
+/** W3b b-1/b-3: hints route の応答（fail-open。欠落は undefined = W2 fallback） */
+interface DayStateHints {
+  dailyModeHint?: DailyGuidanceMode;
+  dailyModeHintConfidence?: number;
+  estimatedWalkLevel?: EstimatedWalkLevel;
+}
+
+const DAILY_MODES: ReadonlyArray<DailyGuidanceMode> = [
+  "recover",
+  "reset",
+  "advance",
+  "maintenance",
+  "social",
+  "explore",
+];
+const WALK_LEVELS: ReadonlyArray<EstimatedWalkLevel> = ["low", "medium", "high"];
+
 export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }: AlterTabProps) {
   // now は mount 後に確定 + 1 分 tick（SSR hydration mismatch 防止 — PlanClient と同パターン）
   const [now, setNow] = useState<Date | null>(null);
@@ -124,20 +152,98 @@ export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }
     [sources],
   );
 
-  const screen = useMemo(() => {
-    if (!now) return null;
+  // ── W3b: read-only 供給系 ──
+  // b-2 weather（client 直・失敗は欠測のまま = unknown 正直表示）
+  const [weather, setWeather] = useState<{ condition: WeatherCondition; pop: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchWeather();
+        if (!cancelled) {
+          setWeather({
+            condition: res.weather.condition,
+            // pop は record 側で未消費（rain/snow の condition のみが信号）。型上 null の場合は 0
+            pop: weatherInfoToDaily(res.weather).pop_max ?? 0,
+          });
+        }
+      } catch {
+        // 欠測（weather: null）のまま。outingTolerance 等は unknown 側へ倒れる
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
+  // adapter 入力（hints fetch と screen 構築で共有。estimates を含まない事実写像のみ）
+  const dayInput = useMemo(() => {
+    if (!now) return null;
     // 主観日キー（00:00-04:59 は前日）で暦日キーの Record / Map を引く — ずれは adapter 関数で吸収
     const subjectiveKey = subjectiveDateFor(now);
-    const { date, input } = buildAlterDayInput({
+    return buildAlterDayInput({
       now,
       graphResult: dayGraphByDate?.[subjectiveKey],
       dayIndicatorVariant: dayIndicatorByIso?.get(subjectiveKey)?.variant,
       anchors,
       shiftSourceIds,
     });
+  }, [now, dayGraphByDate, dayIndicatorByIso, anchors, shiftSourceIds]);
 
-    let record: DayStateRecordV0 = buildDayStateRecord({ ...input, sleepQuality, moodCode });
+  // b-1/b-3 hints（主観日・本人入力が変わった時のみ refetch。1 分 tick では再取得しない）
+  const [hints, setHints] = useState<DayStateHints>({});
+  const subjectiveDate = dayInput?.date;
+  const shiftKind = dayInput?.input.shift.kind;
+  const shiftStart = dayInput?.input.shift.startTime;
+  const shiftEnd = dayInput?.input.shift.endTime;
+  useEffect(() => {
+    if (!subjectiveDate) return;
+    let cancelled = false;
+    const params = new URLSearchParams({ date: subjectiveDate });
+    if (moodCode) params.set("mood", moodCode);
+    if (sleepQuality) params.set("sleep", sleepQuality);
+    if (shiftKind === "work" && isNightShiftSpan(shiftStart, shiftEnd) === true) {
+      params.set("nightShift", "1");
+    }
+    fetch(`/api/plan/day-state-hints?${params.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: unknown) => {
+        if (cancelled || !j || typeof j !== "object") return;
+        const o = j as Record<string, unknown>;
+        // 応答値も allowlist 検証（JSON を信用しない）。検証落ちは undefined = fallback
+        setHints({
+          dailyModeHint: DAILY_MODES.includes(o.dailyModeHint as DailyGuidanceMode)
+            ? (o.dailyModeHint as DailyGuidanceMode)
+            : undefined,
+          dailyModeHintConfidence:
+            typeof o.dailyModeHintConfidence === "number" ? o.dailyModeHintConfidence : undefined,
+          estimatedWalkLevel: WALK_LEVELS.includes(o.estimatedWalkLevel as EstimatedWalkLevel)
+            ? (o.estimatedWalkLevel as EstimatedWalkLevel)
+            : undefined,
+        });
+      })
+      .catch(() => {
+        // fail-open: hints なしのまま（W2 fallback）
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [subjectiveDate, moodCode, sleepQuality, shiftKind, shiftStart, shiftEnd]);
+
+  const screen = useMemo(() => {
+    if (!now || !dayInput) return null;
+
+    const { date, input: factsInput } = dayInput;
+    const input = { ...factsInput, weather };
+
+    let record: DayStateRecordV0 = buildDayStateRecord({
+      ...input,
+      sleepQuality,
+      moodCode,
+      dailyModeHint: hints.dailyModeHint,
+      dailyModeHintConfidence: hints.dailyModeHintConfidence,
+      estimatedWalkLevel: hints.estimatedWalkLevel,
+    });
     for (const c of corrections) {
       record = applyUserCorrection(record, c);
     }
@@ -164,7 +270,7 @@ export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }
     // yesterdayRecord = null（W3a: 永続化なし。Morning Reveal は W4 から）
     const vm = buildAlterBatteryViewModel(record, moment, null, input.segments);
     return buildScreenViewModel(vm, { nowMinJst: jstNowMinutes(now) });
-  }, [now, dayGraphByDate, dayIndicatorByIso, anchors, shiftSourceIds, sleepQuality, moodCode, corrections, nightAnswer]);
+  }, [now, dayInput, weather, hints, sleepQuality, moodCode, corrections, nightAnswer]);
 
   if (!now || !screen) {
     // mount 前の 1 frame のみ（SSR / hydration 安全のための空殻。スピナー演出は不要）

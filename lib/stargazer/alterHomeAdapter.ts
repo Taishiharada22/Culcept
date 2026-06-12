@@ -8319,7 +8319,9 @@ export function buildDailyGuidanceSkeleton(
 
 // ── Daily Guidance 内部ヘルパー ──
 
-function resolveDailyMode(
+// W3b（day-state 契約 C-2）: server data 層（/api/plan/day-state-hints）が facts 由来 frame で
+// 実行するため export（additive・挙動不変。docs/day-state-alter-tab-v0-design.md §3.3）
+export function resolveDailyMode(
   frame: DailyGuidanceFrame,
   personality: AlterPersonality,
   recentModes?: DailyGuidanceMode[],
