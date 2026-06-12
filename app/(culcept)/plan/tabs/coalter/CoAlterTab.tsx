@@ -19,7 +19,7 @@
  * /talk 機能の移設は docs/coalter-plan-tab-talk-migration-design.md（T1 以降・CEO GO 待ち）。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
@@ -30,9 +30,10 @@ import {
   type CoAlterPlanMode,
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
-// T1a: チャットの participant/message は adapter 境界経由で consume する
-// （fixture が既定・flag OFF で現行動作完全不変。live adapter は T1b 以降）。
-import { resolveCoAlterChatAdapter } from "./coalterChatAdapter";
+// T1a/T1b: チャットの participant/message は adapter 境界経由で consume する。
+// async な live read（talk_thread read-only）は hook 内部に閉じる（fixture が既定・
+// flag OFF / threadId 未注入で現行動作完全不変・失敗は fixture へ fail-closed）。
+import { useCoAlterChatAdapter } from "./useCoAlterChatAdapter";
 import {
   CalendarMiniIcon,
   ChatRoundIcon,
@@ -114,17 +115,19 @@ export function CoAlterTab() {
     session.candidates.findIndex((c) => c.id === ui.selectedCandidateId),
   );
 
-  // ── T1a: チャット adapter 境界（実 API なし・flag OFF=fixture=現行動作） ──
-  const chatAdapter = useMemo(
-    () =>
-      resolveCoAlterChatAdapter({
-        session,
-        liveEnabled: PLAN_FLAGS.coalterChatLive,
-      }),
-    [session],
-  );
+  // ── T1a/T1b: チャット adapter 境界（flag OFF / threadId 未注入 = fixture = 現行動作） ──
+  const { adapter: chatAdapter, readState: chatReadState } = useCoAlterChatAdapter({
+    session,
+    liveEnabled: PLAN_FLAGS.coalterChatLive,
+    devThreadId: PLAN_FLAGS.coalterChatDevThreadId,
+  });
   const chatParticipants = chatAdapter.getParticipants();
-  const messages = [...chatAdapter.getInitialMessages(), ...ui.sentMessages];
+  // local echo は fixture（send: "local_echo"）のみ。live read-only（send: "none"）では
+  // 実 thread に偽メッセージを乗せない。
+  const canLocalEcho = chatAdapter.capabilities.send === "local_echo";
+  const messages = canLocalEcho
+    ? [...chatAdapter.getInitialMessages(), ...ui.sentMessages]
+    : chatAdapter.getInitialMessages();
 
   // ── handlers（すべて local state のみ） ──
   const handleSelectCandidate = (candidateId: string) =>
@@ -144,6 +147,7 @@ export function CoAlterTab() {
     });
 
   const handleSend = (text: string) => {
+    if (!canLocalEcho) return; // live read-only（send: "none"）では送信しない
     const sender = chatAdapter.getViewer();
     if (!sender) return; // viewer 不明（将来 source）の時は送らない
     const message: ChatMessageFixture = {
@@ -478,6 +482,8 @@ export function CoAlterTab() {
             session={session}
             participants={chatParticipants}
             messages={messages}
+            sendMode={chatAdapter.capabilities.send}
+            readState={chatReadState}
             onSend={handleSend}
             selectedCandidateIndex={selectedIndex}
             appliedAdjustmentIds={appliedSet}

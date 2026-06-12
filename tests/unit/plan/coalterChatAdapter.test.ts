@@ -74,9 +74,11 @@ describe("coalterChatAdapter（TalkBridge-T1a + contract correction）", () => {
 
     for (const p of view) {
       // ★ 訂正の核: fixture data 由来でも identity source は **plan_session**（fixture ではない）
-      expect(p.source.kind).toBe("plan_session");
-      expect(p.source.kind).not.toBe("fixture");
-      if (p.source.kind === "plan_session") {
+      //   （source は T1b で optional 化＝未解決 participant 用。fixture では必ず付く）
+      expect(p.source).toBeDefined();
+      expect(p.source?.kind).toBe("plan_session");
+      expect(p.source?.kind).not.toBe("fixture");
+      if (p.source?.kind === "plan_session") {
         expect(p.source.planSessionId).toBe(session.id);
         expect(p.source.userId).toBe(p.id);
       }
@@ -158,7 +160,7 @@ describe("coalterChatAdapter（TalkBridge-T1a + contract correction）", () => {
       getViewer: () => null,
       getInitialMessages: () => [],
     };
-    expect(relationAdapter.getParticipants().map((p) => p.source.kind)).toEqual([
+    expect(relationAdapter.getParticipants().map((p) => p.source?.kind)).toEqual([
       "self",
       "culcept_relation",
     ]);

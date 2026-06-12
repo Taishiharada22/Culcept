@@ -5,10 +5,13 @@
  *   CEO 承認 2026-06-12）。実装順序の正本: ①デザイン正本化(済) → ②adapter 境界(本 file)
  *   → ③read-only /talk thread 表示(T1b) → ④send/realtime(T1c) → ⑤useCoAlter → ⑥Plan Intelligence 投影。
  *
- * T1a 厳格スコープ:
- *   - additive only / fixture が既定かつ現行動作（flag OFF で視覚的に完全不変）
- *   - **実 API 呼び出しなし**: /api/talk/* fetch・Realtime・POST・既読・typing は本 file に存在しない
- *   - useCoAlter import なし / CoAlter runtime invoke なし / DB write なし
+ * スコープ（T1a skeleton + T1b read-only live read）:
+ *   - fixture が既定かつ現行動作（flag OFF で視覚的に完全不変）
+ *   - T1b: **read-only live read のみ**。既存 `GET /api/talk/threads/[threadId]/messages` を
+ *     flag ON ∧ dev threadId 注入時に 1 回だけ読む（fetchImpl は `(url)=>Response` 形＝
+ *     **POST/PATCH/DELETE が構文上発行できない**）。失敗/empty は fail-closed で fixture へ。
+ *   - **存在しないもの**: send・既読 mark・typing・Realtime 購読・/api/coalter/*・
+ *     useCoAlter import・CoAlter runtime invoke・DB write（T1c 以降・各 CEO GO）
  *
  * ★ T1a contract correction（CEO 2026-06-12）: **2 つの軸を厳密に分離する**。
  *   (A) Provider / data-mode = adapter がどこからデータを引くか（mock=fixture か live か）
@@ -86,8 +89,15 @@ export interface CoAlterChatParticipant {
   readonly name: string;
   readonly initial: string;
   readonly tone: "sky" | "rose";
-  /** identity 出自（**fixture ではなく** plan_session 等の正規 source）。 */
-  readonly source: CoAlterParticipantSource;
+  /**
+   * identity 出自（**fixture ではなく** plan_session 等の正規 source）。
+   *
+   * T1b: **未解決（unresolved）の場合は省略する**。talk thread の messages API は
+   * senderId しか返さず名前解決 API は T1b scope 外のため、live 閲覧の参加者は
+   * 匿名メンバーとして表示し source を持たない（= thread 参加者を旧 /talk pair と
+   * **断定しない**。無理に talk_pair_member を名乗らせない）。union 4 kinds は不変。
+   */
+  readonly source?: CoAlterParticipantSource;
 }
 
 export interface CoAlterChatMessage {
@@ -198,18 +208,202 @@ export function createFixtureChatAdapter(
 }
 
 /**
- * Adapter 解決（UI からの唯一の入口）。
+ * 同期 adapter 解決（fixture 正本）。
  *
- * T1a: `liveEnabled`（= NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE）が true でも **fixture を返す**。
- *   live adapter（talk_thread read-only）は T1b で本関数の分岐にのみ追加し、UI は不変のまま
- *   差し替わる。flag default OFF ＝ 既定・現行動作は fixture（視覚的に完全不変）。
- *   ★ この flag は read-only の gate であって、send/realtime/既読/invoke を点ける物ではない
- *     （それらは capabilities の独立 field・各々別段階）。
+ * T1b 以降: live（talk_thread read-only）は **async のため `useCoAlterChatAdapter` hook が
+ *   担う**（fetch は hook 内部に閉じる）。本関数は同期 fixture 解決の正本として残り、
+ *   hook の fixture 経路・fail-closed 経路もここを通る。`liveEnabled` が true でも本関数は
+ *   fixture を返す（live への昇格は hook 側の責務）。
+ *   ★ flag（NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE）は read-only の gate であって、
+ *     send/realtime/既読/invoke を点ける物ではない（capabilities の独立 field・各々別段階）。
  */
 export function resolveCoAlterChatAdapter(opts: {
   readonly session: CoAlterPlanSessionFixture;
   readonly liveEnabled: boolean;
 }): CoAlterChatAdapter {
-  // T1b 接続点: if (opts.liveEnabled) return createTalkThreadReadonlyAdapter(...)（CEO GO 後）
   return createFixtureChatAdapter(opts.session);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T1b: talk_thread read-only 経路（GET 1回のみ・fail-closed）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * live read を試みる対象 threadId の解決（gate・pure）。
+ *   - flag OFF → null（fetch 経路に入らない）
+ *   - flag ON でも threadId 未指定/空 → null（fixture のまま・CEO T1b-3）
+ *   - thread picker は作らない: threadId は dev 注入（env）のみ（CEO T1b thread resolution）
+ */
+export function resolveLiveReadTarget(opts: {
+  readonly liveEnabled: boolean;
+  readonly devThreadId: string;
+}): string | null {
+  if (!opts.liveEnabled) return null;
+  const id = opts.devThreadId.trim();
+  return id.length > 0 ? id : null;
+}
+
+/** GET /api/talk/threads/[threadId]/messages のレスポンス shape（route.ts 実装より）。 */
+interface TalkThreadMessagesPayload {
+  readonly ok?: boolean;
+  readonly messages?: ReadonlyArray<{
+    readonly id: string;
+    readonly senderId: string;
+    readonly body: string | null;
+    readonly createdAt: string;
+    readonly mediaUrl?: string | null;
+    readonly reactions?: ReadonlyArray<{ readonly type: string; readonly userId: string }>;
+  }>;
+}
+
+/** reaction type → 絵文字（/talk ChatClient の GENOME_REACTIONS と同値・表示のみ）。 */
+const TALK_REACTION_EMOJI: Readonly<Record<string, string>> = {
+  resonance: "∞",
+  discovery: "💡",
+  tell_more: "👂",
+  moved: "🫀",
+};
+
+/** 匿名メンバーのラベル（identity 未解決・出現順。tone は交互）。 */
+const ANON_MEMBER_LABELS = ["A", "B", "C", "D"] as const;
+
+/**
+ * sender 出現順 → 匿名 participant 導出（pure）。
+ * source は付けない（unresolved）。旧 /talk pair（talk_pair_member）と**断定しない**。
+ */
+export function deriveAnonymousTalkParticipants(
+  senderIdsInOrder: readonly string[],
+): readonly CoAlterChatParticipant[] {
+  const seen: string[] = [];
+  for (const id of senderIdsInOrder) {
+    if (!seen.includes(id)) seen.push(id);
+  }
+  return seen.map((id, i) => {
+    const label = ANON_MEMBER_LABELS[i] ?? String(i + 1);
+    return {
+      id,
+      name: `メンバー ${label}`,
+      initial: label,
+      tone: i % 2 === 0 ? ("sky" as const) : ("rose" as const),
+      // source なし = identity 未解決（T1b read-only preview）
+    };
+  });
+}
+
+/** API message → view message（pure）。 */
+export function mapTalkMessagesToView(
+  raw: NonNullable<TalkThreadMessagesPayload["messages"]>,
+): readonly CoAlterChatMessage[] {
+  return raw.map((m) => {
+    const body = (m.body ?? "").trim();
+    const reactions = m.reactions ?? [];
+    return {
+      id: m.id,
+      author: m.senderId,
+      time: new Date(m.createdAt).toLocaleTimeString("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }),
+      text: body.length > 0 ? body : m.mediaUrl ? "（画像）" : "",
+      reaction:
+        reactions.length > 0
+          ? {
+              emoji: TALK_REACTION_EMOJI[reactions[0].type] ?? "💡",
+              count: reactions.length,
+            }
+          : undefined,
+    };
+  });
+}
+
+export type TalkThreadReadFailure =
+  | "unauthorized" // 401
+  | "forbidden" // 403
+  | "not_found" // 404
+  | "http_error" // その他 status
+  | "empty" // ok だが messages 0 件（CEO T1b-4: empty も fail-closed）
+  | "invalid_payload"
+  | "network_error";
+
+export type TalkThreadReadResult =
+  | {
+      readonly ok: true;
+      readonly messages: readonly CoAlterChatMessage[];
+      readonly participants: readonly CoAlterChatParticipant[];
+    }
+  | { readonly ok: false; readonly reason: TalkThreadReadFailure };
+
+/**
+ * GET-only fetch（読み取り専用を**構造で**担保する）。
+ *
+ *   - `fetchImpl` のシグネチャは `(url) => Promise<Response>` のみ＝ method/init を
+ *     指定できない。既定の `fetch(url)` は GET。**POST/PATCH/DELETE は本経路から
+ *     構文上発行できない**（CEO T1b: no POST/PATCH/DELETE）。
+ *   - 既読 mark・typing・Realtime・/api/coalter/* は本 file に存在しない。
+ *   - 401/403/404/HTTP error/empty/parse 失敗/network 例外 → すべて fail-closed
+ *     （throw しない・呼び出し側は fixture へ）。
+ */
+export async function fetchTalkThreadMessagesOnce(
+  threadId: string,
+  fetchImpl: (url: string) => Promise<Response> = (url) => fetch(url),
+): Promise<TalkThreadReadResult> {
+  try {
+    const res = await fetchImpl(
+      `/api/talk/threads/${encodeURIComponent(threadId)}/messages`,
+    );
+    if (!res.ok) {
+      const reason: TalkThreadReadFailure =
+        res.status === 401
+          ? "unauthorized"
+          : res.status === 403
+            ? "forbidden"
+            : res.status === 404
+              ? "not_found"
+              : "http_error";
+      return { ok: false, reason };
+    }
+    const payload = (await res.json()) as TalkThreadMessagesPayload;
+    if (payload.ok !== true || !Array.isArray(payload.messages)) {
+      return { ok: false, reason: "invalid_payload" };
+    }
+    if (payload.messages.length === 0) {
+      return { ok: false, reason: "empty" };
+    }
+    const messages = mapTalkMessagesToView(payload.messages);
+    const participants = deriveAnonymousTalkParticipants(
+      payload.messages.map((m) => m.senderId),
+    );
+    return { ok: true, messages, participants };
+  } catch {
+    return { ok: false, reason: "network_error" };
+  }
+}
+
+/**
+ * talk_thread read-only adapter（T1b・**閲覧のみ**）。
+ *   - capabilities: read="live" / send="none"（**local echo も不可**＝実 thread に偽メッセージを
+ *     乗せない）/ realtime・既読・invoke はすべて false
+ *   - getViewer() は null（send なしのため viewer 解決自体を行わない）
+ */
+export function createTalkThreadReadonlyAdapter(
+  threadId: string,
+  data: {
+    readonly messages: readonly CoAlterChatMessage[];
+    readonly participants: readonly CoAlterChatParticipant[];
+  },
+): CoAlterChatAdapter {
+  return {
+    provider: { kind: "talk_thread", threadId },
+    capabilities: {
+      read: "live",
+      send: "none",
+      realtime: false,
+      readReceipts: false,
+      coalterInvoke: false,
+    },
+    getParticipants: () => data.participants,
+    getViewer: () => null,
+    getInitialMessages: () => data.messages,
+  };
 }

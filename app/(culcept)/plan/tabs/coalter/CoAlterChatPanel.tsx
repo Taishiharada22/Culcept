@@ -19,8 +19,13 @@ import {
   type AdjustmentSuggestionFixture,
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
-// T1a: チャット面は adapter の view 型のみを見る（fixture / /talk payload への直接依存を持たない）
-import type { CoAlterChatMessage, CoAlterChatParticipant } from "./coalterChatAdapter";
+// T1a/T1b: チャット面は adapter の view 型のみを見る（fixture / /talk payload への直接依存を持たない）
+import type {
+  CoAlterChatMessage,
+  CoAlterChatParticipant,
+  CoAlterChatSendMode,
+} from "./coalterChatAdapter";
+import type { CoAlterChatReadState } from "./useCoAlterChatAdapter";
 import { ConditionChip } from "./PlanIntelligencePanel";
 import {
   CheckIcon,
@@ -59,10 +64,14 @@ function groupConsecutive(messages: readonly CoAlterChatMessage[]): MessageGroup
 
 export interface CoAlterChatPanelProps {
   readonly session: CoAlterPlanSessionFixture;
-  /** adapter 由来の参加者（出自は fixture / talk_thread / culcept_relation / self を抽象化） */
+  /** adapter 由来の参加者（identity 出自は adapter が抽象化・未解決なら匿名） */
   readonly participants: readonly CoAlterChatParticipant[];
   /** adapter 初期 messages + ローカル送信分（親で管理） */
   readonly messages: readonly CoAlterChatMessage[];
+  /** T1b: "none"（live read-only）では入力欄を無効化（local echo も不可） */
+  readonly sendMode: CoAlterChatSendMode;
+  /** T1b: 読み込み状態バッジ（"fixture" では何も出さない＝現行視覚不変） */
+  readonly readState: CoAlterChatReadState;
   readonly onSend: (text: string) => void;
   readonly selectedCandidateIndex: number;
   readonly appliedAdjustmentIds: ReadonlySet<string>;
@@ -85,8 +94,11 @@ export function CoAlterChatPanel({
   onToggleAdjustment,
   isConfirmed,
   onConfirm,
+  sendMode,
+  readState,
 }: CoAlterChatPanelProps) {
   const [draft, setDraft] = useState("");
+  const canSend = sendMode === "local_echo"; // T1b: live read-only では送信不可
   const groups = groupConsecutive(messages);
   const sharedConditions = session.conditions.filter((c) => c.visibility === "shared");
   const quickAdjustments = session.quickActionAdjustmentIds
@@ -95,6 +107,7 @@ export function CoAlterChatPanel({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canSend) return; // T1b: read-only（送信経路自体を遮断）
     const text = draft.trim();
     if (!text) return;
     onSend(text);
@@ -118,6 +131,22 @@ export function CoAlterChatPanel({
 
       {/* ── メッセージ列 ── */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pt-1">
+        {/* T1b: 読み込み状態バッジ（fixture では非表示＝現行視覚不変） */}
+        {readState === "loading" && (
+          <p className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-500">
+            ライブ読み込み中…
+          </p>
+        )}
+        {readState === "live" && (
+          <p className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[10px] font-medium text-sky-700">
+            ライブ閲覧中（読み取り専用）
+          </p>
+        )}
+        {readState === "unavailable" && (
+          <p className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-medium text-amber-700">
+            ライブ読み込みは利用できません — サンプルを表示中
+          </p>
+        )}
         {groups.map((group) => (
           <MessageGroupView key={group.items[0].id} group={group} participants={participants} />
         ))}
@@ -196,13 +225,16 @@ export function CoAlterChatPanel({
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="CoAlter にメッセージを送る"
+          disabled={!canSend}
+          placeholder={
+            canSend ? "CoAlter にメッセージを送る" : "閲覧のみ（送信は次の段階で有効になります）"
+          }
           aria-label="CoAlter にメッセージを送る"
-          className="h-10 min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-100"
+          className="h-10 min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 text-[13px] text-slate-800 placeholder:text-slate-400 focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="submit"
-          disabled={draft.trim().length === 0}
+          disabled={!canSend || draft.trim().length === 0}
           aria-label="送信"
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-sm transition-opacity disabled:opacity-40"
         >

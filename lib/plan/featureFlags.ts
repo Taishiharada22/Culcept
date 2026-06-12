@@ -396,6 +396,18 @@ export const PLAN_FLAGS = {
   coalterChatLive: process.env.NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE === "true",
 
   /**
+   * TalkBridge-T1b: read-only live read の対象 threadId（**dev/local 注入専用・default 空**）。
+   *   - 空（既定）: live read 対象なし＝coalterChatLive が ON でも fixture のまま（fetch 0）
+   *   - 非空 ∧ coalterChatLive=true: 既存 GET /api/talk/threads/[id]/messages を 1 回読む
+   *     （read-only。失敗/empty は fixture へ fail-closed）
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_DEV_THREAD_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
+   * 制約: **thread picker は作らない**（CEO T1b thread resolution・picker は別 GO）。
+   *   本 env は local 検証用の明示注入のみ。production では未設定＝空。
+   */
+  coalterChatDevThreadId: (process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_THREAD_ID ?? "").trim(),
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。
