@@ -25,6 +25,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ClockIcon,
+  CloseIcon,
   ConditionKindIcon,
   LeafIcon,
   WalkIcon,
@@ -60,6 +61,10 @@ export interface PlanIntelligencePanelProps {
   readonly onToggleAdjustment: (adjustmentId: string) => void;
   /** 「この案で進める」確定済みの候補（local state・stage 投影） */
   readonly confirmedCandidateId: string | null;
+  /** プラン側は完全に畳める（CEO ③）。ピンチのアクセシブルな代替操作 */
+  readonly onCollapse: () => void;
+  /** ドック状態（ピンチで極小化）からタップで既定幅へ戻す */
+  readonly onExpand: () => void;
 }
 
 export function PlanIntelligencePanel({
@@ -69,6 +74,8 @@ export function PlanIntelligencePanel({
   appliedAdjustmentIds,
   onToggleAdjustment,
   confirmedCandidateId,
+  onCollapse,
+  onExpand,
 }: PlanIntelligencePanelProps) {
   const selected =
     session.candidates.find((c) => c.id === selectedCandidateId) ?? session.candidates[0];
@@ -80,99 +87,128 @@ export function PlanIntelligencePanel({
   return (
     <section
       aria-label="プランインテリジェンス"
-      className="flex h-full flex-col rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm sm:p-5"
+      className="@container flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm"
     >
-      <h2 className="text-sm font-bold text-slate-900">プランインテリジェンス</h2>
+      {/* ── ドック面（ピンチで極小化した時のみ・タップで既定幅へ復帰） ── */}
+      <button
+        type="button"
+        onClick={onExpand}
+        aria-label="プランを広げる"
+        className="flex h-full w-full flex-col items-center justify-end gap-1.5 p-2 @min-[120px]:hidden"
+      >
+        <span className="h-14 w-full overflow-hidden rounded-xl border border-slate-200/60">
+          <RoutePreviewMap nodes={selected.route.nodes} variant="mini" />
+        </span>
+        <span className="text-[10px] font-bold text-slate-600">プラン</span>
+      </button>
 
-      {/* ── 地図 + 統計 ── */}
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-        <div className="h-52 min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200/60 sm:h-64">
-          <RoutePreviewMap
-            nodes={selected.route.nodes}
-            variant="hero"
-            areaLabels={session.areaLabels}
-          />
-        </div>
-        <div className="flex shrink-0 flex-row gap-3 rounded-2xl border border-slate-200/60 bg-white p-4 sm:w-44 sm:flex-col sm:justify-between">
-          <div className="min-w-0 flex-1 sm:flex-none">
-            <p className="text-[11px] text-slate-500">{session.statLabels.distance}</p>
-            <p className="mt-0.5 text-lg font-bold tracking-tight text-slate-900">
-              {display.walkKm.toFixed(1)} km
-            </p>
-            <p className="text-[11px] text-slate-400">{session.statLabels.distanceSub}</p>
+      {/* ── パネルヘッダ（pinned）: タイトル + たたむ ── */}
+      <div className="hidden shrink-0 items-center justify-between gap-2 px-3.5 pb-1 pt-3 @min-[120px]:flex @xl:px-5 @xl:pt-4">
+        <h2 className="min-w-0 truncate text-[13px] font-bold text-slate-900 @xl:text-sm">
+          プランインテリジェンス
+        </h2>
+        <button
+          type="button"
+          onClick={onCollapse}
+          aria-label="プランをたたむ"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition-colors hover:text-slate-600"
+        >
+          <CloseIcon size={10} />
+        </button>
+      </div>
+
+      {/* ── 本文（内部スクロール＝1画面フィット・CEO ③） ── */}
+      <div className="hidden min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 pb-3.5 @min-[120px]:block @xl:px-5 @xl:pb-5">
+        {/* ── 地図 + 統計 ── */}
+        <div className="mt-2 flex flex-col gap-3 @xl:flex-row">
+          <div className="h-40 min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200/60 @lg:h-52 @3xl:h-64">
+            <RoutePreviewMap
+              nodes={selected.route.nodes}
+              variant="hero"
+              areaLabels={session.areaLabels}
+            />
           </div>
-          <div className="min-w-0 flex-1 border-slate-100 sm:flex-none sm:border-t sm:pt-3">
-            <p className="text-[11px] text-slate-500">{session.statLabels.slack}</p>
-            <p className="mt-0.5 text-base font-bold text-slate-900">{slack.label}</p>
-            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-              <div
-                className={`h-full rounded-full bg-gradient-to-r ${slack.bar}`}
-                style={{ width: `${Math.round(slack.ratio * 100)}%` }}
-              />
+          <div className="flex shrink-0 flex-col gap-3 rounded-2xl border border-slate-200/60 bg-white p-3 @md:flex-row @xl:w-44 @xl:flex-col @xl:justify-between @xl:p-4">
+            <div className="min-w-0 flex-1 @xl:flex-none">
+              <p className="text-[11px] text-slate-500">{session.statLabels.distance}</p>
+              <p className="mt-0.5 text-lg font-bold tracking-tight text-slate-900">
+                {display.walkKm.toFixed(1)} km
+              </p>
+              <p className="text-[11px] text-slate-400">{session.statLabels.distanceSub}</p>
+            </div>
+            <div className="min-w-0 flex-1 border-slate-100 @xl:flex-none @xl:border-t @xl:pt-3">
+              <p className="text-[11px] text-slate-500">{session.statLabels.slack}</p>
+              <p className="mt-0.5 text-base font-bold text-slate-900">{slack.label}</p>
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className={`h-full rounded-full bg-gradient-to-r ${slack.bar}`}
+                  style={{ width: `${Math.round(slack.ratio * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="min-w-0 flex-1 border-slate-100 @xl:flex-none @xl:border-t @xl:pt-3">
+              <p className="text-[11px] text-slate-500">{session.statLabels.eta}</p>
+              <p className="mt-0.5 text-lg font-bold tracking-tight text-slate-900">
+                {display.returnEta}
+                <span className="ml-1 text-[11px] font-medium text-slate-400">頃</span>
+              </p>
+              {display.costPct !== 0 && (
+                <p className="text-[11px] font-medium text-emerald-600">
+                  コスト {Math.abs(display.costPct)}% {display.costPct < 0 ? "減" : "増"}
+                </p>
+              )}
             </div>
           </div>
-          <div className="min-w-0 flex-1 border-slate-100 sm:flex-none sm:border-t sm:pt-3">
-            <p className="text-[11px] text-slate-500">{session.statLabels.eta}</p>
-            <p className="mt-0.5 text-lg font-bold tracking-tight text-slate-900">
-              {display.returnEta}
-              <span className="ml-1 text-[11px] font-medium text-slate-400">頃</span>
-            </p>
-            {display.costPct !== 0 && (
-              <p className="text-[11px] font-medium text-emerald-600">
-                コスト {Math.abs(display.costPct)}% {display.costPct < 0 ? "減" : "増"}
-              </p>
-            )}
-          </div>
         </div>
-      </div>
 
-      {/* ── 共有コンディション ── */}
-      <h3 className="mt-5 text-xs font-bold text-slate-900">共有コンディション</h3>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {session.conditions.map((condition) => (
-          <ConditionChip key={condition.id} condition={condition} />
-        ))}
-      </div>
+        {/* ── 共有コンディション ── */}
+        <h3 className="mt-4 text-xs font-bold text-slate-900 @xl:mt-5">共有コンディション</h3>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {session.conditions.map((condition) => (
+            <ConditionChip key={condition.id} condition={condition} />
+          ))}
+        </div>
 
-      {/* ── 候補プラン ── */}
-      <div className="mt-5 flex items-center gap-2">
-        <h3 className="text-xs font-bold text-slate-900">候補プラン</h3>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-          CoAlter が複数案を提案中
-        </span>
-      </div>
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {session.candidates.map((candidate) => (
-          <CandidateCard
-            key={candidate.id}
-            candidate={candidate}
-            isSelected={candidate.id === selected.id}
-            isConfirmed={candidate.id === confirmedCandidateId}
-            appliedAdjustments={appliedAdjustments}
-            onSelect={() => onSelectCandidate(candidate.id)}
-          />
-        ))}
-      </div>
-
-      {/* ── おすすめの調整（効果プレビュー付き） ── */}
-      <h3 className="mt-5 text-xs font-bold text-slate-900">おすすめの調整</h3>
-      {visibleAdjustments.length === 0 ? (
-        <p className="mt-2 text-[11px] text-slate-400">
-          案{candidateLetter(session.candidates.findIndex((c) => c.id === selected.id))}
-          への調整候補はまだありません
-        </p>
-      ) : (
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {visibleAdjustments.map((adjustment) => (
-            <AdjustmentCard
-              key={adjustment.id}
-              adjustment={adjustment}
-              isApplied={appliedAdjustmentIds.has(adjustment.id)}
-              onToggle={() => onToggleAdjustment(adjustment.id)}
+        {/* ── 候補プラン ── */}
+        <div className="mt-4 flex flex-wrap items-center gap-2 @xl:mt-5">
+          <h3 className="text-xs font-bold text-slate-900">候補プラン</h3>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+            CoAlter が複数案を提案中
+          </span>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 @2xl:grid-cols-3">
+          {session.candidates.map((candidate) => (
+            <CandidateCard
+              key={candidate.id}
+              candidate={candidate}
+              isSelected={candidate.id === selected.id}
+              isConfirmed={candidate.id === confirmedCandidateId}
+              appliedAdjustments={appliedAdjustments}
+              onSelect={() => onSelectCandidate(candidate.id)}
             />
           ))}
         </div>
-      )}
+
+        {/* ── おすすめの調整（効果プレビュー付き） ── */}
+        <h3 className="mt-4 text-xs font-bold text-slate-900 @xl:mt-5">おすすめの調整</h3>
+        {visibleAdjustments.length === 0 ? (
+          <p className="mt-2 text-[11px] text-slate-400">
+            案{candidateLetter(session.candidates.findIndex((c) => c.id === selected.id))}
+            への調整候補はまだありません
+          </p>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 gap-3 @2xl:grid-cols-3">
+            {visibleAdjustments.map((adjustment) => (
+              <AdjustmentCard
+                key={adjustment.id}
+                adjustment={adjustment}
+                isApplied={appliedAdjustmentIds.has(adjustment.id)}
+                onToggle={() => onToggleAdjustment(adjustment.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

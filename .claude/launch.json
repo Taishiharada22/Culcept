@@ -4,7 +4,7 @@
     {
       "name": "dev",
       "runtimeExecutable": "/usr/local/bin/node",
-      "runtimeArgs": ["/usr/local/bin/npx", "next", "dev", "--port", "3000"],
+      "runtimeArgs": ["/usr/local/bin/npx", "next", "dev", "--webpack", "--port", "3000"],
       "env": { "PATH": "/usr/local/bin:/usr/bin:/bin" },
       "port": 3000,
       "autoPort": true

@@ -24,7 +24,6 @@ import { ConditionChip } from "./PlanIntelligencePanel";
 import {
   CheckIcon,
   ClockIcon,
-  CloseIcon,
   InfoIcon,
   LeafIcon,
   SendIcon,
@@ -67,9 +66,12 @@ export interface CoAlterChatPanelProps {
   readonly onToggleAdjustment: (adjustmentId: string) => void;
   readonly isConfirmed: boolean;
   readonly onConfirm: () => void;
-  readonly onCollapse: () => void;
 }
 
+/**
+ * チャット側は畳めない（CEO ③）: collapse 系の props/UI を持たない。
+ * 入力欄は flex 構造の最下段に常時固定（メッセージ列のみ内部スクロール）。
+ */
 export function CoAlterChatPanel({
   session,
   messages,
@@ -79,7 +81,6 @@ export function CoAlterChatPanel({
   onToggleAdjustment,
   isConfirmed,
   onConfirm,
-  onCollapse,
 }: CoAlterChatPanelProps) {
   const [draft, setDraft] = useState("");
   const groups = groupConsecutive(messages);
@@ -99,17 +100,8 @@ export function CoAlterChatPanel({
   return (
     <section
       aria-label="ふたりと CoAlter のチャット"
-      className="relative flex h-full min-h-[480px] flex-col rounded-3xl border border-slate-200/70 bg-white p-4 shadow-sm"
+      className="@container relative flex h-full min-h-0 flex-col rounded-3xl border border-slate-200/70 bg-white p-3 shadow-sm @md:p-4"
     >
-      {/* 折りたたみ（プラン面を広く使う） */}
-      <button
-        type="button"
-        onClick={onCollapse}
-        aria-label="チャットをたたむ"
-        className="absolute right-3 top-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition-colors hover:text-slate-600"
-      >
-        <CloseIcon size={12} />
-      </button>
       {/* 装飾スパークル（pointer-events なし） */}
       <SparkleIcon
         size={20}
@@ -145,7 +137,7 @@ export function CoAlterChatPanel({
         {/* ── クイックアクション（左パネルの調整と同一操作の別ビュー） ── */}
         <div>
           <p className="text-[11px] font-bold text-slate-500">クイックアクション</p>
-          <div className="mt-2 grid grid-cols-1 gap-2 min-[420px]:grid-cols-3">
+          <div className="mt-2 grid grid-cols-1 gap-2 @sm:grid-cols-3">
             {quickAdjustments.map((adjustment) => {
               const isApplied = appliedAdjustmentIds.has(adjustment.id);
               return (
@@ -194,8 +186,8 @@ export function CoAlterChatPanel({
         </div>
       </div>
 
-      {/* ── 入力欄 ── */}
-      <form onSubmit={handleSubmit} className="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3">
+      {/* ── 入力欄（常時固定・チャットは完全には閉じない＝CEO 必須指定） ── */}
+      <form onSubmit={handleSubmit} className="mt-2.5 flex shrink-0 items-center gap-2 border-t border-slate-100 pt-2.5">
         <input
           type="text"
           value={draft}
@@ -241,32 +233,40 @@ function MessageGroupView({
   const participant = session.participants.find((p) => p.id === group.author);
   const name = isCoAlter ? "CoAlter" : participant?.name ?? group.author;
 
+  // 狭い container（ピンチで縮めた時・モバイル既定）では avatar を名前行に内包して
+  // 吹き出しをペイン全幅で使う（縦書き化する事故の防止）。@md 以上で参照画像の段組へ。
   return (
-    <div className="flex gap-2.5">
-      {/* avatar */}
-      {isCoAlter ? (
-        <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-white shadow-sm">
-          <SparkleIcon size={13} />
-        </span>
-      ) : (
-        <span
-          className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white shadow-sm ${
-            PARTICIPANT_AVATAR_TONE[participant?.tone ?? "sky"]
-          }`}
-        >
-          {participant?.initial ?? name.charAt(0)}
-        </span>
-      )}
+    <div className="flex flex-col gap-1 @md:flex-row @md:gap-2.5">
+      <div className="flex items-center gap-1.5 @md:block">
+        {isCoAlter ? (
+          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-white shadow-sm @md:mt-0.5 @md:h-7 @md:w-7">
+            <SparkleIcon size={11} />
+          </span>
+        ) : (
+          <span
+            className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[9px] font-bold text-white shadow-sm @md:mt-0.5 @md:h-7 @md:w-7 @md:text-[11px] ${
+              PARTICIPANT_AVATAR_TONE[participant?.tone ?? "sky"]
+            }`}
+          >
+            {participant?.initial ?? name.charAt(0)}
+          </span>
+        )}
+        {/* 狭幅: 名前+時刻を avatar の隣に出す */}
+        <p className="min-w-0 truncate text-[10px] text-slate-500 @md:hidden">
+          <span className="font-bold text-slate-700">{name}</span>
+          <span className="ml-1 text-slate-400">{group.items[0].time}</span>
+        </p>
+      </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] text-slate-500">
+        <p className="hidden text-[11px] text-slate-500 @md:block">
           <span className="font-bold text-slate-700">{name}</span>
           <span className="ml-1.5 text-slate-400">{group.items[0].time}</span>
         </p>
-        <div className="mt-1 space-y-1.5">
+        <div className="space-y-1.5 @md:mt-1">
           {group.items.map((message) => (
             <div key={message.id}>
               <div
-                className={`inline-block max-w-[92%] rounded-2xl rounded-tl-sm px-3.5 py-2 text-[13px] leading-relaxed text-slate-800 ${
+                className={`inline-block max-w-full rounded-2xl rounded-tl-sm px-3 py-2 text-[12px] leading-relaxed text-slate-800 @md:max-w-[92%] @md:px-3.5 @md:text-[13px] ${
                   isCoAlter
                     ? "border border-violet-100 bg-gradient-to-br from-violet-50 to-indigo-50/60"
                     : "bg-slate-100"
