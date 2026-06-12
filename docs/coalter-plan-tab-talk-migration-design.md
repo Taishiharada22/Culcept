@@ -84,7 +84,7 @@ CEO 指示の確認:
 | Phase | 内容 | /talk への影響 | gate |
 |---|---|---|---|
 | **T0（済）** | fixture チャット UI（現 CoAlterChatPanel） | なし | `NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED` |
-| **T1a（済 2026-06-12）** | **chat adapter 境界 skeleton**（`coalterChatAdapter.ts`）。view 型 + source union（fixture / talk_thread / culcept_relation / self ＝ **旧 /talk pair を唯一の出自にしない**）+ fixture adapter（既定・現行動作）。**実 API 呼び出し・Realtime・POST・既読・typing・useCoAlter import は一切なし**。flag は dormant（ON でも fixture） | ゼロ | `NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE`（default OFF・OFF=視覚不変） |
+| **T1a（済 2026-06-12・訂正済）** | **chat adapter 境界 skeleton**（`coalterChatAdapter.ts`）。**2 軸を分離**: (A) provider/data-mode（fixture/talk_thread/culcept_relation/plan_session ＝ mock か live か）と (B) participant source（self/talk_pair_member/culcept_relation/plan_session ＝ TravelCore `ParticipantSourceRef` 整合・**`fixture` は participant source ではない**・旧 /talk pair を唯一の出自にしない）。fixture adapter は participant を `plan_session` 出自に正規化。capabilities は read/send/realtime/readReceipts/coalterInvoke の**独立 field**（flag は単一スイッチでない）。**実 API・Realtime・POST・既読・typing・useCoAlter は一切なし**。flag dormant（ON でも fixture） | ゼロ | `NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE`（**read-only gate のみ**・default OFF・OFF=視覚不変） |
 | **T1b（CEO GO 待ち）** | read-only talk thread adapter（`GET /api/talk/threads/[id]/messages` のみ・send/既読/typing/Realtime なし）。resolver の liveEnabled 分岐にのみ追加 | ゼロ | 同 flag + CEO GO |
 | **T1c（CEO GO 待ち）** | send + Realtime（channel 名は `plan-talk:{threadId}` に分離）+ 既読（チャットペイン可視時のみ） | ゼロ | 同 flag + CEO GO |
 | **T2** | threadId 解決導線: タブ header のペア表示にスレッド選択（既存 `GET /api/talk/threads` 再利用）。未選択/0 件は fixture 表示のまま | ゼロ | 同上 |
