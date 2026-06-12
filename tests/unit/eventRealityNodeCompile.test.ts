@@ -87,6 +87,13 @@ describe("leave-by は null/unresolved を維持（ガード 8 — 偽 deadline 
     expect(withPlace.leaveBy.whyUnresolved).toContain("route_missing");
     expect(withPlace.leaveBy.value).toBeNull(); // 場所があっても deadline は出さない
   });
+  it("whyUnresolved は不足入力の完全リスト（複数理由の同時保持・eta_source_missing を落とさない — CEO 監査 2）", () => {
+    const nodes = compile([anchor({ id: "a2", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]);
+    // route_missing ∧ eta_source_missing が同時に存在する（単一値では表せないケース）
+    expect(nodes[0]!.leaveBy.whyUnresolved).toEqual(["route_missing", "eta_source_missing"]);
+    // 規約: 先頭 = 主理由 / 配列全体 = missingInputs（addendum §3 に明文化）
+    expect(nodes[0]!.leaveBy.whyUnresolved[0]).toBe("route_missing");
+  });
 });
 
 describe("delayImpact を断定しない（ガード 4 — 構造のみの cascadeSensitivity）", () => {
@@ -185,6 +192,24 @@ describe("stable identity（ガード 3 — index 非依存・順序非依存・
       expect(m).toBeDefined();
       expect(m.cascadeSensitivity.value).toBe(n.cascadeSensitivity.value);
     }
+  });
+
+  it("同日内の重複 anchorId は DayGraph が skip（warning）するため ern は衝突しない（CEO 監査 4）", () => {
+    const dup = anchor({ id: "a1", startTime: "12:00", endTime: "13:00" }); // a1 と同 id
+    const { graph, warnings } = buildDayGraph({ anchors: [a1, dup], date: DATE });
+    expect(warnings.some((w) => w.kind === "duplicate_anchor_id")).toBe(true);
+    const nodes = compileEventRealityNodes({ date: DATE, graph, anchors: [a1, dup], sources: SOURCES });
+    expect(nodes.filter((n) => n.eventRealityNodeId === `ern:${DATE}:a1`)).toHaveLength(1);
+  });
+
+  it("同一 anchor が複数日に出ても date を含む id で一意（recurring 相当 — CEO 監査 4）", () => {
+    const otherDate = "2026-06-13";
+    const g1 = buildDayGraph({ anchors: [a1], date: DATE }).graph;
+    const g2 = buildDayGraph({ anchors: [{ ...a1, date: otherDate } as ExternalAnchor], date: otherDate }).graph;
+    const n1 = compileEventRealityNodes({ date: DATE, graph: g1, anchors: [a1], sources: SOURCES })[0]!;
+    const n2 = compileEventRealityNodes({ date: otherDate, graph: g2, anchors: [a1], sources: SOURCES })[0]!;
+    expect(n1.eventRealityNodeId).not.toBe(n2.eventRealityNodeId);
+    expect(n1.sourceRefs.anchorId).toBe(n2.sourceRefs.anchorId); // 同一予定の紐付けは anchorId 側で可能
   });
 });
 
