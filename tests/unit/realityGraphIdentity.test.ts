@@ -45,6 +45,28 @@ describe("fnv1a64 / canonicalSerialize — 決定性と正規化", () => {
     expect(canonicalSerialize({ a: 1, x: undefined })).toBe(canonicalSerialize({ a: 1 }));
     expect(canonicalSerialize({ a: [1, 2] })).not.toBe(canonicalSerialize({ a: [2, 1] })); // 配列順は意味を持つ
   });
+
+  // RC2a-1b §3 — canonical 仕様の fail-fast と区別規律
+  it("absent ≠ null（欠落 key は除去・明示 null は保持して区別される）", () => {
+    expect(canonicalSerialize({ a: 1, x: undefined })).not.toBe(canonicalSerialize({ a: 1, x: null }));
+    expect(canonicalSerialize({ a: 1, x: null })).toBe('{"a":1,"x":null}');
+  });
+  it("NaN / ±Infinity / BigInt / Date / function は throw（silent 崩壊の禁止）", () => {
+    expect(() => canonicalSerialize({ v: NaN })).toThrow();
+    expect(() => canonicalSerialize({ v: Infinity })).toThrow();
+    expect(() => canonicalSerialize({ v: -Infinity })).toThrow();
+    expect(() => canonicalSerialize({ v: 1n })).toThrow();
+    expect(() => canonicalSerialize({ v: new Date(0) })).toThrow();
+    expect(() => canonicalSerialize({ v: () => 0 })).toThrow();
+  });
+  it("-0 は 0 に正規化・配列要素の undefined は null 化・配列は sort しない", () => {
+    expect(canonicalSerialize(-0)).toBe("0");
+    expect(canonicalSerialize([undefined, 1])).toBe("[null,1]");
+    // corrections[] 相当: 並びが revision に反映される（順序を消さない）
+    const seq1 = [{ at: "09:00", direction: "higher" }, { at: "09:01", direction: "lower" }];
+    const seq2 = [{ at: "09:01", direction: "lower" }, { at: "09:00", direction: "higher" }];
+    expect(canonicalSerialize(seq1)).not.toBe(canonicalSerialize(seq2));
+  });
   it("revision は自己記述 prefix（rev1:fnv1a64:）を持つ", () => {
     expect(revisionOf({ x: 1 })).toMatch(/^rev1:fnv1a64:[0-9a-f]{16}$/);
   });

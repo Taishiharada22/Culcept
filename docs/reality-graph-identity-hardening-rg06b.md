@@ -97,6 +97,12 @@ v0 実装は day scope のみだが、**型は scope を最初から持つ**（R
 
 ## 10. SSC seq の生成源（**置換採用** — 「ローカル連番」は未定義で甘かった）
 
+> **⚠️ 訂正（RC2a-1b §1 が本節を上書き）**: 本節 2 項の「A→B / B→A / A→B は (prev,next) が異なる連鎖として
+> 区別される」は**論理バグ**（1 回目と 3 回目は同一 (prev,next) で衝突する）。正本は
+> `changeId = ssc:<subjectiveDate>:<targetNodeId>:<changeKind>:<sourceActionId>`（sourceActionId =
+> per-day 永続 monotonic counter を gesture 時点で採番・同時保存）。valueHash は dedupe 補助に降格。
+> 「完全同一遷移の同分内反復は併合が正しい」の断定も撤回（往復は decisionDebt の signal）。
+
 GPT の選択肢を再構成し、**永続 event log を seq の正本**とする:
 1. **event log の並びが順序の正本**: UserCorrection[] は record 内に**順序保存済み**（既実装）。SSC の順序は「保存された log の並び」であり、再 derive で順序が変わることはない（識別禁止なのは**表示順の配列 index**であって、永続 log の系列位置は正当なデータ）
 2. **changeId は value-chain で一意化**: `ssc:<subjectiveDate>:<targetNodeId>:<changeKind>:<minuteOfSubjectiveDay>:<prevValueHash>:<nextValueHash>` — 同一分内の A→B / B→A / A→B は (prev,next) が異なる連鎖として区別される。完全同一遷移の同分内反復のみ同 id = **冪等（二重 submit と区別不能であり、併合が正しい）**

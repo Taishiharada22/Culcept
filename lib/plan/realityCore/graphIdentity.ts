@@ -15,6 +15,10 @@
 import type { DayStateRecordV0 } from "@/lib/plan/dayState/dayStateTypes";
 
 // ── FNV-1a 64bit ──
+// 使用境界（RC2a-1b §2）: snapshot memoization / 揮発 cache key / redactedRefId までが「可」。
+// PredictionLedger / SSC / learning / 永続 idempotency では hash 単独で同一性を決めない —
+// 永続 identity は full payload（inputRevisionSet / derivationVersions / targetNodeId 等）を保存し、
+// hash 一致時も必要に応じ canonical payload 比較で確証する（collision で別入力を同一視しない）。
 
 const FNV_OFFSET = 0xcbf29ce484222325n;
 const FNV_PRIME = 0x100000001b3n;
@@ -30,12 +34,31 @@ export function fnv1a64Hex(input: string): string {
 }
 
 /**
- * canonical 直列化: key ソート・undefined 除去・決定的。
+ * canonical 直列化（仕様正本: docs/reality-graph-identity-patch-rc2a1b.md §3）:
+ *  - object key sort（昇順）・undefined 値 key は除去（absent ≠ null — null は保持）
+ *  - array は順序保持・sort しない（corrections[] の並びは意味を持つ）。要素 undefined は null 化
+ *  - number は finite double のみ。NaN/±Infinity は throw（silent "null" 崩壊の禁止）。-0 は 0 正規化
+ *  - BigInt / Date / function / symbol は throw（Date は ISO string に変換してから渡す —
+ *    オブジェクトのまま渡すと "{}" に崩壊するため fail-fast）
+ *  - string は byte-wise・Unicode 正規化なし（上流が一貫エンコードを供給する責務）
  * 内容同一性の証明はこの出力の比較で行う（id 比較で代用しない — RG0.6b §1）
  */
 export function canonicalSerialize(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value ?? null);
+  const t = typeof value;
+  if (t === "bigint" || t === "function" || t === "symbol") {
+    throw new TypeError(`canonicalSerialize: ${t} は直列化不可（仕様 §3 — fail-fast）`);
+  }
+  if (t === "number") {
+    if (!Number.isFinite(value as number)) {
+      throw new TypeError("canonicalSerialize: NaN/Infinity は禁止（silent null 崩壊を防ぐ — 仕様 §3）");
+    }
+    return JSON.stringify(value); // -0 は JSON 規約で "0" に正規化される
+  }
+  if (value === null || t !== "object") {
+    return JSON.stringify(value ?? null); // undefined（配列要素経由）は null 化
+  }
+  if (value instanceof Date) {
+    throw new TypeError("canonicalSerialize: Date オブジェクトは禁止（ISO string に変換してから渡す — 仕様 §3）");
   }
   if (Array.isArray(value)) {
     return `[${value.map((v) => canonicalSerialize(v)).join(",")}]`;
@@ -120,8 +143,11 @@ export function derivationRevision(versions: DerivationVersionSet = REALITY_DERI
 const VIEWER_KEY_SALT = "aneurasync.reality-graph.viewer.v0";
 
 /**
- * graph id / log / cache key 用の擬名 viewer key。raw auth UUID を id に入れない。
- * fixture は定数 "viewer-self" を internalViewerId として使う（実 UUID を fixture に書かない）。
+ * graph id / log / cache key 用の **pseudonymous** viewer key（匿名化ではない — RC2a-1b §6）。
+ *  - salt は client 到達コード内の固定値 = 推測可能。linkability は残るため privacy boundary として過信しない
+ *  - debug/log に出す場合も個人関連情報として扱う
+ *  - **権限判断には使わない**（redaction/RLS の authority は常に auth user id・server 検証）
+ * raw auth UUID を id に入れない。fixture は定数 "viewer-self"（実 UUID を fixture に書かない）。
  */
 export function graphViewerKey(internalViewerId: string): string {
   return `vk${fnv1a64Hex(`${VIEWER_KEY_SALT}:${internalViewerId}`)}`;
