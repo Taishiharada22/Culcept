@@ -30,7 +30,8 @@
       "env": {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "REALITY_CANDIDATE_ACTIONS_DEV_HOST": "true",
-        "PLAN_ALTER_TAB_ENABLED": "true"
+        "PLAN_ALTER_TAB_ENABLED": "true",
+        "PLAN_DAY_STATE_STORAGE": "true"
       },
       "port": 3000,
       "autoPort": true

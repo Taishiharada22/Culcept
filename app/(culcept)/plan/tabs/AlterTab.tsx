@@ -21,6 +21,14 @@
  *    estimatedWalkLevel。失敗時は undefined のまま = W2 の保守的 fallback / unknown 表示
  *  - b-2: weather は既存 weatherService（my-style・Open-Meteo・キー不要）を client 直で流用。
  *    pop は既存 weatherInfoToDaily の規約値（rain 80 / else 10）。失敗時は null = 欠測の正直表示
+ *
+ * W4（localStorage dogfood — 契約 §6.2 Stage 1。storageEnabled prop で gate・既定 OFF）:
+ *  - 3 キーのみ: plan_day_state_v0 / plan_night_check_v0 / plan_morning_reveal_v0（DB/Supabase write なし）
+ *  - 凍結の正本化: その日の初回凍結（stored estimatesFrozen）を再マウント後も維持
+ *    （W3a の「マウント毎再凍結」を廃止 — 採点の前提が成立する）
+ *  - 本人入力（mood/sleep/補正/Night Check 回答）は復元・保存。record と Night Check は同時運用（契約注意点 (i)）
+ *  - 前日 record の localStorage 読取で Morning Reveal / recoveryQuality / carried_over が実データ駆動に。
+ *    Reveal は 1 朝 1 回（既読キーで再マウント時に非表示。表示中マウントでは出続ける）
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -49,6 +57,15 @@ import type {
 } from "@/lib/plan/dayState/dayStateTypes";
 import type { ActivityMoodCode } from "@/lib/coalter/activity/intent";
 import { buildAlterDayInput, subjectiveDateFor, toHHMM } from "@/lib/plan/alterTab/adapter";
+import { addDaysIso } from "@/lib/plan/alterTab/dayStateHints";
+import {
+  getBrowserStorage,
+  isRevealSeen,
+  loadDayStateDays,
+  markRevealSeen,
+  saveDayStateRecord,
+  saveNightCheck,
+} from "@/lib/plan/alterTab/dayStateStorage";
 import { isNightShiftSpan } from "@/lib/plan/dayState/timeOfDay";
 // W3b b-2: 既存 weatherService の流用（client-only・Open-Meteo・API キー不要。lib/shared 化は将来課題）
 import { fetchWeather, weatherInfoToDaily } from "@/app/(immersive)/my-style/_lib/weatherService";
@@ -65,6 +82,12 @@ export interface AlterTabProps {
   sources: ExternalAnchorSource[];
   dayGraphByDate?: Readonly<Record<string, BuildDayGraphResult>>;
   dayIndicatorByIso?: ReadonlyMap<string, DayIndicatorViewModel>;
+  /**
+   * W4: localStorage 永続化（plan_day_state_v0 系 3 キー）を有効にするか。
+   * server flag（PLAN_FLAGS.dayStateStorageEnabled）を page.tsx → PlanClient 経由で受領。
+   * false（既定）= W3a/b と同じ in-memory のみ（保存ゼロ）。
+   */
+  storageEnabled?: boolean;
 }
 
 /** 睡眠シートのチップ語 → SleepQualityInput（型契約の 3 値） */
@@ -128,7 +151,24 @@ const DAILY_MODES: ReadonlyArray<DailyGuidanceMode> = [
 ];
 const WALK_LEVELS: ReadonlyArray<EstimatedWalkLevel> = ["low", "medium", "high"];
 
-export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }: AlterTabProps) {
+/** W4 hydration の結果（その日の保存済み状態のスナップショット） */
+interface StorageHydration {
+  date: string;
+  /** その日の初回凍結（保存済みがあればそれが正本） */
+  frozen: DayStateRecordV0["estimatesFrozen"] | null;
+  /** 前日 record（Morning Reveal / recoveryQuality / carried_over 用） */
+  yesterday: DayStateRecordV0 | null;
+  /** Reveal が過去マウントで表示済みか（1 朝 1 回） */
+  revealAlreadySeen: boolean;
+}
+
+export function AlterTab({
+  anchors,
+  sources,
+  dayGraphByDate,
+  dayIndicatorByIso,
+  storageEnabled = false,
+}: AlterTabProps) {
   // now は mount 後に確定 + 1 分 tick（SSR hydration mismatch 防止 — PlanClient と同パターン）
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
@@ -230,11 +270,45 @@ export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }
     };
   }, [subjectiveDate, moodCode, sleepQuality, shiftKind, shiftStart, shiftEnd]);
 
-  const screen = useMemo(() => {
+  // ── W4: localStorage hydration（storageEnabled 時のみ。日替わりで再実行） ──
+  const [hydration, setHydration] = useState<StorageHydration | null>(null);
+  useEffect(() => {
+    if (!storageEnabled || !subjectiveDate) return;
+    const storage = getBrowserStorage();
+    if (!storage) {
+      setHydration({ date: subjectiveDate, frozen: null, yesterday: null, revealAlreadySeen: false });
+      return;
+    }
+    const days = loadDayStateDays(storage, subjectiveDate);
+    const stored = days[subjectiveDate];
+    const yesterdayIso = addDaysIso(subjectiveDate, -1);
+    if (stored) {
+      // 本人入力の復元（同日内の再マウントで入力が消えない）
+      if (stored.userInputs.moodCode) setMoodCode(stored.userInputs.moodCode);
+      if (stored.userInputs.sleepQuality) setSleepQuality(stored.userInputs.sleepQuality);
+      if (stored.userInputs.corrections.length > 0) setCorrections(stored.userInputs.corrections);
+      if (stored.nightCheck) {
+        setNightAnswer({
+          dayFelt: stored.nightCheck.dayFelt,
+          answeredAt: stored.nightCheck.answeredAt,
+          planVerdict: stored.nightCheck.planVerdict,
+        });
+      }
+    }
+    setHydration({
+      date: subjectiveDate,
+      frozen: stored?.estimatesFrozen ?? null,
+      yesterday: days[yesterdayIso] ?? null,
+      revealAlreadySeen: isRevealSeen(storage, yesterdayIso),
+    });
+  }, [storageEnabled, subjectiveDate]);
+
+  const built = useMemo(() => {
     if (!now || !dayInput) return null;
 
     const { date, input: factsInput } = dayInput;
     const input = { ...factsInput, weather };
+    const hydrated = storageEnabled && hydration?.date === date ? hydration : null;
 
     let record: DayStateRecordV0 = buildDayStateRecord({
       ...input,
@@ -244,11 +318,16 @@ export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }
       dailyModeHintConfidence: hints.dailyModeHintConfidence,
       estimatedWalkLevel: hints.estimatedWalkLevel,
     });
+    // W4: その日の初回凍結を正本に（facts/estimates 現在値は毎回最新・凍結だけ据え置き — 契約 §3.2）
+    if (hydrated?.frozen) {
+      record = { ...record, estimatesFrozen: hydrated.frozen };
+    }
     for (const c of corrections) {
       record = applyUserCorrection(record, c);
     }
+    let nightGrade: ReturnType<typeof gradeNightCheck> | null = null;
     if (nightAnswer) {
-      const grade = gradeNightCheck(record, {
+      nightGrade = gradeNightCheck(record, {
         dayFelt: nightAnswer.dayFelt,
         answeredAt: nightAnswer.answeredAt,
         planVerdict: nightAnswer.planVerdict,
@@ -260,17 +339,60 @@ export function AlterTab({ anchors, sources, dayGraphByDate, dayIndicatorByIso }
           answeredFor: date,
           dayFelt: nightAnswer.dayFelt,
           planVerdict: nightAnswer.planVerdict,
-          verdicts: grade.verdicts,
+          verdicts: nightGrade.verdicts,
         },
-        carryOverOut: grade.carryOverOut,
+        carryOverOut: nightGrade.carryOverOut,
       };
     }
 
     const moment = deriveMomentState({ nowHHMM: input.nowHHMM, segments: input.segments });
-    // yesterdayRecord = null（W3a: 永続化なし。Morning Reveal は W4 から）
-    const vm = buildAlterBatteryViewModel(record, moment, null, input.segments);
-    return buildScreenViewModel(vm, { nowMinJst: jstNowMinutes(now) });
-  }, [now, dayInput, weather, hints, sleepQuality, moodCode, corrections, nightAnswer]);
+    // yesterdayRecord: W4 で localStorage の前日 record（無ければ null = W3a と同じ縮退）
+    let vm = buildAlterBatteryViewModel(record, moment, hydrated?.yesterday ?? null, input.segments);
+    // Morning Reveal 1 朝 1 回: 過去マウントで表示済みなら出さない（このマウントで初表示なら出続ける）
+    if (vm.morningReveal && hydrated?.revealAlreadySeen) {
+      vm = { ...vm, morningReveal: null };
+    }
+    return {
+      date,
+      record,
+      nightGrade,
+      revealForDate: vm.morningReveal?.forDate ?? null,
+      screen: buildScreenViewModel(vm, { nowMinJst: jstNowMinutes(now) }),
+    };
+  }, [now, dayInput, weather, hints, sleepQuality, moodCode, corrections, nightAnswer, storageEnabled, hydration]);
+
+  // ── W4: 永続化（record + Night Check 同時 — 契約注意点 (i)。hydration 完了前は書かない） ──
+  useEffect(() => {
+    if (!storageEnabled || !built || hydration?.date !== built.date) return;
+    const storage = getBrowserStorage();
+    if (!storage) return;
+    saveDayStateRecord(storage, built.record, built.date);
+    if (built.nightGrade && nightAnswer) {
+      saveNightCheck(
+        storage,
+        {
+          answeredAt: nightAnswer.answeredAt,
+          answeredFor: built.date,
+          dayFelt: nightAnswer.dayFelt,
+          planVerdict: nightAnswer.planVerdict,
+          grade: built.nightGrade,
+        },
+        built.date,
+      );
+    }
+  }, [storageEnabled, built, hydration, nightAnswer]);
+
+  // ── W4: Morning Reveal 既読記録（表示された朝に 1 回だけ書く） ──
+  useEffect(() => {
+    if (!storageEnabled || !built?.revealForDate || hydration?.date !== built.date) return;
+    const storage = getBrowserStorage();
+    if (!storage) return;
+    if (!isRevealSeen(storage, built.revealForDate)) {
+      markRevealSeen(storage, built.revealForDate, new Date().toISOString(), built.date);
+    }
+  }, [storageEnabled, built, hydration]);
+
+  const screen = built?.screen ?? null;
 
   if (!now || !screen) {
     // mount 前の 1 frame のみ（SSR / hydration 安全のための空殻。スピナー演出は不要）

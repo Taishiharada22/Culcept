@@ -385,4 +385,19 @@ export const PLAN_FLAGS = {
    *   - 本番 ON は別 patch（CEO 判断経由、default false で merge）
    */
   alterTabEnabled: process.env.PLAN_ALTER_TAB_ENABLED === "true",
+
+  /**
+   * W4: Alter タブの localStorage dogfood（契約 §6.2 Stage 1「新規データ保存」gate）。
+   *   true  : AlterTab が plan_day_state_v0 / plan_night_check_v0 / plan_morning_reveal_v0 に保存
+   *           （凍結の正本化・本人入力復元・Morning Reveal 既読管理が有効になる）
+   *   false : 保存ゼロ（**本番デフォルト**・W3 と同じ in-memory のみ）
+   *
+   * env: PLAN_DAY_STATE_STORAGE=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**。
+   *   page.tsx → PlanClient → AlterTab と prop で渡す）
+   *
+   * 設計: docs/day-state-alter-tab-v0-design.md §6.2 Stage 1 / docs/day-state-w3-execution-plan.md
+   * 制約: localStorage のみ（DB / Supabase write は Stage 2 = NO 継続）。rollback = env 除去
+   *   （データはローカルで無害・30 日 purge で自然消滅）。alterTabEnabled=false なら本 flag は無効果。
+   */
+  dayStateStorageEnabled: process.env.PLAN_DAY_STATE_STORAGE === "true",
 } as const;

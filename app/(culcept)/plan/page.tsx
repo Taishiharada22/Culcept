@@ -56,6 +56,7 @@ export default async function PlanPage() {
     <PlanClient
       composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
       alterTabEnabled={PLAN_FLAGS.alterTabEnabled}
+      dayStateStorageEnabled={PLAN_FLAGS.dayStateStorageEnabled}
     />
   );
 }

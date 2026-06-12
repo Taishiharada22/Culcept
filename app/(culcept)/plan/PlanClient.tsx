@@ -202,12 +202,18 @@ export interface PlanClientProps {
    * 読み取り prop で渡す（composeTimelineEnabled と同方式）。default false = タブ列・描画とも完全不変。
    */
   alterTabEnabled?: boolean;
+  /**
+   * W4: ALTER タブの localStorage dogfood（PLAN_FLAGS.dayStateStorageEnabled）。
+   * default false = 保存ゼロ。alterTabEnabled=false なら無効果。
+   */
+  dayStateStorageEnabled?: boolean;
 }
 
 export default function PlanClient({
   displayMode = "route",
   composeTimelineEnabled = false,
   alterTabEnabled = false,
+  dayStateStorageEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -989,6 +995,7 @@ export default function PlanClient({
                 sources={state.sources}
                 dayGraphByDate={dayGraphByDate}
                 dayIndicatorByIso={dayIndicatorByIso}
+                storageEnabled={dayStateStorageEnabled}
               />
             )}
           </>
