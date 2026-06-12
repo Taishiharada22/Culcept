@@ -36,15 +36,29 @@
 - ただし検証可能な環境には **CoAlter ペア 0・coalter_sessions 0・axis snapshots 0**（auth ユーザー 1 名・external_anchors 111 行＝plan 系は実使用あり）。**現時点で劣化しているセッションは存在しない**。
 - production 相当の別プロジェクト（`SHIFT_SMOKE_PROD_URL_DENY` の存在から別 URL があると推測）は**スコープ外のため未プローブ**＝そこでの実データ有無は inconclusive。
 
+## 訂正（2026-06-12 CEO・最優先・下記「副次的発見1」を上書き）
+
+**現在の検証環境は `culcept-staging`** で、ユーザーデータは CEO アカウントのみ＝実データが存在しない。**`stargazer_axis_snapshots = 0` / `daily_states = 0` は欠陥でも予期せぬ blocker でもなく、意図的な環境特性**。Stargazer/personality データの蓄積パスは **Culcept 側に存在し、この staging/local CoAlter 側にはない**。
+
+したがって（CEO 明示）:
+- **seed 戦略は不要**（人工 personality データの挿入禁止・観測 write のトリガー禁止）
+- **L-0 結果への対応としての「Personalization Data Availability Audit」は不要**
+- 下記「副次的発見 1」と「次の推奨 (c)」の「前提課題／CEO へ提起」という位置づけは **撤回**
+
+**改訂結論**: RLS silent filtering は構造メカニズムとして confirmed。旧 `/talk` liveCollector パスは caller user-RLS で own-row-only な Stargazer テーブルを読めば相手行を silent に落とす。**だが現 local/staging の実害はゼロ（実 CoAlter ペアも実 Stargazer データも無い）。これは expected であり defect ではない。**
+
+**アーキテクチャ注記（CEO・将来 `/plan` CoAlter 設計の前提）**: 将来の `/plan` CoAlter のパートナーが旧 `/talk` の `coalter_pair_states` モデルから来ると **仮定してはならない**。将来の `/plan` CoAlter は次の 3 つを区別する: ①旧 `/talk` CoAlter pair state ②Culcept 側の partner / relationship データ ③新 `CoAlterPlanSession.participants`。→ T1A core types でこの分離を型として担保する（`docs/decision-log.md` 2026-06-12 / `lib/shared/travel/core-types.ts`）。
+
 ## 副次的発見（報告のみ・対応は別判断）
 
-1. **この環境では Stargazer 連続観測の書き込みが一度も起きていない**（axis_snapshots 0・daily_states 0）。M2-A/M2-B-1 の port はこの環境では全ユーザーに空 axes を返す＝personalization パイプラインのデータ源が未充填。Travel/plan のパーソナライズ検証には観測データの発生（または seed 方針の決定）が前提になる。
+1. ~~**この環境では Stargazer 連続観測の書き込みが一度も起きていない**…前提になる。~~ → **上記「訂正」で撤回**（staging の意図的特性。欠陥でも前提課題でもない）。
 2. `.env.local` 内のキー値がダブルクォート付き・`NEXT_PUBLIC_SUPABASE_ANON_KEY` の重複定義あり（パーサによっては事故の元）。env 整理は別タスク候補（本検証では無変更）。
 
 ## M2-B-2 の扱い / 次の推奨
 
-- **M2-B-2 は HOLD 維持**（むしろ補強: 受益する実ペアがまだ 1 組も存在しない。緊急性なし）。
-- **修正（L-1〜L-3）は「緊急パッチ」ではなく「CoAlter ペア機能を実稼働させる前の前提条件」として位置づけ直す**ことを推奨。実ペアの初回オンボード前に L-2 shadow → L-3 flip が完了している状態が理想（最初のペアから正しい Stage 1 を提供できる）。
-- 次のアクション候補（いずれも別 GO）: (a) L-1/L-2 は CoAlter ペア稼働計画と同期して着手 (b) production 相当環境の counts-only プローブは GitHub/production アクセス回復後に CEO 判断 (c) 副次的発見 1（観測データ未充填）の扱いを personalization トラックの前提として CEO へ提起。
+- **M2-B-2 は HOLD 維持**（CEO 確認済み）。L-1/L-2/L-3 liveCollector 修正も **HOLD 維持**。
+- **修正（L-1〜L-3）は「緊急パッチ」ではなく「CoAlter ペア機能を実稼働させる前の前提条件」として位置づけ直す**ことを推奨。実ペアの初回オンボード前に L-2 shadow → L-3 flip が完了している状態が理想。
+- 次のアクション候補（いずれも別 GO）: (a) L-1/L-2 は CoAlter ペア稼働計画と同期して着手 (b) production 相当環境のプローブは GitHub/production アクセス回復後に CEO 判断。~~(c) 観測データ未充填の扱いを CEO へ提起~~ → **撤回**（seed/Audit 不要）。
+- **次のバックエンド方向（CEO GO）**: T1A domain-neutral travel core pure types のみに進む（UI トラックは polish 継続）。
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
