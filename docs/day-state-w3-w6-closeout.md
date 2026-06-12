@@ -34,7 +34,31 @@ CEO の認証済み実機確認で 2 件の FAIL を検出 → root cause を特
 
 ### 検証
 - 全 20,256 PASS（+9）/ FAIL 2 = 事前存在の reality 静的安全（不変）・tsc 55 不変・build exit 0・route smoke（flag ON: /plan 307 / hints 未認証 401 / 不正 date 400）PASS
-- **未検証（CEO 依頼）**: 認証済みブラウザでの再 smoke — ①23 時台に ALTER タブで Night Check 主問が出る ②中央人体（脳/心/体）タップ→補正シート→水位・%・source 即時変化 ③回答で `plan_night_check_v0`(+`__ts`) 保存・reload 保持 ④翌朝 Morning Reveal 接続。**production gate 未通過で停止**。
+- **CEO 実機確認（2026-06-13）**: ①ALTER タブ表示・Night Check タイミング・補正導線とも有効化を確認。続けて §11 の追加指示。
+
+## 11. W6-smoke-fix-2（水位の 0-100% 正確化 + カーソル補正・2026-06-13・commit `f9641f23`）
+
+CEO 実機の追加指摘 3 件 + Morning Reveal 接続。
+
+### ①② 体/頭/心の水位を 0-100% 正確に
+- root cause ①: `BAND_FILL.high = 0.8`（AI 見立ての最大が 80%）で満タンに届かない。figure 自体は visualFill=1.0 で頂部まで満ちる設計。
+- root cause ②: heart レイヤーは**サイズ + 不透明度を微増させるだけ**で水位（液面）を持たず、% が視覚で分からない。
+- 修正: **manualLevels 層**（本人がカーソルで合わせた 0-100% → `visualFill = pct/100` に 1:1 写像。AI 見立ての離散 band/BAND_FILL に縛られず 0-100% を正確描画）。heart を body/brain と同じ**下→上の液面メーター**に作り替え（heart.png mask 内をゴースト + 液体で満たす）。
+- AI 見立て（estimates・band・BAND_FILL）は不変。manualLevels は本人入力の別レイヤー（凍結＝採点基準も不変）。
+
+### ③ チップ → カーソル（連続 %）
+- 補正シートの 3 チップ（もっと低い/合ってる/もっと高い）を **0-100 スライダー**に置換（ライブ反映＝ドラッグ中に人体メーターが動く・現在 % 数値表示・「完了」ボタン）。スライダーは現在の水位 % で初期化。
+- 対象は人体メーター 3 系統（体/頭/心）。外出耐性は水位メーターでないため従来 3 択を維持。
+- `manualLevels` を `userInputs` に additive 追加・localStorage 永続/復元（W4 経路）。
+
+### ④ Morning Reveal 接続
+- 前日 record（Night Check 回答済み）→ 翌朝 Reveal 表示・1 朝 1 回（既読キー）を fixture で実証（既存実装の接続確認）。
+
+### 契約・検証
+- **canonical VM 形状不変**: visualFill は数値（0-1）のまま・% は UI/derived 層（screenViewModel）。「VM 文字列に数値を出さない」規律維持（BANNED regression PASS）。
+- DayStateRecord は `userInputs.manualLevels?` を additive（後方互換）。**設計書 §3.2 に manualLevels の契約追補が必要**（CEO 指示で実装済み・docs 追補は CEO 裁定待ち）。
+- +7 tests（manual % 5 + Morning Reveal 接続 2）・tsc 55 不変・build exit 0。
+- **未検証（CEO 依頼）**: 認証ブラウザで figure 描画の目視 — ①体/頭がスライダー 100% で満タンに届く ②心臓が % で液面が変わる ③スライダーで % を直接動かせる ④翌朝 Morning Reveal。**production gate 未通過で停止**。
 
 ## 1. touched / deleted files（全 W 合計）
 
