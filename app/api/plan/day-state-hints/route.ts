@@ -71,7 +71,11 @@ export async function GET(req: NextRequest) {
 
     const sp = req.nextUrl.searchParams;
     const date = sp.get("date") ?? "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    // 形式 + 実在する暦日（"2026-02-30" 等の coerce を弾く roundtrip 検証）
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      new Date(date + "T00:00:00Z").toISOString().slice(0, 10) !== date
+    ) {
       return NextResponse.json(EMPTY, { status: 400 });
     }
     // facts summary は allowlist 検証（client 入力を信用しない）

@@ -31,7 +31,7 @@
  *    Reveal は 1 朝 1 回（既読キーで再マウント時に非表示。表示中マウントでは出続ける）
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import type { BuildDayGraphResult } from "@/lib/plan/dayGraph/dayGraphTypes";
@@ -270,6 +270,23 @@ export function AlterTab({
     };
   }, [subjectiveDate, moodCode, sleepQuality, shiftKind, shiftStart, shiftEnd]);
 
+  // W5: 入力スリット送信のセッション束ね（マウント単位・lazy 生成）
+  const planSessionIdRef = useRef<string | null>(null);
+
+  // ── 主観日跨ぎ（05:00）のリセット: 開きっぱなしで日付が変わったら前日の本人入力を
+  //    新しい日の record に持ち越さない（hydration より先に宣言 = 同一 flush 内で reset → 復元の順） ──
+  const prevDateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!subjectiveDate) return;
+    if (prevDateRef.current !== null && prevDateRef.current !== subjectiveDate) {
+      setSleepQuality(undefined);
+      setMoodCode(undefined);
+      setCorrections([]);
+      setNightAnswer(null);
+    }
+    prevDateRef.current = subjectiveDate;
+  }, [subjectiveDate]);
+
   // ── W4: localStorage hydration（storageEnabled 時のみ。日替わりで再実行） ──
   const [hydration, setHydration] = useState<StorageHydration | null>(null);
   useEffect(() => {
@@ -287,7 +304,8 @@ export function AlterTab({
       if (stored.userInputs.moodCode) setMoodCode(stored.userInputs.moodCode);
       if (stored.userInputs.sleepQuality) setSleepQuality(stored.userInputs.sleepQuality);
       if (stored.userInputs.corrections.length > 0) setCorrections(stored.userInputs.corrections);
-      if (stored.nightCheck) {
+      // answeredFor が当日と一致する回答のみ復元（壊れたデータ・将来の繰り越し回答を当日に混ぜない）
+      if (stored.nightCheck && stored.nightCheck.answeredFor === subjectiveDate) {
         setNightAnswer({
           dayFelt: stored.nightCheck.dayFelt,
           answeredAt: stored.nightCheck.answeredAt,
@@ -348,7 +366,8 @@ export function AlterTab({
     const moment = deriveMomentState({ nowHHMM: input.nowHHMM, segments: input.segments });
     // yesterdayRecord: W4 で localStorage の前日 record（無ければ null = W3a と同じ縮退）
     let vm = buildAlterBatteryViewModel(record, moment, hydrated?.yesterday ?? null, input.segments);
-    // Morning Reveal 1 朝 1 回: 過去マウントで表示済みなら出さない（このマウントで初表示なら出続ける）
+    // Morning Reveal 1 朝 1 回（既読管理は §6.2 で storage/container 層の責務 — pure builder は
+    // storage を知れない）。null は VM 契約上の正規状態への選択であり、canonical VM の拡張ではない
     if (vm.morningReveal && hydrated?.revealAlreadySeen) {
       vm = { ...vm, morningReveal: null };
     }
@@ -428,12 +447,21 @@ export function AlterTab({
         // W5: 状態入力スリット → 既存 alter route へ source:"plan" で送信（入口確認まで）。
         // 会話展開・返答表示は行わない（会話→構造抽出は Stage 1.5 の別契約 — センサー未完）。
         // 表示は AlterTabBody の ack「受け取りました」のみ。失敗は silent（fire-and-forget）。
+        // sessionId はマウント単位（同一タブ滞在中の複数送信を 1 セッションに束ねる。
+        // 未対応環境では省略 = route 側が UUID を生成する既存挙動）
         const text = message.trim();
         if (!text) return;
+        if (!planSessionIdRef.current && typeof crypto !== "undefined" && crypto.randomUUID) {
+          planSessionIdRef.current = crypto.randomUUID();
+        }
         void fetch("/api/stargazer/alter", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, source: "plan" }),
+          body: JSON.stringify({
+            message: text,
+            source: "plan",
+            ...(planSessionIdRef.current ? { sessionId: planSessionIdRef.current } : {}),
+          }),
         }).catch(() => {});
       }}
     />
