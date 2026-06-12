@@ -105,6 +105,10 @@
 
 **推奨順序: R1 → R2 → R3（いずれも pure・read 追加なし・flag 内）→ R4/B1/Stage1.5 は各 gate で。**
 
+## 4.5 R0.5 による上書き（2026-06-13・重要）
+
+CEO/GPT 差し戻しにより **R0.5（`docs/reality-core-guardrail-r05.md`）が本書 §3-§4 を上書きする**。kernel ファイル単位の再精読で、leave-by の数理（LSAT）・permission 0-5・WorldState・correction verdict 変換等が **pure 実装として既存**と判明（R0 の「不在」評価は過小）。R1 案の「leave-by v0 = 徒歩仮定」は**撤回**（偽 deadline 禁止）。fatigue/recovery「実装済み」は **day-level に限る**と訂正（per-event energy cost / 疲労波及は未実装）。本トラックの段番号は kernel 内部 R1-R5 と衝突するため **RC1/RC2/RC3** に改称。
+
 ## 5. 本監査の制約
 
 - Explore 初報のうち day-state レーンに関する 3 件（fatigue/recovery 不在・weather 未消費・nextDayPriorAdjustments 不在）は当事者知識で**誤りと裁定し本書に反映済み**
