@@ -54,10 +54,10 @@ export function deriveMomentState(input: MomentStateInput): MomentStateV0 {
   const now = toSubjectiveMin(input.nowHHMM);
 
   if (bucket === null || now === null) {
-    // parse 不能: 全 unknown（偽の状態を作らない）
+    // parse 不能: 全 unknown（偽の状態を作らない）。timeBucket も "unknown"（旧 placeholder 廃止・W2）
     return {
       nowHHMM: input.nowHHMM,
-      timeBucket: "late_night",
+      timeBucket: "unknown",
       nowSegment: null,
       nextFixedEventAt: null,
       minutesUntilNextFixedEvent: null,

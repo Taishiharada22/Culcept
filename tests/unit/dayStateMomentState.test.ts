@@ -143,4 +143,12 @@ describe("parse 不能な now → unknown（偽の状態を作らない）", () 
     expect(m.currentMode).toBe("unknown");
     expect(m.receptivity).toBe("unknown");
   });
+  it("C-1: timeBucket は placeholder でなく \"unknown\"（旧 late_night 廃止）", () => {
+    const m = deriveMomentState({ nowHHMM: "99:99", segments: SEGMENTS });
+    expect(m.timeBucket).toBe("unknown");
+    expect(m.isNightCheckWindow).toBe(false); // unknown は窓を開かない
+  });
+  it("C-1: 正常時は実バケットを返す（unknown にならない）", () => {
+    expect(deriveMomentState({ nowHHMM: "12:00", segments: SEGMENTS }).timeBucket).toBe("noon");
+  });
 });

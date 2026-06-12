@@ -110,6 +110,7 @@ describe("Morning Reveal（開示面）", () => {
     expect(item.actualBand).toBe(DAYFELT_TO_BAND[4]); // high
     expect(item.verdict).toBe("under");
     expect(v.morningReveal!.adjustmentNote).toBe(ADJUSTMENT_NOTE_PRE_B1); // B1 前は「記録した」系固定
+    expect(item.actualAnchor).toBe("少し余った"); // C-4: dayFelt=4 のアンカー語（設計 §3.5'）
   });
   it("null 一本化: 前日なし / 前日未回答 / 朝以外 → null", () => {
     expect(vm({}, "08:00", null).morningReveal).toBeNull();
@@ -129,6 +130,28 @@ describe("Night Check 表示状態", () => {
   });
   it("昼 + 前日回答済み → hidden", () => {
     expect(vm({}, "13:00", yesterdayAnswered(3)).nightCheck.state).toBe("hidden");
+  });
+
+  // C-3: 主問回答済み → followup（予定あり日）/ answered（予定なし日 or followup 回答済み）
+  function todayWith(partial: { dayFelt: 1 | 2 | 3 | 4 | 5; planVerdict?: "as_seen" | "partial_drift" | "major_drift" }, over: Partial<DayStateBuildInput> = {}) {
+    const record = buildDayStateRecord(input(over));
+    const withNc: DayStateRecordV0 = {
+      ...record,
+      nightCheck: { answeredAt: "21:30", answeredFor: "2026-06-11", dayFelt: partial.dayFelt, planVerdict: partial.planVerdict, verdicts: {} },
+    };
+    return buildAlterBatteryViewModel(withNc, deriveMomentState({ nowHHMM: "21:30", segments: input(over).segments }), null);
+  }
+  it("主問回答済み・予定あり・followup 未回答 → followup（設問が予定の問い）", () => {
+    const v = todayWith({ dayFelt: 3 }); // input() は event 1 件 = anchorCount 1
+    expect(v.nightCheck.state).toBe("followup");
+    expect(v.nightCheck.question).toContain("予定");
+    expect(v.nightCheck.chips).toEqual(["だいたい通り", "一部ずれた", "大きくずれた"]);
+  });
+  it("followup 回答済み（planVerdict あり）→ answered", () => {
+    expect(todayWith({ dayFelt: 3, planVerdict: "as_seen" }).nightCheck.state).toBe("answered");
+  });
+  it("予定なしの日（anchorCount 0）→ followup を出さず answered", () => {
+    expect(todayWith({ dayFelt: 3 }, { segments: [] }).nightCheck.state).toBe("answered");
   });
 });
 

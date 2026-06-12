@@ -14,7 +14,7 @@
 |---|---|---|
 | H-1 | **睡眠入力導線の喪失**（B closeout の stale 項目） | closeout「睡眠シート ✅」は初版時点の記録であり、**最終 UI では導線が消滅**（トリガーが dead code の RealityContextCards.tsx:79 にのみ存在。現用 StateBackgroundPanel の睡眠セルにタップハンドラなし）。`user_reported` の睡眠 h 表示（visual-contract §0.1）は本導線が前提。**W1 で復旧、または正式廃止の CEO 判断** → ✅ **復旧済み**: StateBackgroundPanel の睡眠セルをタップ可能化し AlterTabBody の睡眠シート（よく眠れた/浅い/短い）へ接続（ack/local UI のみ・保存なし） |
 
-### 🟡 契約 → 実装（W2 で実装。契約は v0.4 で確定済み）
+### 🟡 契約 → 実装（W2 で実装。契約は v0.4 で確定済み）→ **W2 で全件実装済み（2026-06-12・lib/plan/dayState pure 追補・runtime 不接続）**: C-1 ✅（`MomentStateV0.timeBucket: TimeBucket|"unknown"`・parse 不能 path を unknown 化・旧 late_night placeholder 廃止）/ C-2 ✅（`dailyModeHintConfidence?` 追加・固定 0.5 廃止・0-1 clamp・fallback は引数無視）/ C-3 ✅（nightCheckState に followup: planVerdict 未回答 ∧ anchorCount>0・文言は Session B mock と完全一致）/ C-4 ✅（morningReveal.items に `actualAnchor?` additive・DAYFELT_ANCHOR・energy item のみ付与）。103 tests PASS（94→+9）・tsc 55 不変・検証 PASS（issues 0）
 | # | 事項 | 内容 |
 |---|---|---|
 | C-1 | `MomentStateV0.timeBucket: TimeBucket \| "unknown"` | parse 不能時 placeholder の廃止（Stage 0 受領監査 3）。設計書 §2.1 v0.4 で契約確定。実装 + fixture は W2 |

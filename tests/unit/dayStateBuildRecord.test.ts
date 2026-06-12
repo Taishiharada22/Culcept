@@ -153,3 +153,23 @@ describe("optional input の受領（import しない既存系）", () => {
     expect(withPersona.estimates).toEqual(base.estimates); // 影響ゼロ
   });
 });
+
+describe("dailyModeHint 供給契約（C-2: 固定 0.5 廃止）", () => {
+  it("dailyModeHintConfidence を反映する", () => {
+    const r = buildDayStateRecord(input({ dailyModeHint: "advance", dailyModeHintConfidence: 0.85 }));
+    expect(r.estimates.dailyMode).toEqual({ value: "advance", confidence: 0.85, source: "derived" });
+  });
+  it("hint ありで confidence 未指定 → 暫定 0.5", () => {
+    const r = buildDayStateRecord(input({ dailyModeHint: "social" }));
+    expect(r.estimates.dailyMode).toEqual({ value: "social", confidence: 0.5, source: "derived" });
+  });
+  it("不正な confidence は 0-1 に clamp", () => {
+    expect(buildDayStateRecord(input({ dailyModeHint: "recover", dailyModeHintConfidence: 1.7 })).estimates.dailyMode.confidence).toBe(1);
+    expect(buildDayStateRecord(input({ dailyModeHint: "recover", dailyModeHintConfidence: -0.3 })).estimates.dailyMode.confidence).toBe(0);
+  });
+  it("hint なし → 保守的 fallback（confidence 引数の影響なし）", () => {
+    const r = buildDayStateRecord(input({ dailyModeHintConfidence: 0.9 }));
+    expect(r.estimates.dailyMode.source).toBe("inferred");
+    expect(r.estimates.dailyMode.confidence).toBeLessThanOrEqual(0.3);
+  });
+});
