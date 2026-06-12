@@ -59,7 +59,10 @@ export function StateBackgroundPanel({
           <div className="flex items-center gap-1">
             <IconChip icon={<MoonIcon size={11} />} tint="bg-indigo-100/90 text-indigo-500" />
             <span className="text-[9px] font-medium text-slate-500">睡眠</span>
-            {stateBg.sleep.value !== "—" && <RefBadge />}
+            {stateBg.sleep.value !== "—" && !stateBg.sleep.userReported && <RefBadge />}
+            {stateBg.sleep.userReported && (
+              <span className="rounded-full border border-indigo-200 bg-indigo-50 px-1 py-px text-[7px] font-medium text-indigo-500">本人</span>
+            )}
             <span className="ml-auto text-[14px] font-bold tabular-nums text-slate-800">{stateBg.sleep.value}</span>
           </div>
           <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100">

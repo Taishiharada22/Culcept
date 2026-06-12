@@ -29,7 +29,7 @@ export interface AlterScreenViewModel {
   meterPct: { brain: number | null; heart: number | null; body: number | null; outing: number | null };
   /** 状態の背景 4 セル */
   stateBg: {
-    sleep: { value: string; band: Band; note: string; barPct: number };
+    sleep: { value: string; band: Band; note: string; barPct: number; userReported?: boolean };
     yesterdayLoad: { pct: number | null; note: string };
     recoveryQuality: { pct: number | null; note: string };
     stamina: { value: string; note: string };
