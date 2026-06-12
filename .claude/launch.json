@@ -29,7 +29,8 @@
       ],
       "env": {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "REALITY_CANDIDATE_ACTIONS_DEV_HOST": "true"
+        "REALITY_CANDIDATE_ACTIONS_DEV_HOST": "true",
+        "PLAN_ALTER_TAB_ENABLED": "true"
       },
       "port": 3000,
       "autoPort": true

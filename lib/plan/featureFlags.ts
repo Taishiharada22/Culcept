@@ -369,4 +369,20 @@ export const PLAN_FLAGS = {
    *   plan を書き換えない・apply しない・通知しない・user-facing でない（NEXT_PUBLIC なし＝server-side のみ評価）。
    */
   realityPipelinePreview: process.env.REALITY_PIPELINE_PREVIEW === "true",
+
+  /**
+   * W3a: /plan に ALTER タブ（Day State 人体バッテリー）を出すか。
+   *   true  : PlanClient のタブ列に「ALTER」が追加され、AlterTab（実 DayGraph 由来 VM）が描画される
+   *   false : タブ列・描画とも既存と完全不変（**本番デフォルト**・dead code 化）
+   *
+   * env: PLAN_ALTER_TAB_ENABLED=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**。
+   *   plan/page.tsx が読み取り prop で PlanClient に渡す — composeTimelineEnabled と同方式）
+   *
+   * 設計: docs/day-state-w3-execution-plan.md（W3a）/ docs/day-state-alter-tab-v0-design.md
+   * 制約（W3a 時点）:
+   *   - 表示は read-only 導出 + in-memory 入力のみ（新規 fetch / Supabase read / localStorage ゼロ）
+   *   - 保存ゼロ（補正・Night Check 回答はリロードで消える。永続化は W4 = 別 gate）
+   *   - 本番 ON は別 patch（CEO 判断経由、default false で merge）
+   */
+  alterTabEnabled: process.env.PLAN_ALTER_TAB_ENABLED === "true",
 } as const;

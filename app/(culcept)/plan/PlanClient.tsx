@@ -122,6 +122,8 @@ import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
+// W3a: ALTER タブ（flag opt-in・既定 OFF。docs/day-state-w3-execution-plan.md §2）
+import { AlterTab } from "./tabs/AlterTab";
 import { anchorsForDay, formatJpDate, isoDate, utcMidnight } from "./tabs/_helpers";
 import { shouldUseComposeSheet } from "@/lib/plan/compose/composeGate";
 import { AddAnchorComposeContainer } from "./components/compose/AddAnchorComposeContainer";
@@ -138,7 +140,7 @@ import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-type PlanTab = "calendar" | "flow" | "map";
+type PlanTab = "calendar" | "flow" | "map" | "alter";
 
 // Phase 1 C2 (2026-05-20): tab label を CEO mock 寄せ ("Flow"→"リスト"、"聖地"→"地図")
 // 旧 hint subtitle は pill segmented design では表示しない (mock 整合)。
@@ -151,6 +153,13 @@ const TABS: ReadonlyArray<{
   { key: "flow", label: "リスト" },
   { key: "map", label: "マップ" }, // 8b-9: CEO 「地図 → マップ」
 ];
+
+// W3a: ALTER タブは flag opt-in（alterTabEnabled prop）。OFF 時は TABS をそのまま使い
+// 参照同一・描画完全不変（末尾追加 = 既存 3 タブの位置を動かさない最小差分）。
+const TABS_WITH_ALTER: ReadonlyArray<{
+  key: PlanTab;
+  label: string;
+}> = [...TABS, { key: "alter", label: "ALTER" }];
 
 type FetchState =
   | { kind: "loading" }
@@ -188,15 +197,23 @@ export interface PlanClientProps {
    * 読み取り prop で渡す（PLAN_FLAGS は server-only のため client 直読み不可）。default false。
    */
   composeTimelineEnabled?: boolean;
+  /**
+   * W3a: ALTER タブを出すか。server（plan/page.tsx）が PLAN_FLAGS.alterTabEnabled を
+   * 読み取り prop で渡す（composeTimelineEnabled と同方式）。default false = タブ列・描画とも完全不変。
+   */
+  alterTabEnabled?: boolean;
 }
 
 export default function PlanClient({
   displayMode = "route",
   composeTimelineEnabled = false,
+  alterTabEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
+  // W3a: flag OFF では TABS と同一参照（描画 bit 同一）。ON で末尾に ALTER pill 追加
+  const visibleTabs = alterTabEnabled ? TABS_WITH_ALTER : TABS;
 
   // ── 9 closeout corrective (= 2026-05-25 CEO 「最新の状態に」): useNewShell = true 固定 ──
   //   旧 (= MAP smoke 期間): MAP_NEW_SURFACE_ENABLED の副作用で全 tab 新 shell
@@ -782,7 +799,7 @@ export default function PlanClient({
               role="tablist"
               aria-label="Plan tabs"
             >
-              {TABS.map((tab) => {
+              {visibleTabs.map((tab) => {
                 const isActive = activeTab === tab.key;
                 return (
                   <button
@@ -860,7 +877,7 @@ export default function PlanClient({
           className="mx-auto mb-6 max-w-3xl"
         >
           <div className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner">
-            {TABS.map((tab) => {
+            {visibleTabs.map((tab) => {
               const isActive = activeTab === tab.key;
               return (
                 <button
@@ -962,6 +979,16 @@ export default function PlanClient({
               <MapTab
                 anchors={state.anchors}
                 onAnchorClick={openDetail}
+              />
+            )}
+            {/* W3a: ALTER タブ（flag OFF では activeTab が "alter" になり得ず dead branch。
+              * 入力は既存 fetch 済みデータのみ — 新規 read / 保存ゼロ） */}
+            {activeTab === "alter" && (
+              <AlterTab
+                anchors={state.anchors}
+                sources={state.sources}
+                dayGraphByDate={dayGraphByDate}
+                dayIndicatorByIso={dayIndicatorByIso}
               />
             )}
           </>
@@ -1089,6 +1116,14 @@ function TabIcon({ tabKey }: { tabKey: string }): React.ReactElement {
         <svg {...baseProps}>
           <path d="M12 22 s8-7.5 8-13 a8 8 0 0 0 -16 0 c0 5.5 8 13 8 13 z" />
           <circle cx="12" cy="9" r="2.5" />
+        </svg>
+      );
+    case "alter":
+      // W3a: 人体バッテリー（ALTER タブ）— 簡素な人型 icon
+      return (
+        <svg {...baseProps}>
+          <circle cx="12" cy="6.5" r="3" />
+          <path d="M6.5 21 v-4 a5.5 5.5 0 0 1 11 0 v4" />
         </svg>
       );
     default:
