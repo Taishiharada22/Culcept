@@ -363,6 +363,22 @@ export const PLAN_FLAGS = {
   realityTendencyFeedbackUi: process.env.NEXT_PUBLIC_REALITY_TENDENCY_FEEDBACK_UI === "true",
 
   /**
+   * CoAlter /plan タブ（**UI プロトタイプ・fixture data のみ**）を表示するか。
+   *   true  : /plan のタブ列に「CoAlter」タブが追加される（左 Plan Intelligence + 右ペアチャット）
+   *   false : タブ非表示（**本番デフォルト**・既存 3 タブ UI 完全不変）
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED=true で有効化
+   *   （タブ列は client component（PlanClient）のため calendarMonthGridEnabled と同じく
+   *     NEXT_PUBLIC_ prefix が必須。default OFF = env 未設定なら従来どおり）。
+   *
+   * 契約正本: docs/coalter-plan-tab-backend-contract-draft.md（UI が bind する安定インターフェース）
+   * 制約（2026-06-12 CEO 指示の最初のスライス）:
+   *   - local only / fixture data のみ。fetch・DB・migration・外部 API・実 CoAlter backend 接続なし
+   *   - M2 PersonalizationPort / pair read / RLS 対応なし（バックエンド統合は CEO の明示 GO 後）
+   */
+  coalterPlanTabEnabled: process.env.NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED === "true",
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。
