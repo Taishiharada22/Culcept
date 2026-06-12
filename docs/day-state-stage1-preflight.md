@@ -36,8 +36,13 @@
 | # | 事項 | 内容 |
 |---|---|---|
 | D-1 | **「今日の流れ」事実帯の消滅** | ResourceTrendChart への置換で予定ラベル等の事実表示が render 木から消滅（flowTimeline.segments の label がどこにも描画されない）。CEO 判断（2026-06-12）= **推移予測へ統合** → ✅ **W1 で実施**: ResourceTrendChart 下部に流れレール（実セグメント由来のみ・event/travel/余白・予定ラベル最大 3 件・凡例追加） |
-| D-2 | 緩和の本番 activation 再裁定 | 数値・mock_reference 表示は dogfood 検証まで許可済み。**本番一般公開前に再裁定**（visual-contract §0.1） |
+| D-2 | 緩和の本番 activation 再裁定 | 数値・mock_reference 表示は dogfood 検証まで許可済み。**本番一般公開前に再裁定**（visual-contract §0.1）。再裁定論点に追加（W1 検証 LOW）: unknown 系統でも推移チャートは既定 50 起点の曲線を描く（参考値バッジ付き）— 本番でも許容するか |
 | D-3 | A0-A4 dogfood 7 日判断（6/16 頃）との順序 | タブ配線 ON（tab bar ピル = 共有表面の変化）は 7 日判断後を推奨（N-3 監査対象） |
+
+### 📝 Stage 1 磨き込みメモ（W1 検証 LOW・非ブロッカー）
+- 睡眠セル button 内の div（HTML 厳密準拠は span 化。実害なし・既存 BatteryCallout と同パターン）
+- 流れレールの slack 色と凡例 swatch の alpha 統一 or 凡例追加
+- レール予定ラベルの衝突回避（実 flowTimeline 接続時にラベル間最小距離チェック）
 
 ## 2. W1 以降の実行計画（精密化版。各 W に gate — GO はまだ無い）
 
