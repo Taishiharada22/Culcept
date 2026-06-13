@@ -1,6 +1,11 @@
 -- ╔══════════════════════════════════════════════════════════════════════════╗
--- ║  DRAFT — NOT APPLIED — CEO GO 待ち（apply 厳禁）                            ║
+-- ║  DRAFT — NOT APPLIED — DO NOT APPLY（apply 厳禁・CEO GO 待ち）              ║
 -- ╠══════════════════════════════════════════════════════════════════════════╣
+-- ║  ⚠ 配置: docs/sql-drafts/（**非実行**ディレクトリ）。                        ║
+-- ║    supabase/migrations/ に置くと reset/apply で誤適用されるため隔離した。     ║
+-- ║    GO 後に正式 migration として supabase/migrations/ へ移送し、その時点で     ║
+-- ║    timestamp を採り直す（本 timestamp は draft 識別用）。                     ║
+-- ║                                                                            ║
 -- ║  /plan CoAlter session message — participant/session-rooted persistence    ║
 -- ║                                                                            ║
 -- ║  本ファイルは **レビュー用 migration draft**。db reset / local apply /      ║
