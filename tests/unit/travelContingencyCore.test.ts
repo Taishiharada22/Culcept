@@ -3,7 +3,7 @@ import { buildProposals } from "@/lib/shared/travel/proposal-builder";
 import { compareProposals } from "@/lib/shared/travel/proposal-comparator";
 import { decide } from "@/lib/shared/travel/decision-core";
 import { assessReadiness } from "@/lib/shared/travel/readiness-core";
-import { planContingencies, toSharedContingencyView, type ContingencyInput } from "@/lib/shared/travel/contingency-core";
+import { planContingencies, toSharedContingencyView, hasContingencyActionAuthority, type ContingencyInput } from "@/lib/shared/travel/contingency-core";
 import type { ContingencyScenario } from "@/lib/shared/travel/contingency-types";
 import type { DecisionResult } from "@/lib/shared/travel/decision-types";
 import type { ReadinessResult } from "@/lib/shared/travel/readiness-types";
@@ -145,6 +145,26 @@ describe("11+12. 決定論 / participantId のみ", () => {
     const p = plan([...base, softPref("nature", "private", "P1")], [scen("delay", 0.8)]);
     const json = JSON.stringify(p);
     for (const f of ["talk_pair_member", "culcept_relation", "plan_session", "fixture", "talk_thread", "providerMode", "sourceKind"]) expect(json).not.toContain(f);
+  });
+});
+
+describe("T7.1. 権限境界: shared 射影は実行権限にならない", () => {
+  it("全 keep_plan(低 severity) → authoritative は hasContingencyActionAuthority=true・shared は常に false", () => {
+    const p = plan([...base, softPref("nature", "shared", "P1")], [scen("delay", 0.1)]);
+    expect(p.authoritative).toBe(true);
+    expect(hasContingencyActionAuthority(p)).toBe(true);
+    expect(hasContingencyActionAuthority(toSharedContingencyView(p))).toBe(false); // display は権限にならない
+  });
+  it("private 分岐で defer/blocked → authoritative に残り権限なし・shared は分岐を隠すが権限も付与しない", () => {
+    const p = planContingencies({ ...pipeline([...base, softPref("nature", "shared", "P1")]), scenarios: [scen("participant_unavailable", 0.5, "private", "P2")] });
+    // authoritative: private 分岐(defer)が残る → 実行権限なし
+    expect(p.branches[0].fallbackAction).toBe("defer");
+    expect(hasContingencyActionAuthority(p)).toBe(false);
+    // shared: private 分岐は隠れる(branches 空に見え得る)が authoritative=false → 権限にならない
+    const shared = toSharedContingencyView(p);
+    expect(shared.branches).toHaveLength(0);
+    expect(shared.authoritative).toBe(false);
+    expect(hasContingencyActionAuthority(shared)).toBe(false);
   });
 });
 

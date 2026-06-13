@@ -138,7 +138,7 @@ export function planContingencies(input: ContingencyInput): ContingencyPlan {
   const forParticipant = { ...decision.rationale.forParticipant };
 
   if (!currentId || !currentEntry) {
-    return { recommendedProposalId: currentId, branches: [], rationale: { shared: "代替案の前提となる確定案がありません。", forParticipant } };
+    return { authoritative: true, recommendedProposalId: currentId, branches: [], rationale: { shared: "代替案の前提となる確定案がありません。", forParticipant } };
   }
 
   const branches: ContingencyBranch[] = scenarios.map((s) => {
@@ -156,10 +156,22 @@ export function planContingencies(input: ContingencyInput): ContingencyPlan {
   });
 
   return {
+    authoritative: true,
     recommendedProposalId: currentId,
     branches,
     rationale: { shared: `${branches.length}件の状況に備えた分岐を用意しました。`, forParticipant },
   };
+}
+
+/**
+ * ★ T7.1 contingency 実行権限の判定口。
+ *   - **authoritative=false（shared 射影）からは決して true を返さない** → private 分岐を隠した
+ *     display が「実行して安全」に化けない。
+ *   - 発火中の分岐が 1 つも無い（全 keep_plan）ときのみ true。非 keep（switch/defer/cancel/ask/
+ *     downgrade）が 1 つでもあれば、状況対応が必要＝そのまま実行する権限なし（fail-closed）。
+ */
+export function hasContingencyActionAuthority(plan: ContingencyPlan): boolean {
+  return plan.authoritative === true && plan.branches.every((b) => b.fallbackAction === "keep_plan");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,9 +183,13 @@ export function planContingencies(input: ContingencyInput): ContingencyPlan {
  *   - **private 分岐（visibility==="private"）は分岐ごと除去**（private な事情の存在自体を隠す）。
  *     authoritative plan には残るため engine は private fallback を知っているが、shared には出さない。
  *   - 残る branch の rationale.forParticipant を削除・plan rationale も shared のみ。
+ *
+ * ★ T7.1: 戻り値は `authoritative: false`。**display 専用・実行権限ではない**。private 分岐を隠して
+ *   keep_plan に見えても、実行可否は必ず authoritative=true の元 plan（= `hasContingencyActionAuthority`）で判定する。
  */
 export function toSharedContingencyView(plan: ContingencyPlan): ContingencyPlan {
   return {
+    authoritative: false, // ★ display 専用・実行権限ではない
     recommendedProposalId: plan.recommendedProposalId,
     branches: plan.branches
       .filter((b) => b.visibility === "shared")

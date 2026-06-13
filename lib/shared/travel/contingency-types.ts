@@ -70,6 +70,15 @@ export interface ContingencyBranch {
 }
 
 export interface ContingencyPlan {
+  /**
+   * ★ T7.1 権限境界: この plan が **実行権限の正本(authoritative)** か。
+   *   - `planContingencies` の戻り値 = **true**。
+   *   - `toSharedContingencyView` の戻り値 = **false**（display 専用・private 分岐を隠す）。
+   *   private contingency が defer/cancel/blocked を課しても、shared 射影(private 分岐除去)が
+   *   見かけ上 keep_plan に見えても、authoritative=false のため `hasContingencyActionAuthority` は
+   *   決して true にならない（private 分岐の block は engine 側で効き続ける）。
+   */
+  authoritative: boolean;
   recommendedProposalId: string | null;
   branches: ContingencyBranch[];
   rationale: ViewerScopedRationale;
