@@ -9,9 +9,15 @@
  *   本 evaluator は **feasibilityStatus / feasibility の riskLevel を読まない / コピーしない**。feasibility の
  *   reasons / relations（既分類の証拠）を「崩れ方の地図」に再投影し、**独立に** riskLevel を集約する。
  *
+ * 2 軸分離（RC2b-1A #1）: **riskLevel = known severity**（collapse_source 由来の high/elevated/low。known severity 無 +
+ *   risk-relevant 未解決 → unknown / それも無 → low）。**unknown は severity でなく completeness 不足**であり
+ *   high/elevated/low と同軸で max しない。未解決は riskCompleteness / hasUnresolvedRiskInputs / unresolvedRiskInputRefs に
+ *   別保持し、known severity を潰さない（known high + 未解決 → riskLevel high + completeness partial）。
+ *   confidence = evidence completeness（成功確率でない）。source_revision_pending は riskLevel を上げず completeness/confidence に効く。
+ *
  * 不変条件（CEO）:
  *   - infeasible = collapseRisk high とは限らない（status をコピーしない）
- *   - unknown = collapseRisk high ではない / missingInputs = failure ではない（missing → unknown 寄与）
+ *   - unknown = collapseRisk high ではない / missingInputs = failure ではない（missing → unknown 寄与・severity でない）
  *   - decisionDebt high = collapseRisk high ではない（decision_unresolved = unknown 寄与）
  *   - commitment high = collapseRisk high ではない（**severity modifier**: 崩れた時の痛み・risk source でない）
  *   - exact_time_collision_ambiguous = duplicate ではない（RJ1b-A 継承・unknown 寄与）
@@ -84,8 +90,18 @@ export interface CollapseRiskTrace {
 
 export interface CollapseRiskProfileV0 {
   readonly schemaVersion: 0;
-  /** factor aggregation（**確率でない**）。failure modes の riskContribution の max */
+  /**
+   * **known risk severity**（factor aggregation・確率でない）。**collapse_source からのみ** high/elevated を出す。
+   * known severity が無く risk-relevant unresolved があれば unknown（gauge できない）/ それも無ければ low。
+   * **unknown は severity ではなく completeness 不足**であり、high/elevated/low と同軸で max しない（RC2b-1A #1）。
+   */
   readonly riskLevel: RiskLevel;
+  /** 評価の充足度（別軸）: complete = 未解決なし / partial = known severity あり + 未解決/source pending / unknown = known severity なし + 未解決 */
+  readonly riskCompleteness: "complete" | "partial" | "unknown";
+  /** risk-relevant な未解決入力（unresolved/unknown 寄与）があるか。source_revision_pending は含めない */
+  readonly hasUnresolvedRiskInputs: boolean;
+  /** 未解決 risk 入力の参照（後続判断で聞く/補うべき入力・field-level） */
+  readonly unresolvedRiskInputRefs: ReadonlyArray<string>;
   readonly failureModes: ReadonlyArray<CollapseFailureMode>;
   /** feasibility から carry（severity context・崩れた時の痛み等。risk source ではない） */
   readonly riskFactors: ReadonlyArray<FeasibilityReason>;
@@ -163,22 +179,23 @@ const TIME_MODE_TO_RELATION_KIND: Record<string, string> = {
   exact_time_collision_ambiguous: "exact_time_collision_ambiguous",
 };
 
-const CONTRIBUTION_RANK: Record<RiskContribution, number> = { none: 0, unknown: 1, elevated: 2, high: 3 };
-
-function aggregateRiskLevel(modes: ReadonlyArray<CollapseFailureMode>): RiskLevel {
-  let top: RiskContribution = "none";
-  for (const m of modes) {
-    if (CONTRIBUTION_RANK[m.riskContribution] > CONTRIBUTION_RANK[top]) top = m.riskContribution;
-  }
-  // none → low（崩れ signal なし）/ unknown → unknown（gauge できない）/ elevated / high
-  return top === "none" ? "low" : top;
+/**
+ * known severity は **collapse_source からのみ**導く（RC2b-1A #1/#2）。unresolved/modifier/action_boundary は
+ * severity を作らない。unknown(completeness) を severity と同軸で max しない。
+ */
+function deriveKnownSeverity(modes: ReadonlyArray<CollapseFailureMode>): "low" | "elevated" | "high" {
+  const sources = modes.filter((m) => m.category === "collapse_source");
+  if (sources.some((m) => m.riskContribution === "high")) return "high";
+  if (sources.some((m) => m.riskContribution === "elevated")) return "elevated";
+  return "low";
 }
 
-function confidenceFor(riskLevel: RiskLevel, modes: ReadonlyArray<CollapseFailureMode>): JudgmentConfidence {
-  if (riskLevel === "high") return "high"; // confirmed 崩れ
-  if (riskLevel === "low") return modes.length === 0 ? "high" : "moderate";
-  if (riskLevel === "unknown") return "low"; // gauge できない
-  return "moderate"; // elevated
+/**
+ * confidence = **evidence completeness / trace confidence**（成功確率ではない・riskLevel と別）。
+ * unresolved 多 / source_revision_pending があれば high にしない（RC2b-1A #4/#6）。
+ */
+function confidenceFor(riskCompleteness: CollapseRiskProfileV0["riskCompleteness"]): JudgmentConfidence {
+  return riskCompleteness === "complete" ? "high" : riskCompleteness === "partial" ? "moderate" : "low";
 }
 
 export function evaluateCollapseRisk(input: EvaluateCollapseRiskInput): CollapseRiskProfileV0 {
@@ -247,8 +264,17 @@ export function evaluateCollapseRisk(input: EvaluateCollapseRiskInput): Collapse
     }
   }
 
-  const riskLevel = aggregateRiskLevel(modes);
-  const confidence = confidenceFor(riskLevel, modes);
+  // ── riskLevel(known severity) と completeness(別軸) を分離（RC2b-1A #1）──
+  const knownSeverity = deriveKnownSeverity(modes);
+  const riskRelevantUnresolved = modes.filter((m) => m.riskContribution === "unknown"); // source_revision_pending(none) は除外
+  const hasUnresolvedRiskInputs = riskRelevantUnresolved.length > 0;
+  const sourcePending = modes.some((m) => m.mode === "source_revision_pending");
+  // known severity あれば優先 / known severity 無 + risk-relevant 未解決 → unknown(gauge 不能) / それも無 → low
+  const riskLevel: RiskLevel = knownSeverity !== "low" ? knownSeverity : hasUnresolvedRiskInputs ? "unknown" : "low";
+  const riskCompleteness: CollapseRiskProfileV0["riskCompleteness"] =
+    riskLevel === "unknown" ? "unknown" : hasUnresolvedRiskInputs || sourcePending ? "partial" : "complete";
+  const confidence = confidenceFor(riskCompleteness);
+  const unresolvedRiskInputRefs = [...new Set(riskRelevantUnresolved.flatMap((m) => [...m.missingInputRefs, ...m.evidenceRefs]))].sort();
   const displayPolicy: CollapseRiskProfileV0["displayPolicy"] = riskLevel === "unknown" ? "notActionable" : "visible";
 
   const usedInputRefs = [...new Set(modes.flatMap((m) => m.evidenceRefs))].sort();
@@ -278,6 +304,9 @@ export function evaluateCollapseRisk(input: EvaluateCollapseRiskInput): Collapse
   return {
     schemaVersion: 0,
     riskLevel,
+    riskCompleteness,
+    hasUnresolvedRiskInputs,
+    unresolvedRiskInputRefs,
     failureModes: modes,
     riskFactors: fj.riskFactors, // carry（severity context）
     unresolvedCriticalInputs: fj.unresolvedCriticalInputs, // carry
@@ -298,6 +327,11 @@ const RISK_LEVELS: ReadonlySet<string> = new Set(["low", "elevated", "high", "un
 export function collapseRiskViolations(p: CollapseRiskProfileV0): string[] {
   const out: string[] = [];
   if (!RISK_LEVELS.has(p.riskLevel)) out.push(`collapse: riskLevel 不正 "${p.riskLevel}"`);
+  if (!["complete", "partial", "unknown"].includes(p.riskCompleteness)) out.push(`collapse: riskCompleteness 不正 "${p.riskCompleteness}"`);
+  // confidence(= evidence completeness) は complete 以外で high にしない（RC2b-1A #4/#6）
+  if (p.confidence === "high" && p.riskCompleteness !== "complete") out.push("collapse: completeness が complete でないのに confidence high");
+  // risk-relevant 未解決があるのに low 断定しない（unknown に倒すべき・unknown を severity と混ぜない）
+  if (p.riskLevel === "low" && p.hasUnresolvedRiskInputs) out.push("collapse: risk-relevant 未解決があるのに riskLevel low 断定");
   if (!p.trace.collapseRiskId) out.push("collapse: collapseRiskId が空");
   if (!p.trace.feasibilityJudgmentId) out.push("collapse: feasibilityJudgmentId が空");
   if (!p.trace.snapshotId) out.push("collapse: snapshotId が空");
