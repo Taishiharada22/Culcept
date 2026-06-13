@@ -97,16 +97,27 @@ describe("#4/#5 commitment と debt/permission の分離", () => {
     // knownComponentSummary は正本でなく debugOnly 派生
     expect(dd.knownComponentSummary.displayPolicy).toBe("debugOnly");
   });
+
+  it("RC2a-4A #1: 高 changeCost(高 commitment)予定でも changeDebt は unknown（commitment を debt 値にしない）", () => {
+    const dd = debtFor([
+      anchor({ id: "a1", startTime: "10:00", endTime: "11:00", rigidity: "hard", companions: ["A", "B"], sensitiveCategory: "medical" } as Partial<ExternalAnchor> & { id: string; startTime: string }),
+    ]);
+    expect(dd.components.changeDebt.status).toBe("unknown"); // 変更候補/drift source 未実装
+    expect(dd.components.changeDebt.value).toBeNull(); // commitment 高でも debt 値にしない
+    expect(dd.components.changeDebt.missingInputs).toContain("change_candidate_pending");
+  });
 });
 
 describe("#6/#7/#8 未供給 source の成分は unknown（0/false でない）", () => {
-  it("candidateDebt / followupDebt / snoozeDebt / confirmationDebt は unknown・value null", () => {
+  it("candidate/followup/snooze/confirmation/change は unknown・value null（source 未実装）", () => {
     const dd = debtFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })]);
-    for (const key of ["candidateDebt", "followupDebt", "snoozeDebt", "confirmationDebt"] as const) {
+    for (const key of ["candidateDebt", "followupDebt", "snoozeDebt", "confirmationDebt", "changeDebt"] as const) {
       expect(dd.components[key].status).toBe("unknown");
       expect(dd.components[key].value).toBeNull();
     }
-    expect(dd.unknownComponents).toEqual(expect.arrayContaining(["candidateDebt", "followupDebt", "snoozeDebt", "confirmationDebt"]));
+    expect(dd.unknownComponents).toEqual(
+      expect.arrayContaining(["candidateDebt", "followupDebt", "snoozeDebt", "confirmationDebt", "changeDebt"]),
+    );
   });
 });
 
@@ -136,11 +147,17 @@ describe("#9/#10 Moment integration（Asia/Tokyo・subjectiveDate・minuteOfSubj
   });
 });
 
-describe("single score に潰さない", () => {
+describe("single score に潰さない / knownComponentSummary 使用境界（RC2a-4A §5）", () => {
   it("components が正本・knownComponentSummary は debugOnly・unknownComponents を明示", () => {
     const dd = debtFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00" })]);
     expect(Object.keys(dd.components).sort()).toEqual([...DECISION_DEBT_COMPONENT_KEYS].sort());
     expect(dd.knownComponentSummary.displayPolicy).toBe("debugOnly");
     expect(dd.unknownComponents.length).toBeGreaterThan(0);
+  });
+  it("knownComponentSummary は unknown 成分を 0 として混ぜない（known 件数のみの合計）", () => {
+    // place あり(0) + time explicit(0) + mobility 0 = 0。unknown 5 成分は加算されない
+    const dd = debtFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷", endTimeExplicit: true } as Partial<ExternalAnchor> & { id: string; startTime: string })]);
+    const knownSum = (["placeDebt", "timeDebt", "mobilityDebt"] as const).reduce((a, k) => a + (dd.components[k].value ?? 0), 0);
+    expect(dd.knownComponentSummary.value).toBe(knownSum); // unknown を 0 として足していない
   });
 });

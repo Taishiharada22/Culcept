@@ -74,7 +74,11 @@ export interface DecisionDebtV0 {
   readonly schemaVersion: 0;
   readonly subjectiveDate: string;
   readonly components: DecisionDebtComponents;
-  /** known 成分の件数合計（**debugOnly・正本ではない**・unknown 成分は除外）。single score に潰さない */
+  /**
+   * known 成分の件数合計（**debugOnly・正本ではない**・unknown 成分は除外）。single score に潰さない。
+   * 使用境界（RC2a-4A §5・不変条件）: RJ1 Feasibility / Proposal / Intervention の**正本入力にしない**。
+   * unknown 成分を 0 扱いして合成しない。user-facing 表示しても「参考」以下。decisionDebt components が正本。
+   */
   readonly knownComponentSummary: RealityAttribute<number>;
   /** unknown（材料未供給）の成分名 */
   readonly unknownComponents: ReadonlyArray<DecisionDebtComponentKey>;
@@ -101,9 +105,18 @@ export interface DeriveDecisionDebtInput {
 export function deriveDecisionDebt(input: DeriveDecisionDebtInput): DecisionDebtV0 {
   const eventNodes = input.graph.nodes.filter((n): n is EventNode => n.kind === "event");
 
-  // placeDebt: locationText 欠落（= 真に場所未指定。RC1 placeCertainty は全 event unknown ゆえ使わない）
+  // placeDebt（RC2a-4A §2 で 2 軸に整理）:
+  //  - placeTextMissingDebt = locationText 欠落（= 真に場所未指定。本 v0 の placeDebt 値はこれ。過検出を避ける）
+  //  - placeResolutionDebt = text はあるが placeId/exact place 未解決（RC4 まで・missingInputs に保持）
+  //  RC1 placeCertainty は全 event unknown ゆえ値には使わない（resolution は missingInputs で表現）。
+  //  RJ1 では placeCertainty / placeResolution / movement missing を統合して見る。
   const placeMissing = eventNodes.filter((n) => n.locationText === undefined).length;
-  const placeDebt = knownCount(placeMissing, placeMissing > 0 ? ["events_without_location_text"] : ["all_events_have_location_text"]);
+  const placeTextPresent = eventNodes.filter((n) => n.locationText !== undefined).length;
+  const placeDebt = knownCount(
+    placeMissing,
+    placeMissing > 0 ? ["events_without_location_text"] : ["all_events_have_location_text"],
+    placeTextPresent > 0 ? ["place_resolution_pending"] : [],
+  );
 
   // timeDebt: durationSource assumed_default（時間が仮置き）
   const timeUncertain = eventNodes.filter((n) => n.durationSource === "assumed_default").length;
@@ -121,9 +134,11 @@ export function deriveDecisionDebt(input: DeriveDecisionDebtInput): DecisionDebt
     mobilityDebt = knownCount(0, ["no_movement_and_places_known"]);
   }
 
-  // changeDebt: 弱材料（changeCost high の件数）。真の未確定変更は drift tracking 待ち
-  const highChangeCost = input.cs.filter((c) => (c.changeCost.value ?? 0) >= 0.5).length;
-  const changeDebt = knownCount(highChangeCost, ["high_change_cost_events"], ["drift_tracking_pending"]);
+  // changeDebt（RC2a-4A §1 修正）: v0 は変更候補/変更要求/drift source 未実装 → **unknown**。
+  //  commitment(changeCost) は「崩すと痛い」severity modifier であって **debt source ではない**
+  //  （high changeCost 件数を debt 値にしていた旧実装は CEO 不変条件「commitment 高 = debt ではない」違反）。
+  //  changeDebt は「変更判断が未決 / 変更候補があるが未確定 / drift で変更必要だが判断未完了」のときに立つ。
+  const changeDebt = unknownComp(["change_candidate_pending"], ["change_candidate_pending", "drift_tracking_pending"]);
 
   // 未供給 source の成分 = unknown（0/false にしない）
   const confirmationDebt = unknownComp(["origin_inference_pending"], ["origin_inference_pending"]);
@@ -168,6 +183,11 @@ export function deriveDecisionDebt(input: DeriveDecisionDebtInput): DecisionDebt
 }
 
 // ── Moment integration（RealityInstant + decisionDebt + active window。pure・instant は注入） ──
+//
+// 範囲（RC2a-4A §6）: MomentDecisionContextV0 は **RJ 判断用の補助 context** であって
+//  full MomentStateSnapshot ではない。activeWindow / nextRelevantNodeIds は v0 の最小値。
+//  cross-day / carryover / fatigue projection は未実装（RC2a-5 deriveMomentSnapshot 完全版 / RJ で拡張）。
+//  RJ1 前に RealityJudgmentInput（RG0.6 backlog #1）と接続する必要がある。
 
 export interface MomentDecisionContextV0 {
   readonly schemaVersion: 0;
