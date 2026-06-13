@@ -16,8 +16,21 @@
  *  - **位置（currentLocation）は使わない**（位置非解禁）
  *  - samePlacePossible は text 一致でなく**不一致**を inferred(≤0.4) で出す（emitted transition は
  *    場所テキストが異なる or 不明の時のみ存在する — movementTransitions.shouldEmitMovementTransition）
- *  - stable id = mv:<date>:<fromAnchorId>:<toAnchorId>（配列 index 不使用）。
- *    同一ペア重複は構造的に起きない（線形連続ペア生成）が、起きたら guard で検出（RC2a-1b §15）
+ *  - stable id = mv:<date>:<fromAnchorId>:<toAnchorId>（**direction-sensitive**: from→to の順序＝時刻順で確定）。
+ *    transitionBasis（fromNodeId->toNodeId）が source-transition の identity（kernel は transition に明示 id を
+ *    持たないため pair が自然 id）。**currentKernelGuarantee**: 同一 (from,to) ペアは線形連続ペア生成で同日最大 1 回
+ *    （同一 anchor は同日 graph に 1 回・dup skip 済み）。将来 kernel が transition 明示 id / 同一ペア複数区間を
+ *    導入したら、先に sourceTransitionId を足して mv id をそれに切替える（RC2a-1b §15）。配列 index は永久不使用。
+ *
+ * ── 意味論の不変条件（RC2a-2A・誤読防止の最重要事項） ──
+ *  **mv ノードの不在は「移動判断」ではない**。current DayGraph kernel が transition を発火しなかっただけ:
+ *   - 両端の場所テキストが同一 → transition なし。これは「物理的に同じ場所 confirmed」ではなく
+ *     「移動が必要な場所差が観測されない」。同名でも別店舗等は判別できていない（場所解決 RC4 前）
+ *   - 両端の場所テキスト欠落（undefined===undefined）→ transition なし。これは「移動不要」ではなく
+ *     **「移動判断に必要な場所情報が無い」**。movement impossible でも same place proof でもない
+ *  → **no movement node ≠ no movement risk**。場所欠落の signal は **event 側（ern.placeCertainty=unknown）**が
+ *    保持しており、RJ1 Feasibility / Risk はそこから「場所未設定だから判断不能」を別経路で拾う（mv 不在から
+ *    「移動リスクなし」を導出してはならない — 管制塔として致命的な誤読の構造的禁止）
  */
 
 import type { DayGraph, EventNode, MovementTransition } from "@/lib/plan/dayGraph/dayGraphTypes";
