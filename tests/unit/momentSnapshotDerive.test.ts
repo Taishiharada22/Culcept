@@ -161,16 +161,18 @@ describe("#10 provenance / sourceRefs / evidenceRefs が欠けると fail", () =
 // ─────────── RC2a-5A closeout audit（GPT 8 点） ───────────
 
 describe("#3 MomentSnapshot identity（決定的・id≠内容証明・runtime timestamp で揺れない）", () => {
-  it("momentSnapshotId は決定的・秒/ms 違いで不変（minute 精度）・derivationVersions carry", () => {
+  it("momentSnapshotCacheKey は決定的・秒/ms 違いで不変（minute 精度）・derive/derivation 版を basis に・id≠内容証明", () => {
     const anchors = [anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })];
     const a = snapshotFor(anchors, new Date(Date.UTC(2026, 5, 12, 3, 0, 1, 100))); // JST 12:00:01.1
     const b = snapshotFor(anchors, new Date(Date.UTC(2026, 5, 12, 3, 0, 59, 900))); // JST 12:00:59.9
-    expect(a.momentSnapshotId).toBeTruthy();
-    expect(a.momentSnapshotId).toBe(b.momentSnapshotId); // 同 minute → 同 id（秒で揺れない）
-    expect(a.instant.nowInstant).not.toBe(b.instant.nowInstant); // metadata は異なる
+    expect(a.momentSnapshotCacheKey).toBeTruthy();
+    expect(a.momentSnapshotCacheKey).toBe(b.momentSnapshotCacheKey); // 同 minute → 同 key（秒で揺れない）
+    expect(a.instant.nowInstant).not.toBe(b.instant.nowInstant); // metadata は異なる（identity 対象外）
     const next = snapshotFor(anchors, new Date(Date.UTC(2026, 5, 12, 3, 1, 0))); // JST 12:01
-    expect(next.momentSnapshotId).not.toBe(a.momentSnapshotId); // minute 変化で id 変化
+    expect(next.momentSnapshotCacheKey).not.toBe(a.momentSnapshotCacheKey); // minute 変化で key 変化
     expect(a.derivationVersions).toBe(REALITY_DERIVATION_VERSIONS);
+    expect(a.deriveMomentSnapshotVersion).toBe(0);
+    expect(a.inputRevisionSetPending).toBe(true); // full InputRevisionSet は RC2a-6 で完成
   });
 });
 
@@ -229,10 +231,53 @@ describe("#6 日跨ぎ / 深夜 event の扱い（捏造せず制約を明示）
   });
 });
 
-describe("#2 Energy/Memory 未接続の明示", () => {
-  it("unconnectedDepartments に Energy / Memory", () => {
+describe("RC2a-5B #1 Energy/Memory 未接続は capability pending（部署名を runtime に載せない）", () => {
+  it("missingInputRefs に pipeline_capability の energy/memory pending・runtime に部署名フィールドなし", () => {
     const s = snapshotFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })], NOON_UTC);
-    expect(s.unconnectedDepartments).toEqual(expect.arrayContaining(["Energy", "Memory"]));
+    // 旧 unconnectedDepartments runtime field は廃止
+    expect("unconnectedDepartments" in s).toBe(false);
+    const codes = s.missingInputRefs.map((r) => r.code);
+    expect(codes).toEqual(expect.arrayContaining(["energy_projection_pending", "fatigue_projection_pending", "memory_profile_pending", "correction_profile_pending"]));
+    const capRefs = s.missingInputRefs.filter((r) => r.sourceNodeKind === "pipeline_capability");
+    expect(capRefs.length).toBeGreaterThan(0);
+    // 部署名（Energy/Memory）を sourceField に載せていない・違反 0
+    expect(momentSnapshotViolations(s)).toEqual([]);
+  });
+});
+
+describe("RC2a-5B #3 missingInputRef の最小 field（dedupeKey/displayPolicy/criticality）", () => {
+  it("各 ref が dedupeKey/displayPolicy/criticality を持つ・criticality は v0 unknown（0/low でない）・同 code 別 source は別 ref", () => {
+    const s = snapshotFor([
+      anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" }),
+      anchor({ id: "a2", startTime: "14:00", endTime: "15:00", locationText: "新宿" }),
+    ], NOON_UTC);
+    for (const r of s.missingInputRefs) {
+      expect(r.dedupeKey).toBeTruthy();
+      expect(r.displayPolicy).toBe("debugOnly");
+      expect(r.criticality).toBe("unknown"); // v0 は決められない → unknown（0/low にしない）
+    }
+    // 同 code "eta_source_missing" が ern/mv 複数 source から別 ref として残る（trace を失わない）
+    const etaRefs = s.missingInputRefs.filter((r) => r.code === "eta_source_missing");
+    expect(etaRefs.length).toBeGreaterThan(1);
+    expect(new Set(etaRefs.map((r) => r.dedupeKey)).size).toBe(etaRefs.length); // 各 dedupeKey 一意
+  });
+});
+
+describe("RC2a-5B #4 全 node 種別 duplicate guard", () => {
+  it("duplicate movementRealityId / commitmentSignalId は throw", () => {
+    const { graph } = buildDayGraph({ anchors: [
+      anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" }),
+      anchor({ id: "a2", startTime: "14:00", endTime: "15:00", locationText: "新宿" }),
+    ], date: DATE });
+    const ern = compileEventRealityNodes({ date: DATE, graph, anchors: [] });
+    const mv = compileMovementReality({ date: DATE, graph });
+    const cs = compileCommitmentSignals({ date: DATE, graph, anchors: [] });
+    const dd = deriveDecisionDebt({ subjectiveDate: DATE, graph, ern, mv, cs });
+    const instant = makeRealityInstantJst(NOON_UTC);
+    const moment = deriveMomentState({ nowHHMM: instant.wallClockHHMM, segments: [] });
+    // mv を重複させる
+    expect(() => deriveMomentSnapshot({ instant, momentState: moment, ern, mv: [...mv, ...mv], cs, decisionDebt: dd })).toThrow(/duplicate movementRealityId/);
+    expect(() => deriveMomentSnapshot({ instant, momentState: moment, ern, mv, cs: [...cs, ...cs], decisionDebt: dd })).toThrow(/duplicate commitmentSignalId/);
   });
 });
 
