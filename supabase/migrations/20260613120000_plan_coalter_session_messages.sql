@@ -1,29 +1,21 @@
 -- ╔══════════════════════════════════════════════════════════════════════════╗
--- ║  DRAFT — NOT APPLIED — DO NOT APPLY（apply 厳禁・CEO GO 待ち）              ║
--- ╠══════════════════════════════════════════════════════════════════════════╣
--- ║  ⚠ 配置: docs/sql-drafts/（**非実行**ディレクトリ）。                        ║
--- ║    supabase/migrations/ に置くと reset/apply で誤適用されるため隔離した。     ║
--- ║    GO 後に正式 migration として supabase/migrations/ へ移送し、その時点で     ║
--- ║    timestamp を採り直す（本 timestamp は draft 識別用）。                     ║
--- ║                                                                            ║
 -- ║  /plan CoAlter session message — participant/session-rooted persistence    ║
 -- ║                                                                            ║
--- ║  本ファイルは **レビュー用 migration draft**。db reset / local apply /      ║
--- ║  staging apply / production apply は **まだ実行しない**（別 GO）。           ║
--- ║  生成型（supabase gen types）も未実行。                                      ║
+-- ║  CEO GO（2026-06-13）で local persistence/send bundle として正式 migration  ║
+-- ║  に昇格（docs/sql-drafts の draft から移送）。**local apply まで承認**。      ║
+-- ║  staging / production apply は **別 GO**（push もなし）。                    ║
 -- ║                                                                            ║
 -- ║  設計正本: docs/coalter-plan-session-message-schema-rls-design.md           ║
--- ║  契約整合: app/(culcept)/plan/tabs/coalter/coalterSessionMessageRepository.ts ║
--- ║            + coalterSessionMessageContract.ts + coalterPlanSessionContract.ts ║
+-- ║  local RLS smoke 済（参加者 SELECT/INSERT・非参加者拒否・author 詐称拒否・    ║
+-- ║  coalter insert 拒否・message immutable・read_cursor HOLD）。                ║
+-- ║  契約整合: coalterSessionMessageStore.ts / coalterSessionMessageContract.ts ║
 -- ║                                                                            ║
 -- ║  安全性: additive のみ。legacy `coalter_*` / `talk_messages` を            ║
 -- ║          ALTER / DROP / 参照 しない。data backfill なし。破壊操作なし。      ║
 -- ║                                                                            ║
--- ║  なぜ legacy を backing にしないか:                                          ║
--- ║   legacy `coalter_pair_states` は thread-rooted（thread_id NOT NULL UNIQUE・ ║
--- ║   2 名固定）/ `coalter_messages` は metadata JSONB（projection 混入）。       ║
--- ║   ⇒ 再 root すると /talk takeover + solo 不可 + projection 混入を継承。       ║
--- ║   本 draft は participants membership を root にした別系統。                  ║
+-- ║  participants membership を root にした別系統（legacy `coalter_pair_states`  ║
+-- ║  は thread-rooted・2 名固定 / `coalter_messages` は metadata JSONB のため    ║
+-- ║  backing にしない）。                                                        ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝
 
 -- ─────────────────────────────────────────────
@@ -186,5 +178,5 @@ CREATE POLICY "plan_coalter_message_insert_participant" ON plan_coalter_session_
 --   本 draft は **publication を一切触らない**（realtime は persistence/send 確定後・session-scoped・HOLD）。
 
 -- ╔══════════════════════════════════════════════════════════════════════════╗
--- ║  END DRAFT — apply しない。CEO GO 後に local→staging の順で検証予定。        ║
+-- ║  END — local apply 承認済。staging/production apply は別 GO。                ║
 -- ╚══════════════════════════════════════════════════════════════════════════╝

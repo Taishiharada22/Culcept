@@ -457,6 +457,19 @@ export const PLAN_FLAGS = {
   coalterThreadContext: process.env.NEXT_PUBLIC_PLAN_COALTER_THREAD_CONTEXT === "true",
 
   /**
+   * CoAlter **local-only human send route** gate（POST /api/coalter/sessions/:id/messages・**default OFF**）。
+   *   true  : participant が自分の session に session message を送信できる（user-RLS・author は server stamp）。
+   *   false : route は 404（**本番デフォルト**・送信経路 dormant）。
+   *
+   * env: PLAN_COALTER_SEND_LOCAL=true（**server-side のみ評価・NEXT_PUBLIC_ なし**＝client に露出しない）。
+   * 正本: docs/coalter-send-route-preflight.md（CEO GO 2026-06-13 local-only persistence/send bundle）。
+   * 制約: **local only**（push/staging/production なし）。human participant の chat 送信のみ。
+   *   system/CoAlter 送信なし・read receipt/realtime/typing/useCoAlter なし・`/talk` mutation なし・
+   *   service_role 非依存（user-RLS client + DB RLS が最終ゲート）。route は request 時に本 env を再評価する。
+   */
+  coalterSendLocal: process.env.PLAN_COALTER_SEND_LOCAL === "true",
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。
@@ -520,3 +533,12 @@ export const PLAN_FLAGS = {
    */
   lifeopsMainlineMoment: process.env.LIFEOPS_MAINLINE_MOMENT === "true",
 } as const;
+
+/**
+ * CoAlter local-only send route の **request 時**評価（route handler 用）。
+ * `PLAN_FLAGS.coalterSendLocal` は module load 時固定だが、route は毎リクエストで env を再評価して
+ * local-only gate を効かせる（test も env stub で制御できる）。default OFF。
+ */
+export function planCoAlterSendLocalEnabled(): boolean {
+  return process.env.PLAN_COALTER_SEND_LOCAL === "true";
+}
