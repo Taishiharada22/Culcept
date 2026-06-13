@@ -41,6 +41,12 @@ import {
   toSessionMessageFromFixture,
 } from "./coalterSessionMessageContract";
 import { buildSessionParticipantsFromFixture } from "./coalterPlanSessionContract";
+// local-only live wiring（runtime に隔離＝UI tab folder は /api/coalter を直接持たない）。
+import { useCoAlterLiveSession } from "@/app/(culcept)/plan/coalter-runtime/useCoAlterLiveSession";
+import {
+  buildLiveParticipants,
+  selectCoAlterBody,
+} from "@/app/(culcept)/plan/coalter-runtime/coalterLiveSessionClient";
 import {
   CalendarMiniIcon,
   ChatRoundIcon,
@@ -173,12 +179,30 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
   // ── B: 本文は **session message 契約**から描画（fixture session 由来・author は resolved のみ）──
   //   本文 = fixture session message + ローカル送信分。**thread messages は本文に入れない**
   //   （thread 内容は TalkBridge-A の文脈セクションへ）。これにより本文 author は匿名にならない。
-  const bodySessionMessages = [
+  const fixtureBodyMessages = [
     ...buildSessionMessagesFromFixture(session),
     ...ui.sentMessages.map((m) => toSessionMessageFromFixture(m, session.id)),
   ];
   // 本文は fixture session ＝ local echo 可（legacy live read-only の "none" 経路は撤去済み）。
   const canLocalEcho = true;
+
+  // ── local-only live 本文（read+send）。flag OFF / sessionId 無 / 未認証 / 失敗 → fixture へ fail-closed ──
+  //   server gate（PLAN_COALTER_SEND_LOCAL）と AND で初めて 200 が返る。raw userId は UI に出さない。
+  const liveSession = useCoAlterLiveSession({
+    enabled: PLAN_FLAGS.coalterLiveMessages,
+    sessionId: PLAN_FLAGS.coalterDevSessionId || null,
+  });
+  const liveParticipants = buildLiveParticipants(
+    viewerUserId ?? null,
+    relationBinding.state === "bound" ? relationBinding.participants : null,
+  );
+  const bodySelection = selectCoAlterBody({
+    liveState: liveSession.state,
+    liveMessages: liveSession.messages,
+    liveParticipants,
+    fixtureMessages: fixtureBodyMessages,
+    fixtureParticipants: fixtureSessionParticipants,
+  });
 
   // ── handlers（すべて local state のみ） ──
   const handleSelectCandidate = (candidateId: string) =>
@@ -213,6 +237,16 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
       text,
     };
     patchUi(session.id, ui, { sentMessages: [...ui.sentMessages, message] });
+  };
+
+  // 送信ルーティング: live 本文なら実 send route（POST→refetch）、それ以外は従来 local echo。
+  //   client は author/userId/source を送らない（送信主体は server stamp・hook が body+clientMessageId のみ送る）。
+  const handleSendUnified = (text: string) => {
+    if (bodySelection.isLive) {
+      void liveSession.send(text);
+    } else {
+      handleSend(text);
+    }
   };
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -532,10 +566,10 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
         >
           <CoAlterChatPanel
             session={session}
-            participants={fixtureSessionParticipants}
-            sessionMessages={bodySessionMessages}
+            participants={bodySelection.participants}
+            sessionMessages={bodySelection.messages}
             sendMode="local_echo"
-            onSend={handleSend}
+            onSend={handleSendUnified}
             selectedCandidateIndex={selectedIndex}
             appliedAdjustmentIds={appliedSet}
             onToggleAdjustment={handleToggleAdjustment}

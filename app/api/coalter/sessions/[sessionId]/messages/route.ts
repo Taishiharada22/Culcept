@@ -11,7 +11,16 @@
 import type { NextRequest } from "next/server";
 
 import { supabaseServer } from "@/lib/supabase/server";
-import { handleCoAlterSend } from "@/app/api/coalter/_lib/sendRouteHandler";
+import { handleCoAlterList, handleCoAlterSend } from "@/app/api/coalter/_lib/sendRouteHandler";
+
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> },
+) {
+  const { sessionId } = await params;
+  const supabase = await supabaseServer();
+  return handleCoAlterList(sessionId, { supabase });
+}
 
 export async function POST(
   req: NextRequest,

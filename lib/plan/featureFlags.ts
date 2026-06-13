@@ -470,6 +470,31 @@ export const PLAN_FLAGS = {
   coalterSendLocal: process.env.PLAN_COALTER_SEND_LOCAL === "true",
 
   /**
+   * CoAlter **本文を実 session message に接続**（read + send・**client gate・default OFF**）。
+   *   true  : `coalterDevSessionId` がある時、本文を GET /api/coalter/sessions/:id/messages から読み、
+   *           送信は POST（同 route）。失敗/未認証/session 未束縛 → fixture へ fail-closed。
+   *   false : fixture のまま（**本番デフォルト**・fetch 0・現行 UI 完全不変）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_LIVE_MESSAGES=true（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-send-route-preflight.md / docs/coalter-plan-session-message-schema-rls-design.md。
+   * 制約: **local only**（route 側 server gate `PLAN_COALTER_SEND_LOCAL` と AND で初めて live）。
+   *   raw userId を UI に出さない（未解決 author は中立ラベル）。read receipt/realtime/typing/useCoAlter なし。
+   *   thread を session root にしない・thread から session identity を推論しない。
+   */
+  coalterLiveMessages: process.env.NEXT_PUBLIC_PLAN_COALTER_LIVE_MESSAGES === "true",
+
+  /**
+   * CoAlter live 本文の対象 sessionId（**dev/local 注入専用・default 空**・product strategy ではない）。
+   *   - 空（既定）: live 対象なし＝coalterLiveMessages が ON でも fixture のまま（fetch 0）
+   *   - 非空 ∧ coalterLiveMessages=true: その sessionId の messages を読む/送る。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_DEV_SESSION_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
+   * 制約: **session 作成は production 未実装**（本 env は local 検証用の明示注入のみ・production 未設定＝空）。
+   *   **`/talk` thread を session root にしない**（sessionId は plan_coalter session・thread 由来でない）。
+   */
+  coalterDevSessionId: (process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_SESSION_ID ?? "").trim(),
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。

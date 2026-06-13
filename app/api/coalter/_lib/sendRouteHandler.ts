@@ -42,6 +42,32 @@ export interface CoAlterSendDeps {
 }
 
 /**
+ * GET /api/coalter/sessions/:sessionId/messages の本体（read・user-RLS）。
+ *   - local-only gate（OFF→404）→ auth.getUser（無→401）→ store.listSessionMessages。
+ *   - **RLS が読める message のみ**返す（非 member は空＝fail-closed・membership は DB が判定）。
+ *   - read receipt を付けない・`/talk` を触らない・realtime なし。
+ */
+export async function handleCoAlterList(
+  sessionId: string,
+  deps: CoAlterSendDeps,
+): Promise<NextResponse> {
+  if (!planCoAlterSendLocalEnabled()) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+  const {
+    data: { user },
+  } = await deps.supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+  const store = createDbBackedSessionMessageStore(
+    createSupabaseSessionMessagePort(deps.supabase),
+  );
+  const messages = await store.listSessionMessages(sessionId);
+  return NextResponse.json({ ok: true, messages }, { status: 200 });
+}
+
+/**
  * POST /api/coalter/sessions/:sessionId/messages の本体。
  * deps.supabase = user-RLS server client（route.ts が `supabaseServer()` を注入）。
  */
