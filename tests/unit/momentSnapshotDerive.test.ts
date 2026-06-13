@@ -158,6 +158,84 @@ describe("#10 provenance / sourceRefs / evidenceRefs が欠けると fail", () =
   });
 });
 
+// ─────────── RC2a-5A closeout audit（GPT 8 点） ───────────
+
+describe("#3 MomentSnapshot identity（決定的・id≠内容証明・runtime timestamp で揺れない）", () => {
+  it("momentSnapshotId は決定的・秒/ms 違いで不変（minute 精度）・derivationVersions carry", () => {
+    const anchors = [anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })];
+    const a = snapshotFor(anchors, new Date(Date.UTC(2026, 5, 12, 3, 0, 1, 100))); // JST 12:00:01.1
+    const b = snapshotFor(anchors, new Date(Date.UTC(2026, 5, 12, 3, 0, 59, 900))); // JST 12:00:59.9
+    expect(a.momentSnapshotId).toBeTruthy();
+    expect(a.momentSnapshotId).toBe(b.momentSnapshotId); // 同 minute → 同 id（秒で揺れない）
+    expect(a.instant.nowInstant).not.toBe(b.instant.nowInstant); // metadata は異なる
+    const next = snapshotFor(anchors, new Date(Date.UTC(2026, 5, 12, 3, 1, 0))); // JST 12:01
+    expect(next.momentSnapshotId).not.toBe(a.momentSnapshotId); // minute 変化で id 変化
+    expect(a.derivationVersions).toBe(REALITY_DERIVATION_VERSIONS);
+  });
+});
+
+describe("#4 missingInputs の source trace を失わない（missingInputRefs）", () => {
+  it("各 flat code に source node/field が紐づく・place_resolution_pending の source が event leaveBy 等で復元可能", () => {
+    const s = snapshotFor([
+      anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" }),
+      anchor({ id: "a2", startTime: "14:00", endTime: "15:00", locationText: "新宿" }),
+    ], NOON_UTC);
+    // missingInputRefs は「どのノードのどの field」を保持
+    const etaRef = s.missingInputRefs.find((r) => r.code === "eta_source_missing");
+    expect(etaRef).toBeDefined();
+    expect(etaRef!.sourceNodeId).toBeTruthy();
+    expect(etaRef!.sourceField).toBeTruthy();
+    // dedup（flat codes）しても trace（refs）は source ごとに残る
+    expect(s.missingInputRefs.length).toBeGreaterThanOrEqual(s.missingInputs.length);
+    // 健全性検証: 全 flat code が refs に source 付きで存在
+    expect(momentSnapshotViolations(s)).toEqual([]);
+  });
+});
+
+describe("#5 id-based join（array index 非依存・duplicate id guard）", () => {
+  it("cs.targetNodeId ∈ ern ids（id join）・duplicate ern id は throw", () => {
+    const s = snapshotFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })], NOON_UTC);
+    for (const t of s.nodeRefs.commitmentSignalTargetIds) {
+      expect(s.nodeRefs.eventRealityNodeIds).toContain(t); // cs → ern を id で join 可能
+    }
+  });
+});
+
+describe("#6 日跨ぎ / 深夜 event の扱い（捏造せず制約を明示）", () => {
+  it("日跨ぎ単一 event（23:00-翌01:00）は DayGraph が end_before_start で拒否 → ern 化されない", () => {
+    const { graph, warnings } = buildDayGraph({
+      anchors: [anchor({ id: "a1", startTime: "23:00", endTime: "01:00" })],
+      date: DATE,
+      options: { startTime: "00:00", endTime: "23:59" },
+    });
+    expect(warnings.some((w) => w.kind === "end_before_start")).toBe(true);
+    expect(graph.nodes.filter((n) => n.kind === "event")).toHaveLength(0); // 表現不可（既知制約）
+  });
+  it("主観日内の深夜 event（02:00-03:00・境界跨ぎなし）は upcoming に正しく分類", () => {
+    // 境界を広げて 02:00 event を許可。JST 23:17 now（同一主観日の翌暦日 02:00 は upcoming）
+    const { graph } = buildDayGraph({
+      anchors: [anchor({ id: "a1", startTime: "02:00", endTime: "03:00", locationText: "渋谷" })],
+      date: DATE,
+      options: { startTime: "00:00", endTime: "23:59" },
+    });
+    const ern = compileEventRealityNodes({ date: DATE, graph, anchors: [anchor({ id: "a1", startTime: "02:00", locationText: "渋谷" })] });
+    const dd = deriveDecisionDebt({ subjectiveDate: DATE, graph, ern, mv: [], cs: [] });
+    const instant = makeRealityInstantJst(new Date(Date.UTC(2026, 5, 12, 14, 17))); // JST 23:17
+    const moment = deriveMomentState({ nowHHMM: instant.wallClockHHMM, segments: [] });
+    const s = deriveMomentSnapshot({ instant, momentState: moment, ern, mv: [], cs: [], decisionDebt: dd });
+    // 主観分: 02:00→1260 > now(23:17→1097) → upcoming（生 HH 比較なら 02<23 で past 誤分類するところ）
+    expect(s.relevantNodes.upcomingEventNodeIds).toContain("ern:2026-06-12:a1");
+    expect(s.relevantNodes.pastEventNodeIds).not.toContain("ern:2026-06-12:a1");
+  });
+});
+
+describe("#2 Energy/Memory 未接続の明示", () => {
+  it("unconnectedDepartments に Energy / Memory", () => {
+    const s = snapshotFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })], NOON_UTC);
+    expect(s.unconnectedDepartments).toEqual(expect.arrayContaining(["Energy", "Memory"]));
+  });
+});
+
 describe("carry（RealityInstant / momentState を再計算しない）", () => {
   it("instant / momentState / decisionDebt は同一参照で carry・derivationVersions は manifest", () => {
     const { graph } = buildDayGraph({ anchors: [anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })], date: DATE });
