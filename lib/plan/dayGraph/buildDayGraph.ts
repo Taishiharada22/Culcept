@@ -51,6 +51,8 @@ import { buildGapNodes } from "./gapNodes";
 import { buildMovementTransitions } from "./movementTransitions";
 import { buildEndNode, buildStartNode } from "./startEndNodes";
 import { parseHHMMtoMinutes } from "./timeFormat";
+import { fnv1a64Hex, canonicalSerialize } from "@/lib/plan/canonicalHash";
+import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Internal helpers
@@ -102,9 +104,47 @@ function buildEdges(
 }
 
 /**
+ * anchor 内容 revision（RC2a-6A — content-aware identity の核）。
+ *
+ * v1 の snapshotId は anchor ID 集合しか見ず、**同一 ID 集合での時刻/場所/companions/rigidity 変更を
+ * 拾えなかった**（→ RC2a identity chain が collide）。本関数は各 anchor の **content-relevant field** を
+ * 正規化 projection して決定的 hash 化する。
+ *
+ * 含める（content = 変われば derive 出力が変わりうる）: anchorKind / startTime / endTime / rigidity /
+ *   locationCategory / locationText(hash) / title(hash) / sensitiveCategory / companions(hash)。
+ * 含めない（非 content / volatile）: id（既に anchorIds 集合に在る）/ userId / sourceId / confirmedAt /
+ *   confidence / externalUid / recurrence field（その日の startTime/endTime/ID 集合に解決済み）。
+ *
+ * privacy（RC2a-1c §4: 生ユーザー文字列を identity payload に入れない）: locationText / title / companions は
+ *   **NFC 正規化 → fnv sub-hash** にしてから payload に入れる（snapshotId に raw text を載せない）。
+ * 決定性: anchor を id で sort（array order 非依存）。
+ */
+export function computeAnchorContentRevision(anchors: ReadonlyArray<ExternalAnchor>): string {
+  const projection = [...anchors]
+    .map((a) => ({
+      id: a.id,
+      k: a.anchorKind,
+      s: a.startTime,
+      e: a.endTime ?? null,
+      r: a.rigidity,
+      lc: a.locationCategory ?? null,
+      lh: a.locationText ? fnv1a64Hex(a.locationText.normalize("NFC")) : null,
+      th: fnv1a64Hex(a.title.normalize("NFC")),
+      sc: a.sensitiveCategory ?? null,
+      ch:
+        a.companions && a.companions.length > 0
+          ? fnv1a64Hex(canonicalSerialize([...a.companions].map((c) => c.normalize("NFC")).sort()))
+          : null,
+    }))
+    .sort((x, y) => x.id.localeCompare(y.id));
+  return fnv1a64Hex(canonicalSerialize(projection));
+}
+
+/**
  * snapshotId 計算 (= 設計 §9、 deterministic string key)。
  *
- * 形式: "daygraph:v1:${date}:${sortedAnchorIds}:${startTime}-${endTime}:gap${minGapMinutes}"
+ * 形式（v2・RC2a-6A）: "daygraph:v2:${date}:${sortedAnchorIds}:${startTime}-${endTime}:gap${minGapMinutes}:c${contentRevision}"
+ *   末尾 c<hash> = computeAnchorContentRevision（anchor 内容変化を拾う・raw text は含まない opaque hash）。
  */
 export function computeSnapshotId(input: {
   readonly date: string;
@@ -112,6 +152,7 @@ export function computeSnapshotId(input: {
   readonly startTime: string;
   readonly endTime: string;
   readonly minGapMinutes: number;
+  readonly contentRevision: string;
 }): string {
   const sortedIds = [...input.anchorIds].sort().join(",");
   return [
@@ -121,6 +162,7 @@ export function computeSnapshotId(input: {
     sortedIds,
     `${input.startTime}-${input.endTime}`,
     `gap${input.minGapMinutes}`,
+    `c${input.contentRevision}`,
   ].join(":");
 }
 
@@ -170,6 +212,7 @@ export function buildDayGraph(input: BuildDayGraphInput): BuildDayGraphResult {
       startTime: startNode.startTime,
       endTime: endNode.startTime,
       minGapMinutes,
+      contentRevision: computeAnchorContentRevision([]), // valid event なし → 空 content
     });
     const fallbackGraph: DayGraph = {
       snapshotId: emptySnapshotId,
@@ -213,13 +256,16 @@ export function buildDayGraph(input: BuildDayGraphInput): BuildDayGraphResult {
     eventNodes: events,
   });
 
-  // 10. snapshotId
+  // 10. snapshotId（content-aware — RC2a-6A）。content revision は valid event に対応する anchor のみで計算
+  const validAnchorIds = new Set(events.map((e) => e.anchorId));
+  const validAnchors = input.anchors.filter((a) => validAnchorIds.has(a.id));
   const snapshotId = computeSnapshotId({
     date: input.date,
     anchorIds: events.map((e) => e.anchorId),
     startTime: startNode.startTime,
     endTime: endNode.startTime,
     minGapMinutes,
+    contentRevision: computeAnchorContentRevision(validAnchors),
   });
 
   // 11. graph 構築

@@ -126,16 +126,17 @@ describe("#4 dayGraphSnapshotId が変われば graphBaseId が変わる", () =>
     expect(a.graphBaseId).not.toBe(b.graphBaseId);
   });
 
-  // ── DOCUMENTED LIMITATION（RC2a-6 報告・loud pin）──
-  // dayGraphSnapshotId は anchor 内容（時刻/場所/companions/rigidity）を含まない（lib/plan/dayGraph/buildDayGraph.ts
-  // computeSnapshotId = date + anchorIds + day 境界 + gap のみ）。よって **同一 anchor ID 集合での内容変更は
-  // dayGraphRevision を変えず → graphBaseId/snapshotId も変わらない**。RC2a 識別子チェーン全体が継承する粗さ。
-  // 修正は DayGraph 層（computeSnapshotId の内容完全化）= CEO 判断待ち。この test は現状を pin し、修正時に落として強制更新させる。
-  it("[KNOWN GAP] 同一 ID 集合で anchor 時刻/場所のみ変更 → dayGraphSnapshotId 不変 → graphBaseId 不変（root cause: computeSnapshotId の粗さ）", () => {
+  // ── RC2a-6A で CLOSED（旧 [KNOWN GAP] の tripwire が flip）──
+  // dayGraphSnapshotId は content-aware 化された（computeSnapshotId v2 = anchor 内容 revision を含む）。
+  // よって **同一 anchor ID 集合でも時刻/場所変更で dayGraphRevision → graphBaseId/snapshotId が変わる**。
+  // RC2a identity chain 全体が root 修正を継承（realityCore は無変更で恩恵を受ける）。
+  it("[RC2a-6A CLOSED] 同一 ID 集合で anchor 時刻/場所変更 → dayGraphSnapshotId 変化 → graphBaseId/snapshotId 変化", () => {
     const a = graphFor([anchor({ id: "a1", startTime: "10:00", endTime: "11:00", locationText: "渋谷" })], NOON_UTC);
     const b = graphFor([anchor({ id: "a1", startTime: "13:00", endTime: "14:00", locationText: "新宿" })], NOON_UTC);
-    expect(a.inputRevisionSet.dayGraphRevision).toBe(b.inputRevisionSet.dayGraphRevision); // 粗さ: 内容変更が input revision に乗らない
-    expect(a.graphBaseId).toBe(b.graphBaseId); // → graphBaseId も collide（DayGraph 層の修正で解消すべき）
+    expect(a.inputRevisionSet.dayGraphRevision).not.toBe(b.inputRevisionSet.dayGraphRevision); // 内容変更が input revision に乗る
+    expect(a.graphBaseId).not.toBe(b.graphBaseId); // → graphBaseId も変化（root fix を継承）
+    expect(a.snapshotId).not.toBe(b.snapshotId);
+    expect(a.momentSnapshot.momentSnapshotCacheKey).not.toBe(b.momentSnapshot.momentSnapshotCacheKey); // chain 全体が修正を継承
   });
 });
 

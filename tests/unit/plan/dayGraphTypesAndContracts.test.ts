@@ -163,8 +163,8 @@ describe("DayGraph constants", () => {
     expect(DEFAULT_EVENT_DURATION_MIN).toBe(60);
   });
 
-  it("SNAPSHOT_ID_VERSION = 'v1'", () => {
-    expect(SNAPSHOT_ID_VERSION).toBe("v1");
+  it("SNAPSHOT_ID_VERSION = 'v2'（RC2a-6A content-aware 化）", () => {
+    expect(SNAPSHOT_ID_VERSION).toBe("v2");
   });
 });
 

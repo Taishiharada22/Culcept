@@ -46,8 +46,13 @@ export const DEFAULT_BOUNDARY_END_TIME = "23:00";
 export const DEFAULT_MIN_GAP_MINUTES = 30;
 /** endTime 欠落時の default duration (= v1.1 §22.2) */
 export const DEFAULT_EVENT_DURATION_MIN = 60;
-/** snapshotId algorithm version (= 設計 §9、 cache invalidation 用) */
-export const SNAPSHOT_ID_VERSION = "v1";
+/**
+ * snapshotId algorithm version (= 設計 §9、 cache invalidation 用)。
+ * v2（RC2a-6A）: anchor 内容 revision（時刻/場所/companions/rigidity 等の content hash）を追加。
+ *   v1 は date+anchorID集合+day境界+gap のみで anchor 内容変化を拾えず、RC2a identity chain
+ *   （momentSnapshotCacheKey/graphBaseId/snapshotId）が collide していた根を修正。
+ */
+export const SNAPSHOT_ID_VERSION = "v2";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TimeBucket (= 7 帯)

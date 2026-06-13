@@ -17,7 +17,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildDayGraph,
   computeSnapshotId,
+  computeAnchorContentRevision,
 } from "@/lib/plan/dayGraph/buildDayGraph";
+import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { formatDayGraphAsAscii } from "@/lib/plan/dayGraph/formatDayGraphAsAscii";
 import {
   EMPTY_DAY_ANCHORS,
@@ -217,20 +219,94 @@ describe("snapshotId — deterministic + 形式", () => {
     expect(r1.graph.snapshotId).not.toBe(r2.graph.snapshotId);
   });
 
-  it("snapshotId 形式: 'daygraph:v1:{date}:{ids}:{start}-{end}:gap{min}'", () => {
+  it("snapshotId 形式: 'daygraph:v2:{date}:{ids}:{start}-{end}:gap{min}:c{contentHash}'", () => {
     const { graph } = buildDayGraph({ anchors: SINGLE_DAY_ANCHORS, date: DATE });
-    expect(graph.snapshotId).toMatch(/^daygraph:v1:2026-05-22:single_a:06:00-23:00:gap30$/);
+    expect(graph.snapshotId).toMatch(/^daygraph:v2:2026-05-22:single_a:06:00-23:00:gap30:c[0-9a-f]{16}$/);
   });
 
-  it("crypto 不使用、 deterministic string で十分", () => {
+  it("crypto 不使用、 deterministic string で十分（content revision を末尾に連結）", () => {
     const id = computeSnapshotId({
       date: DATE,
       anchorIds: ["b", "a", "c"],
       startTime: "06:00",
       endTime: "23:00",
       minGapMinutes: 30,
+      contentRevision: "0123456789abcdef",
     });
-    expect(id).toBe("daygraph:v1:2026-05-22:a,b,c:06:00-23:00:gap30");
+    expect(id).toBe("daygraph:v2:2026-05-22:a,b,c:06:00-23:00:gap30:c0123456789abcdef");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RC2a-6A: content-aware snapshotId（identity root fix）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function anc(over: Partial<ExternalAnchor> & { id: string }): ExternalAnchor {
+  return {
+    anchorKind: "one_off",
+    userId: "u1",
+    title: "予定",
+    startTime: "10:00",
+    endTime: "11:00",
+    rigidity: "soft",
+    sourceId: "src",
+    confirmedAt: "2026-05-01T00:00:00.000Z",
+    date: DATE,
+    ...over,
+  } as ExternalAnchor;
+}
+
+function idOf(anchors: ExternalAnchor[]): string {
+  return buildDayGraph({ anchors, date: DATE }).graph.snapshotId;
+}
+
+describe("RC2a-6A content-aware snapshotId — 同一 anchor ID 集合での内容変更を拾う", () => {
+  it("startTime 変更 → snapshotId 変化（v1 では拾えなかった核バグ）", () => {
+    expect(idOf([anc({ id: "a1", startTime: "10:00" })])).not.toBe(idOf([anc({ id: "a1", startTime: "13:00" })]));
+  });
+  it("locationText 変更 → snapshotId 変化", () => {
+    expect(idOf([anc({ id: "a1", locationText: "渋谷" })])).not.toBe(idOf([anc({ id: "a1", locationText: "新宿" })]));
+  });
+  it("rigidity 変更 → snapshotId 変化", () => {
+    expect(idOf([anc({ id: "a1", rigidity: "soft" })])).not.toBe(idOf([anc({ id: "a1", rigidity: "hard" })]));
+  });
+  it("companions 変更 → snapshotId 変化", () => {
+    expect(idOf([anc({ id: "a1", companions: ["A"] })])).not.toBe(idOf([anc({ id: "a1", companions: ["A", "B"] })]));
+  });
+  it("title 変更 → snapshotId 変化", () => {
+    expect(idOf([anc({ id: "a1", title: "飲み会" })])).not.toBe(idOf([anc({ id: "a1", title: "商談" })]));
+  });
+  it("内容完全同一 → snapshotId 一致（決定的）", () => {
+    expect(idOf([anc({ id: "a1", locationText: "渋谷", companions: ["A"] })])).toBe(
+      idOf([anc({ id: "a1", locationText: "渋谷", companions: ["A"] })]),
+    );
+  });
+  it("非 content field（confirmedAt/sourceId/confidence）変更 → snapshotId 不変（過剰 invalidation しない）", () => {
+    const base = idOf([anc({ id: "a1", confirmedAt: "2026-05-01T00:00:00.000Z", sourceId: "src" })]);
+    const other = idOf([anc({ id: "a1", confirmedAt: "2026-05-09T12:34:56.000Z", sourceId: "src-other", confidence: 0.3 })]);
+    expect(base).toBe(other);
+  });
+});
+
+describe("RC2a-6A computeAnchorContentRevision — 決定性 / 順序非依存 / privacy", () => {
+  it("anchor 配列順を変えても revision 一致（id sort で order 非依存）", () => {
+    const a = anc({ id: "a1", locationText: "渋谷" });
+    const b = anc({ id: "b2", locationText: "新宿" });
+    expect(computeAnchorContentRevision([a, b])).toBe(computeAnchorContentRevision([b, a]));
+  });
+  it("companions の順序は revision に影響しない（sort 済み）", () => {
+    expect(computeAnchorContentRevision([anc({ id: "a1", companions: ["A", "B"] })])).toBe(
+      computeAnchorContentRevision([anc({ id: "a1", companions: ["B", "A"] })]),
+    );
+  });
+  it("privacy: raw locationText/title/companions が snapshotId に現れない（hash のみ）", () => {
+    const id = idOf([anc({ id: "a1", title: "極秘商談", locationText: "新宿の病院", companions: ["田中太郎"] })]);
+    expect(id.includes("極秘商談")).toBe(false);
+    expect(id.includes("新宿の病院")).toBe(false);
+    expect(id.includes("田中太郎")).toBe(false);
+  });
+  it("revision は 16 桁 hex（fnv1a64）", () => {
+    expect(computeAnchorContentRevision([anc({ id: "a1" })])).toMatch(/^[0-9a-f]{16}$/);
   });
 });
 
