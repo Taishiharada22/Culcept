@@ -68,6 +68,7 @@ export const EXTRACTION_SURFACES = [
   "session_context", //   CoAlterPlanSession / /plan 選択日 / mode window 由来（注入）★①
   "profile_prior", //     M2 PersonalizationPort 由来（派生 band 値のみ）
   "relation_context", //  Culcept relation 由来（default private / explicit shared 可）★③
+  "after_action", //      T10 after-action learning 由来（旅行後フィードバック→次回 slot・default private）
 ] as const;
 export type ExtractionSurface = (typeof EXTRACTION_SURFACES)[number];
 
@@ -83,6 +84,7 @@ export const SURFACE_INITIAL_STATUS: Record<ExtractionSurface, SlotStatus> = {
   session_context: "normalized",
   profile_prior: "normalized",
   relation_context: "normalized",
+  after_action: "normalized", // 学習デルタ＝上書き可能な default（user confirmed が勝つ）
 };
 
 /** surface が「明示的ユーザー操作」か（confirmed 直行可否の根拠）。 */
@@ -94,6 +96,7 @@ export const SURFACE_IS_EXPLICIT: Record<ExtractionSurface, boolean> = {
   session_context: false,
   profile_prior: false,
   relation_context: false,
+  after_action: false, // 学習由来＝明示操作ではない
 };
 
 /**
@@ -109,6 +112,7 @@ export const SURFACE_DEFAULT_VISIBILITY: Record<ExtractionSurface, Visibility> =
   session_context: "shared", //  セッション window は共有
   profile_prior: "private", //   M2 由来の個人派生値
   relation_context: "private", // ★ 既定 private（explicit shared のみ shared）
+  after_action: "private", //    ★ 既定 private（実 slot は delta.visibility を使用）
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

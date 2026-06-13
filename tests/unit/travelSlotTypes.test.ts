@@ -56,9 +56,10 @@ describe("enum / as-const exhaustiveness", () => {
     }
   });
 
-  it("EXTRACTION_SURFACES は session_context を含む 7 種", () => {
+  it("EXTRACTION_SURFACES は session_context / after_action を含む 8 種", () => {
     expect(EXTRACTION_SURFACES).toContain("session_context");
-    expect(EXTRACTION_SURFACES.length).toBe(7);
+    expect(EXTRACTION_SURFACES).toContain("after_action"); // T10 追加
+    expect(EXTRACTION_SURFACES.length).toBe(8);
   });
 
   it("3 つの surface メタデータ map は全 surface を網羅", () => {
