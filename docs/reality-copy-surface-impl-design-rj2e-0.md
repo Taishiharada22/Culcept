@@ -5,6 +5,7 @@
 - 正本: `docs/reality-judgment-surface-boundary-rj2-0.md`（RJ2-0/RJ2-0A・G5 DELIVERY）。上流 = RJ2d `SurfaceProjectionConsumerViewV0`（consumer-safe・category-free・文面なし）。
 - 規律: **コードを書かない**。本書は設計提出のみ。**RJ2e は user-facing copy ゆえ実装に二重 gate（①技術安全 ②CEO による文面/トーン/世界観承認）が必要**。RJ2e-0 完了時点で勝手に実装に進まない。
 - 範囲: RJ2e は **consumer view → 自然言語文面の生成境界（生成可否・制限・安全則）** の設計のみ。notification/contact（RJ2f）は分離・HOLD。proposal/departure content も HOLD。
+- **RJ2e-0A 改訂（2026-06-14）**: CEO 監査 + 内部敵対批評（rate-limit で workflow 失敗 → 4 レンズを自己適用）を反映。①論理修正: 「入力が安全だから文面も安全」は**言い過ぎ** → 正しくは「**consumer view が安全ゆえ copy 層の入力面は安全。出力文面の安全性は exact template 正本 + walker で保証**」。②**exact template catalog / exact choice label catalog / forbidden lexicon / allowed lexicon を正本化**（§11）。③copyViolations を whitelist 方式に精密化（§11.6）。④`renderCopy` は入力 view を `surfaceProjectionConsumerViewViolations` で**再検証**し違反なら throw（RJ2d を信用しきらない・§11.7）。⑤dynamic interpolation 禁止 + LLM 自由生成禁止。**§11 が exact catalog 正本**（§2/§3/§4 の「相当/例」に優先・ただし最終文言は CEO 承認）。
 
 ---
 
@@ -12,7 +13,9 @@
 
 **RJ2e は「初めてユーザーが読む文章」を作る層。** ここまで RJ2a/b/c/d は全て「構造」だった。RJ2e で初めて自然言語になる。**最も慎重を要する**（誤った文面は誤解・不信・機微漏洩を直接生む）。
 
-**革新的安全則 = 「入力が既に安全」だから文面も安全（CEO ⑦）。** RJ2d が consumer view を **category-free**（sensitive/work/reservation/otherPeople を `needs_verification` に潰し済）・**verdict-free**（feasibility verdict を claimType から排除済）・**opaque subject**（raw id なし）に作った。よって RJ2e の入力（consumer view）には**機微情報も verdict も raw id も最初から存在しない**。文面が漏らしようがない情報は、入力に無い。これが「strip より allowlist」「上流で genericize」の積み上げの到達点 — **copy 層は安全な入力からしか文を作れない**。
+**安全則 = 入力面は安全 / 出力面は template 正本 + walker（CEO ⑦ + RJ2e-0A 修正）。** RJ2d が consumer view を **category-free**（sensitive/work/reservation/otherPeople を `needs_verification` に潰し済）・**verdict-free**（feasibility verdict を claimType から排除済）・**opaque subject**（raw id なし）に作った。よって RJ2e の入力（consumer view）には**機微情報も verdict も raw id も最初から存在しない** = **入力面は安全**。
+
+**ただし「入力が安全だから文面も安全」は言い過ぎ（RJ2e-0A 修正）。** copy 層は入力に無い意味を**テンプレート側が追加できる**（例: 「気にかける点があります」は不安を煽り得る・「重なって見える」は衝突を示唆し得る・「補う」は何を補うか曖昧で憶測を誘発し得る）。よって出力文面の安全性は **exact template 正本（§11・固定句・dynamic interpolation なし）+ copyViolations walker（forbidden lexicon scan・whitelist・backstop）** で保証する。入力安全 ∧ 出力 template 正本 ∧ walker の三層で、user-facing でも漏洩・断定・不安喚起が起きない。
 
 **裁定（前提を疑う）: RJ2e は LLM 自由生成にしない（v0）。** realityCore は pure（LLM 不使用）。RJ2e v0 は **consumer-safe kind → 決定的テンプレート文**（固定句・hedged・neutral）に限定する。自由生成（LLM）は「機微漏洩・verdict 断定・幻覚」のリスクを copy 層に持ち込む。v0 = テンプレート、将来の LLM 文面化は別 slice + CEO 承認 + 専用 red-team。
 
@@ -104,7 +107,7 @@ function renderCopy(view: SurfaceProjectionConsumerViewV0): RenderedCopyV0
 - choiceLabels は **generic**（機微・選択肢内容を漏らさない・§4.4）。
 - raw ref/id/opaque subject を文面に出さない（subjectRef は文面化しない・§4.5）。
 
-### 3.3 kind → テンプレート写像（v0・neutral baseline・voice は CEO track）
+### 3.3 kind → テンプレート写像（**exact catalog は §11 が正本**・下表は方針）
 
 | consumer kind | テンプレート方針（例・最終文面は CEO 承認） | tone |
 |---|---|---|
@@ -134,9 +137,9 @@ function renderCopy(view: SurfaceProjectionConsumerViewV0): RenderedCopyV0
 
 - 二重保証: ①入力（consumer view）に category 情報が**無い**（RJ2d で `needs_verification` に潰し済）、②テンプレートが category 語（予約/支払/仕事/シフト/他者/機微/sensitive 等）を**含まない**。walker が category 語を検出して FAIL。
 
-### 4.4 choice label 生成可否
+### 4.4 choice label 生成可否（**exact catalog は §11.3 が正本**）
 
-- **裁定: generic label のみ可**。`needs_verification`/`needs_confirmation` → 「はい / いいえ」相当（gate 種別を出さない）。`resolve_overlap` → 「同じ予定 / 別の予定」相当（**duplicate 断定でない**両義 label）。`resolve_missing_info` → 「補う / そのまま」相当。**選択肢に subject 名・時刻・場所・gate 種別を差し込まない**。walker が label に raw/category/時刻語を検出して FAIL。
+- **裁定: generic label のみ可**（exact は §11.3）。`resolve_overlap` は **「候補A/候補B」も不可**（2 つの別予定を presuppose = 衝突断定）→ `["あとで確認", "まだ決めない"]` の最小 defer のみ（RJ1b・両義保持）。`resolve_missing_info` は「補う」を削除（曖昧）→ `["あとで確認", "そのまま"]`。**選択肢に subject 名・時刻・場所・gate 種別を差し込まない**。walker が label whitelist + raw/category/時刻語を検出して FAIL。
 
 ### 4.5 raw ref / id / opaque subject を文面化しない
 
@@ -202,9 +205,12 @@ function renderCopy(view: SurfaceProjectionConsumerViewV0): RenderedCopyV0
 5. **全 fixture PASS**。full suite baseline FAIL 2 のみ（realityCore 外）。next build PASS。
 6. **不接触確認**: UI/storage/API/DB/location/notification/external read 不接触。tree clean。production gate 未通過。
 
-**ビジネス gate（CEO 専管）**:
-7. **CEO による文面/トーン/世界観の承認**（user-facing copy はブランド事項）。
-8. **HOLD 維持**: LLM 自由生成 / RJ2f（notification）に進まない。
+**ビジネス gate（CEO 専管・§11.10）**:
+7. **CEO による exact template catalog（§11.1/§11.2）承認**。
+8. **CEO による exact choice label catalog（§11.3）承認**。
+9. **CEO による tone / 世界観（Alter 人格整合）承認**。
+10. **RJ2f notification とは別 gate**（copy 承認 ≠ 配信承認）。
+11. **HOLD 維持**: LLM 自由生成 / RJ2f（notification）に進まない。
 
 > **重要**: RJ2e-0 完了時点で**勝手に実装に進まない**。RJ2e は user-facing ゆえ CEO の**二重 gate**承認を待つ。
 
@@ -227,5 +233,91 @@ function renderCopy(view: SurfaceProjectionConsumerViewV0): RenderedCopyV0
 
 - **判定: RJ2e は技術設計 ready（ただし実装は CEO 二重 gate 待ち）**。対象ファイル（新規 1 + test 1・RJ2a/b/c/d 不接触）・型（RenderedCopyV0/RenderedClaimCopy/RenderedQuestionCopy/CopyTone）・renderCopy 入出力契約（consumer view のみ + 決定的テンプレート）・安全則（verdict/時刻/category/raw/choice label）・walker（11）・fixtures（13）・HOLD・GO 二重 gate が確定。
 - **RJ2e 実装 GO は CEO 専管かつ二重 gate**: ①技術安全 ②文面/トーン/世界観承認。本書は①の envelope を確定するが②は CEO/Growth track。
-- 革新点（CEO ⑦）: **「入力が既に安全」だから文面も安全** — RJ2d の category-free/verdict-free/opaque consumer view を入力に固定することで、copy 層は機微・verdict・raw を**構造的に持てない**。これに decode テンプレート固定 + walker + backstop を重ね、user-facing でも漏洩・断定が起きない。
+- 革新点（CEO ⑦・RJ2e-0A 修正後）: **入力面は安全 ∧ 出力面は exact template 正本 + walker** — RJ2d の category-free/verdict-free/opaque consumer view（入力に機微・verdict・raw が無い）に、固定句 catalog（dynamic interpolation なし）+ forbidden lexicon walker + serialization backstop を重ねる三層で、user-facing でも漏洩・断定・不安喚起が起きない。
+- code 変更ゼロ・UI/storage/API/DB/location/notification/external read 不接触・tree clean・production gate 未通過。
+
+---
+
+## 11. RJ2e-0A — Exact Template Catalog / Lexical Safety（正本・§2/§3/§4 に優先・最終文言は CEO 承認）
+
+> **批評経緯**: 4 レンズ（anxiety-tone / verdict-delay / duplicate-ambiguity / category-hallucination）の敵対批評 workflow を試行したが server rate-limit で失敗。4 レンズを**自己適用**して候補を補正した。これらは **CEO 文面承認 gate**（§11.10）を通るまで暫定。
+
+### 11.1 exact claim template catalog（claim copy・hedged/neutral・断定なし）
+
+| consumer kind | **exact string** | tone | 補正理由（lens） |
+|---|---|---|---|
+| `observation` | `ひとつ、メモしておきます。` | neutral | 「気づいた」=監視的印象を回避（anxiety） |
+| `status_note` | `ひとつ、心に留めておくとよさそうです。` | hedged | 「気にかける/見直すとよさそう」=不安・崩れ示唆を回避（anxiety/verdict） |
+| `info_incomplete` | `まだ確定していない点がいくつかあります。` | hedged | 中立・事実のみ |
+| `needs_confirmation` | `確認しておきたいことがあります。` | hedged | 押しつけない（too_strong 回避） |
+
+### 11.2 exact question template catalog（question copy・確認の問い・断定なし）
+
+| consumer kind | **exact string** | tone | 補正理由 |
+|---|---|---|---|
+| `needs_verification` | `確認したいことがあります。` | hedged | 「確認してよいですか」=強すぎを回避（too_strong） |
+| `resolve_overlap` | `重なって見える予定があります。` | hedged | 「見える」で**衝突も重複も断定しない**（RJ1b・両義保持）。「同じ/別の予定です」断定は不可（duplicate） |
+| `resolve_missing_info` | `伺いたいことがあるかもしれません。` | hedged | 「補える情報」=何を補うか曖昧・憶測誘発を回避（ambiguity/hallucination） |
+
+### 11.3 exact choice label catalog（generic・subject/time/place/category/relation 差し込み禁止）
+
+| consumer kind | **exact labels** | 補正理由 |
+|---|---|---|
+| `needs_verification` | `["はい", "いいえ", "あとで"]` | generic 二択 + defer |
+| `resolve_overlap` | `["あとで確認", "まだ決めない"]` | **候補A/B は「2 つの別予定」を presuppose（衝突断定）→ 不可**。duplicate/collision を一切 presuppose しない最小 defer のみ（RJ1b）。subject 名なしでの細かい disambiguation は将来の CEO 承認 safe label 拡張（v0 は安全 > actionable） |
+| `resolve_missing_info` | `["あとで確認", "そのまま"]` | 「補う」削除（ambiguity）。中立 defer のみ |
+
+### 11.4 forbidden lexicon（copyViolations が検出・分類）
+
+| 分類 | 禁止語（部分一致・例示・実装で確定） |
+|---|---|
+| **verdict** | 成立, 不成立, 間に合, 遅刻, 遅れ, 崩れ, 失敗, 破綻, 無理, できない, infeasible |
+| **delay/departure/route** | 出発, 何時, 時刻, 〜時, 〜分, 分後, ルート, 経路, 道順, 到着, eta, leaveby |
+| **sensitive/work/reservation/otherPeople** | 予約, 支払, 決済, 仕事, シフト, 勤務, 出勤, 同僚, 上司, 相手, 他人, 機微, sensitive, reservation, payment, work, shift |
+| **probability/percent/score** | %, ％, 確率, パーセント, スコア, 可能性が高い, 可能性が低い |
+| **action/write/send/book/pay** | 削除, 移動する, 送信, 送る, 予約する, 支払う, 実行, 自動 |
+| **raw id token** | `ern:`, `cl:`, `q:`, `sp:`, `pj:`, `subject_`, `relation_`, snapshot |
+| **hallucination 誘発** | （lexicon でなく **dynamic interpolation 禁止 + exact whitelist** で構造的に防ぐ・§11.6/§11.8） |
+
+> **誤検知防止**: forbidden scan は exact template catalog（§11.1-3）に対して**誤発火しない**ことを test で保証（catalog の語が forbidden に該当しないこと）。例: 「確認」「予定」「点」「いくつか」は allowed（§11.5）。
+
+### 11.5 allowed lexicon（テンプレートが使ってよい語・最終は CEO 承認）
+
+確認 / 未確定 / 確定していない / いくつか / ひとつ / 点 / こと / 予定 / 情報 / メモ / 心に留める / あとで / そのまま / まだ / 伺う / 重なって見える / よさそう / かもしれません / はい / いいえ / 決めない。
+
+### 11.6 copyViolations 設計の精密化（whitelist 方式）
+
+1. **exact template whitelist**: 各 claim/question の `text` が §11.1/§11.2 の exact string 集合に**完全一致**（whitelist 外で FAIL = dynamic 生成検出）。
+2. **choice label whitelist**: 各 `choiceLabels` が §11.3 の exact label 集合に完全一致。
+3. **forbidden lexicon scan**: text/choiceLabels に §11.4 の禁止語が部分一致したら FAIL。
+4. **serialization backstop**: `JSON.stringify(copy)` に raw id token（`ern:`/`cl:`/`q:`/`sp:`/`pj:`/`subject_`/`relation_`）が出ない。
+5. **tone whitelist**: tone ∈ {neutral, hedged}（assertion tone 不可）。
+6. **display 整合**: display suppress → claimCopies/questionCopies []。
+7. **kind 整合**: claim/question kind が consumer-safe enum 内。
+
+### 11.7 view precheck（RJ2d を信用しきらない・CEO #4）
+
+`renderCopy(view)` は冒頭で **`surfaceProjectionConsumerViewViolations(view)` を実行**し、非空なら **throw**（unsafe view から copy を生成しない）。RJ2d が正しい前提に寄りすぎず、copy 層で入力 view を再検証する。
+
+### 11.8 dynamic interpolation 禁止 / LLM 自由生成禁止
+
+- **dynamic interpolation 禁止**: text/choiceLabels は **exact catalog からの定数参照のみ**（テンプレートリテラル `` `...${view値}...` ``・文字列連結で view 値を差し込まない）。kind → 固定 string の lookup table のみ。
+- **LLM 自由生成禁止**: pure（fetch/LLM なし）。source-scan で担保。
+
+### 11.9 framing 修正（CEO #1）
+
+「入力が安全だから文面も安全」は撤回。正本: **consumer view が安全ゆえ入力面は安全。出力文面の安全性は exact template 正本（§11.1-3）+ copyViolations walker（§11.6）+ view precheck（§11.7）で保証**。
+
+### 11.10 CEO 文面承認 gate（実装 GO 条件に追加）
+
+RJ2e 実装 GO は技術 gate（§8）に加え、以下の **CEO 文面承認**を必須にする:
+- exact template catalog（§11.1/§11.2）の CEO 承認
+- exact choice label catalog（§11.3）の CEO 承認
+- tone / 世界観（Alter 人格との整合）の CEO 承認
+- **RJ2f notification とは別 gate**（copy 承認 ≠ 配信承認）
+
+### 11.11 RJ2e 実装 GO 可否の自己判定
+
+- **判定: RJ2e は技術設計 ready（exact catalog 正本化済・補正後）**。ただし実装 GO は **CEO 二重 gate（技術 + 文面承認）**待ち。exact catalog（§11.1-3）は自己批評で補正したが **CEO 文面承認が必須**（暫定）。
+- copyViolations を whitelist 方式（exact template/choice label/forbidden lexicon/backstop/view precheck/dynamic interpolation 禁止）に精密化。
 - code 変更ゼロ・UI/storage/API/DB/location/notification/external read 不接触・tree clean・production gate 未通過。
