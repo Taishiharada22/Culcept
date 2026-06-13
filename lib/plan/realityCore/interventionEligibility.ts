@@ -17,6 +17,16 @@
  *   - memory/correction で confirmation requirement を消さない（v0 は memory 未入力 = 構造的に消せない）
  *   - display_only でも **redaction / evidence visibility gate** を通す
  *
+ * 意味論の固定（RC2c-1A）:
+ *   - **eligibilityLevel=allowed は action permission ではない**。**actionBoundary=draft_only は将来の最大境界**であり
+ *     RC2c-1 は draft も提案文も生成しない（no proposal / user-facing copy / message draft / schedule draft）。
+ *     write_anchor / send_message / book_pay / external_communication は常に不可。draft_only を UI/実行層へ直結しない。
+ *   - **sensitiveFlagged=false は「未検出 / 未確認」であって confirmed safe ではない**（false を allowed の根拠にしない）。
+ *   - **unknown 系 gate（otherPeople/reservation/work が unknown or missing）を false 扱いしない**。不在を確認できない
+ *     限り gate engaged（*_unverified reason → requires_confirmation）。allowed は全 gate confirmed-absent の時のみ。
+ *   - **display permission と action permission を分ける**。display_only は「全部表示してよい」ではなく per-viewer
+ *     redaction / evidence visibility gate を要する。evidenceRefs は **field 識別子のみ**で raw content を含まない。
+ *
  * 規律（CEO）: no action / proposal / 3案 / 出発線 / intervention ladder / notification / user-facing copy /
  *   automatic schedule change / send message / booking・payment / external communication / DB write / API / localStorage /
  *   location / LLM 推定。v0 で write_anchor / send_message / book_pay / external_communication は actionBoundary 天井に
@@ -28,6 +38,7 @@ import type { RealityGraphSnapshotV0 } from "./realityGraphSnapshot";
 import type { EventRealityNodeV0 } from "./eventRealityNode";
 import type { CommitmentSignalV0 } from "./commitmentSignal";
 import type { MissingInputRef } from "./momentSnapshot";
+import type { RealityAttribute } from "./realityAttribute";
 import type { RealityInstant } from "./realityInstant";
 import { fnv1a64Hex, canonicalSerialize } from "./graphIdentity";
 import type { FeasibilityJudgmentV0, FeasibilityReason, JudgmentConfidence } from "./feasibilityJudgment";
@@ -151,41 +162,52 @@ export function evaluateInterventionEligibility(input: EvaluateInterventionEligi
   const confirmationReasons: FeasibilityReason[] = [];
   const blockedReasons: FeasibilityReason[] = [];
   const usedRefs = new Set<string>();
-  let otherPeople = false;
-  let reservation = false;
-  let work = false;
-  let sensitive = false;
+  let otherPeoplePresent = false;
+  let otherPeopleUnverified = false;
+  let reservationPresent = false;
+  let reservationUnverified = false;
+  let workPresent = false;
+  let workUnverified = false;
+  let sensitiveFlagged = false;
   let permissionUnknown = false;
   let permissionBlocked = false;
+
+  // gate は **confirmed-absent（status≠unknown ∧ value===false）の時のみ clear**。unknown/missing は不在を
+  // 確認できない = default-deny で engaged（RC2c-1A #4: unknown gate を false 扱いして allowed に倒さない）。
+  const gateState = (attr: RealityAttribute<boolean> | undefined): "present" | "absent" | "unverified" => {
+    if (!attr) return "unverified";
+    if (attr.value === true) return "present";
+    if (attr.status !== "unknown" && attr.value === false) return "absent";
+    return "unverified";
+  };
+
   for (const ern of targetErns) {
     const id = ern.eventRealityNodeId;
     const cs = csByTarget.get(id);
     usedRefs.add(id);
     usedRefs.add(`${id}#permissionLevel`);
-    usedRefs.add(`${id}#sensitive`);
-    if (cs?.otherPeoplePossible.value === true) {
-      otherPeople = true;
-      confirmationReasons.push(reason("other_people_involved", id, [`${cs.commitmentSignalId}#otherPeoplePossible`, ...cs.otherPeoplePossible.evidenceRefs]));
-    }
-    if (cs?.reservationOrPaymentPossible.value === true) {
-      reservation = true;
-      confirmationReasons.push(reason("reservation_or_payment", id, [`${cs.commitmentSignalId}#reservationOrPaymentPossible`, ...cs.reservationOrPaymentPossible.evidenceRefs]));
-    }
-    if (cs?.workOrShiftPossible.value === true) {
-      work = true;
-      confirmationReasons.push(reason("work_or_shift", id, [`${cs.commitmentSignalId}#workOrShiftPossible`, ...cs.workOrShiftPossible.evidenceRefs]));
-    }
-    if (ern.sensitive) {
-      sensitive = true;
-      confirmationReasons.push(reason("sensitive_content", id, [`${id}#sensitive`])); // raw は載せない（boolean のみ）
-    }
-    if (ern.permissionLevel.status === "unknown") {
-      permissionUnknown = true;
-      blockedReasons.push(reason("permission_unknown", id, [`${id}#permissionLevel`, ...ern.permissionLevel.evidenceRefs]));
-    } else if ((ern.permissionLevel.value ?? 0) <= 0) {
-      permissionBlocked = true;
-      blockedReasons.push(reason("permission_blocked", id, [`${id}#permissionLevel`, ...ern.permissionLevel.evidenceRefs]));
-    }
+    usedRefs.add(`${id}#sensitiveFlagged`);
+
+    const opRef = cs ? `${cs.commitmentSignalId}#otherPeoplePossible` : `${id}#otherPeoplePossible`;
+    const op = gateState(cs?.otherPeoplePossible);
+    if (op === "present") { otherPeoplePresent = true; confirmationReasons.push(reason("other_people_involved", id, [opRef, ...(cs?.otherPeoplePossible.evidenceRefs ?? [])])); }
+    else if (op === "unverified") { otherPeopleUnverified = true; confirmationReasons.push(reason("other_people_unverified", id, [opRef, "absence_not_confirmed"])); }
+
+    const rsRef = cs ? `${cs.commitmentSignalId}#reservationOrPaymentPossible` : `${id}#reservationOrPaymentPossible`;
+    const rs = gateState(cs?.reservationOrPaymentPossible);
+    if (rs === "present") { reservationPresent = true; confirmationReasons.push(reason("reservation_or_payment", id, [rsRef, ...(cs?.reservationOrPaymentPossible.evidenceRefs ?? [])])); }
+    else if (rs === "unverified") { reservationUnverified = true; confirmationReasons.push(reason("reservation_or_payment_unverified", id, [rsRef, "absence_not_confirmed"])); }
+
+    const wkRef = cs ? `${cs.commitmentSignalId}#workOrShiftPossible` : `${id}#workOrShiftPossible`;
+    const wk = gateState(cs?.workOrShiftPossible);
+    if (wk === "present") { workPresent = true; confirmationReasons.push(reason("work_or_shift", id, [wkRef, ...(cs?.workOrShiftPossible.evidenceRefs ?? [])])); }
+    else if (wk === "unverified") { workUnverified = true; confirmationReasons.push(reason("work_or_shift_unverified", id, [wkRef, "absence_not_confirmed"])); }
+
+    // sensitive flag: true → 強 gate。**false は未検出（neutral）= confirmed safe にしない**（reason を出さない・permission を緩める根拠にしない）。
+    if (ern.sensitiveFlagged) { sensitiveFlagged = true; confirmationReasons.push(reason("sensitive_flagged", id, [`${id}#sensitiveFlagged`, "sensitive_derived_material"])); }
+
+    if (ern.permissionLevel.status === "unknown") { permissionUnknown = true; blockedReasons.push(reason("permission_unknown", id, [`${id}#permissionLevel`, ...ern.permissionLevel.evidenceRefs])); }
+    else if ((ern.permissionLevel.value ?? 0) <= 0) { permissionBlocked = true; blockedReasons.push(reason("permission_blocked", id, [`${id}#permissionLevel`, ...ern.permissionLevel.evidenceRefs])); }
   }
 
   // ── scope-level の reality signal（行動許可の材料であって許可ではない）──
@@ -193,9 +215,10 @@ export function evaluateInterventionEligibility(input: EvaluateInterventionEligi
   const realityUnknown = fj.unresolvedCriticalInputs.length > 0;
   const collapseHigh = crp.riskLevel === "high";
   const feasInfeasible = fj.feasibilityStatus === "infeasible";
-  const externalImplied = otherPeople || reservation;
+  const externalImplied = otherPeoplePresent || reservationPresent; // confirmed present のみ（unverified では external 断定しない）
   const sourcePending = fj.judgmentTrace.sourcesRevisionPending || fj.judgmentTrace.sourceRecordRevisionPending;
-  const strongGate = otherPeople || reservation || work || sensitive;
+  const strongGatePresent = otherPeoplePresent || reservationPresent || workPresent || sensitiveFlagged;
+  const gateUnverified = otherPeopleUnverified || reservationUnverified || workUnverified; // 不在を確認できない = allowed にしない
 
   if (hasAmbiguity) confirmationReasons.push(reason("exact_time_collision_ambiguous", targetNodeId, ["collapse:exact_time_collision_ambiguous"]));
   if (realityUnknown) confirmationReasons.push(reason("reality_unresolved", targetNodeId, fj.unresolvedCriticalInputs.flatMap((r) => r.evidenceRefs).slice(0, 8)));
@@ -207,21 +230,23 @@ export function evaluateInterventionEligibility(input: EvaluateInterventionEligi
   let eligibilityLevel: EligibilityLevel;
   if (permissionBlocked) eligibilityLevel = "blocked";
   else if (permissionUnknown) eligibilityLevel = "unknown"; // unknown → allowed にしない
-  else if (strongGate || hasAmbiguity || realityUnknown || collapseHigh || feasInfeasible || externalImplied) eligibilityLevel = "requires_confirmation";
-  else eligibilityLevel = "allowed";
+  else if (strongGatePresent || gateUnverified || hasAmbiguity || realityUnknown || collapseHigh || feasInfeasible || externalImplied) eligibilityLevel = "requires_confirmation";
+  else eligibilityLevel = "allowed"; // 全 gate confirmed-absent ∧ permission ok ∧ clear のみ
 
-  // ── actionBoundary（v0 天井 = ask_confirmation。write_anchor 以上は天井にしない）──
+  // ── actionBoundary（v0 天井 = ask_confirmation。write_anchor 以上は天井にしない・draft_only も生成しない）──
   const actionBoundary: ActionBoundary =
     eligibilityLevel === "blocked" ? "blocked" : eligibilityLevel === "unknown" ? "display_only" : eligibilityLevel === "requires_confirmation" ? "ask_confirmation" : "draft_only";
 
-  // ── canSuggest（change 系は ambiguity / blocked / unknown で停止・safe shape は広く許す）──
+  // ── canSuggest（change 系は ambiguity / blocked / unknown / 未確認 gate で停止・safe shape は広く許す）──
+  const reservationGated = reservationPresent || reservationUnverified;
+  const workGated = workPresent || workUnverified;
   const noChange = eligibilityLevel === "blocked" || eligibilityLevel === "unknown" || hasAmbiguity;
   const canSuggestObserve = true; // observe は常に安全（行動しない）
-  const canSuggestAskClarification = hasAmbiguity || realityUnknown || strongGate; // 不確実/gate 時に聞く
+  const canSuggestAskClarification = hasAmbiguity || realityUnknown || strongGatePresent || gateUnverified; // 不確実/gate 時に聞く
   const canSuggestPrepare = eligibilityLevel !== "blocked" && eligibilityLevel !== "unknown"; // prepare は schedule を変えない
   const canSuggestMove = !noChange;
   const canSuggestShorten = !noChange;
-  const canSuggestSkip = !noChange && !reservation && !work; // 予約/勤務の skip は高 consequence → 不可
+  const canSuggestSkip = !noChange && !reservationGated && !workGated; // 予約/勤務（present or 未確認）の skip は高 consequence → 不可
   const canSuggestDelegate = false; // v0: 他人への委譲 = 強 gate（外部）
 
   const requiresConfirmation = eligibilityLevel === "requires_confirmation";
@@ -301,9 +326,19 @@ export function interventionEligibilityViolations(e: InterventionEligibilityV0):
   }
   // allowed は強 gate / blockedReasons を持たない
   if (e.eligibilityLevel === "allowed" && e.blockedReasons.length > 0) out.push("eligibility: allowed なのに blockedReasons がある");
-  // strong gate（otherPeople/reservation/work/sensitive）は allowed にしない
-  const hasStrongGate = e.confirmationReasons.some((r) => ["other_people_involved", "reservation_or_payment", "work_or_shift", "sensitive_content"].includes(r.code));
-  if (hasStrongGate && e.eligibilityLevel === "allowed") out.push("eligibility: 強 gate があるのに allowed");
+  // gate（present or **unverified**）があれば allowed にしない（unknown gate を false 扱いして allowed に倒さない）
+  const gateReasonCodes = new Set([
+    "other_people_involved",
+    "other_people_unverified",
+    "reservation_or_payment",
+    "reservation_or_payment_unverified",
+    "work_or_shift",
+    "work_or_shift_unverified",
+    "sensitive_flagged",
+  ]);
+  if (e.eligibilityLevel === "allowed" && e.confirmationReasons.some((r) => gateReasonCodes.has(r.code))) {
+    out.push("eligibility: gate(present/unverified) があるのに allowed（unknown gate を false 扱いの疑い）");
+  }
   // ambiguity は自動 move/skip しない
   if (e.confirmationReasons.some((r) => r.code === "exact_time_collision_ambiguous") && (e.canSuggestMove || e.canSuggestSkip)) {
     out.push("eligibility: exact_time_collision_ambiguous なのに move/skip 提案可");

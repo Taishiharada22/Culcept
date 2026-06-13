@@ -205,7 +205,7 @@ function compileOne(
       durationSource: node.durationSource, // RJ1a-A: explicit/assumed_default を判断器へ伝える
     },
     verb: node.verb,
-    sensitive: node.sensitive, // RC2c-1: sensitive 強 gate 用（boolean のみ・redaction は displayLabel 側）
+    sensitiveFlagged: node.sensitive, // RC2c-1A: sensitive flag（boolean・true=flagged 強 gate / false=未検出≠確認済み安全）
     fixedness,
     placeCertainty,
     movementRequired,

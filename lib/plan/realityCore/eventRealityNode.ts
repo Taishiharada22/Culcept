@@ -86,10 +86,13 @@ export interface EventRealityNodeV0 {
   };
   readonly verb: AnchorVerb;
   /**
-   * sensitive flag（= anchor.sensitiveCategory != null）。**boolean のみ**（category/raw は載せない・displayLabel は
-   * redact 済み）。RC2c-1 の sensitive 強 gate 用（intervention eligibility が確認必須に倒す）。
+   * sensitive **flag**（= anchor.sensitiveCategory != null）。**boolean のみ**（category/raw は載せない・displayLabel は
+   * redact 済み）。RC2c-1 の sensitive 強 gate 用。
+   * **意味論（RC2c-1A）**: true = sensitive flagged（強 gate）。**false は「flag なし / 未検出 / 未確認」であって
+   * 「非 sensitive 確認済み（confirmed safe）」ではない**。false を理由に permission を緩めない。flag 自体も
+   * sensitive-derived material として扱い、user-facing/debug/shared/per-viewer では redaction gate を通す。
    */
-  readonly sensitive: boolean;
+  readonly sensitiveFlagged: boolean;
 
   // ── reality 属性（全て RealityAttribute — 裸の値・数値を禁止） ──
   readonly fixedness: RealityAttribute<FixednessValue>;

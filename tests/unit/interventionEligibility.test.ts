@@ -69,6 +69,9 @@ const placeConfirmed = () => inferredAttribute(0.9, 0.9, ["test_place"], { statu
 const movementNotRequired = () => inferredAttribute(false, 0.9, ["test_no_mv"], { status: "confirmed", displayPolicy: "visible" });
 const permLevel = (n: number) => inferredAttribute(n, 0.7, ["test_perm"], { status: "inferred" }) as EventRealityNodeV0["permissionLevel"];
 const boolTrue = () => inferredAttribute(true, 0.7, ["test_gate"], { status: "inferred", displayPolicy: "visible" });
+const boolFalse = () => inferredAttribute(false, 0.7, ["test_absent"], { status: "inferred", displayPolicy: "visible" });
+/** gate を confirmed-absent に倒す（allowed 到達に必要・unknown では allowed にならない） */
+const gatesAbsent = () => ({ otherPeoplePossible: boolFalse(), reservationOrPaymentPossible: boolFalse(), workOrShiftPossible: boolFalse() });
 /** permission ≥1 + 場所/移動解決済み（gate を isolate するための clean event） */
 const CLEAR_PERM = { placeCertainty: placeConfirmed(), movementRequired: movementNotRequired(), permissionLevel: permLevel(2) };
 function confirmHardFixedness(b: ReturnType<typeof base>, ernId: string): Partial<EventRealityNodeV0> {
@@ -177,9 +180,10 @@ describe("RC2c-1 #8 sourceRevisionPending は confidence を下げるが permiss
   it("clean allowed event でも sourcePending → confidence high にしない・permission は緩まない", () => {
     const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), {
       ernOverrides: { [ERN("a1")]: CLEAR_PERM },
+      csOverrides: { [ERN("a1")]: gatesAbsent() }, // gate confirmed-absent でないと allowed にならない
     });
     const e = eligibilityFor(s, EV("a1"));
-    expect(e.eligibilityLevel).toBe("allowed"); // gate なし・permission ok・clear
+    expect(e.eligibilityLevel).toBe("allowed"); // gate confirmed-absent・permission ok・clear
     expect(e.confidence).not.toBe("high"); // sourceRevisionPending → high にしない
     expect(e.confidence).toBe("moderate");
     expect(e.actionBoundary).toBe("draft_only"); // allowed でも v0 は auto-write しない
@@ -193,7 +197,7 @@ describe("RC2c-1 #9 display_only にも redaction / evidence visibility gate", (
     });
     const e = eligibilityFor(s, EV("a1"));
     expect(e.displayRedactionRequired).toBe(true);
-    expect(e.confirmationReasons.map((r) => r.code)).toContain("sensitive_content");
+    expect(e.confirmationReasons.map((r) => r.code)).toContain("sensitive_flagged");
     expect(e.eligibilityLevel).toBe("requires_confirmation"); // sensitive 強 gate
     // raw 機微語が eligibility に現れない（boolean のみ）
     expect(JSON.stringify(e).includes("medical")).toBe(false);
@@ -240,12 +244,77 @@ describe("RC2c-1 整合性 guard + allowed shape", () => {
     const propB = evaluateCollapsePropagation({ graphSnapshot: sb, feasibilityJudgment: fjB, collapseRiskProfile: crpB });
     expect(() => evaluateInterventionEligibility({ graphSnapshot: sa, feasibilityJudgment: fjA, collapseRiskProfile: crpA, collapsePropagationMap: propB, targetScope: EV("a1") })).toThrow();
   });
-  it("clean allowed event は observe/prepare 可・change 系も可（confirmation 経由）", () => {
-    const e = eligibilityFor(snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM } }), EV("a1"));
+  it("clean allowed event（gate confirmed-absent）は observe/prepare 可・delegate 不可", () => {
+    const e = eligibilityFor(snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM }, csOverrides: { [ERN("a1")]: gatesAbsent() } }), EV("a1"));
     expect(e.eligibilityLevel).toBe("allowed");
     expect(e.canSuggestObserve).toBe(true);
     expect(e.canSuggestPrepare).toBe(true);
     expect(e.canSuggestDelegate).toBe(false); // v0
     expect(interventionEligibilityViolations(e)).toEqual([]);
+  });
+});
+
+describe("RC2c-1A sensitive / allowed-boundary / unknown-gate closeout", () => {
+  it("#1/#4 sensitiveFlagged true → requires_confirmation 以上 + sensitive_flagged reason(field-level trace)", () => {
+    const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷", sensitiveCategory: "medical" } as Partial<ExternalAnchor> & { id: string; startTime: string })]), {
+      ernOverrides: { [ERN("a1")]: CLEAR_PERM },
+      csOverrides: { [ERN("a1")]: gatesAbsent() }, // 他 gate を消して sensitive を isolate
+    });
+    const e = eligibilityFor(s, EV("a1"));
+    expect(["requires_confirmation", "blocked"]).toContain(e.eligibilityLevel);
+    const r = e.confirmationReasons.find((x) => x.code === "sensitive_flagged");
+    expect(r).toBeTruthy();
+    expect(r!.targetNodeId).toBe(ERN("a1"));
+    expect(r!.evidenceRefs).toContain(`${ERN("a1")}#sensitiveFlagged`);
+  });
+
+  it("#2/#3 sensitiveFlagged false は confirmed safe でない: false 単独で allowed にしない・gate reason を出さない", () => {
+    // sensitiveFlagged false(default) + gates unknown(override なし) + permission ok
+    const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM } });
+    const e = eligibilityFor(s, EV("a1"));
+    expect(e.eligibilityLevel).not.toBe("allowed"); // sensitive false を allowed の根拠にしない
+    expect(e.confirmationReasons.some((r) => r.code === "sensitive_flagged")).toBe(false); // false は neutral（gate reason 出さない）
+  });
+
+  it("#7 unknown gate(otherPeople/reservation/work)を false 扱いしない → *_unverified + requires_confirmation", () => {
+    const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM } });
+    const e = eligibilityFor(s, EV("a1"));
+    expect(e.eligibilityLevel).toBe("requires_confirmation");
+    const codes = e.confirmationReasons.map((r) => r.code);
+    expect(codes).toContain("other_people_unverified");
+    expect(codes).toContain("reservation_or_payment_unverified");
+    expect(codes).toContain("work_or_shift_unverified");
+    expect(interventionEligibilityViolations(e)).toEqual([]); // gate unverified で allowed にしていない
+  });
+
+  it("#5/#6 allowed/draft_only は action permission でない・draft も提案も生成しない", () => {
+    const e = eligibilityFor(snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM }, csOverrides: { [ERN("a1")]: gatesAbsent() } }), EV("a1"));
+    expect(e.eligibilityLevel).toBe("allowed");
+    expect(e.actionBoundary).toBe("draft_only"); // 将来の最大境界・draft 生成ではない
+    for (const k of ["proposal", "draft", "userMessage", "messageDraft", "scheduleDraft", "copy", "execute", "applied"]) expect(k in e).toBe(false);
+  });
+
+  it("#10 write_anchor/send_message/book_pay/external_communication は v0 で天井にしない（unknown/requires_confirmation/allowed 全 case）", () => {
+    const cases = [
+      snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00" })]), { ernOverrides: { [ERN("a1")]: { permissionLevel: unknownAttribute() } } }), // unknown
+      snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM } }), // requires_confirmation
+      snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" })]), { ernOverrides: { [ERN("a1")]: CLEAR_PERM }, csOverrides: { [ERN("a1")]: gatesAbsent() } }), // allowed
+    ];
+    for (const s of cases) {
+      const e = eligibilityFor(s, EV("a1"));
+      expect(["write_anchor", "send_message", "book_pay", "external_communication"]).not.toContain(e.actionBoundary);
+      expect(interventionEligibilityViolations(e)).toEqual([]);
+    }
+  });
+
+  it("#9 display_only(unknown permission)→ displayRedactionRequired + raw content 不出(evidenceRefs は識別子)", () => {
+    const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷の病院", sensitiveCategory: "medical" } as Partial<ExternalAnchor> & { id: string; startTime: string })]), {
+      ernOverrides: { [ERN("a1")]: { placeCertainty: placeConfirmed(), movementRequired: movementNotRequired(), permissionLevel: unknownAttribute() } },
+    });
+    const e = eligibilityFor(s, EV("a1"));
+    expect(e.actionBoundary).toBe("display_only");
+    expect(e.displayRedactionRequired).toBe(true);
+    expect(JSON.stringify(e).includes("病院")).toBe(false); // raw location 不出
+    for (const ref of e.evidenceRefs) expect(ref.includes("病院")).toBe(false);
   });
 });
