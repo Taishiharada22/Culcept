@@ -35,7 +35,6 @@ function renderPanel(threadContextSlot?: React.ReactNode): string {
       participants: PARTICIPANTS,
       sessionMessages: BODY,
       sendMode: "local_echo",
-      readState: "fixture",
       onSend: () => {},
       selectedCandidateIndex: 0,
       appliedAdjustmentIds: new Set<string>(),

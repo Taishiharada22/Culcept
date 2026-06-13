@@ -3,7 +3,14 @@
 /**
  * useCoAlterChatAdapter — CoAlter タブのチャット adapter 解決 hook（TalkBridge-T1b/T1b-2）
  *
- * 責務: async な live read（talk_thread read-only）を **hook 内部に閉じ**、UI には
+ * ★ **LEGACY / FROZEN（2026-06-12 retire）**: 本 hook（と `readTalkThreadMetadataDeduped`・
+ *   `CoAlterChatReadState`）は **T1b thread-as-body**（live thread を本文に表示する経路）。
+ *   B で本文が `CoAlterSessionMessage` 化したため **CoAlterTab はもう本 hook を呼ばない**。
+ *   thread 内容は relation→thread の `useCoAlterThreadContext`（文脈セクション）で読む。
+ *   **新コードは本 hook を本文に再配線しないこと**（wasted fetch + 本文 live 誤認バッジの再来を防ぐ）。
+ *   ⚠ `readTalkThreadDeduped`（下記）は **文脈セクションが現役で使用**するため残す。
+ *
+ * 責務（legacy）: async な live read（talk_thread read-only）を **hook 内部に閉じ**、UI には
  * 常に同期の `CoAlterChatAdapter` + 表示用 `readState` だけを渡す。
  *
  * 状態遷移（fail-closed・CEO T1b-3/4）:
@@ -52,6 +59,9 @@ interface LiveThreadData {
  * React StrictMode の dev 二重 mount でも **GET はちょうど 1 回**になる。
  * 解決後は削除する（再 mount 時は新たに 1 回読む＝ポーリングではない）。
  * GET は冪等・read-only なので abort は行わない（unmount 時は setState だけ抑止）。
+ *
+ * ★ **ACTIVE**: `readTalkThreadDeduped` は TalkBridge-A の `useCoAlterThreadContext`（文脈セクション）が
+ *   現役で使用する（thread messages の read-only GET）。legacy hook 撤去後も残す。
  */
 const inflightThreadReads = new Map<
   string,

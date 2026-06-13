@@ -379,6 +379,10 @@ export const PLAN_FLAGS = {
   coalterPlanTabEnabled: process.env.NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED === "true",
 
   /**
+   * @deprecated TalkBridge legacy retire（2026-06-12）: 本 flag が駆動していた T1b **thread-as-body**
+   *   は B で本文が session message 化したため撤去。CoAlterTab は本 flag を**消費しない**。
+   *   thread 内容は relation→thread の `coalterThreadContext` 文脈セクションで読む。freeze（新依存禁止）。
+   *
    * TalkBridge-T1a: CoAlter タブのチャット **read-only live read** の gate（**dormant・default OFF**）。
    *   true  : （T1b 以降）resolveCoAlterChatAdapter が read-only talk thread adapter を返す予定
    *   false : fixture adapter（**本番デフォルト・現行動作・視覚的に完全不変**）
@@ -396,6 +400,9 @@ export const PLAN_FLAGS = {
   coalterChatLive: process.env.NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE === "true",
 
   /**
+   * @deprecated TalkBridge legacy retire（2026-06-12）: thread-as-body 撤去に伴い CoAlterTab は消費しない。
+   *   文脈セクションの threadId は relation→thread（genome-connections.threadId）由来＝別経路。freeze。
+   *
    * TalkBridge-T1b: read-only live read の対象 threadId（**dev/local 注入専用・default 空**）。
    *   - 空（既定）: live read 対象なし＝coalterChatLive が ON でも fixture のまま（fetch 0）
    *   - 非空 ∧ coalterChatLive=true: 既存 GET /api/talk/threads/[id]/messages を 1 回読む

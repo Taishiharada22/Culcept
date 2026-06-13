@@ -30,10 +30,6 @@ import {
   type CoAlterPlanMode,
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
-// T1a/T1b: チャットの participant/message は adapter 境界経由で consume する。
-// async な live read（talk_thread read-only）は hook 内部に閉じる（fixture が既定・
-// flag OFF / threadId 未注入で現行動作完全不変・失敗は fixture へ fail-closed）。
-import { useCoAlterChatAdapter } from "./useCoAlterChatAdapter";
 // C-1: relation metadata binding（read-only・既存 GET /api/genome-connections のみ・flag OFF 既定）。
 import { useCoAlterRelationBinding } from "./useCoAlterRelationBinding";
 // TalkBridge-A: 「これまでの会話」文脈セクション（read-only・別セクション・flag OFF 既定）。
@@ -135,14 +131,9 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     session.candidates.findIndex((c) => c.id === ui.selectedCandidateId),
   );
 
-  // ── T1a/T1b: チャット adapter 境界（send 能力・readState バッジ用。本文 messages は B で session 化） ──
-  const { adapter: chatAdapter, readState: chatReadState } = useCoAlterChatAdapter({
-    session,
-    liveEnabled: PLAN_FLAGS.coalterChatLive,
-    devThreadId: PLAN_FLAGS.coalterChatDevThreadId,
-  });
-  // B: 本文 author 解決用の **resolved session participants**（fixture session 由来・匿名なし）。
-  //   header fallback もこれを使う（chat-live 時に匿名 thread 話者が header/本文へ漏れない）。
+  // ── legacy T1b retire: 本文は B で session message 化済み。旧 `useCoAlterChatAdapter`
+  //   （thread-as-body の live-read・readState バッジ・wasted fetch）は **本文から撤去**した。
+  //   本文は常に fixture session ＝ local echo 可。thread 内容は TalkBridge-A の文脈セクションのみ。
   const fixtureSessionParticipants = buildSessionParticipantsFromFixture(session);
 
   // ── C-1: relation metadata binding（read-only・flag OFF / 前提欠落 = fixture = fetch 0） ──
@@ -186,8 +177,8 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     ...buildSessionMessagesFromFixture(session),
     ...ui.sentMessages.map((m) => toSessionMessageFromFixture(m, session.id)),
   ];
-  // local echo は fixture（send: "local_echo"）のみ。live read-only（send: "none"）では送信しない。
-  const canLocalEcho = chatAdapter.capabilities.send === "local_echo";
+  // 本文は fixture session ＝ local echo 可（legacy live read-only の "none" 経路は撤去済み）。
+  const canLocalEcho = true;
 
   // ── handlers（すべて local state のみ） ──
   const handleSelectCandidate = (candidateId: string) =>
@@ -207,9 +198,10 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     });
 
   const handleSend = (text: string) => {
-    if (!canLocalEcho) return; // live read-only（send: "none"）では送信しない
-    const sender = chatAdapter.getViewer();
-    if (!sender) return; // viewer 不明（将来 source）の時は送らない
+    if (!canLocalEcho) return;
+    // local echo の送信者 = fixture session の先頭参加者（旧 chatAdapter.getViewer() を撤去）。
+    const sender = session.participants[0];
+    if (!sender) return; // 参加者なし（solo 将来）の時は送らない
     const message: ChatMessageFixture = {
       id: `local-${session.id}-${ui.sentMessages.length + 1}`,
       author: sender.id,
@@ -542,8 +534,7 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
             session={session}
             participants={fixtureSessionParticipants}
             sessionMessages={bodySessionMessages}
-            sendMode={chatAdapter.capabilities.send}
-            readState={chatReadState}
+            sendMode="local_echo"
             onSend={handleSend}
             selectedCandidateIndex={selectedIndex}
             appliedAdjustmentIds={appliedSet}

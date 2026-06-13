@@ -20,7 +20,6 @@ import {
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
 import type { CoAlterChatSendMode } from "./coalterChatAdapter";
-import type { CoAlterChatReadState } from "./useCoAlterChatAdapter";
 // B: 本文は **session message 契約**から描画する（fixture / thread payload への直接依存を持たない）。
 import {
   isCoAlterSessionAuthor,
@@ -81,10 +80,8 @@ export interface CoAlterChatPanelProps {
   readonly participants: readonly SessionParticipant[];
   /** **session message** 本文（fixture session + ローカル送信分・親で管理）。 */
   readonly sessionMessages: readonly CoAlterSessionMessage[];
-  /** T1b: "none"（live read-only）では入力欄を無効化（local echo も不可） */
+  /** 本文の送信モード（本文は fixture session ＝常に "local_echo"。legacy "none"/"live" は本文に来ない） */
   readonly sendMode: CoAlterChatSendMode;
-  /** T1b: 読み込み状態バッジ（"fixture" では何も出さない＝現行視覚不変） */
-  readonly readState: CoAlterChatReadState;
   readonly onSend: (text: string) => void;
   readonly selectedCandidateIndex: number;
   readonly appliedAdjustmentIds: ReadonlySet<string>;
@@ -114,11 +111,10 @@ export function CoAlterChatPanel({
   isConfirmed,
   onConfirm,
   sendMode,
-  readState,
   threadContextSlot,
 }: CoAlterChatPanelProps) {
   const [draft, setDraft] = useState("");
-  const canSend = sendMode === "local_echo"; // T1b: live read-only では送信不可
+  const canSend = sendMode === "local_echo"; // 本文は fixture session ＝local echo 可
   const groups = groupConsecutive(sessionMessages);
   const sharedConditions = session.conditions.filter((c) => c.visibility === "shared");
   const quickAdjustments = session.quickActionAdjustmentIds
@@ -151,24 +147,10 @@ export function CoAlterChatPanel({
 
       {/* ── メッセージ列 ── */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pt-1">
-        {/* TalkBridge-A: 「これまでの会話」文脈（**bubble list の外・最上部の独立 card**・read-only） */}
+        {/* TalkBridge-A: 「これまでの会話」文脈（**bubble list の外・最上部の独立 card**・read-only）。
+            ★旧 T1b の本文 readState バッジ（ライブ閲覧中/読み込み中/利用不可）は撤去した。
+            本文は session message（live でない）・read-only 状態は文脈セクションが自前のバッジで持つ。 */}
         {threadContextSlot}
-        {/* T1b: 読み込み状態バッジ（fixture では非表示＝現行視覚不変） */}
-        {readState === "loading" && (
-          <p className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-500">
-            ライブ読み込み中…
-          </p>
-        )}
-        {readState === "live" && (
-          <p className="inline-flex rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[10px] font-medium text-sky-700">
-            ライブ閲覧中（読み取り専用）
-          </p>
-        )}
-        {readState === "unavailable" && (
-          <p className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-[10px] font-medium text-amber-700">
-            ライブ読み込みは利用できません — サンプルを表示中
-          </p>
-        )}
         {groups.map((group) => (
           <MessageGroupView key={group.items[0].id} group={group} participants={participants} />
         ))}
