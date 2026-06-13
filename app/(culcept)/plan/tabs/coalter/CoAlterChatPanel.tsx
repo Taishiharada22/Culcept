@@ -78,6 +78,12 @@ export interface CoAlterChatPanelProps {
   readonly onToggleAdjustment: (adjustmentId: string) => void;
   readonly isConfirmed: boolean;
   readonly onConfirm: () => void;
+  /**
+   * TalkBridge-A: 「これまでの会話」文脈セクション（read-only・別 card）。
+   * **session message の bubble list には混ぜず**、スクロール領域の最上部に独立配置する。
+   * 文脈が無いとき（state!=="ready"）は中身が null になり何も出ない。
+   */
+  readonly threadContextSlot?: React.ReactNode;
 }
 
 /**
@@ -96,6 +102,7 @@ export function CoAlterChatPanel({
   onConfirm,
   sendMode,
   readState,
+  threadContextSlot,
 }: CoAlterChatPanelProps) {
   const [draft, setDraft] = useState("");
   const canSend = sendMode === "local_echo"; // T1b: live read-only では送信不可
@@ -131,6 +138,8 @@ export function CoAlterChatPanel({
 
       {/* ── メッセージ列 ── */}
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 pt-1">
+        {/* TalkBridge-A: 「これまでの会話」文脈（**bubble list の外・最上部の独立 card**・read-only） */}
+        {threadContextSlot}
         {/* T1b: 読み込み状態バッジ（fixture では非表示＝現行視覚不変） */}
         {readState === "loading" && (
           <p className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-500">

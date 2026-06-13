@@ -36,6 +36,9 @@ import {
 import { useCoAlterChatAdapter } from "./useCoAlterChatAdapter";
 // C-1: relation metadata binding（read-only・既存 GET /api/genome-connections のみ・flag OFF 既定）。
 import { useCoAlterRelationBinding } from "./useCoAlterRelationBinding";
+// TalkBridge-A: 「これまでの会話」文脈セクション（read-only・別セクション・flag OFF 既定）。
+import { useCoAlterThreadContext } from "./useCoAlterThreadContext";
+import { CoAlterThreadContextSection } from "./CoAlterThreadContextSection";
 import {
   CalendarMiniIcon,
   ChatRoundIcon,
@@ -159,6 +162,14 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
           initial: p.initial,
           tone: p.tone,
         }));
+
+  // ── TalkBridge-A: 「これまでの会話」文脈（read-only・別セクション・flag OFF / threadId 無 = 非表示）──
+  //   threadId は C-1 relation の attachedThreadRef（= genome-connections.threadId）由来＝relation→thread のみ。
+  //   本文（session bubble list）は触らない。fail-closed で文脈非表示。
+  const threadContext = useCoAlterThreadContext({
+    enabled: PLAN_FLAGS.coalterThreadContext,
+    threadId: relationBinding.attachedThreadRef?.threadId ?? null,
+  });
 
   // local echo は fixture（send: "local_echo"）のみ。live read-only（send: "none"）では
   // 実 thread に偽メッセージを乗せない。
@@ -528,6 +539,13 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
             onToggleAdjustment={handleToggleAdjustment}
             isConfirmed={ui.confirmedCandidateId === ui.selectedCandidateId}
             onConfirm={handleConfirm}
+            threadContextSlot={
+              // 別セクション。session bubble list には混ぜない（state!=="ready" は自動で null）。
+              <CoAlterThreadContextSection
+                messages={threadContext.messages}
+                speakers={threadContext.speakers}
+              />
+            }
           />
         </div>
 

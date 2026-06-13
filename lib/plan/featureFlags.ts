@@ -436,6 +436,20 @@ export const PLAN_FLAGS = {
   ).trim(),
 
   /**
+   * TalkBridge-A: 「これまでの会話」**文脈セクション**（read-only・**default OFF**・session 本文と分離）。
+   *   true  : C-1 relation が `attachedThreadRef`（= genome-connections.threadId）を得たとき、その thread の
+   *           messages を read-only で**別セクション**に表示（**本文の bubble list には混ぜない**）。
+   *   false : 文脈セクション非表示（**本番デフォルト**・thread messages fetch 0・本文不変）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_THREAD_CONTEXT=true で有効化（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-session-message-closeout-thread-context-preflight.md §6-A（CEO 承認 2026-06-12）。
+   * 制約: read-only（GET-only・既存 messages GET 再利用）・send/既読/Realtime/useCoAlter なし・
+   *   thread→identity/session 派生なし（話者は匿名/表示専用・participants に昇格しない）・
+   *   threadId 源は **genome-connections のみ**（`/api/talk/threads` LIST 不使用・picker なし）。
+   */
+  coalterThreadContext: process.env.NEXT_PUBLIC_PLAN_COALTER_THREAD_CONTEXT === "true",
+
+  /**
    * P-A: Reality Pipeline operator-only read-only dev preview（RealityPipelineEnvelope を operator が観測するだけ）。
    * 設計: docs/reality-pipeline-dev-preview-design.md
    * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。

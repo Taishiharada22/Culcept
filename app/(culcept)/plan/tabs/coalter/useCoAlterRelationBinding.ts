@@ -18,10 +18,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   fetchGenomeConnectionsOnce,
+  resolveAttachedThreadRef,
   resolveRelationParticipants,
   type GenomeConnectionMetadata,
 } from "./coalterRelationBinding";
-import type { SessionParticipant } from "./coalterPlanSessionContract";
+import type { AttachedThreadRef, SessionParticipant } from "./coalterPlanSessionContract";
 
 /** 結合状態（UI バッジ/出し分け用）。 */
 export type RelationBindingState = "off" | "loading" | "bound" | "unbound";
@@ -46,7 +47,12 @@ export function useCoAlterRelationBinding(opts: {
   readonly enabled: boolean;
   readonly viewerUserId: string | null;
   readonly targetCounterpartUserIds: readonly string[];
-}): { participants: readonly SessionParticipant[] | null; state: RelationBindingState } {
+}): {
+  participants: readonly SessionParticipant[] | null;
+  /** TalkBridge-A: 単一 counterpart の accepted connection から導出した thread 参照（無ければ null）。 */
+  attachedThreadRef: AttachedThreadRef | null;
+  state: RelationBindingState;
+} {
   const { enabled, viewerUserId } = opts;
   // 依存安定化（配列 identity 由来の再 fetch を防ぐ）
   const targetKey = [...opts.targetCounterpartUserIds].filter((s) => s.length > 0).sort().join(",");
@@ -73,18 +79,18 @@ export function useCoAlterRelationBinding(opts: {
   }, [shouldFetch]);
 
   const binding = useMemo(() => {
-    if (!shouldFetch) return { participants: null, state: "off" as RelationBindingState };
-    if (failed) return { participants: null, state: "unbound" as RelationBindingState };
-    if (connections === null) return { participants: null, state: "loading" as RelationBindingState };
-    const result = resolveRelationParticipants({
-      connections,
-      viewerUserId,
-      targetCounterpartUserIds: targetKey.length > 0 ? targetKey.split(",") : [],
-    });
+    if (!shouldFetch) return { participants: null, attachedThreadRef: null, state: "off" as RelationBindingState };
+    if (failed) return { participants: null, attachedThreadRef: null, state: "unbound" as RelationBindingState };
+    if (connections === null)
+      return { participants: null, attachedThreadRef: null, state: "loading" as RelationBindingState };
+    const targets = targetKey.length > 0 ? targetKey.split(",") : [];
+    const result = resolveRelationParticipants({ connections, viewerUserId, targetCounterpartUserIds: targets });
+    // attachedThreadRef は同一 fetch から導出（relation→thread・無ければ null）。
+    const attachedThreadRef = resolveAttachedThreadRef(connections, targets);
     if (result.bound) {
-      return { participants: result.participants, state: "bound" as RelationBindingState };
+      return { participants: result.participants, attachedThreadRef, state: "bound" as RelationBindingState };
     }
-    return { participants: null, state: "unbound" as RelationBindingState };
+    return { participants: null, attachedThreadRef, state: "unbound" as RelationBindingState };
   }, [shouldFetch, failed, connections, viewerUserId, targetKey]);
 
   return binding;

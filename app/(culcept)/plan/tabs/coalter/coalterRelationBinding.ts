@@ -16,6 +16,7 @@
  */
 
 import type {
+  AttachedThreadRef,
   ParticipantSourceRef,
   SessionParticipant,
 } from "./coalterPlanSessionContract";
@@ -24,8 +25,10 @@ import type {
 // 入力 payload（GET /api/genome-connections の **consume する field のみ**）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //
-// **意図的に consume しない**: threadId（C-1 で無視）・visibilityRequester/visibilityTarget・
-// requesterId/targetId・createdAt/respondedAt（private personalization / thread root 化を避ける）。
+// **意図的に consume しない**: visibilityRequester/visibilityTarget・requesterId/targetId・
+// createdAt/respondedAt（private personalization を避ける）。
+// `threadId`: identity 解決には使わない（C-1 participant 解決は無視）。**TalkBridge-A の
+// `attachedThreadRef` 導出のみ**に使う（relation→thread の一方向・§resolveAttachedThreadRef）。
 
 export interface GenomeConnectionMetadata {
   readonly id?: string;
@@ -35,6 +38,8 @@ export interface GenomeConnectionMetadata {
     readonly displayName?: string | null;
     readonly avatarUrl?: string | null;
   } | null;
+  /** その connection の talk thread id（genome-connections route が user-RLS で返す）。null 可。 */
+  readonly threadId?: string | null;
 }
 
 /** 表示名が無いときの中立ラベル（**raw userId を表示に使わない**・CEO note #3）。 */
@@ -146,6 +151,35 @@ export function resolveRelationParticipants(
     bound: true,
     participants: [buildSelfParticipant(input.viewerUserId), ...counterparts],
   };
+}
+
+/**
+ * relation → thread の **唯一許される**導出（pure・TalkBridge-A）。
+ *
+ *   - **単一 counterpart の session のみ**対象（target がちょうど 1 つ。曖昧回避・group は別）。
+ *   - その target が **accepted connection（id 実在・threadId 実在）にちょうど 1 件**一致する時だけ
+ *     `{ threadId }` を返す（0=なし・2+=曖昧で選ばない・threadId null=なし）。
+ *   - **relation→thread の一方向のみ**。thread から identity/session を逆生成しない（呼び出し側で
+ *     thread 話者を SessionParticipant にしない）。`talk_pair_member`/`pairStateId` は登場しない。
+ *   - threadId が無ければ null（**session は threadId なしで成立**＝呼び出し側は文脈非表示で fail-closed）。
+ */
+export function resolveAttachedThreadRef(
+  connections: readonly GenomeConnectionMetadata[],
+  targetCounterpartUserIds: readonly string[],
+): AttachedThreadRef | null {
+  const targets = [...new Set(targetCounterpartUserIds.filter(nonEmptyString))];
+  if (targets.length !== 1) return null; // 単一 counterpart 限定
+  const target = targets[0];
+  const matches = connections.filter(
+    (c) =>
+      c.status === "accepted" &&
+      nonEmptyString(c.id) &&
+      c.counterpart != null &&
+      c.counterpart.userId === target &&
+      nonEmptyString(c.threadId),
+  );
+  if (matches.length !== 1) return null;
+  return { threadId: matches[0].threadId as string };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
