@@ -13,10 +13,14 @@
  *
  * 絶対規律（CEO RJ1a / RJ1b）:
  *   - Feasibility と Risk を分ける（別軸）。confirmed がある時のみ infeasible。
- *   - **duplicate / equivalent event 未確定で confirmedBlocking にしない**（RJ1b safeguard）。同一現実イベントの
- *     二重取り込み候補（同一 timeWindow）は「衝突か重複か」確定できず unresolvedCriticalInput に倒す。LLM で同一判断しない。
+ *   - **同一 timeWindow の overlap を duplicate と断定しない**（RJ1b-A #1）。それは exact_time_collision_ambiguous
+ *     （真の衝突か同一現実イベントの二重取り込みか未確定）であって duplicate の証拠ではない。confirmed に直行させず
+ *     unresolvedCriticalInput に倒すが duplicate とは言わない。確定には external identity evidence（externalUid /
+ *     source event id / title hash / location hash）が要るが v0 未露出（= missingInputRefs）。LLM で同一判断しない。
+ *   - **day-level precedence（RJ1b-A #3）**: ambiguity による downgrade は**その pair の confirmed 化を止めるだけ**で、
+ *     **別 pair の confirmedBlocking を消さない**。unrelated confirmed があれば day infeasible（ambiguity に上書きされない）。
  *   - day scope = event-level judgments を merged buckets で集約（confirmed→day infeasible / unresolved→day unknown）。
- *     trace.perEventContributions で day → event を辿れる（event → field は reason の targetNodeId + evidenceRefs）。
+ *     trace.perEventContributions（day→event）+ trace.timeRelations（day→**event pair**・pairwise）で field まで辿れる。
  *   - decisionDebt high ≠ risk high / commitment high ≠ infeasible / mobilityDebt high ≠ 遅刻確定。
  *   - missingInputs は判断不能理由であって失敗理由そのものではない。
  *   - **確率・% を出さない**（riskLevel は factor 集約であって probability ではない）。
@@ -74,6 +78,31 @@ export interface FeasibilityReason {
   readonly evidenceRefs: ReadonlyArray<string>;
 }
 
+/**
+ * event pair の時間関係（pairwise trace — RJ1b-A #2）。overlap は event 単体でなく **pair** の問題のため、
+ * day → event pair → field を辿れる構造を持つ。relationId は sorted id + kind で決定的（評価順非依存）。
+ *
+ * **exact_time_collision_ambiguous（RJ1b-A #1 の核心）**: 同一 timeWindow の hard-hard overlap は
+ * **「真の衝突」か「同一現実イベントの二重取り込み」か確定できない**状態であって、**duplicate である証拠ではない**。
+ * confirmed に直行させず unresolved に倒すが、duplicate と断定しない。確定には external identity evidence
+ * （externalUid / source event id / title hash / location hash）が要るが v0 は未露出（= missingInputRefs）。
+ */
+export type TimeRelationKind = "confirmed_time_conflict" | "inferred_time_tension" | "exact_time_collision_ambiguous";
+export type TimeRelationBucket = "confirmedBlocking" | "inferredBlocking" | "unresolvedCriticalInput";
+
+export interface PairwiseTimeRelation {
+  readonly relationId: string;
+  readonly fromEventRealityNodeId: string; // canonical: sorted 先頭
+  readonly toEventRealityNodeId: string;
+  readonly relationKind: TimeRelationKind;
+  readonly relationBucket: TimeRelationBucket;
+  /** both event の #timeWindow / #fixedness / #durationSource */
+  readonly evidenceRefs: ReadonlyArray<string>;
+  /** ambiguous の解消に要る identity evidence（v0 未露出）。confirmed/inferred は [] */
+  readonly missingInputRefs: ReadonlyArray<string>;
+  readonly sourceRefs: { readonly dayGraphSnapshotId: string };
+}
+
 export interface RealityJudgmentTrace {
   readonly schemaVersion: 0;
   /** cache key（snapshotId+targetScope+judgmentKind+version から決定的）。内容証明ではない・raw viewerId 不含 */
@@ -104,6 +133,8 @@ export interface RealityJudgmentTrace {
     readonly feasibilityStatus: FeasibilityStatus;
     readonly riskLevel: RiskLevel;
   }>;
+  /** event pair の時間関係（pairwise・dedup 済み・RJ1b-A #2）。day → event pair → field を辿れる */
+  readonly timeRelations: ReadonlyArray<PairwiseTimeRelation>;
   /** 評価が表す瞬間（= snapshot.builtAt の carry）。**identity 対象外**（computedAt を id に混ぜない） */
   readonly evaluatedAtInstant: RealityInstant;
 }
@@ -139,6 +170,7 @@ interface EventBuckets {
   unresolved: FeasibilityReason[];
   risk: FeasibilityReason[];
   used: string[];
+  relations: PairwiseTimeRelation[];
 }
 
 /** riskLevel に数えない context-only code（commitment/permission/changeCost は severity context であって脆さでない） */
@@ -185,23 +217,46 @@ function hasExplicitWindow(ern: EventRealityNodeV0): boolean {
 }
 
 /**
- * duplicate / equivalent event safeguard（RJ1b）: 同一現実イベントの二重取り込み候補か。
- * 同一現実イベントが複数 source（google_calendar + manual 等）から取り込まれると 2 つの event に見え、
- * confirmed 衝突に直行すると false infeasible になる。これを防ぐ。
+ * exact-time collision の検出（RJ1b-A #1）: 同一 timeWindow（同 start ∧ 同 end）の overlap か。
  *
- * v0 signal = **同一 timeWindow（同 start ∧ 同 end）**。distinct な hard 予定が偶然 exact 同時刻に並ぶより、
- * multi-source 取り込みの兆候の方が確からしい。確定はできないので「衝突か重複か」を unresolved に倒す。
- * **LLM 推定で同一判断しない**。externalUid / title hash / location hash / source-level dedup は将来材料
- * （ern 未露出・displayLabel は sensitive redaction で generic 化され不可）= 参考材料に留め、本判定の正本にしない。
+ * **これは duplicate の証拠ではない**。同一 timeWindow の hard-hard overlap は「真の衝突」と
+ * 「同一現実イベントの二重取り込み」の**どちらか確定できない曖昧状態**（exact_time_collision_ambiguous）。
+ * confirmed に直行させないのは正しいが、**duplicate と断定しない**（false-positive を避けるための過剰断定の逆も避ける）。
+ * 確定には external identity evidence（externalUid / source event id / title hash / location hash）が要るが
+ * v0 は未露出（displayLabel は sensitive redaction で generic 化され不可）。LLM で同一判断しない。
  */
-function isPossibleDuplicate(a: EventRealityNodeV0, b: EventRealityNodeV0): boolean {
+function isExactTimeCollision(a: EventRealityNodeV0, b: EventRealityNodeV0): boolean {
   return a.timeWindow.startHHMM === b.timeWindow.startHHMM && a.timeWindow.endHHMM === b.timeWindow.endHHMM;
+}
+
+/** pairwise time relation を決定的に組む（sorted id → 評価順非依存・dedup 可能） */
+function buildTimeRelation(
+  aId: string,
+  bId: string,
+  relationKind: TimeRelationKind,
+  relationBucket: TimeRelationBucket,
+  dayGraphSnapshotId: string,
+  missingInputRefs: ReadonlyArray<string>,
+): PairwiseTimeRelation {
+  const [from, to] = aId < bId ? [aId, bId] : [bId, aId];
+  const evidenceRefs = [from, to].flatMap((id) => [`${id}#timeWindow`, `${id}#fixedness`, `${id}#durationSource`]);
+  return {
+    relationId: `rel:${from}~${to}:${relationKind}`,
+    fromEventRealityNodeId: from,
+    toEventRealityNodeId: to,
+    relationKind,
+    relationBucket,
+    evidenceRefs,
+    missingInputRefs,
+    sourceRefs: { dayGraphSnapshotId },
+  };
 }
 
 /** 単一 event の factor 収集（4 バケットに分離・混ぜない・evidenceRefs は field-level） */
 function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
-  const b: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [] };
+  const b: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [], relations: [] };
   const ernId = ern.eventRealityNodeId;
+  const dgsId = ctx.snapshot.sourceRefs.dayGraphSnapshotId;
   // field-level used ref（node id + node#field を残し、LLM が code だけで理由作文できない trace にする — #3）
   const uf = (nodeId: string, field: string): void => {
     b.used.push(nodeId, `${nodeId}#${field}`);
@@ -222,12 +277,14 @@ function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
       const ow = subjectiveWindow(other); // boundary 跨ぎ/parse 不能は null = overlap 判定から除外（混ぜない）
       if (!ow || !windowsOverlap(win, ow)) continue;
       const otherId = other.eventRealityNodeId;
-      // duplicate/equivalent safeguard（RJ1b）: 同一現実イベント候補は confirmed 衝突に直行させない。
-      // identity 未確定（衝突か重複か不明）→ unresolvedCriticalInput に倒す（unknown を駆動・confirmed/inferred にしない）。
-      if (isPossibleDuplicate(ern, other)) {
+      // RJ1b-A #1: 同一 timeWindow は「衝突か重複か」確定できない曖昧状態 = exact_time_collision_ambiguous。
+      // confirmed に直行させず unresolvedCriticalInput に倒す（**duplicate と断定しない**）。確定には external
+      // identity evidence が要るが v0 未露出（= missingInputRefs）。LLM で同一判断しない。
+      if (isExactTimeCollision(ern, other)) {
         b.unresolved.push(
-          reason("duplicate_identity_unresolved", ernId, [`${ernId}#timeWindow`, `${otherId}#timeWindow`, "same_time_window_possible_duplicate"]),
+          reason("exact_time_collision_ambiguous", ernId, [`${ernId}#timeWindow`, `${otherId}#timeWindow`, "exact_same_window_collision_or_duplicate_undetermined"]),
         );
+        b.relations.push(buildTimeRelation(ernId, otherId, "exact_time_collision_ambiguous", "unresolvedCriticalInput", dgsId, ["external_identity_evidence_unexposed"]));
         continue;
       }
       // confirmed = 両 window explicit ∧ 両 fixedness confirmed-hard。弱い根拠は「重なって見える」止まり → inferred。
@@ -235,9 +292,11 @@ function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
       const refs = [`${ernId}#timeWindow`, `${ernId}#fixedness`, `${otherId}#timeWindow`, `${otherId}#fixedness`];
       if (strict) {
         b.confirmed.push(reason("hard_time_conflict", ernId, refs));
+        b.relations.push(buildTimeRelation(ernId, otherId, "confirmed_time_conflict", "confirmedBlocking", dgsId, []));
       } else {
         // assumed_default duration / inferred・unknown fixedness / cs.rigidity だけ → confirmed にしない（#1）
         b.inferred.push(reason("schedule_tension_inferred", ernId, refs));
+        b.relations.push(buildTimeRelation(ernId, otherId, "inferred_time_tension", "inferredBlocking", dgsId, []));
       }
     }
   } else {
@@ -304,15 +363,21 @@ function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
 }
 
 function mergeBuckets(parts: EventBuckets[]): EventBuckets {
-  const out: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [] };
+  const out: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [], relations: [] };
   for (const p of parts) {
     out.confirmed.push(...p.confirmed);
     out.inferred.push(...p.inferred);
     out.unresolved.push(...p.unresolved);
     out.risk.push(...p.risk);
     out.used.push(...p.used);
+    out.relations.push(...p.relations);
   }
   out.used = [...new Set(out.used)].sort();
+  // pairwise relation は対称（a→b と b→a が両 event 評価で出る）→ relationId で dedup・決定的整列
+  const seen = new Set<string>();
+  out.relations = out.relations
+    .filter((r) => (seen.has(r.relationId) ? false : (seen.add(r.relationId), true)))
+    .sort((x, y) => x.relationId.localeCompare(y.relationId));
   return out;
 }
 
@@ -412,6 +477,7 @@ export function evaluateFeasibility(input: RealityJudgmentInputV0): FeasibilityJ
     confirmedBlockingRefs: [...new Set(buckets.confirmed.flatMap((r) => [r.code, ...r.evidenceRefs]))],
     inferredBlockingRefs: [...new Set(buckets.inferred.flatMap((r) => [r.code, ...r.evidenceRefs]))],
     perEventContributions,
+    timeRelations: buckets.relations, // pairwise・dedup 済み（day → event pair → field）
     evaluatedAtInstant: snapshot.builtAt, // identity 対象外
   };
 
