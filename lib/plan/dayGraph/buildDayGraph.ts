@@ -104,20 +104,44 @@ function buildEdges(
 }
 
 /**
- * anchor 内容 revision（RC2a-6A — content-aware identity の核）。
+ * anchor 内容 revision（RC2a-6A — content-aware identity の核 / DG0-A で provenance・privacy 境界を締めた）。
  *
  * v1 の snapshotId は anchor ID 集合しか見ず、**同一 ID 集合での時刻/場所/companions/rigidity 変更を
  * 拾えなかった**（→ RC2a identity chain が collide）。本関数は各 anchor の **content-relevant field** を
- * 正規化 projection して決定的 hash 化する。
+ * 正規化 projection して決定的 fingerprint 化する。
  *
- * 含める（content = 変われば derive 出力が変わりうる）: anchorKind / startTime / endTime / rigidity /
- *   locationCategory / locationText(hash) / title(hash) / sensitiveCategory / companions(hash)。
- * 含めない（非 content / volatile）: id（既に anchorIds 集合に在る）/ userId / sourceId / confirmedAt /
- *   confidence / externalUid / recurrence field（その日の startTime/endTime/ID 集合に解決済み）。
+ * 含める（content = 変われば derive 出力が変わりうる・grep で derive 読取を確認）:
+ *   anchorKind / startTime / endTime / rigidity / locationCategory / locationText(hash) / title(hash) /
+ *   sensitiveCategory / companions(hash) / **sourceId(hash)**。
+ *   - **sourceId（DG0-A 追加）**: commitmentSignal.ts は `sourcesById.get(anchor.sourceId).sourceType==="manual"`
+ *     で rigidity provenance（confidence 0.8/0.6・source known_from_user/derived）を決める → derive に効く。
+ *     anchor の source 参照変更（re-sourcing）を捕捉するため hash で含める。
  *
- * privacy（RC2a-1c §4: 生ユーザー文字列を identity payload に入れない）: locationText / title / companions は
- *   **NFC 正規化 → fnv sub-hash** にしてから payload に入れる（snapshotId に raw text を載せない）。
- * 決定性: anchor を id で sort（array order 非依存）。
+ * 含めない（非 content / volatile — derive 読取 0 を grep で確認: lib/plan/{dayGraph,realityCore}）:
+ *   id（既に anchorIds 集合に在る）/ userId / confirmedAt / confidence / externalUid / recurrence field
+ *   （その日の startTime/endTime/ID 集合に解決済み）。
+ *
+ * privacy 境界（重要・FNV を privacy boundary と誤認しない — DG0-A 修正）:
+ *   - locationText / title / companions / sourceId は **NFC 正規化 → fnv fingerprint** にしてから projection に入れ、
+ *     snapshotId に **raw text を直接載せない**。
+ *   - ただし **FNV64 は非暗号 fingerprint であって privacy guarantee ではない**。低エントロピーな場所名/人名/タイトルは
+ *     hash でも辞書・相関・推測の余地が残る。「hash だから安全」とは言わない・raw 復元不能とも断定しない。
+ *   - 由来 hash は **pseudonymous / sensitive-derived material** として扱う。snapshotId / dayGraphSnapshotId は
+ *     **private-derived cache key**であり、debug/log/per-viewer/shared/external へ無制限露出しない。
+ *   - 将来 persistent / public / shared / cross-viewer id に出す場合は **server-side secret salt / HMAC / stronger
+ *     digest を再裁定**する（本 fingerprint のまま出さない）。
+ *   - hash 同一は内容同一の証明ではない（cache key であって proof ではない）。
+ *
+ * 由来 boundary（DG0-A 明記・別 slice）: rigidity provenance は `sourcesById.get(sourceId).sourceType` に依存する。
+ *   sourceId 変更（re-sourcing）は本 revision が捕捉するが、**同一 sourceId のまま source RECORD の sourceType を
+ *   編集する変化**は anchor field ではなく sources-map の変化のため本 revision に乗らない（sources は buildDayGraph の
+ *   入力でもない）。実運用上 sourceType は source 単位で実質不変だが、sources を identity chain に配線する際に
+ *   sources-map revision として別途扱う。
+ *
+ * projection 最小仕様（固定・test で pin）:
+ *   - canonicalSerialize（object key sort・finite number のみ・NaN/Date/BigInt は throw）を使う。
+ *   - 各 anchor は **id で sort**（array index / 入力順に非依存）。companions も **sort**。
+ *   - free-text は **NFC 正規化**してから hash。volatile runtime timestamp（confirmedAt 等）は入れない。
  */
 export function computeAnchorContentRevision(anchors: ReadonlyArray<ExternalAnchor>): string {
   const projection = [...anchors]
@@ -135,6 +159,7 @@ export function computeAnchorContentRevision(anchors: ReadonlyArray<ExternalAnch
         a.companions && a.companions.length > 0
           ? fnv1a64Hex(canonicalSerialize([...a.companions].map((c) => c.normalize("NFC")).sort()))
           : null,
+      sid: fnv1a64Hex(a.sourceId), // source 参照（sourceType→rigidity provenance に効く・re-sourcing 検出）
     }))
     .sort((x, y) => x.id.localeCompare(y.id));
   return fnv1a64Hex(canonicalSerialize(projection));

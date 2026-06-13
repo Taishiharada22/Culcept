@@ -11,6 +11,13 @@
  *  - hash = FNV-1a 64bit（BigInt・pure・同期・依存ゼロ。暗号強度は不要 — 同一性識別が目的）
  *  - id/hash は**決定的 cache key**であって内容同一性の証明ではない（証明は canonicalSerialize 比較で行う）
  *  - 乱数・Date.now 禁止（決定性 = resume/cache/dedupe の前提）
+ *
+ * privacy 境界（重要 — DG0-A）: **FNV64 は非暗号 fingerprint であって privacy boundary ではない**。
+ *  低エントロピー入力（場所名/人名/タイトル等）は hash しても辞書・相関・推測の余地が残る。
+ *  「hash だから安全」と扱わない・raw 復元不能と断定しない。raw text を identity に直接載せないための
+ *  fingerprint として使い、由来 hash は pseudonymous/sensitive-derived material として扱う。
+ *  persistent / public / shared / cross-viewer id へ出す場合は server-side secret salt / HMAC / stronger
+ *  digest を再裁定する（本関数の出力をそのまま公開 id にしない）。
  */
 
 // ── FNV-1a 64bit ──
