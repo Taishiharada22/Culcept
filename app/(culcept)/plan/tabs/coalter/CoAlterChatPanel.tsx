@@ -19,13 +19,15 @@ import {
   type AdjustmentSuggestionFixture,
   type CoAlterPlanSessionFixture,
 } from "./coalterPlanSessionFixture";
-// T1a/T1b: チャット面は adapter の view 型のみを見る（fixture / /talk payload への直接依存を持たない）
-import type {
-  CoAlterChatMessage,
-  CoAlterChatParticipant,
-  CoAlterChatSendMode,
-} from "./coalterChatAdapter";
+import type { CoAlterChatSendMode } from "./coalterChatAdapter";
 import type { CoAlterChatReadState } from "./useCoAlterChatAdapter";
+// B: 本文は **session message 契約**から描画する（fixture / thread payload への直接依存を持たない）。
+import {
+  isCoAlterSessionAuthor,
+  type CoAlterSessionMessage,
+  type CoAlterSessionMessageAuthor,
+} from "./coalterSessionMessageContract";
+import type { SessionParticipant } from "./coalterPlanSessionContract";
 import { ConditionChip } from "./PlanIntelligencePanel";
 import {
   CheckIcon,
@@ -44,19 +46,30 @@ const PARTICIPANT_AVATAR_TONE: Record<"sky" | "rose", string> = {
   rose: "from-rose-300 to-pink-400",
 };
 
-interface MessageGroup {
-  author: string;
-  items: CoAlterChatMessage[];
+/** session message author の group key（"coalter" or 人間 userId）。 */
+function sessionAuthorKey(author: CoAlterSessionMessageAuthor): string {
+  return author.kind === "coalter" ? "coalter" : author.userId;
 }
 
-function groupConsecutive(messages: readonly CoAlterChatMessage[]): MessageGroup[] {
+interface MessageGroup {
+  authorKey: string;
+  isCoAlter: boolean;
+  items: CoAlterSessionMessage[];
+}
+
+function groupConsecutive(messages: readonly CoAlterSessionMessage[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
   for (const message of messages) {
+    const key = sessionAuthorKey(message.author);
     const last = groups[groups.length - 1];
-    if (last && last.author === message.author) {
+    if (last && last.authorKey === key) {
       last.items.push(message);
     } else {
-      groups.push({ author: message.author, items: [message] });
+      groups.push({
+        authorKey: key,
+        isCoAlter: isCoAlterSessionAuthor(message.author),
+        items: [message],
+      });
     }
   }
   return groups;
@@ -64,10 +77,10 @@ function groupConsecutive(messages: readonly CoAlterChatMessage[]): MessageGroup
 
 export interface CoAlterChatPanelProps {
   readonly session: CoAlterPlanSessionFixture;
-  /** adapter 由来の参加者（identity 出自は adapter が抽象化・未解決なら匿名） */
-  readonly participants: readonly CoAlterChatParticipant[];
-  /** adapter 初期 messages + ローカル送信分（親で管理） */
-  readonly messages: readonly CoAlterChatMessage[];
+  /** 本文 author 解決用の **resolved session participants**（匿名なし・B）。 */
+  readonly participants: readonly SessionParticipant[];
+  /** **session message** 本文（fixture session + ローカル送信分・親で管理）。 */
+  readonly sessionMessages: readonly CoAlterSessionMessage[];
   /** T1b: "none"（live read-only）では入力欄を無効化（local echo も不可） */
   readonly sendMode: CoAlterChatSendMode;
   /** T1b: 読み込み状態バッジ（"fixture" では何も出さない＝現行視覚不変） */
@@ -93,7 +106,7 @@ export interface CoAlterChatPanelProps {
 export function CoAlterChatPanel({
   session,
   participants,
-  messages,
+  sessionMessages,
   onSend,
   selectedCandidateIndex,
   appliedAdjustmentIds,
@@ -106,7 +119,7 @@ export function CoAlterChatPanel({
 }: CoAlterChatPanelProps) {
   const [draft, setDraft] = useState("");
   const canSend = sendMode === "local_echo"; // T1b: live read-only では送信不可
-  const groups = groupConsecutive(messages);
+  const groups = groupConsecutive(sessionMessages);
   const sharedConditions = session.conditions.filter((c) => c.visibility === "shared");
   const quickAdjustments = session.quickActionAdjustmentIds
     .map((id) => session.adjustments.find((a) => a.id === id))
@@ -272,11 +285,14 @@ function MessageGroupView({
   participants,
 }: {
   group: MessageGroup;
-  participants: readonly CoAlterChatParticipant[];
+  participants: readonly SessionParticipant[];
 }) {
-  const isCoAlter = group.author === "coalter";
-  const participant = participants.find((p) => p.id === group.author);
-  const name = isCoAlter ? "CoAlter" : participant?.name ?? group.author;
+  const isCoAlter = group.isCoAlter;
+  // 人間 author は **resolved participant** を userId で解決（raw userId は表示に出さない）。
+  const participant = isCoAlter
+    ? undefined
+    : participants.find((p) => p.userId === group.authorKey);
+  const name = isCoAlter ? "CoAlter" : participant?.displayName ?? "メンバー";
 
   // 狭い container（ピンチで縮めた時・モバイル既定）では avatar を名前行に内包して
   // 吹き出しをペイン全幅で使う（縦書き化する事故の防止）。@md 以上で参照画像の段組へ。
@@ -299,13 +315,13 @@ function MessageGroupView({
         {/* 狭幅: 名前+時刻を avatar の隣に出す */}
         <p className="min-w-0 truncate text-[10px] text-slate-500 @md:hidden">
           <span className="font-bold text-slate-700">{name}</span>
-          <span className="ml-1 text-slate-400">{group.items[0].time}</span>
+          <span className="ml-1 text-slate-400">{group.items[0].createdAt}</span>
         </p>
       </div>
       <div className="min-w-0 flex-1">
         <p className="hidden text-[11px] text-slate-500 @md:block">
           <span className="font-bold text-slate-700">{name}</span>
-          <span className="ml-1.5 text-slate-400">{group.items[0].time}</span>
+          <span className="ml-1.5 text-slate-400">{group.items[0].createdAt}</span>
         </p>
         <div className="space-y-1.5 @md:mt-1">
           {group.items.map((message) => (
@@ -317,15 +333,15 @@ function MessageGroupView({
                     : "bg-slate-100"
                 }`}
               >
-                {message.text}
+                {message.body}
               </div>
-              {message.reaction && (
-                <div className="-mt-1.5 ml-2">
+              {message.reactions?.map((reaction, i) => (
+                <div key={i} className="-mt-1.5 ml-2">
                   <span className="inline-flex items-center gap-0.5 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600 shadow-sm">
-                    {message.reaction.emoji} {message.reaction.count}
+                    {reaction.emoji} {reaction.count}
                   </span>
                 </div>
-              )}
+              ))}
             </div>
           ))}
         </div>

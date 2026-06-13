@@ -39,6 +39,12 @@ import { useCoAlterRelationBinding } from "./useCoAlterRelationBinding";
 // TalkBridge-A: 「これまでの会話」文脈セクション（read-only・別セクション・flag OFF 既定）。
 import { useCoAlterThreadContext } from "./useCoAlterThreadContext";
 import { CoAlterThreadContextSection } from "./CoAlterThreadContextSection";
+// B: 本文を session message 契約から描画（fixture→契約 pure mapper・永続化なし）。
+import {
+  buildSessionMessagesFromFixture,
+  toSessionMessageFromFixture,
+} from "./coalterSessionMessageContract";
+import { buildSessionParticipantsFromFixture } from "./coalterPlanSessionContract";
 import {
   CalendarMiniIcon,
   ChatRoundIcon,
@@ -129,13 +135,15 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     session.candidates.findIndex((c) => c.id === ui.selectedCandidateId),
   );
 
-  // ── T1a/T1b: チャット adapter 境界（flag OFF / threadId 未注入 = fixture = 現行動作） ──
+  // ── T1a/T1b: チャット adapter 境界（send 能力・readState バッジ用。本文 messages は B で session 化） ──
   const { adapter: chatAdapter, readState: chatReadState } = useCoAlterChatAdapter({
     session,
     liveEnabled: PLAN_FLAGS.coalterChatLive,
     devThreadId: PLAN_FLAGS.coalterChatDevThreadId,
   });
-  const chatParticipants = chatAdapter.getParticipants();
+  // B: 本文 author 解決用の **resolved session participants**（fixture session 由来・匿名なし）。
+  //   header fallback もこれを使う（chat-live 時に匿名 thread 話者が header/本文へ漏れない）。
+  const fixtureSessionParticipants = buildSessionParticipantsFromFixture(session);
 
   // ── C-1: relation metadata binding（read-only・flag OFF / 前提欠落 = fixture = fetch 0） ──
   //   bound 時は header の「セッション参加者」を解決済み identity（culcept_relation + self）で表示。
@@ -156,9 +164,9 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
           initial: p.initial,
           tone: p.tone,
         }))
-      : chatParticipants.map((p) => ({
-          id: p.id,
-          name: p.name,
+      : fixtureSessionParticipants.map((p) => ({
+          id: p.userId,
+          name: p.displayName,
           initial: p.initial,
           tone: p.tone,
         }));
@@ -171,12 +179,15 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     threadId: relationBinding.attachedThreadRef?.threadId ?? null,
   });
 
-  // local echo は fixture（send: "local_echo"）のみ。live read-only（send: "none"）では
-  // 実 thread に偽メッセージを乗せない。
+  // ── B: 本文は **session message 契約**から描画（fixture session 由来・author は resolved のみ）──
+  //   本文 = fixture session message + ローカル送信分。**thread messages は本文に入れない**
+  //   （thread 内容は TalkBridge-A の文脈セクションへ）。これにより本文 author は匿名にならない。
+  const bodySessionMessages = [
+    ...buildSessionMessagesFromFixture(session),
+    ...ui.sentMessages.map((m) => toSessionMessageFromFixture(m, session.id)),
+  ];
+  // local echo は fixture（send: "local_echo"）のみ。live read-only（send: "none"）では送信しない。
   const canLocalEcho = chatAdapter.capabilities.send === "local_echo";
-  const messages = canLocalEcho
-    ? [...chatAdapter.getInitialMessages(), ...ui.sentMessages]
-    : chatAdapter.getInitialMessages();
 
   // ── handlers（すべて local state のみ） ──
   const handleSelectCandidate = (candidateId: string) =>
@@ -529,8 +540,8 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
         >
           <CoAlterChatPanel
             session={session}
-            participants={chatParticipants}
-            messages={messages}
+            participants={fixtureSessionParticipants}
+            sessionMessages={bodySessionMessages}
             sendMode={chatAdapter.capabilities.send}
             readState={chatReadState}
             onSend={handleSend}
