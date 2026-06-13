@@ -85,6 +85,11 @@ export interface EventRealityNodeV0 {
     readonly durationSource: DurationSource;
   };
   readonly verb: AnchorVerb;
+  /**
+   * sensitive flag（= anchor.sensitiveCategory != null）。**boolean のみ**（category/raw は載せない・displayLabel は
+   * redact 済み）。RC2c-1 の sensitive 強 gate 用（intervention eligibility が確認必須に倒す）。
+   */
+  readonly sensitive: boolean;
 
   // ── reality 属性（全て RealityAttribute — 裸の値・数値を禁止） ──
   readonly fixedness: RealityAttribute<FixednessValue>;
