@@ -44,7 +44,7 @@
   ```
   id                 UUID PK default gen_random_uuid()
   mode               TEXT NOT NULL CHECK (mode IN (...CoAlterPlanMode...))
-  window             JSONB NOT NULL          -- {date} | {start,end,nights} (CoAlterPlanWindow)
+  plan_window        JSONB NOT NULL          -- {date} | {start,end,nights} (CoAlterPlanWindow)。`window` は SQL 予約語のため plan_window
   stage              TEXT NOT NULL CHECK (stage IN ('understanding','curating','resolving','confirmed'))
   attached_thread_id UUID NULL               -- optional bridge only（§2.1 注）
   created_by         UUID NOT NULL REFERENCES auth.users(id)

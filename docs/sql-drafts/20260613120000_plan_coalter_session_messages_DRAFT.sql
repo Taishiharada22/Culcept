@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS plan_coalter_sessions (
   -- CoAlterPlanMode（fixture 由来: 'daily' | 'travel'）。legacy の decision/... とは別系統。
   mode TEXT NOT NULL CHECK (mode IN ('daily', 'travel')),
   -- CoAlterPlanWindow: { date } | { start, end, nights }。形は JSONB（型は app 側 contract が担保）。
-  window JSONB NOT NULL,
+  -- 列名は plan_window（`window` は SQL 予約語のため不可・local smoke で確認）。
+  plan_window JSONB NOT NULL,
   stage TEXT NOT NULL DEFAULT 'understanding'
     CHECK (stage IN ('understanding', 'curating', 'resolving', 'confirmed')),
   -- ★ optional bridge only: nullable・root でも consent でも identity 源でもない。
