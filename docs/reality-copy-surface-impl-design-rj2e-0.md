@@ -244,28 +244,30 @@ function renderCopy(view: SurfaceProjectionConsumerViewV0): RenderedCopyV0
 
 ### 11.1 exact claim template catalog（claim copy・hedged/neutral・断定なし）
 
-| consumer kind | **exact string** | tone | 補正理由（lens） |
+**RJ2e 実装時 CEO 文面差し替え確定（`d... 本 commit`）**: より明瞭・状態を断定せず伝える文面に確定。
+
+| consumer kind | **exact string（確定）** | tone | 理由 |
 |---|---|---|---|
-| `observation` | `ひとつ、メモしておきます。` | neutral | 「気づいた」=監視的印象を回避（anxiety） |
-| `status_note` | `ひとつ、心に留めておくとよさそうです。` | hedged | 「気にかける/見直すとよさそう」=不安・崩れ示唆を回避（anxiety/verdict） |
-| `info_incomplete` | `まだ確定していない点がいくつかあります。` | hedged | 中立・事実のみ |
-| `needs_confirmation` | `確認しておきたいことがあります。` | hedged | 押しつけない（too_strong 回避） |
+| `observation` | `メモがあります。` | neutral | 「保存・記憶したよう」を避け簡潔に |
+| `status_note` | `確認前の注意点があります。` | hedged | 「確認前」で断定せず状態を伝える（崩れ/不安を煽らない） |
+| `info_incomplete` | `まだ未確定の点があります。` | hedged | 「未確定」で断定なし・状態を明瞭に |
+| `needs_confirmation` | `確認が必要な点があります。` | hedged | 「確認が必要」で明瞭・押しつけない |
 
 ### 11.2 exact question template catalog（question copy・確認の問い・断定なし）
 
-| consumer kind | **exact string** | tone | 補正理由 |
+| consumer kind | **exact string（確定）** | tone | 理由 |
 |---|---|---|---|
-| `needs_verification` | `確認したいことがあります。` | hedged | 「確認してよいですか」=強すぎを回避（too_strong） |
-| `resolve_overlap` | `重なって見える予定があります。` | hedged | 「見える」で**衝突も重複も断定しない**（RJ1b・両義保持）。「同じ/別の予定です」断定は不可（duplicate） |
-| `resolve_missing_info` | `伺いたいことがあるかもしれません。` | hedged | 「補える情報」=何を補うか曖昧・憶測誘発を回避（ambiguity/hallucination） |
+| `needs_verification` | `確認しますか？` | hedged | 確認 UI への入口（通知/外部連絡/自動実行でない・安全） |
+| `resolve_overlap` | `重なって見える予定があります。確認しますか？` | hedged | 「見える」で**衝突も重複も断定しない**（RJ1b・両義保持） |
+| `resolve_missing_info` | `未確定の点を確認しますか？` | hedged | 「未確定」で明瞭・回りくどさ回避 |
 
 ### 11.3 exact choice label catalog（generic・subject/time/place/category/relation 差し込み禁止）
 
-| consumer kind | **exact labels** | 補正理由 |
+| consumer kind | **exact labels（確定）** | 理由 |
 |---|---|---|
-| `needs_verification` | `["はい", "いいえ", "あとで"]` | generic 二択 + defer |
-| `resolve_overlap` | `["あとで確認", "まだ決めない"]` | **候補A/B は「2 つの別予定」を presuppose（衝突断定）→ 不可**。duplicate/collision を一切 presuppose しない最小 defer のみ（RJ1b）。subject 名なしでの細かい disambiguation は将来の CEO 承認 safe label 拡張（v0 は安全 > actionable） |
-| `resolve_missing_info` | `["あとで確認", "そのまま"]` | 「補う」削除（ambiguity）。中立 defer のみ |
+| `needs_verification` | `["確認する", "あとで"]` | 安全なユーザー操作（外部送信/予定変更/予約/支払いを含まない）。「はい/いいえ」は文脈薄く曖昧ゆえ不採用 |
+| `resolve_overlap` | `["あとで確認", "まだ決めない"]` | **同じ予定/別予定/候補A・B をここで選ばせない**（衝突 presuppose 不可・RJ1b）。最小 defer のみ。細かい disambiguation は将来の CEO 承認 safe label 拡張 |
+| `resolve_missing_info` | `["確認する", "そのまま"]` | 安全操作のみ。「補う」は曖昧ゆえ削除 |
 
 ### 11.4 forbidden lexicon（copyViolations が検出・分類）
 
