@@ -77,6 +77,12 @@ const movementNotRequired = () => inferredAttribute(false, 0.9, ["test_no_mv"], 
 const movementRequired = () => inferredAttribute(true, 0.7, ["test_mv_req"], { status: "inferred" });
 const fixedStartTrue = () => inferredAttribute(true, 0.8, ["test_fixed"], { status: "confirmed", displayPolicy: "visible" });
 
+/** RJ1a-A: 実 fixedness.value（FixednessValue）を再利用し status を confirmed-hard に上げる（origin user 相当） */
+function confirmHardFixedness(b: ReturnType<typeof base>, ernId: string): Partial<EventRealityNodeV0> {
+  const f = b.ern.find((e) => e.eventRealityNodeId === ernId)!.fixedness;
+  return { fixedness: { ...f, status: "confirmed", source: "known_from_user", displayPolicy: "visible" } };
+}
+
 describe("RJ1a #1 missingInputs だけでは infeasible にしない（v0 実 data = unknown）", () => {
   it("place 不明だけの event → unknown（infeasible でない・断定しない）", () => {
     const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00" })]));
@@ -88,17 +94,45 @@ describe("RJ1a #1 missingInputs だけでは infeasible にしない（v0 実 da
   });
 });
 
-describe("RJ1a #2 confirmedBlockingReason がある時だけ infeasible", () => {
-  it("hard 同士の時間 overlap → confirmed hard_time_conflict → infeasible", () => {
+describe("RJ1a #2 confirmedBlockingReason がある時だけ infeasible（厳格条件: explicit duration + confirmed-hard fixedness）", () => {
+  it("explicit duration + confirmed-hard fixedness の overlap → confirmed hard_time_conflict → infeasible・field-level refs", () => {
+    const b = base([
+      anchor({ id: "a1", startTime: "10:00", endTime: "12:00", locationText: "渋谷", rigidity: "hard" }),
+      anchor({ id: "a2", startTime: "11:00", endTime: "13:00", locationText: "新宿", rigidity: "hard" }),
+    ]);
+    const s = snap(b, { ernOverrides: { [ERN("a1")]: confirmHardFixedness(b, ERN("a1")), [ERN("a2")]: confirmHardFixedness(b, ERN("a2")) } });
+    const j = judgeEvent(s, ERN("a1"));
+    expect(j.feasibilityStatus).toBe("infeasible");
+    const confirmed = j.confirmedBlockingReasons.find((r) => r.code === "hard_time_conflict");
+    expect(confirmed).toBeTruthy();
+    // field-level evidenceRefs（timeWindow / fixedness の両 event を指す — #3）
+    expect(confirmed!.evidenceRefs).toEqual(expect.arrayContaining([`${ERN("a1")}#timeWindow`, `${ERN("a1")}#fixedness`, `${ERN("a2")}#timeWindow`, `${ERN("a2")}#fixedness`]));
+    expect(j.riskLevel).toBe("high");
+    expect(feasibilityJudgmentViolations(j)).toEqual([]);
+  });
+
+  it("RJ1a-A #1: assumed_default duration（endTime 無）の overlap は confirmed にしない（fixedness confirmed でも）", () => {
+    const b = base([
+      anchor({ id: "a1", startTime: "10:00", rigidity: "hard" }), // endTime 無 → assumed 60min
+      anchor({ id: "a2", startTime: "10:30", rigidity: "hard" }), // assumed window が a1 と重なる
+    ]);
+    const s = snap(b, { ernOverrides: { [ERN("a1")]: confirmHardFixedness(b, ERN("a1")), [ERN("a2")]: confirmHardFixedness(b, ERN("a2")) } });
+    const j = judgeEvent(s, ERN("a1"));
+    expect(j.confirmedBlockingReasons).toEqual([]); // assumed duration → confirmed にしない
+    expect(j.feasibilityStatus).not.toBe("infeasible");
+    expect(j.inferredBlockingReasons.map((r) => r.code)).toContain("schedule_tension_inferred");
+  });
+
+  it("RJ1a-A #2: cs.rigidity hard でも fixedness inferred（origin 不明）なら confirmed にしない", () => {
+    // base() は sources 無 → origin unknown → fixedness inferred。cs.rigidity は hard。
     const s = snap(base([
       anchor({ id: "a1", startTime: "10:00", endTime: "12:00", locationText: "渋谷", rigidity: "hard" }),
       anchor({ id: "a2", startTime: "11:00", endTime: "13:00", locationText: "新宿", rigidity: "hard" }),
     ]));
     const j = judgeEvent(s, ERN("a1"));
-    expect(j.feasibilityStatus).toBe("infeasible");
-    expect(j.confirmedBlockingReasons.map((r) => r.code)).toContain("hard_time_conflict");
-    expect(j.riskLevel).toBe("high");
-    expect(feasibilityJudgmentViolations(j)).toEqual([]);
+    expect(j.confirmedBlockingReasons).toEqual([]); // fixedness inferred → cs.rigidity だけでは confirmed にしない
+    expect(j.feasibilityStatus).not.toBe("infeasible");
+    expect(j.inferredBlockingReasons.map((r) => r.code)).toContain("schedule_tension_inferred");
   });
 });
 
@@ -258,15 +292,24 @@ describe("RJ1a feasible path + scope + input validation", () => {
     expect(j.judgmentConfidence).toBe("high");
     expect(j.displayPolicy).toBe("visible");
   });
-  it("day scope = active+upcoming の worst-case rollup（hard 衝突あれば day infeasible）", () => {
-    const s = snap(base([
+  it("day scope = active+upcoming の worst-case rollup（confirmed hard 衝突あれば day infeasible）", () => {
+    const b = base([
       anchor({ id: "a1", startTime: "10:00", endTime: "12:00", locationText: "渋谷", rigidity: "hard" }),
       anchor({ id: "a2", startTime: "11:00", endTime: "13:00", locationText: "新宿", rigidity: "hard" }),
-    ]));
+    ], new Date(Date.UTC(2026, 5, 12, 0, 0))); // JST 09:00 → 両 event upcoming
+    const s = snap(b, { ernOverrides: { [ERN("a1")]: confirmHardFixedness(b, ERN("a1")), [ERN("a2")]: confirmHardFixedness(b, ERN("a2")) } });
     const day: TargetScope = { kind: "day" };
     const j = evaluateFeasibility(buildRealityJudgmentInput(s, day));
     expect(j.feasibilityStatus).toBe("infeasible");
     expect(j.judgmentTrace.targetScope).toEqual({ kind: "day" });
+  });
+  it("RJ1a-A #3: usedInputRefs / reason evidenceRefs が field-level（node#field）", () => {
+    const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00" })]));
+    const j = judgeEvent(s, ERN("a1"));
+    expect(j.judgmentTrace.usedInputRefs.some((r) => r.includes("#timeWindow"))).toBe(true);
+    expect(j.judgmentTrace.usedInputRefs.some((r) => r.includes("#placeCertainty"))).toBe(true);
+    const place = j.unresolvedCriticalInputs.find((r) => r.code === "place_resolution_pending");
+    expect(place?.evidenceRefs.some((e) => e.includes("#placeCertainty"))).toBe(true);
   });
   it("buildRealityJudgmentInput は存在しない target で throw", () => {
     const s = snap(base([anchor({ id: "a1", startTime: "14:00", endTime: "15:00" })]));

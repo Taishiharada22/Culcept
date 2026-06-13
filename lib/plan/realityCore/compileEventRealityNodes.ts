@@ -202,6 +202,7 @@ function compileOne(
       endHHMM: node.endTime,
       durationMin: node.durationMin,
       timeBucket: node.timeBucket,
+      durationSource: node.durationSource, // RJ1a-A: explicit/assumed_default を判断器へ伝える
     },
     verb: node.verb,
     fixedness,

@@ -22,8 +22,20 @@
  *   - pure（I/O・時刻 API・乱数なし）。RealityInstant は snapshot.builtAt を carry。UI/DB/外部 read 不接触。
  *
  * v0 の正直な振る舞い: RC2a v0 は placeCertainty 常に unknown・leaveBy 常に null・movementRequired は
- *   transition 無で unknown。よって**多くの target は unknown**（場所/ETA/route を本当に知らない）。
- *   infeasible は confirmed 構造衝突（hard 同士の時間 overlap）のみ。aggressive に infeasible を出さない。
+ *   transition 無で unknown。よって**実 compile data では多くの target が unknown**（場所/ETA/route を本当に
+ *   知らない）。**feasible / feasible_with_risk は controlled fixture での evaluator logic test 限定**であり、
+ *   dogfood 実データで feasible が多発するなら過剰楽観として再監査する（aggressive に feasible を出さない）。
+ *
+ * confirmed 衝突の厳格条件（RJ1a-A #1/#2）: hard 同士の時間 overlap を infeasible にできるのは
+ *   **両 event が explicit duration（assumed_default でない）∧ 両 fixedness が confirmed-hard（origin user
+ *   由来・ern.fixedness が正本。cs.rigidity は severity context で confirmed の根拠にしない）**の時のみ。
+ *   弱い根拠（assumed duration / inferred・unknown fixedness / cs.rigidity だけ）は「重なって見える」止まりで
+ *   inferredBlocking に倒す。fixedness が inferred の v0 既定では confirmed 衝突は発生しない（synthetic 限定）。
+ *
+ * sourceType caveat（RJ1a-A #5）: sourceType は capture-time の provenance fact で runtime mutable でない。
+ *   re-sourcing は sourceId 変更で捕捉（DG0-A）。同一 sourceId のまま sourceType を変える編集は未対応。
+ *   sources-map は identity chain 未配線のため trace に sourcesRevisionPending/sourceRecordRevisionPending を
+ *   残す。将来 sources-map revision を InputRevisionSet に配線する。
  *
  * 独立裁定: FEASIBILITY_JUDGMENT_VERSION は **REALITY_DERIVATION_VERSIONS に入れない**。あの manifest は
  *   graph derivation 用で graphBaseId を決める。downstream の判断器版を混ぜると graph identity が判断ロジック
@@ -143,85 +155,113 @@ interface EvalCtx {
   mvByToAnchor: ReadonlyMap<string, MovementRealityV0>;
 }
 
-function isHardEvent(ern: EventRealityNodeV0, ctx: EvalCtx): boolean {
-  // cs 不在/未確定は「hard でない」= confirmed 衝突を作らない（保守的・false infeasible を避ける）
-  return ctx.csByTarget.get(ern.eventRealityNodeId)?.rigidity.value === "hard";
+/**
+ * confirmed-hard 判定の正本 = **ern.fixedness**（Context の cs.rigidity ではない — RJ1a-A #2）。
+ * cs.rigidity は「動かしにくさ判断」= severity context であって fixedness/feasibility の正本でない。
+ * confirmed-hard = fixedness.status === "confirmed"（origin user 由来）∧ value.rigidity hard。
+ * inferred / unknown fixedness は confirmed 衝突にしない（cs.rigidity だけでも confirmed にしない）。
+ */
+function isConfirmedHard(ern: EventRealityNodeV0): boolean {
+  return ern.fixedness.status === "confirmed" && ern.fixedness.value?.rigidity === "hard";
 }
 
-/** 単一 event の factor 収集（4 バケットに分離・混ぜない） */
+/** confirmed 衝突は explicit duration 限定（assumed_default だけで infeasible にしない — RJ1a-A #1） */
+function hasExplicitWindow(ern: EventRealityNodeV0): boolean {
+  return ern.timeWindow.durationSource === "explicit";
+}
+
+/** 単一 event の factor 収集（4 バケットに分離・混ぜない・evidenceRefs は field-level） */
 function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
-  const b: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [ern.eventRealityNodeId] };
+  const b: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [] };
   const ernId = ern.eventRealityNodeId;
+  // field-level used ref（node id + node#field を残し、LLM が code だけで理由作文できない trace にする — #3）
+  const uf = (nodeId: string, field: string): void => {
+    b.used.push(nodeId, `${nodeId}#${field}`);
+  };
+  b.used.push(ernId);
   const cs = ctx.csByTarget.get(ernId);
   if (cs) b.used.push(cs.commitmentSignalId);
   const mv = ctx.mvByToAnchor.get(ern.sourceRefs.anchorId);
   if (mv) b.used.push(mv.movementRealityId);
 
-  // ── overlap: hard 同士 = confirmed / それ以外 = inferred（動かせる側がある）──
+  // ── overlap: confirmed 衝突は厳格（RJ1a-A #1/#2）──
   const win = subjectiveWindow(ern);
   if (win) {
-    const selfHard = isHardEvent(ern, ctx);
+    uf(ernId, "timeWindow");
+    uf(ernId, "fixedness");
     for (const other of ctx.snapshot.eventRealityNodes) {
       if (other.eventRealityNodeId === ernId) continue;
-      const ow = subjectiveWindow(other);
+      const ow = subjectiveWindow(other); // boundary 跨ぎ/parse 不能は null = overlap 判定から除外（混ぜない）
       if (!ow || !windowsOverlap(win, ow)) continue;
-      if (selfHard && isHardEvent(other, ctx)) {
-        b.confirmed.push(reason("hard_time_conflict", ernId, [`overlap_with:${other.eventRealityNodeId}`, "both_hard"]));
+      const otherId = other.eventRealityNodeId;
+      // confirmed = 両 window explicit ∧ 両 fixedness confirmed-hard。弱い根拠は「重なって見える」止まり → inferred。
+      const strict = hasExplicitWindow(ern) && hasExplicitWindow(other) && isConfirmedHard(ern) && isConfirmedHard(other);
+      const refs = [`${ernId}#timeWindow`, `${ernId}#fixedness`, `${otherId}#timeWindow`, `${otherId}#fixedness`];
+      if (strict) {
+        b.confirmed.push(reason("hard_time_conflict", ernId, refs));
       } else {
-        b.inferred.push(reason("schedule_tension_inferred", ernId, [`overlap_with:${other.eventRealityNodeId}`, "movable_side"]));
+        // assumed_default duration / inferred・unknown fixedness / cs.rigidity だけ → confirmed にしない（#1）
+        b.inferred.push(reason("schedule_tension_inferred", ernId, refs));
       }
     }
   } else {
-    // 主観境界跨ぎ/parse 不能 = 分類不能 → risk context（unsupported・判断材料にしきれない）
-    b.risk.push(reason("subjective_boundary_unsupported", ernId, ["unsupported_cross_subjective_boundary"]));
+    b.risk.push(reason("subjective_boundary_unsupported", ernId, [`${ernId}#timeWindow`, "unsupported_cross_subjective_boundary"]));
   }
 
   const isFixedStart = cs?.fixedStart.value === true;
+  if (cs) uf(cs.commitmentSignalId, "fixedStart");
 
   // ── place（critical unresolved: どこか分からねば mobility を判断できない）──
   if (ern.placeCertainty.status === "unknown") {
-    b.unresolved.push(reason("place_resolution_pending", ernId, ern.placeCertainty.evidenceRefs));
+    uf(ernId, "placeCertainty");
+    b.unresolved.push(reason("place_resolution_pending", ernId, [`${ernId}#placeCertainty`, ...ern.placeCertainty.evidenceRefs]));
   }
 
   // ── movement requirement / departure ──
   const mr = ern.movementRequired;
+  uf(ernId, "movementRequired");
   if (mr.status === "unknown") {
     // 移動が要るかすら不明 = critical（mv 不在を「移動不要」と読まない）
-    b.unresolved.push(reason("movement_requirement_unknown", ernId, mr.evidenceRefs));
+    b.unresolved.push(reason("movement_requirement_unknown", ernId, [`${ernId}#movementRequired`, ...mr.evidenceRefs]));
   } else if (mr.value === true) {
     const etaUnknown = !mv || mv.etaKnown.value !== true;
     const routeUnknown = !mv || mv.routeKnown.value !== true;
     const leaveByUnresolved = ern.leaveBy.value === null;
+    if (mv) uf(mv.movementRealityId, "etaKnown");
+    uf(ernId, "leaveBy");
     // fixed start + 移動必要 + 出発材料欠落 = 崩れる兆候（候補ブロッカー・断定しない）
     if (isFixedStart && (etaUnknown || routeUnknown || leaveByUnresolved)) {
-      b.inferred.push(reason("movement_feasibility_unverified", ernId, ["fixed_start", "movement_required"]));
+      b.inferred.push(reason("movement_feasibility_unverified", ernId, [`${ernId}#movementRequired`, cs ? `${cs.commitmentSignalId}#fixedStart` : "fixed_start"]));
     }
-    if (etaUnknown) b.unresolved.push(reason("eta_source_missing", ernId, mv?.mobilityStatus.evidenceRefs ?? []));
-    if (routeUnknown) b.unresolved.push(reason("route_unresolved", ernId, mv?.mobilityStatus.evidenceRefs ?? []));
-    if (leaveByUnresolved) b.unresolved.push(reason("leave_by_unresolved", ernId, ern.leaveBy.evidenceRefs));
+    const mvRef = mv ? [`${mv.movementRealityId}#mobilityStatus`] : [];
+    if (etaUnknown) b.unresolved.push(reason("eta_source_missing", ernId, [...mvRef, ...(mv?.mobilityStatus.evidenceRefs ?? [])]));
+    if (routeUnknown) b.unresolved.push(reason("route_unresolved", ernId, [...mvRef, ...(mv?.mobilityStatus.evidenceRefs ?? [])]));
+    if (leaveByUnresolved) b.unresolved.push(reason("leave_by_unresolved", ernId, [`${ernId}#leaveBy`, ...ern.leaveBy.evidenceRefs]));
   }
 
   // ── risk factors（block しない severity context）──
   for (const key of DECISION_DEBT_COMPONENT_KEYS) {
     const c = ctx.snapshot.decisionDebt.components[key];
     if (c.status !== "unknown" && (c.value ?? 0) > 0) {
-      b.risk.push(reason(`decision_debt_${key}`, null, c.evidenceRefs));
+      b.risk.push(reason(`decision_debt_${key}`, null, [`decisionDebt#${key}`, ...c.evidenceRefs]));
     }
   }
   if (cs) {
     if (cs.changeCost.status !== "unknown" && (cs.changeCost.value ?? 0) > 0) {
-      b.risk.push(reason("change_cost_context", ernId, cs.changeCost.evidenceRefs)); // severity only
+      b.risk.push(reason("change_cost_context", ernId, [`${cs.commitmentSignalId}#changeCost`, ...cs.changeCost.evidenceRefs])); // severity only
     }
     if (cs.socialWeight.status !== "unknown" && (cs.socialWeight.value ?? 0) >= 0.5) {
-      b.risk.push(reason("commitment_severity_context", ernId, cs.socialWeight.evidenceRefs)); // commitment ≠ blocker
+      b.risk.push(reason("commitment_severity_context", ernId, [`${cs.commitmentSignalId}#socialWeight`, ...cs.socialWeight.evidenceRefs])); // commitment ≠ blocker
     }
   }
   if (isFixedStart && ern.cascadeSensitivity.value === true) {
-    b.risk.push(reason("time_pressure_context", ernId, ern.cascadeSensitivity.evidenceRefs));
+    uf(ernId, "cascadeSensitivity");
+    b.risk.push(reason("time_pressure_context", ernId, [`${ernId}#cascadeSensitivity`, ...ern.cascadeSensitivity.evidenceRefs]));
   }
   // permission = action gate context（feasibility ではない・autonomy の話）
   if (ern.permissionLevel.status !== "unknown" && (ern.permissionLevel.value ?? 0) <= 0) {
-    b.risk.push(reason("permission_action_gate", ernId, ern.permissionLevel.evidenceRefs));
+    uf(ernId, "permissionLevel");
+    b.risk.push(reason("permission_action_gate", ernId, [`${ernId}#permissionLevel`, ...ern.permissionLevel.evidenceRefs]));
   }
 
   return b;
@@ -317,11 +357,12 @@ export function evaluateFeasibility(input: RealityJudgmentInputV0): FeasibilityJ
     derivationVersionSet: snapshot.derivationVersionSet,
     sourcesRevisionPending: true,
     sourceRecordRevisionPending: true,
-    usedInputRefs: buckets.used,
+    usedInputRefs: buckets.used, // node id + node#field（field-level・#3）
     missingInputRefs: snapshot.missingInputRefs, // carry（source trace を失わない）
-    factorRefs: buckets.risk.map((r) => r.code),
-    confirmedBlockingRefs: buckets.confirmed.map((r) => r.code),
-    inferredBlockingRefs: buckets.inferred.map((r) => r.code),
+    // *Refs は code + field-level evidenceRefs（code だけで理由作文できない・field へ辿れる — #3）
+    factorRefs: [...new Set(buckets.risk.flatMap((r) => [r.code, ...r.evidenceRefs]))],
+    confirmedBlockingRefs: [...new Set(buckets.confirmed.flatMap((r) => [r.code, ...r.evidenceRefs]))],
+    inferredBlockingRefs: [...new Set(buckets.inferred.flatMap((r) => [r.code, ...r.evidenceRefs]))],
     evaluatedAtInstant: snapshot.builtAt, // identity 対象外
   };
 

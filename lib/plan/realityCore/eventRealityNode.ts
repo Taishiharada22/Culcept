@@ -22,7 +22,7 @@
  */
 
 import type { AnchorRigidity } from "@/lib/plan/external-anchor";
-import type { TimeBucket } from "@/lib/plan/dayGraph/dayGraphTypes";
+import type { TimeBucket, DurationSource } from "@/lib/plan/dayGraph/dayGraphTypes";
 import type { LatencyTolerance } from "@/lib/plan/dayGraph/latencyToleranceMap";
 import type { AnchorVerb } from "@/lib/plan/dayGraph/anchorVerbMap";
 import type { MovementResolutionStatus } from "@/lib/plan/transport/transportTypes";
@@ -81,6 +81,8 @@ export interface EventRealityNodeV0 {
     readonly endHHMM: string;
     readonly durationMin: number;
     readonly timeBucket: TimeBucket;
+    /** RJ1a-A: confirmed 時間衝突は explicit 限定（assumed_default duration だけで infeasible にしない） */
+    readonly durationSource: DurationSource;
   };
   readonly verb: AnchorVerb;
 
