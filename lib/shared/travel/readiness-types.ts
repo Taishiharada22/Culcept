@@ -64,6 +64,14 @@ export interface ReadinessPolicy {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ReadinessResult {
+  /**
+   * ★ T6.1 権限境界: この結果が **実行権限の正本(authoritative)** か。
+   *   - `assessReadiness` の戻り値 = **true**（schedule/reserve/book の可否はこれで判定する）。
+   *   - `toSharedReadinessView` の戻り値 = **false**（display/提案のみ・**実行権限ではない**）。
+   *   private-only 確認を隠した shared 射影が `ready_to_propose` を返しても、authoritative=false の
+   *   ため `hasActionAuthority` は決して true にならない（private 確認は engine 側で gate され続ける）。
+   */
+  authoritative: boolean;
   state: ReadinessState;
   /** 判定対象の行動（実行はしない） */
   actionKind: ActionKind;

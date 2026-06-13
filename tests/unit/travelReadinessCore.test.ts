@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildProposals } from "@/lib/shared/travel/proposal-builder";
 import { compareProposals } from "@/lib/shared/travel/proposal-comparator";
 import { decide } from "@/lib/shared/travel/decision-core";
-import { assessReadiness, toSharedReadinessView, type ReadinessInput } from "@/lib/shared/travel/readiness-core";
+import { assessReadiness, toSharedReadinessView, hasActionAuthority, type ReadinessInput } from "@/lib/shared/travel/readiness-core";
 import type { ReadinessPolicy } from "@/lib/shared/travel/readiness-types";
 import type { TravelProposal } from "@/lib/shared/travel/proposal-types";
 import type { DecisionResult } from "@/lib/shared/travel/decision-types";
@@ -124,6 +124,32 @@ describe("7+11. private 制約衝突は確認を起こすが shared に漏れな
     expect(JSON.stringify(shared)).not.toContain(CANARY);
     expect(JSON.stringify(r)).toContain(CANARY); // full には残る
     expect(() => assertNoEngineOnlyLeak(shared)).not.toThrow();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe("T6.1. 権限境界: shared 射影は実行権限にならない", () => {
+  it("private-only 確認は authoritative に残り、shared 射影(ready)でも hasActionAuthority=false", () => {
+    const sel = mkProposal();
+    const d = mkDecision(sel, { impact: [imp({ participantId: "P1", stretchedPrivate: 1 }), imp({ participantId: "P2" })] });
+    const r = assessReadiness({ decision: d, selected: sel });
+    // authoritative 結果: private 確認が残る → 実行権限なし
+    expect(r.authoritative).toBe(true);
+    expect(r.state).toBe("needs_confirmation");
+    expect(hasActionAuthority(r)).toBe(false);
+    // shared 射影: display 上は ready だが authoritative=false → 実行権限に化けない
+    const shared = toSharedReadinessView(r);
+    expect(shared.state).toBe("ready_to_propose");
+    expect(shared.authoritative).toBe(false);
+    expect(hasActionAuthority(shared)).toBe(false);
+  });
+  it("真に ready(確認なし) の authoritative 結果のみ hasActionAuthority=true", () => {
+    const sel = mkProposal();
+    const r = assessReadiness({ decision: mkDecision(sel), selected: sel });
+    expect(r.state).toBe("ready_to_propose");
+    expect(hasActionAuthority(r)).toBe(true);
+    // その shared 射影は display 用 → 実行権限としては使えない
+    expect(hasActionAuthority(toSharedReadinessView(r))).toBe(false);
   });
 });
 

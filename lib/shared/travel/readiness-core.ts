@@ -58,6 +58,7 @@ export function assessReadiness(input: ReadinessInput): ReadinessResult {
   const intended: ActionKind = input.policy?.intendedAction ?? "propose_plan";
 
   const nonRecommend = (state: ReadinessResult["state"], shared: string, pendingQuestion: ReadinessResult["pendingQuestion"]): ReadinessResult => ({
+    authoritative: true,
     state,
     actionKind: "discuss_only",
     requiredConfirmations: [],
@@ -111,6 +112,7 @@ export function assessReadiness(input: ReadinessInput): ReadinessResult {
   const rationale = buildRecommendRationale(d, intended, state, requiredConfirmations, stretchedPrivate);
 
   return {
+    authoritative: true,
     state,
     actionKind: intended,
     requiredConfirmations,
@@ -157,11 +159,15 @@ function buildRecommendRationale(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * shared ビュー: 相手にも見せてよい形。
+ * shared ビュー: 相手にも見せてよい **display/提案専用** の形。
  *   - private 確認/リスク（private_constraint_conflict）を除去。
  *   - **private 理由のみで needs_confirmation だった場合は ready_to_propose に戻す**
  *     （private な確認は当人側で扱う・相手には ready に見える）。
  *   - rationale.forParticipant 全削除。
+ *
+ * ★ T6.1: 戻り値は `authoritative: false`。**この結果を実行権限として使ってはならない**。
+ *   shared 上 `ready_to_propose` でも、schedule/reserve/book の可否は必ず authoritative=true の
+ *   元の `assessReadiness` 結果（= `hasActionAuthority`）で判定する。private 確認はそこで gate され続ける。
  */
 export function toSharedReadinessView(r: ReadinessResult): ReadinessResult {
   const sharedConfirmations = r.requiredConfirmations.filter((c) => c.visibility === "shared");
@@ -170,9 +176,20 @@ export function toSharedReadinessView(r: ReadinessResult): ReadinessResult {
     r.state === "needs_confirmation" && sharedConfirmations.length === 0 ? "ready_to_propose" : r.state;
   return {
     ...r,
+    authoritative: false, // ★ display 専用・実行権限ではない
     state,
     requiredConfirmations: sharedConfirmations,
     riskFlags: sharedRiskFlags,
     rationale: { shared: r.rationale.shared, forParticipant: {} },
   };
+}
+
+/**
+ * ★ T6.1 実行権限の唯一の判定口（schedule/reserve/book してよいか）。
+ *   - **authoritative=false（shared 射影）からは決して true を返さない** → private 確認を隠した
+ *     display が実行権限に化けない。
+ *   - state が ready_to_propose かつ未確認の requiredConfirmations が無いときのみ true。
+ */
+export function hasActionAuthority(r: ReadinessResult): boolean {
+  return r.authoritative === true && r.state === "ready_to_propose" && r.requiredConfirmations.length === 0;
 }
