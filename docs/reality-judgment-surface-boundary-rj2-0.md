@@ -309,7 +309,13 @@ RedactionGrain = "full" | "generic" | "count_only" | "existence_only" | "withhol
 ### 7-A. JudgmentSurfacePlanV0（RJ2a 所有・root）
 
 ```ts
-export type SurfaceExposureLevel = "none" | "passive_only" | "ask_eligible";
+// RJ2a-0A: internal_only を追加（internal_prepare 用）。**非線形**: internal_only は user-facing でなく
+// passive_only/ask_eligible とは別枝。user-facing exposure は none=internal_only < passive_only < ask_eligible。
+//   none        : 何も surface 化しない
+//   internal_only: internal prepared material boundary。**user-facing 不可**（internal 準備のみ許可）
+//   passive_only: L1 passive object を将来作れる可能性（copy/UI はまだ不可）
+//   ask_eligible : L2 clarification candidate object を将来作れる可能性（文面はまだ不可）
+export type SurfaceExposureLevel = "none" | "internal_only" | "passive_only" | "ask_eligible";
 
 export interface JudgmentSurfacePlanV0 {
   readonly schemaVersion: 0;
