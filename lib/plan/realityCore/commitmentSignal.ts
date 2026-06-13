@@ -19,11 +19,18 @@
  *  - **title 文字列だけで high commitment を断定しない**（verb は kernel 由来の粗分類ゆえ低確信≤0.5 でのみ使用）
  *  - 構造化 signal（companions[]・sensitiveCategory・rigidity・latencyTolerance）は高確信
  *  - otherPeople/reservation/work が不明 → 保守側（downstream は unknown を「あり得る」として扱う）
+ *
+ * RC2a-3A 検収（GPT 10 点）:
+ *  - **rigidity は裸値でなく RealityAttribute**（出自=user 宣言 vs imported/default を provenance で保持）。
+ *    rigidity VALUE は anchor 宣言由来であり fixedStart から導出しない（混同禁止）
+ *  - commitmentSignalId は **cache key であって内容同一の証明ではない**（id 同一 ⇒ 内容同一ではない）。
+ *    内容追跡は sourceRefs.dayGraphSnapshotId / 上位 InputRevisionSet / DerivationVersionSet で行う
  */
 
 import type { DayGraph, EventNode } from "@/lib/plan/dayGraph/dayGraphTypes";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { AnchorRigidity } from "@/lib/plan/external-anchor";
+import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import type { ProtectionReason } from "@/lib/plan/reality/authority";
 import {
   heuristicAttribute,
@@ -57,9 +64,9 @@ export interface CommitmentSignalV0 {
     readonly dayGraphNodeId: string;
     readonly dayGraphSnapshotId: string;
   };
-  /** 事実値（DayGraph 計算済み・裸でよい — ern の verb/timeWindow と同じ扱い） */
-  readonly rigidity: AnchorRigidity;
   // ── 全て RealityAttribute（field-level provenance） ──
+  /** 動かしにくさ（判断値・裸でない — RC2a-3A）。VALUE は anchor 宣言由来・fixedStart から導出しない */
+  readonly rigidity: RealityAttribute<AnchorRigidity>;
   /** 守る理由（複合・既存 ProtectionReason 語彙）。空配列は「強い保護理由が見つからない」（≠ commitment 低 confirmed） */
   readonly protectionReasons: RealityAttribute<ProtectionReason[]>;
   readonly otherPeoplePossible: RealityAttribute<boolean>;
@@ -80,18 +87,26 @@ export interface CompileCommitmentSignalInput {
   date: string;
   graph: DayGraph;
   anchors: ReadonlyArray<ExternalAnchor>;
+  /** rigidity の出自判定用（manual=user 宣言で高確信）。無ければ origin 不明として保守確信 */
+  sources?: ReadonlyArray<ExternalAnchorSource>;
 }
 
 function compileOne(
   node: EventNode,
   input: CompileCommitmentSignalInput,
   anchorsById: ReadonlyMap<string, ExternalAnchor>,
+  sourcesById: ReadonlyMap<string, ExternalAnchorSource>,
   laterStrictExists: boolean,
 ): CommitmentSignalV0 {
   const anchor = anchorsById.get(node.anchorId);
   const companions = anchor?.companions;
   const hasCompanions = companions !== undefined && companions.length > 0;
-  const rigidity = node.rigidity;
+  const rigidityValue = node.rigidity;
+  // rigidity の出自: manual source = user 宣言（高確信）/ それ以外・不明 = imported/default（保守確信）
+  const isUserDeclared = anchor !== undefined && sourcesById.get(anchor.sourceId)?.sourceType === "manual";
+  const rigidity: RealityAttribute<AnchorRigidity> = isUserDeclared
+    ? inferredAttribute(rigidityValue, 0.8, ["anchor_declared_rigidity", "origin_user"], { source: "known_from_user", status: "confirmed", displayPolicy: "visible" })
+    : inferredAttribute(rigidityValue, 0.6, ["anchor_declared_rigidity", "origin_unknown_or_imported"], { source: "derived", displayPolicy: "visible" });
   const lt = node.latencyTolerance;
   const verb = node.verb;
   const sensitive = node.sensitive;
@@ -122,7 +137,7 @@ function compileOne(
 
   // ── fixedStart: rigidity hard / latencyTolerance strict|tight = 高確信 / soft+flexible = 低確信 false ──
   let fixedStart: RealityAttribute<boolean>;
-  if (rigidity === "hard") {
+  if (rigidityValue === "hard") {
     fixedStart = inferredAttribute(true, 0.8, ["rigidity_hard"], { displayPolicy: "visible", status: "confirmed", source: "known_from_user" });
   } else if (lt === "strict" || lt === "tight") {
     fixedStart = inferredAttribute(true, 0.7, ["latency_" + lt], { displayPolicy: "visible" });
@@ -165,8 +180,8 @@ function compileOne(
   }
 
   // ── changeCost: hard / otherPeople / reservation で高。不明入力が支配的なら unknown ──
-  const highCost = rigidity === "hard" || otherPeoplePossible.value === true || reservationOrPaymentPossible.value === true;
-  const lowCost = rigidity === "soft" && otherPeoplePossible.value === false;
+  const highCost = rigidityValue === "hard" || otherPeoplePossible.value === true || reservationOrPaymentPossible.value === true;
+  const lowCost = rigidityValue === "soft" && otherPeoplePossible.value === false;
   let changeCost: RealityAttribute<number>;
   if (highCost) {
     changeCost = heuristicAttribute(0.7, 0.3, ["hard_or_others_or_reservation"]);
@@ -180,6 +195,7 @@ function compileOne(
   const missingInputs: string[] = [];
   if (otherPeoplePossible.status === "unknown") missingInputs.push("other_people_unknown");
   if (reservationOrPaymentPossible.status === "unknown") missingInputs.push("reservation_payment_unknown");
+  if (workOrShiftPossible.status === "unknown") missingInputs.push("work_shift_unknown");
   missingInputs.push("deadline_model_pending"); // task/deadline 未実装
   if (reasons.length === 0) missingInputs.push("commitment_signal_weak");
 
@@ -200,12 +216,13 @@ function compileOne(
     socialWeight,
     changeCost,
     missingInputs,
-    evidenceRefs: [...new Set([...reasonEvidence, "rigidity_" + rigidity])],
+    evidenceRefs: [...new Set([...reasonEvidence, "rigidity_" + rigidityValue])],
   };
 }
 
 export function compileCommitmentSignals(input: CompileCommitmentSignalInput): CommitmentSignalV0[] {
   const anchorsById = new Map(input.anchors.map((a) => [a.id, a]));
+  const sourcesById = new Map((input.sources ?? []).map((s) => [s.id, s]));
   const eventNodes = input.graph.nodes.filter((n): n is EventNode => n.kind === "event");
   return eventNodes.map((node) => {
     const laterStrictExists = eventNodes.some(
@@ -214,11 +231,12 @@ export function compileCommitmentSignals(input: CompileCommitmentSignalInput): C
         o.startTime > node.startTime &&
         (o.latencyTolerance === "strict" || o.latencyTolerance === "tight"),
     );
-    return compileOne(node, input, anchorsById, laterStrictExists);
+    return compileOne(node, input, anchorsById, sourcesById, laterStrictExists);
   });
 }
 
 const CS_ATTRIBUTE_KEYS = [
+  "rigidity",
   "protectionReasons",
   "otherPeoplePossible",
   "workOrShiftPossible",

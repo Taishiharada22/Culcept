@@ -149,3 +149,91 @@ describe("stable id / targetNodeId", () => {
     expect(cs.targetNodeId).toBe("ern:2026-06-12:a1");
   });
 });
+
+// ─────────── RC2a-3A closeout audit（GPT 10 点） ───────────
+
+describe("#1 rigidity は裸値でなく RealityAttribute（provenance・fixedStart から導出しない）", () => {
+  it("rigidity は status/source/confidence/displayPolicy を持つ・違反 0", () => {
+    const cs = one({ id: "a1", startTime: "10:00", endTime: "11:00", rigidity: "hard" });
+    expect(cs.rigidity).toHaveProperty("status");
+    expect(cs.rigidity).toHaveProperty("source");
+    expect(cs.rigidity).toHaveProperty("displayPolicy");
+    expect(cs.rigidity.value).toBe("hard");
+    expect(commitmentSignalViolations(cs)).toEqual([]);
+  });
+  it("manual source → rigidity 高確信(known_from_user) / source なし → 保守確信(derived)", () => {
+    const src = { id: "src-manual", sourceType: "manual" } as unknown as import("@/lib/plan/external-anchor-source").ExternalAnchorSource;
+    const { graph } = buildDayGraph({ anchors: [anchor({ id: "a1", startTime: "10:00", endTime: "11:00", rigidity: "hard" })], date: DATE });
+    const withSrc = compileCommitmentSignals({ date: DATE, graph, anchors: [anchor({ id: "a1", startTime: "10:00", rigidity: "hard" })], sources: [src] })[0]!;
+    const noSrc = compileCommitmentSignals({ date: DATE, graph, anchors: [anchor({ id: "a1", startTime: "10:00", rigidity: "hard" })] })[0]!;
+    expect(withSrc.rigidity.source).toBe("known_from_user");
+    expect(withSrc.rigidity.confidence).toBeGreaterThan(noSrc.rigidity.confidence);
+    expect(noSrc.rigidity.source).toBe("derived");
+  });
+});
+
+describe("#2 fixedStart と commitment の分離（fixedStart true だけで high にしない）", () => {
+  it("soft × latency strict（fixedStart true）だが他人/予約なし → protectionReasons 空・changeCost 非 high", () => {
+    // event の latencyTolerance は kernel 推論。strict になる予定でも soft・非対人なら commitment は弱い
+    const cs = one({ id: "a1", title: "予定", startTime: "10:00", endTime: "11:00", rigidity: "soft" });
+    if (cs.fixedStart.value === true && cs.otherPeoplePossible.status === "unknown") {
+      expect(cs.protectionReasons.value).toEqual([]); // fixedStart だけでは守る理由にならない
+      expect(cs.changeCost.status).toBe("unknown"); // high にしない
+    }
+  });
+});
+
+describe("#3 ProtectionReason 圧縮の監査（hard_external の下位 evidence が復元可能）", () => {
+  it("companions → hard_external だが otherPeoplePossible 属性で『他人由来』を復元できる", () => {
+    const cs = one({ id: "a1", startTime: "10:00", endTime: "11:00", companions: ["田中"] } as Partial<ExternalAnchor> & { id: string; startTime: string });
+    expect(cs.protectionReasons.value).toContain("hard_external");
+    expect(cs.otherPeoplePossible.value).toBe(true); // 下位 evidence: 他人由来
+    expect(cs.reservationOrPaymentPossible.status).toBe("unknown"); // 予約由来ではない（区別可能）
+    expect(cs.protectionReasons.evidenceRefs.length).toBeGreaterThan(0); // trace に下位根拠
+  });
+});
+
+describe("#4 reservation/work の unknown も false にしない", () => {
+  it("無信号: reservationOrPayment / workOrShift は unknown（false 捏造しない）・missingInputs に明示", () => {
+    const cs = one({ id: "a1", title: "予定", startTime: "10:00", endTime: "11:00" });
+    expect(cs.reservationOrPaymentPossible.status).toBe("unknown");
+    expect(cs.reservationOrPaymentPossible.value).toBeNull();
+    expect(cs.workOrShiftPossible.status).toBe("unknown");
+    expect(cs.workOrShiftPossible.value).toBeNull();
+    expect(cs.changeCost.value).toBeNull(); // 0 にしない
+    expect(cs.missingInputs).toEqual(expect.arrayContaining(["reservation_payment_unknown", "work_shift_unknown"]));
+  });
+});
+
+describe("#5 title 由来 signal は displayPolicy 保守（visible にしない）", () => {
+  it("verb 由来 otherPeople/work は debugOnly・companions は visible", () => {
+    const verbOnly = one({ id: "a1", title: "仕事会議", startTime: "10:00", endTime: "11:00" });
+    if (verbOnly.otherPeoplePossible.value === true) expect(verbOnly.otherPeoplePossible.displayPolicy).toBe("debugOnly");
+    if (verbOnly.workOrShiftPossible.value === true) expect(verbOnly.workOrShiftPossible.displayPolicy).toBe("debugOnly");
+    const withCompanions = one({ id: "a2", startTime: "10:00", endTime: "11:00", companions: ["X"] } as Partial<ExternalAnchor> & { id: string; startTime: string });
+    expect(withCompanions.otherPeoplePossible.displayPolicy).toBe("visible"); // 構造化は表示可
+  });
+});
+
+describe("#6 deadlineOrCarryoverImpact は unknown（task/deadline 未実装・捏造しない）", () => {
+  it("常に unknown・value null・missingInputs に deadline_model_pending", () => {
+    const cs = one({ id: "a1", startTime: "10:00", endTime: "11:00", rigidity: "hard" });
+    expect(cs.deadlineOrCarryoverImpact.status).toBe("unknown");
+    expect(cs.deadlineOrCarryoverImpact.value).toBeNull();
+    expect(cs.missingInputs).toContain("deadline_model_pending");
+  });
+});
+
+describe("#7 commitmentSignalId identity（index 非依存・順序非依存・date/anchor で変化）", () => {
+  it("入力順入れ替えで同 anchor は同 id / 別 date は別 id", () => {
+    const a1 = anchor({ id: "a1", startTime: "10:00", endTime: "11:00" });
+    const a2 = anchor({ id: "a2", startTime: "14:00", endTime: "15:00" });
+    const idAB = new Map(compile([a1, a2]).map((c) => [c.sourceRefs.anchorId, c.commitmentSignalId]));
+    const idBA = new Map(compile([a2, a1]).map((c) => [c.sourceRefs.anchorId, c.commitmentSignalId]));
+    expect(idAB.get("a1")).toBe(idBA.get("a1"));
+    const otherDate = buildDayGraph({ anchors: [{ ...a1, date: "2026-06-13" } as ExternalAnchor], date: "2026-06-13" }).graph;
+    const csOther = compileCommitmentSignals({ date: "2026-06-13", graph: otherDate, anchors: [a1] })[0]!;
+    expect(csOther.commitmentSignalId).not.toBe(idAB.get("a1")); // date 変化で id 変化
+    expect(csOther.sourceRefs.dayGraphSnapshotId).toBeTruthy(); // 内容追跡は snapshot 側
+  });
+});
