@@ -23,12 +23,40 @@ import type { RealityInstant } from "./realityInstant";
 export type PredictionHorizon = "day" | "evening" | "event";
 export type PredictionTargetNodeKind = "day" | "event" | "movement";
 
+/** B1 学習の出所（RC2a-1c §7 — calibrationSource 単一 string を廃止・追跡可能に） */
+export interface PredictionCalibration {
+  readonly calibrationRefs: ReadonlyArray<string>;
+  readonly policyVersion: string;
+  readonly learningSourceKind: "correction" | "night_check" | "drift" | "mixed";
+  readonly sampleSize: number;
+  readonly evidenceQuality: "high" | "medium" | "low";
+  readonly recencyWindowDays: number;
+}
+
 /** 「誰が何で予測したか」を後から追えるようにする（RC2a-1b §7 — predictedBy 単一文字列を廃止） */
 export interface PredictionPredictor {
   readonly kind: "heuristic" | "model" | "user_confirmed" | "mixed";
   readonly version: string; // 例: "dayState@v0"
   readonly modelId: string | null; // LLM/model 使用時のみ
-  readonly calibrationSource: string | null; // B1 補正が効いている場合の出所
+  readonly calibration: PredictionCalibration | null; // B1 補正が効いている場合の出所
+}
+
+/** 予測の実績 source（RC2a-1c §6 — "actual は NightCheck のみ" を永久化しない）。v0 は night_check のみ */
+export type PredictionActualSourceKind =
+  | "night_check"
+  | "self_report"
+  | "completion"
+  | "drift"
+  | "location"
+  | "manual"
+  | null;
+
+/** 凍結時点の人間監査可能な根拠（RC2a-1c §2 — per-viewer redaction 後の safe trace） */
+export interface PredictionFrozenContext {
+  readonly frozenEvidenceRefs: ReadonlyArray<string>;
+  readonly frozenSourceTrace: ReadonlyArray<string>;
+  /** 凍結時点の入力の人間可読要約（PII / 他人情報を生で焼き込まない） */
+  readonly frozenInputSummary: string;
 }
 
 export interface PredictionEntryV0 {
@@ -52,11 +80,15 @@ export interface PredictionEntryV0 {
   readonly derivationVersions: DerivationVersionSet;
   readonly predictor: PredictionPredictor;
   readonly predictedAt: RealityInstant;
+  /** 凍結時点の人間監査可能な根拠（RC2a-1c §2 — revision hash だけでは監査できない） */
+  readonly frozenContext: PredictionFrozenContext;
 
   // ── 予測と実績（裸値禁止） ──
   readonly predictedValue: ConfidentValue<unknown> | RealityAttribute<unknown>;
   readonly evidenceRefs: ReadonlyArray<string>;
   readonly actualValue: ConfidentValue<unknown> | RealityAttribute<unknown> | null;
+  /** 実績の出所（RC2a-1c §6）。v0 は "night_check" のみ・未観測は null */
+  readonly actualSourceKind: PredictionActualSourceKind;
   readonly observedAt: RealityInstant | null;
   /** T_freeze 後の本人補正（actual ではなく separate intervention — RG0.6b §6）。
    *  kind="self_report" = 「今の実感」の観測（grading actual には使わない・calibration には使える・

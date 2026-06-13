@@ -67,6 +67,13 @@ describe("fnv1a64 / canonicalSerialize — 決定性と正規化", () => {
     const seq2 = [{ at: "09:01", direction: "lower" }, { at: "09:00", direction: "higher" }];
     expect(canonicalSerialize(seq1)).not.toBe(canonicalSerialize(seq2));
   });
+  it("NFC/NFD で見た目同一でも別 serialize（= 生ユーザー文字列を revision payload に入れない理由 — RC2a-1c §4）", () => {
+    const nfc = "ガ".normalize("NFC");
+    const nfd = "ガ".normalize("NFD");
+    expect(nfc).not.toBe(nfd); // 同一見た目・別コードポイント
+    expect(canonicalSerialize({ s: nfc })).not.toBe(canonicalSerialize({ s: nfd }));
+    // 規律: revision 対象は enum/number/正規化時刻のみ（生文字列を避ければ本問題は発生しない）
+  });
   it("revision は自己記述 prefix（rev1:fnv1a64:）を持つ", () => {
     expect(revisionOf({ x: 1 })).toMatch(/^rev1:fnv1a64:[0-9a-f]{16}$/);
   });

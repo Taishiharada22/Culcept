@@ -40,7 +40,10 @@ export function fnv1a64Hex(input: string): string {
  *  - number は finite double のみ。NaN/±Infinity は throw（silent "null" 崩壊の禁止）。-0 は 0 正規化
  *  - BigInt / Date / function / symbol は throw（Date は ISO string に変換してから渡す —
  *    オブジェクトのまま渡すと "{}" に崩壊するため fail-fast）
- *  - string は byte-wise・Unicode 正規化なし（上流が一貫エンコードを供給する責務）
+ *  - string は byte-wise・Unicode 正規化なし（上流が一貫エンコードを供給する責務）。
+ *    RC2a-1c §4: revision/identity payload には ID/enum/normalized field のみ（生ユーザー文字列を入れない）。
+ *    現状 recordRevisionOf の対象は時刻 HH:MM・enum・number のみで Unicode 問題の構造的免疫がある。
+ *    将来 発話/場所名/displayLabel を入れる場合は boundary で NFC 正規化してから渡す（本関数は NFC 済み前提）。
  * 内容同一性の証明はこの出力の比較で行う（id 比較で代用しない — RG0.6b §1）
  */
 export function canonicalSerialize(value: unknown): string {
@@ -145,7 +148,8 @@ const VIEWER_KEY_SALT = "aneurasync.reality-graph.viewer.v0";
 /**
  * graph id / log / cache key 用の **pseudonymous** viewer key（匿名化ではない — RC2a-1b §6）。
  *  - salt は client 到達コード内の固定値 = 推測可能。linkability は残るため privacy boundary として過信しない
- *  - debug/log に出す場合も個人関連情報として扱う
+ *  - **使用は cache key に限定**（RC2a-1c §10）。analytics/log には原則出さない・出す場合は session/day scope に限定
+ *  - raw auth user id と相互参照できる場所を限定
  *  - **権限判断には使わない**（redaction/RLS の authority は常に auth user id・server 検証）
  * raw auth UUID を id に入れない。fixture は定数 "viewer-self"（実 UUID を fixture に書かない）。
  */
