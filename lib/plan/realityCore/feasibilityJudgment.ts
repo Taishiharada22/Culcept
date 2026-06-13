@@ -11,8 +11,12 @@
  *     - riskFactors              … 脆さの severity context（block しない。riskLevel に集約）
  *   不確実を infeasible とも feasible とも**断定しない**。unknown は一級の正直な出力。
  *
- * 絶対規律（CEO RJ1a）:
+ * 絶対規律（CEO RJ1a / RJ1b）:
  *   - Feasibility と Risk を分ける（別軸）。confirmed がある時のみ infeasible。
+ *   - **duplicate / equivalent event 未確定で confirmedBlocking にしない**（RJ1b safeguard）。同一現実イベントの
+ *     二重取り込み候補（同一 timeWindow）は「衝突か重複か」確定できず unresolvedCriticalInput に倒す。LLM で同一判断しない。
+ *   - day scope = event-level judgments を merged buckets で集約（confirmed→day infeasible / unresolved→day unknown）。
+ *     trace.perEventContributions で day → event を辿れる（event → field は reason の targetNodeId + evidenceRefs）。
  *   - decisionDebt high ≠ risk high / commitment high ≠ infeasible / mobilityDebt high ≠ 遅刻確定。
  *   - missingInputs は判断不能理由であって失敗理由そのものではない。
  *   - **確率・% を出さない**（riskLevel は factor 集約であって probability ではない）。
@@ -90,6 +94,16 @@ export interface RealityJudgmentTrace {
   readonly factorRefs: ReadonlyArray<string>;
   readonly confirmedBlockingRefs: ReadonlyArray<string>;
   readonly inferredBlockingRefs: ReadonlyArray<string>;
+  /**
+   * day-level → event-level の橋（RJ1b）。各 target event の per-event status/risk を残し、
+   * day judgment がどの event から来たか追える（event → field は各 reason の targetNodeId + evidenceRefs）。
+   * event scope では対象 1 件。
+   */
+  readonly perEventContributions: ReadonlyArray<{
+    readonly eventRealityNodeId: string;
+    readonly feasibilityStatus: FeasibilityStatus;
+    readonly riskLevel: RiskLevel;
+  }>;
   /** 評価が表す瞬間（= snapshot.builtAt の carry）。**identity 対象外**（computedAt を id に混ぜない） */
   readonly evaluatedAtInstant: RealityInstant;
 }
@@ -170,6 +184,20 @@ function hasExplicitWindow(ern: EventRealityNodeV0): boolean {
   return ern.timeWindow.durationSource === "explicit";
 }
 
+/**
+ * duplicate / equivalent event safeguard（RJ1b）: 同一現実イベントの二重取り込み候補か。
+ * 同一現実イベントが複数 source（google_calendar + manual 等）から取り込まれると 2 つの event に見え、
+ * confirmed 衝突に直行すると false infeasible になる。これを防ぐ。
+ *
+ * v0 signal = **同一 timeWindow（同 start ∧ 同 end）**。distinct な hard 予定が偶然 exact 同時刻に並ぶより、
+ * multi-source 取り込みの兆候の方が確からしい。確定はできないので「衝突か重複か」を unresolved に倒す。
+ * **LLM 推定で同一判断しない**。externalUid / title hash / location hash / source-level dedup は将来材料
+ * （ern 未露出・displayLabel は sensitive redaction で generic 化され不可）= 参考材料に留め、本判定の正本にしない。
+ */
+function isPossibleDuplicate(a: EventRealityNodeV0, b: EventRealityNodeV0): boolean {
+  return a.timeWindow.startHHMM === b.timeWindow.startHHMM && a.timeWindow.endHHMM === b.timeWindow.endHHMM;
+}
+
 /** 単一 event の factor 収集（4 バケットに分離・混ぜない・evidenceRefs は field-level） */
 function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
   const b: EventBuckets = { confirmed: [], inferred: [], unresolved: [], risk: [], used: [] };
@@ -194,6 +222,14 @@ function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
       const ow = subjectiveWindow(other); // boundary 跨ぎ/parse 不能は null = overlap 判定から除外（混ぜない）
       if (!ow || !windowsOverlap(win, ow)) continue;
       const otherId = other.eventRealityNodeId;
+      // duplicate/equivalent safeguard（RJ1b）: 同一現実イベント候補は confirmed 衝突に直行させない。
+      // identity 未確定（衝突か重複か不明）→ unresolvedCriticalInput に倒す（unknown を駆動・confirmed/inferred にしない）。
+      if (isPossibleDuplicate(ern, other)) {
+        b.unresolved.push(
+          reason("duplicate_identity_unresolved", ernId, [`${ernId}#timeWindow`, `${otherId}#timeWindow`, "same_time_window_possible_duplicate"]),
+        );
+        continue;
+      }
       // confirmed = 両 window explicit ∧ 両 fixedness confirmed-hard。弱い根拠は「重なって見える」止まり → inferred。
       const strict = hasExplicitWindow(ern) && hasExplicitWindow(other) && isConfirmedHard(ern) && isConfirmedHard(other);
       const refs = [`${ernId}#timeWindow`, `${ernId}#fixedness`, `${otherId}#timeWindow`, `${otherId}#fixedness`];
@@ -335,10 +371,22 @@ export function evaluateFeasibility(input: RealityJudgmentInputV0): FeasibilityJ
     targets = snapshot.eventRealityNodes.filter((e) => ids.has(e.eventRealityNodeId));
   }
 
-  const buckets = mergeBuckets(targets.map((ern) => evaluateEvent(ern, ctx)));
+  // per-event 評価 → day-level は merged buckets で集約（factor aggregation・event-level を根拠にする — RJ1b）。
+  // confirmed が 1 つでもあれば day infeasible / unresolved があれば unknown（worst-case lattice 等価）。
+  const perEval = targets.map((ern) => {
+    const eb = evaluateEvent(ern, ctx);
+    const rl = deriveRiskLevel(eb);
+    return { ernId: ern.eventRealityNodeId, buckets: eb, status: deriveStatus(eb, rl), riskLevel: rl };
+  });
+  const buckets = mergeBuckets(perEval.map((p) => p.buckets));
   const riskLevel = deriveRiskLevel(buckets);
   const feasibilityStatus = deriveStatus(buckets, riskLevel);
   const judgmentConfidence = deriveConfidence(buckets, feasibilityStatus);
+  const perEventContributions = perEval.map((p) => ({
+    eventRealityNodeId: p.ernId,
+    feasibilityStatus: p.status,
+    riskLevel: p.riskLevel,
+  }));
 
   // ── trace identity（cache key・内容証明でない・raw viewerId 不含[snapshotId が擬名化済み]）──
   const judgmentId = `rjf:${fnv1a64Hex(
@@ -363,6 +411,7 @@ export function evaluateFeasibility(input: RealityJudgmentInputV0): FeasibilityJ
     factorRefs: [...new Set(buckets.risk.flatMap((r) => [r.code, ...r.evidenceRefs]))],
     confirmedBlockingRefs: [...new Set(buckets.confirmed.flatMap((r) => [r.code, ...r.evidenceRefs]))],
     inferredBlockingRefs: [...new Set(buckets.inferred.flatMap((r) => [r.code, ...r.evidenceRefs]))],
+    perEventContributions,
     evaluatedAtInstant: snapshot.builtAt, // identity 対象外
   };
 

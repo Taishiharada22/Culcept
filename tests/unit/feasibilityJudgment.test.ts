@@ -320,3 +320,77 @@ describe("RJ1a feasible path + scope + input validation", () => {
     expect(judgeEvent(s, ERN("a1")).displayPolicy).toBe("notActionable");
   });
 });
+
+const EARLY_UTC = new Date(Date.UTC(2026, 5, 12, 0, 0)); // JST 09:00 → 10:00/11:00/14:00 event は upcoming
+
+describe("RJ1b day-scope aggregation + duplicate/equivalent safeguard", () => {
+  it("#1/#7 event-level confirmed が day に伝播 + perEventContributions で day→event→field を追跡", () => {
+    const b = base([
+      anchor({ id: "a1", startTime: "10:00", endTime: "12:00", locationText: "渋谷", rigidity: "hard" }),
+      anchor({ id: "a2", startTime: "11:00", endTime: "13:00", locationText: "新宿", rigidity: "hard" }),
+    ], EARLY_UTC);
+    const s = snap(b, { ernOverrides: { [ERN("a1")]: confirmHardFixedness(b, ERN("a1")), [ERN("a2")]: confirmHardFixedness(b, ERN("a2")) } });
+    const j = evaluateFeasibility(buildRealityJudgmentInput(s, { kind: "day" }));
+    expect(j.feasibilityStatus).toBe("infeasible"); // event-level confirmed → day infeasible
+    const pec = j.judgmentTrace.perEventContributions;
+    expect(pec.length).toBe(2);
+    expect(pec.some((c) => c.eventRealityNodeId === ERN("a1") && c.feasibilityStatus === "infeasible")).toBe(true);
+    // day → event → field: confirmed reason の targetNodeId が event・evidenceRefs が field を指す
+    const conf = j.confirmedBlockingReasons.find((r) => r.targetNodeId === ERN("a1"));
+    expect(conf?.evidenceRefs.some((e) => e.includes("#fixedness"))).toBe(true);
+  });
+
+  it("#2 inferredBlocking のみ（soft overlap・distinct window・critical 解決）→ day feasible_with_risk（infeasible でない）", () => {
+    const ov = { placeCertainty: placeConfirmed(), movementRequired: movementNotRequired() };
+    const s = snap(base([
+      anchor({ id: "a1", startTime: "10:00", endTime: "12:00", locationText: "渋谷", rigidity: "soft" }),
+      anchor({ id: "a2", startTime: "11:00", endTime: "13:00", locationText: "渋谷", rigidity: "soft" }),
+    ], EARLY_UTC), { ernOverrides: { [ERN("a1")]: ov, [ERN("a2")]: ov } });
+    const j = evaluateFeasibility(buildRealityJudgmentInput(s, { kind: "day" }));
+    expect(j.confirmedBlockingReasons).toEqual([]);
+    expect(j.feasibilityStatus).toBe("feasible_with_risk");
+    expect(j.feasibilityStatus).not.toBe("infeasible");
+  });
+
+  it("#3 missingInputs のみ → day unknown（infeasible でない）", () => {
+    const s = snap(base([
+      anchor({ id: "a1", startTime: "10:00", endTime: "11:00" }),
+      anchor({ id: "a2", startTime: "14:00", endTime: "15:00" }),
+    ], EARLY_UTC));
+    const j = evaluateFeasibility(buildRealityJudgmentInput(s, { kind: "day" }));
+    expect(j.feasibilityStatus).toBe("unknown");
+    expect(j.feasibilityStatus).not.toBe("infeasible");
+    expect(j.confirmedBlockingReasons).toEqual([]);
+  });
+
+  it("#4 duplicate 候補（同一 timeWindow + explicit + confirmed-hard）は confirmed に直行しない → duplicate_identity_unresolved", () => {
+    const b = base([
+      anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷", rigidity: "hard" }),
+      anchor({ id: "a2", startTime: "14:00", endTime: "15:00", locationText: "渋谷", rigidity: "hard" }), // 同一 window
+    ]);
+    const s = snap(b, { ernOverrides: { [ERN("a1")]: confirmHardFixedness(b, ERN("a1")), [ERN("a2")]: confirmHardFixedness(b, ERN("a2")) } });
+    const j = judgeEvent(s, ERN("a1"));
+    expect(j.confirmedBlockingReasons).toEqual([]); // duplicate 候補 → confirmed にしない
+    expect(j.unresolvedCriticalInputs.map((r) => r.code)).toContain("duplicate_identity_unresolved");
+    expect(j.feasibilityStatus).not.toBe("infeasible");
+    expect(j.feasibilityStatus).toBe("unknown");
+  });
+
+  it("#5 same external event 候補（同一 window）→ day も infeasible にしない（unknown 止まり）", () => {
+    const b = base([
+      anchor({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷", rigidity: "hard" }),
+      anchor({ id: "a2", startTime: "14:00", endTime: "15:00", locationText: "渋谷", rigidity: "hard" }),
+    ], EARLY_UTC);
+    const s = snap(b, { ernOverrides: { [ERN("a1")]: confirmHardFixedness(b, ERN("a1")), [ERN("a2")]: confirmHardFixedness(b, ERN("a2")) } });
+    const j = evaluateFeasibility(buildRealityJudgmentInput(s, { kind: "day" }));
+    expect(j.feasibilityStatus).not.toBe("infeasible");
+    expect(j.confirmedBlockingReasons).toEqual([]);
+  });
+
+  it("#6 sourceRecordRevisionPending / sourcesRevisionPending が day trace に残る", () => {
+    const s = snap(base([anchor({ id: "a1", startTime: "10:00", endTime: "11:00" })], EARLY_UTC));
+    const t = evaluateFeasibility(buildRealityJudgmentInput(s, { kind: "day" })).judgmentTrace;
+    expect(t.sourceRecordRevisionPending).toBe(true);
+    expect(t.sourcesRevisionPending).toBe(true);
+  });
+});
