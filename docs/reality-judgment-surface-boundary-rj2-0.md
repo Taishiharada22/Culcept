@@ -6,6 +6,7 @@
 - 規律: **型 skeleton と境界宣言のみ**。コード・実装・user-facing copy・配信は全て HOLD。本書はコードを書かない。
 - 停止位置: 本書の CEO 確認まで。**RJ2a GO はまだ無い**（GO 条件は §8.4）。
 - 手法: 6 設計次元を並列設計（実 realityCore 読込で grounded）→ 6 敵対 red-team（gate 抜け穴攻撃）→ 統合。red-team が穴 6 件（blocker 2 / major 4）を発見し、本文に gate / 不変条件 / 適用順序として全封鎖。断片間 6 矛盾を §10 で確定。
+- **RJ2-0A 改訂（2026-06-14）**: CEO 監査で発見した設計内 4 矛盾を補正（§0.2 INV-9/10/11 追加・§2/§3 G0 の notActionable 扱い修正・§4.2 ambiguity strip と clarification hard-gate の矛盾解消）。詳細は §11。
 
 ---
 
@@ -33,6 +34,9 @@ pure core は既に `decisionKind`（silent/observe/internal_prepare/ask_clarifi
 - **INV-6（確率・fake・unknown 0 化の禁止）**: %/確率/数値スコア/ゲージ化、fake ETA/leaveBy/prep/route/weather/currentLocation、unknown の 0/false/「問題なし」扱い、を全て禁止。
 - **INV-7（authority 分離）**: viewer 判定の authority は常に server-side auth user id。`graphViewerKey`（擬名化キー）を権限判断に使わない。
 - **INV-8（carry-not-relax の flag 適用）**: 上流の決定（decisionKind / actionBoundary / gate reasons / blocked 短絡）を carry するだけで緩めない。**特に G0 で短絡した時点で、後段が contact 系 flag を再評価・復活させてはならない**（red-team #5 由来・§4.5）。
+- **INV-9（notActionable = 表示可・操作不可・RJ2-0A 採用 A）**: `displayPolicy==="notActionable"` は「**触ってはいけない**」であって「**見せてはいけない**」ではない。よって **L1 passive reference まで `show_redacted` で出せる**が、`SurfaceActionAffordance` は**必ず `none`** で、`clarificationOnly=false` ∧ `proposableShapes=[]` ∧ `departureLineRefs=[]` ∧ notification/contact 不可 ∧ raw evidenceRefs 不可 ∧ redaction 必須。sensitive/otherPeople/work/reservation/payment ではさらに `withhold` へ下げ得る。**G0 KILL は notActionable で L1+ を落とさない**（kill は `eligibilityLevel==="blocked"` または `decisionKind ∈ {silent, blocked}` のみ。silent/blocked 由来の抑制は decisionKind 経由で既に効く）。
+- **INV-10（surface object ≠ user 表示）**: RJ2a/b/c が出すのは **surface plan / claim skeleton / question candidate の object** であって user-facing copy / UI 表示 / 通知ではない。`claimTextDraft` は null・`ClarificationQuestionCandidateV0` は文面なし。**L1/L2 は将来の surface category** であり RJ2a 時点では plan/candidate object に過ぎない。**actual user-facing surface emission は RJ2e 以降の CEO 承認まで HOLD**。本書の「v0 で出してよい（L1/L2/L3）」は「**この object を構築してよい**」の意で、「ユーザーに表示してよい」ではない。
+- **INV-11（active_prompt 非配信・contactPolicy/deliveryModeCeiling は dispatch でない）**: `contactPolicy` / `deliveryModeCeiling` は **dispatch instruction ではない**（RC2c-2 注記の継承）。`active_prompt` は delivery command でなく、**G5 で v0 は active_prompt を落とす**。`active_prompt` 値があっても notification / push / chat message は出ない。**notification / contact は RJ2f まで型すら実行しない**。
 
 ---
 
@@ -65,7 +69,7 @@ pure core は既に `decisionKind`（silent/observe/internal_prepare/ask_clarifi
 
 | gate | 入力 | 落とす対象 |
 |---|---|---|
-| **G0 KILL** | `eligibilityLevel` / `decisionKind` / `displayPolicy(notActionable)` | blocked → 全消し + **全 contact 系 flag を false 確定（carry-not-relax の起点）** |
+| **G0 KILL** | `eligibilityLevel` / `decisionKind` | `eligibilityLevel==="blocked"` または `decisionKind==="blocked"` → 全消し + **全 contact 系 flag を false 確定（carry-not-relax の起点）**。silent は G1 で L0 のみに。**notActionable では kill しない**（INV-9・G4/affordance で操作不可化） |
 | **G1 DECISION** | `InterventionDecisionV0.decisionKind`（**capped 後**） | exposure 上限決定: silent→全 silent / observe→L1 / internal_prepare→L3(無接触) / ask_clarification→L2 / blocked→全消し |
 | **G2 PERMISSION** | `actionBoundary` | 行動性天井: display_only→L1 / draft_only→L3 / ask_confirmation→L2 / blocked→全消し。`min(G1,G2)` を採る |
 | **G2.5 MOVEMENT-INPUT**（新規・red-team #1） | leaveByKnown / etaKnown / mobilityStatus / ern.leaveBy.value | departure 系 surface を `DepartureLineBoundaryV0` 経由に限定。v0 は構造的に全除外（departureLineRefs===[]） |
@@ -84,8 +88,8 @@ pure core は既に `decisionKind`（silent/observe/internal_prepare/ask_clarifi
         │
         ▼
   [G0] KILL CHECK ───────────────────────────────────────────────────────────────────
-        eligibilityLevel==="blocked" || decisionKind==="blocked" → 全層 silent
-        displayPolicy==="notActionable"(silent/blocked 由来) も L1+ を落とす
+        eligibilityLevel==="blocked" || decisionKind==="blocked" → 全層 silent（silent は次段 G1 で L0 のみに）
+        ★ notActionable では kill しない（INV-9）。notActionable は L1 show_redacted + actionAffordance none で扱う（§6.3）
         ★ ここで blocked に短絡したら、clarificationOnly / proposableShapes / departureLineRefs /
           全 contact 系 flag を即 false/[] に確定。後段はこれを復活させない（INV-8・red-team #5）
         │ (pass)
@@ -174,9 +178,9 @@ leaveBy は v0 で常に null（leaveBy ガード8 + MovementReality の leaveBy
 **事実訂正**: core（`interventionEligibility.ts`）では ambiguity 下でも `canSuggestPrepare=true` のまま生き残る（prepare は schedule を変えないため noChange 判定外）。各断片の「ambiguity 下では askClarification のみ残る」は**誤り**。
 
 **封じ方**:
-- **INV-AMB-A（ambiguity strip）**: `exact_time_collision_ambiguous` が confirmationReasons/failureModes に存在するとき、`proposableShapes` から **prepare を含む全 change/prepare shape を除外**し、`proposableShapes=[]` ∧ `clarificationOnly=true` を強制。
+- **INV-AMB-A（ambiguity strip — RJ2-0A 修正）**: `exact_time_collision_ambiguous` が confirmationReasons/failureModes に存在するとき、`proposableShapes` から **prepare を含む全 change/prepare shape を除外**し `proposableShapes=[]` を強制する。**ただし `clarificationOnly=true` は強制しない**（§4.5 INV-CLAR との矛盾を解消）。ambiguity は **clarification の材料（`clarificationEligibleReason`）にはなる**が、それだけで clarification surface を出さない。`clarificationOnly=true` は §4.5 INV-CLAR-A に従い **`decisionKind==="ask_clarification"` を通った場合のみ**。`decisionKind=observe` のときは ambiguity があっても clarification surface を出さない（observe→L1 まで）。
 - **INV-AMB-B（walker）**: `proposalCandidateBoundaryViolations` に「**ambiguity reason が存在するのに `proposableShapes.length>0` → FAIL**」を追加。
-- **INV-AMB-C（順序）**: ambiguity strip を `proposableShapes` 構築の**最初**に置き、後段で緩めない。ambiguity 下の許可出口は **ask_clarification（質問候補）と observe のみ**。
+- **INV-AMB-C（順序）**: ambiguity strip を `proposableShapes` 構築の**最初**に置き、後段で緩めない。ambiguity 下の許可出口は **decisionKind に従い**: `ask_clarification` なら ask_clarification（質問候補）/ `observe` なら observe（L1 のみ）/ それ未満なら抑制。ambiguity 単独で接触を発火しない。
 - **INV-AMB-D（handoff 二重化）**: 「proposableShape=prepare であっても、その event/scope に ambiguity reason がある場合は Communication は文面生成を禁止」を §7-D 下流契約に追加。
 
 ### 4.3 穴#3（major）: high collapse risk だけで internal_prepare→proposal を取れる（2 断片の不一致）
@@ -547,3 +551,39 @@ export interface DepartureLineBoundaryV0 {
 **確定 gate 適用順序**: G0 KILL → G1 DECISION → G2 PERMISSION → **G2.5 MOVEMENT-INPUT（新規）** → G3 EVIDENCE/CLAIM → G4 REDACTION（**genericize を G4 自身が実行**） → G5 DELIVERY。短絡時は全 contact 系 flag を即 false/[] に確定し後段で復活させない（INV-8）。
 
 本書は実装なし・型は skeleton のみ・docs-only。確立済み不変条件（field-level evidence・unknown 非 0・ambiguity≠duplicate・確率なし・fake なし・default-deny・decisionKind≤actionBoundary・display redaction）を全章で維持。
+
+---
+
+## 11. RJ2-0A 矛盾補正サマリ（CEO 監査 4 点）
+
+RJ2-0 設計書内で発見された 4 矛盾を補正・再裁定した。
+
+### 11.1 `notActionable` の再裁定 → **採用 A（表示可・操作不可）**
+
+- **矛盾**: §2/§3 G0 は「`notActionable` も L1+ を落とす」、§6.3 写像は「`notActionable` → `show_redacted` / action none」。
+- **裁定（A 採用）**: `notActionable` =「触ってはいけない」であって「見せてはいけない」ではない（CEO 推奨 A・プロダクト思想）。
+- **修正**: G0 KILL から `notActionable` を除去（§2 G0 行・§3 pipeline）。kill は `eligibilityLevel==="blocked"` / `decisionKind==="blocked"` のみ（silent は G1 で L0 のみに）。`notActionable` は §6.3 のとおり L1 `show_redacted` + actionAffordance `none`。
+- **不変条件（INV-9）**: notActionable → user-facing passive reference まで・actionAffordance 必ず none・clarificationOnly false・proposableShapes []・departureLineRefs []・notification/contact 不可・raw evidenceRefs 不可・redaction 必須・sensitive/otherPeople/work/reservation/payment ではさらに withhold へ下げ得る。
+
+### 11.2 ambiguity strip と clarification hard-gate の矛盾解消
+
+- **矛盾**: §4.2 INV-AMB-A は ambiguity で `clarificationOnly=true` を強制、§4.5 INV-CLAR-A は `decisionKind!=="ask_clarification"` で `clarificationOnly=false`。`decisionKind=observe` + ambiguity で衝突。
+- **裁定**: ambiguity は clarification の**材料**（`clarificationEligibleReason`）にはなるが、それだけで `clarificationOnly=true` にしない。`clarificationOnly=true` は **必ず `decisionKind==="ask_clarification"` を通った場合のみ**（INV-CLAR-A 優先）。
+- **修正（§4.2 INV-AMB-A）**: ambiguity strip は `proposableShapes=[]` を強制するが `clarificationOnly=true` は強制しない。`decisionKind=observe` のとき ambiguity があっても clarification surface を出さない（observe→L1 まで）。両不変条件が無矛盾化。
+
+### 11.3 L1/L2「出してよい」の意味（INV-10）
+
+- **明記**: RJ2a/b/c が出すのは **surface plan / claim skeleton / question candidate の object** であって user-facing copy / UI 表示 / 通知ではない。
+  - `claimTextDraft` は null・`ClarificationQuestionCandidateV0` は文面なし。
+  - L1/L2 は将来の surface category であり、RJ2a 時点では plan/candidate **object**。
+  - **actual user-facing surface emission は RJ2e 以降の CEO 承認まで HOLD**。本書の「v0 で出してよい」は「この object を構築してよい」の意。
+
+### 11.4 `active_prompt` / `deliveryModeCeiling` の非配信性（INV-11）
+
+- **明記**: `contactPolicy` / `deliveryModeCeiling` は **dispatch instruction ではない**。`active_prompt` は delivery command でなく、G5 で v0 は active_prompt を落とす。active_prompt があっても notification / push / chat message は出ない。**notification / contact は RJ2f まで型すら実行しない**（RC2c-2 注記の継承）。
+
+### 11.5 RJ2a に進めるかどうかの自己判定
+
+- **判定: RJ2a は設計的に ready（条件付き）**。RJ2-0A の 4 矛盾を解消し、設計書は内部無矛盾になった。gate pipeline（G0→G1→G2→G2.5→G3→G4→G5）・不変条件（INV-0〜11）・型案・walker 案・FAIL 再現 fixture（§8.4）が確定し、RJ2a（JudgmentSurfacePlanV0 schema/types + `deriveSurfacePlan` + `surfacePlanViolations` walker）の実装に必要な契約は揃っている。
+- **ただし RJ2a は実装 slice であり、各 slice GO は CEO の専管**。本書は RJ2a を自己承認しない。**RJ2-0A の CEO 確認 → RJ2a GO** の順で進む。RJ2e（copy）/RJ2f（notification）は CEO 承認まで HOLD を維持。
+- **私の推奨**: RJ2-0A 受領後、RJ2a（pure・型 + 編成 + walker・文面/配信ゼロ・既存 6 判断器ファイル不接触）から実装に入るのが安全かつ自然。
