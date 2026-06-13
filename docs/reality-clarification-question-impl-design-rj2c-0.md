@@ -6,6 +6,7 @@
 - 上流: RJ2a `judgmentSurfacePlan.ts`（exposure 包絡）+ RJ2b `surfaceClaim.ts`（`confirmation_needed` claim）。RJ2c は plan/eligibility を consume して **何について確認するか（question slot）**を構造化する。
 - 規律: **コードを書かない**。本書は設計提出のみ。**RJ2c 実装 GO は CEO 確認後**（§8）。RJ2c-0 完了時点で勝手に実装に進まない。
 - 範囲: RJ2c は **question candidate の構造化（kind のみ・文面なし）+ ask_clarification hard gate + gate→question 写像 + redaction/evidence visibility** のみ。**question 文面（自然言語）は RJ2e で HOLD**。proposal（RJ2d）・departure（RJ2d/RC4）・notification（RJ2f）も HOLD。
+- **RJ2c-0A 改訂（2026-06-14）**: CEO 監査で **question identity / dedupe / unresolved scope** の危険を補正。①`dedupe by questionKind` を**撤回** → identity を (surfacePlanId + questionKind + subjectScope + subjectNodeId + relationRef + gateReasonCode + evidence basis + version) に再定義（同 kind でも subject/relation/evidence が違えば**別 question**・dedupe で evidenceRefs/sourceRefs/missingInputRefs を失わない）。②subjectNodeId は **gate reason の targetNodeId**（plan 集約 null でなく per-event）。time collision は **relationRef 単位**。③`resolve_unresolved_input` を **allowlist 方式**にし leaveBy/eta/route/currentLocation/place/sourceRevisionPending/duplicate-identity を question 化しない（→ suppressedQuestionRefs/missingInputRefs）。④question candidate は `relatedClaimRefs` + `gateReasonCode` で confirmation_needed claim/gate へ辿れる（claim を入力に取らず mutate しない）。⑤answerShape は internal structure only（選択肢文面/label/yes-no なし・duplicate 前提なし）。⑥questionSet direct read 禁止。詳細は §11（§3.3/§5 に優先）。
 
 ---
 
@@ -82,10 +83,13 @@ export interface ClarificationQuestionCandidateV0 {
   readonly questionId: string;                   // 決定的・raw viewerId 不含
   readonly questionKind: ClarificationQuestionKind;
   readonly subjectScope: TargetScope;
-  readonly subjectNodeId: string | null;         // **id のみ**（raw label/text を持たない）
+  readonly subjectNodeId: string | null;         // **id のみ**（gate reason の targetNodeId・per-event・RJ2c-0A）
+  readonly relationRef: string | null;           // **RJ2c-0A**: time collision の relationId（pairwise 単位）。gate question は null
+  readonly gateReasonCode: string | null;        // **RJ2c-0A**: 由来 gate code（other_people_involved 等）。dedupe/trace の一部
+  readonly relatedClaimRefs: ReadonlyArray<string>; // **RJ2c-0A**: 紐づく confirmation_needed claimId（claim を mutate しない・無くても gate reason から作る）
   readonly exposureBinding: "ask_eligible";      // **v0 固定**: ask_eligible のみ（hard gate）
   readonly questionTextDraft: null;              // **RJ2e HOLD**（v0 常に null・文面を持たない）
-  readonly answerShape: "binary_confirm" | "disambiguate_two_way" | "open_unresolved"; // 構造のみ・選択肢文面なし
+  readonly answerShape: "binary_confirm" | "disambiguate_two_way" | "open_unresolved"; // **internal structure only**（選択肢文面/label/yes-no なし・RJ2c-0A §11.5）
   readonly evidenceContract: QuestionEvidenceContract;
   readonly redactionPolicy: QuestionRedactionPolicy;
   readonly whyAsked: ReadonlyArray<FeasibilityReason>;
@@ -154,6 +158,8 @@ export interface DeriveClarificationQuestionsInput {
 
 ### 3.3 導出ロジック（gate → question kind）
 
+**RJ2c-0A 改訂**: `dedupe by questionKind` を撤回。**per-event / per-relation 単位**で question を作り、identity は full tuple（§11.2）。
+
 ```
 // hard gate
 if plan.exposureLevel !== "ask_eligible":
@@ -161,25 +167,38 @@ if plan.exposureLevel !== "ask_eligible":
     suppress 全 kind（reason: question_suppressed_not_ask_eligible:<exposure>）
     return
 
-// ask_eligible のみ。eligibility.confirmationReasons + crp failure modes から question kind を写像
+// ── ask_eligible のみ ──
+// (a) gate question = eligibility.confirmationReasons を **per-reason（per-event）**で写像。subjectNodeId = reason.targetNodeId
 candidates = []
 for reason in eligibility.confirmationReasons:
-    other_people_involved / other_people_unverified → confirm_other_people（answerShape binary_confirm）
-    reservation_or_payment / *_unverified           → confirm_reservation_payment（binary_confirm）
-    work_or_shift / *_unverified                     → confirm_work_shift（binary_confirm）
-    sensitive_flagged                                → confirm_sensitive_handling（binary_confirm・category 非露出）
-    exact_time_collision_ambiguous                   → resolve_time_collision_ambiguity（disambiguate_two_way・**duplicate 断定なし**）
-    reality_unresolved                               → resolve_unresolved_input（open_unresolved・**leaveBy/departure を含めない**）
-// dedupe by questionKind（同 kind 1 件）
+    other_people_involved / other_people_unverified → confirm_other_people（binary_confirm・subjectNodeId=reason.targetNodeId）
+    reservation_or_payment / *_unverified           → confirm_reservation_payment（binary_confirm・per-event）
+    work_or_shift / *_unverified                     → confirm_work_shift（binary_confirm・per-event）
+    sensitive_flagged                                → confirm_sensitive_handling（binary_confirm・per-event・category 非露出）
+    // gateReasonCode = reason.code / evidence = reason.evidenceRefs（**失わない**）
+    // relatedClaimRefs = [confirmation_needed claimId for this plan]（決定的・claim を入力に取らない・mutate しない）
 
-// **departure/leaveBy 逆算は構造的に作らない**（写像に存在しない）。movement unresolved は question 化しない
-suppress("departure")  // 常に suppressedQuestionRefs に記録（reason: departure_question_blocked_v0）
+// (b) time collision = fj.judgmentTrace.timeRelations の relationKind==="exact_time_collision_ambiguous" を **per-relation**で
+for rel in timeRelations where exact_time_collision_ambiguous:
+    → resolve_time_collision_ambiguity（disambiguate_two_way・**assertsDuplicate=false**・relationRef=rel.relationId・
+       subjectNodeId=rel.fromEventRealityNodeId・evidence=rel.evidenceRefs・missingInputRefs=rel.missingInputRefs を carry）
+
+// (c) unresolved = **allowlist 方式**（§11.3）。movement/eta/leaveBy/route/place/source-pending/duplicate-identity は除外
+for reason in fj.unresolvedCriticalInputs where reason.code in ALLOWED_UNRESOLVED_FOR_QUESTION:
+    → resolve_unresolved_input（open_unresolved・per-reason）
+for reason in fj.unresolvedCriticalInputs where reason.code NOT in allowlist:
+    suppress(reason.code)  // suppressedQuestionRefs + missingInputRefs に carry（question 化しない）
+
+// **departure/leaveBy 逆算は構造的に作らない**（写像に存在しない・allowlist 外）
+suppress("departure_question_blocked_v0")
+
+// dedupe by **questionId（full tuple）**。衝突時は evidenceRefs を **union**（trace を失わない）
 
 // redaction
 genericizeRequired = plan.displayRedactionRequired || sensitive gate present
 ```
 
-`questionId = q:fnv64(canonical({sp:surfacePlanId, k:questionKind, n:subjectNodeId, kind:"clarification_question", v:VERSION}))`。決定的・raw viewerId 不含。同 (plan,kind,subject) → 同 id（uniqueness 構造保証 + walker で重複検出）。
+`questionId = q:fnv64(canonical({sp:surfacePlanId, k:questionKind, scope:targetScopeKey, n:subjectNodeId, rel:relationRef, g:gateReasonCode, ev:evidenceBasisKey, kind:"clarification_question", v:VERSION}))`。決定的・raw viewerId 不含。**同 kind でも subjectNodeId / relationRef / gateReasonCode / evidence basis が違えば別 question**（§11.2）。
 
 ---
 
@@ -205,7 +224,7 @@ genericizeRequired = plan.displayRedactionRequired || sensitive gate present
 
 ## 5. walker 設計（3-walker・RJ2b 踏襲・空=適合）
 
-### 5.1 `clarificationQuestionSetViolations(set)`（question 単体）
+### 5.1 `clarificationQuestionSetViolations(set)`（question 単体・RJ2c-0A 追補は §11.7）
 
 1. duplicate questionId
 2. `questionTextDraft !== null`
@@ -216,9 +235,12 @@ genericizeRequired = plan.displayRedactionRequired || sensitive gate present
 7. departure/leaveBy 逆算を示す questionKind/field が存在（構造遮断違反）
 8. `subjectExposesCategory !== false`（sensitive category 露出）
 9. `subjectNodeId` が id 形式でない（raw label）
-10. copy/選択肢文面/notification/contact/dispatch/action field が型に存在（FORBIDDEN_FIELDS）
+10. copy/選択肢文面/notification/contact/dispatch/action/label field が型に存在（FORBIDDEN_FIELDS・answerShape 文面化遮断）
 11. evidenceRefs が field-level でない
 12. suppressedQuestionRefs の reason に evidenceRefs 欠落
+13. **RJ2c-0A**: `resolve_time_collision_ambiguity` なのに `relationRef === null`（per-relation identity 欠落）
+14. **RJ2c-0A**: gate question（confirm_*）なのに `gateReasonCode === null`（identity/trace 欠落）
+15. **RJ2c-0A**: `resolve_unresolved_input` なのに gateReasonCode が allowlist 外（movement/eta/leaveBy/place/source-pending/duplicate を question 化）
 
 ### 5.2 `clarificationQuestionBindingViolations(plan, set)`（整合・emission 前提ゲート）
 
@@ -294,14 +316,75 @@ genericizeRequired = plan.displayRedactionRequired || sensitive gate present
 | consultedDepartments | Permission（gate reasons = question 源・plan exposure）・Risk（time collision/unresolved）・Plan/Mobility/Context（subject node ref・id のみ） |
 | blockingDepartments | **Permission**（ask 可否の拒否権）+ **CEO**（RJ2e/d/f 承認必須） |
 | outputs | RJ2c-0 設計（対象ファイル・型・deriveClarificationQuestions 契約・hard gate・gate→kind 写像・2-walker・fixtures・HOLD・GO 条件）。**コードなし** |
-| safetyGate | **ask_clarification hard gate**（ask_eligible 以外 questions []）・questionTextDraft null（文面 RJ2e HOLD）・**leaveBy/departure 逆算質問禁止**（構造遮断）・**exact_time_collision_ambiguous を duplicate 断定しない**（assertsDuplicate=false）・confirmation_needed claim と分離・sensitive genericize（category 非露出）・evidence internal_trace_only・questionSet は consumer payload でない・notification/contact/dispatch 型に無し |
+| safetyGate | **ask_clarification hard gate**（ask_eligible 以外 questions []）・questionTextDraft null（文面 RJ2e HOLD）・**leaveBy/departure 逆算質問禁止**（構造遮断）・**unresolved allowlist**（movement/eta/leaveBy/place/source-pending/duplicate を question 化しない・§11.3）・**exact_time_collision_ambiguous を duplicate 断定しない**（assertsDuplicate=false・relationRef 単位）・**per-event/per-relation identity**（dedupe で source trace を失わない・§11.2）・confirmation_needed claim と分離（relatedClaimRefs で trace・mutate しない）・**answerShape は internal structure only**（label/choices なし・§11.5）・sensitive genericize（category 非露出）・evidence internal_trace_only・questionSet は consumer payload でない・direct read 禁止・notification/contact/dispatch 型に無し |
 | traceRefs | questionId / surfacePlanId / interventionDecisionId / snapshotId + evidenceRefs(field-level・internal) + redactionReason |
 
 ---
 
 ## 10. 自己判定（RJ2c 実装に進めるか）
 
-- **判定: RJ2c は実装設計 ready**。対象ファイル（新規 1 + test 1・judgmentSurfacePlan/surfaceClaim 不接触）・型（ClarificationQuestionCandidateV0/Kind[6]/EvidenceContract/RedactionPolicy/Set）・deriveClarificationQuestions 入出力契約（5 入力 + integrity guard + hard gate + gate→kind 写像）・gate 方針（ask_eligible hard gate / G4 redaction / departure 構造遮断）・2-walker（set/binding）・fixtures（17）・HOLD・GO 条件が確定。
-- **ただし RJ2c 実装 GO は CEO 専管**。本書は RJ2c を自己承認しない。**RJ2c-0 の CEO 確認 → RJ2c 実装 GO** の順。
-- 最重要安全則を構造で担保: ①ask_eligible hard gate、②文面は questionTextDraft=null、③leaveBy/departure 逆算 kind が存在しない、④time collision で duplicate 断定しない（assertsDuplicate=false）、⑤confirmation_needed claim と別オブジェクト、⑥sensitive category 非露出。
+- **判定: RJ2c は実装設計 ready（RJ2c-0A 補正後）**。対象ファイル（新規 1 + test 1・judgmentSurfacePlan/surfaceClaim 不接触）・型（ClarificationQuestionCandidateV0[+relationRef/gateReasonCode/relatedClaimRefs]/Kind[6]/EvidenceContract/RedactionPolicy/Set）・deriveClarificationQuestions 入出力契約（5 入力 + integrity guard + hard gate + **per-event/per-relation 写像** + **unresolved allowlist**）・gate 方針・2-walker（set/binding）・fixtures・HOLD・GO 条件が確定。
+- **ただし RJ2c 実装 GO は CEO 専管**。本書は RJ2c を自己承認しない。**RJ2c-0A の CEO 確認 → RJ2c 実装 GO** の順。
+- 最重要安全則を構造で担保: ①ask_eligible hard gate、②文面は questionTextDraft=null、③leaveBy/departure 逆算 kind が存在しない、④time collision で duplicate 断定しない（assertsDuplicate=false）、⑤confirmation_needed claim と別オブジェクト（relatedClaimRefs で trace・mutate しない）、⑥sensitive category 非露出、⑦**per-event/per-relation identity で source trace を失わない**、⑧**unresolved allowlist で movement/eta/leaveBy を question 化しない**。
 - code 変更ゼロ・UI/storage/API/DB/location/notification/external read 不接触・tree clean・production gate 未通過。
+
+---
+
+## 11. RJ2c-0A 補正サマリ（CEO 監査・question identity / dedupe / unresolved scope closeout）
+
+### 11.1 `dedupe by questionKind` の撤回（CEO #1）
+
+- **撤回**。同 questionKind でも対象 event / relation / gate / evidence が違えば**別の質問候補**。kind だけで潰すと source trace / evidenceRefs / redaction / targetScope が落ちる（予定 A の otherPeople と予定 B の otherPeople を 1 件にすると「どちらへの確認か」が失われる）。
+
+### 11.2 questionId / dedupe key の再定義（CEO #2）
+
+- `questionId` / dedupe は以下を含む: `surfacePlanId` + `questionKind` + `subjectScope` + `subjectNodeId` + `relationRef`(if any) + `gateReasonCode` + `evidence basis`(source field ref) + `version`。
+- 方針:
+  - same kind でも **subjectNodeId が違えば別 question**
+  - same kind でも **relationRef が違えば別 question**
+  - same kind でも **evidence basis が違えば別 question**
+  - `exact_time_collision_ambiguous` は **relationRef 単位**で保持（fj.judgmentTrace.timeRelations の relationId）
+  - sensitive / otherPeople / reservation / work は **targetNodeId 単位**で保持（gate reason の targetNodeId）
+  - **dedupe しても evidenceRefs / sourceRefs / missingInputRefs を失わない**（同一 questionId 衝突時は evidenceRefs を union）
+
+### 11.3 `resolve_unresolved_input` の allowlist 化（CEO #3）
+
+- **allowlist 方式**にする。v0 で許す unresolved を限定し、以下は **question 化しない**（suppressedQuestionRefs + missingInputRefs に残す）:
+  - `leave_by_unresolved` / `eta_source_missing` / `route_unresolved` / `movement_requirement_unknown` / `movement_feasibility_unverified`
+  - `place_resolution_pending`（location・movement の precursor）
+  - currentLocation missing / sourceRevisionPending only / duplicate identity unresolved only
+- これらは観測・保留・参照であり、question にすると departure / ETA / fake route / 位置推定の入口になる。
+- `ALLOWED_UNRESOLVED_FOR_QUESTION` = 明示 allowlist 定数。**v0 は movement/location/source-pending/duplicate を全除外**（= v0 では resolve_unresolved_input はほぼ発火しない・最も保守的）。`unsupported_boundary` / source pending / missing model は question でなく suppressedQuestionRefs / missingInputRefs に残す。
+
+### 11.4 confirmation_needed claim と question candidate の紐づき（CEO #4）
+
+- question candidate は `relatedClaimRefs`（紐づく confirmation_needed claimId）+ `gateReasonCode` を持ち、**source claim / gate reason へ辿れる**。
+- **confirmation_needed claim を mutate しない**。
+- **claim を入力に取らない（前提にしない）**: question は **gate reason から**作る。`relatedClaimRefs` は RJ2b の決定的 claimId 公式を mirror して算出する（claimSet を import しない・結合度を上げない）か、claimSet を **optional 入力**として渡された時のみ照合する。v0 はどちらでも可だが **gate reason が source・claim は trace 補助**と固定。
+- v0 では「**claim は状態記述、question は確認 slot**」と分ける。question candidate が claim を user-facing 文面へ昇格させない。
+
+### 11.5 answerShape の非文面性（CEO #5）
+
+- `answerShape`（binary_confirm / disambiguate_two_way / open_unresolved）は **internal structure only**。
+  - answer choices text なし / labels なし / yes-no 文言なし
+  - **duplicate を前提にする選択肢なし**
+  - `disambiguate_two_way` は **relationRef 付き**で**両義を開いたまま**（assertsDuplicate=false）
+  - RJ2e まで自然言語化禁止（FORBIDDEN_FIELDS に label/choices/options/yesLabel/noLabel を含め構造 assert）
+
+### 11.6 questionSet direct read 禁止（CEO #6）
+
+- **`ClarificationQuestionSetV0` 単体は consumer payload ではない**。
+- UI / renderer / projection は questionSet を**直接読まない**（direct read 禁止）。
+- consumer-facing projection は **RJ2d 以降**。
+- evidenceRefs / sourceRefs / missingInputRefs は **internal_trace_only**。questionTextDraft は null のまま。raw label / sensitive category / graphViewerKey を出さない。
+- **validated binding / projection なしに surface emission しない**。
+
+### 11.7 walker 追補（§5.1 #13-15 + §5.2）
+
+- §5.1 に #13（time collision で relationRef null）・#14（gate question で gateReasonCode null）・#15（resolve_unresolved_input が allowlist 外 gateReasonCode）を追加。
+- §5.2 binding に: question の relatedClaimRefs が plan/snapshot 由来の id 形式であること（raw でない）・direct read 構造 assert。
+
+### 11.8 RJ2c 実装 GO 可否の自己判定
+
+- **判定: RJ2c は実装設計 ready（RJ2c-0A 補正後・内部無矛盾）**。identity を full tuple に再定義し per-event/per-relation の source trace を保持。unresolved を allowlist 化し movement/departure 入口を構造遮断。
+- **RJ2c 実装 GO は CEO 専管**。RJ2c-0A の CEO 確認 → RJ2c 実装 GO の順。RJ2e/RJ2d/RJ2f は HOLD 維持。
