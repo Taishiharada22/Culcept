@@ -244,7 +244,7 @@ function renderCopy(view: SurfaceProjectionConsumerViewV0): RenderedCopyV0
 
 ### 11.1 exact claim template catalog（claim copy・hedged/neutral・断定なし）
 
-**RJ2e 実装時 CEO 文面差し替え確定（`d... 本 commit`）**: より明瞭・状態を断定せず伝える文面に確定。
+**RJ2e 実装時 CEO 文面差し替え確定（`5d8edffb`）**: より明瞭・状態を断定せず伝える文面に確定。
 
 | consumer kind | **exact string（確定）** | tone | 理由 |
 |---|---|---|---|
