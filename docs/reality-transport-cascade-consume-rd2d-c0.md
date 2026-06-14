@@ -94,7 +94,7 @@ cascade 出力 → `RouteEtaProviderResultV0` の正規化規則:
 - **default false（sensitive）**: `currentObservationInvolved`（現在地観測＝最強 sensitive）→ `localHeuristicAllowed=false`（現在地を Haversine すらしない）。`homeWorkDerivedInvolved`（home/work 推定）→ default false。`eitherEndpointSensitive`（medical/legal/exam 等）→ false。
 - **不変条件**: `pairExternalSendAllowed=false` は `localHeuristicAllowed=true` を**含意しない**（逆も）。`localHeuristicAllowed=false` → wrapper は heuristic を**呼ばない** → status `no_route` → adapter no_route_source（**sensitive endpoint で黙って距離計算しない**）。
 - 既存 `runCascade` は sensitive_adjacent/sensitive_both/location_unknown で provider 呼出前に early-exit（cascadeOrchestrator）— capability 層も同じ拒否を**明示 flag**で encode すべき。
-- **scope note**: `localHeuristicAllowed` を `EndpointPairPrivacyGateV0`/`deriveEndpointPairGate`/walker に **field として追加するのは capability walker 変更 = 別 slice**（RD2d-a 系）。RD2d-c0A は**設計（docs）のみ**。RD2d-c 実装（wrapper）は privacy guard から localHeuristicAllowed を受け取って consult する。
+- **scope note**: `localHeuristicAllowed` の field 化（`EndpointPairPrivacyGateV0`/`deriveEndpointPairGate`/walker）は **RD2d-a-B（`88448f61`）で実装済**（pairExternalSendAllowed と直交・sensitive/current/home-work は false 強制・privacy guard が tighten 可）。RD2d-c 実装（wrapper）は privacy guard から localHeuristicAllowed を受け取り、false なら heuristic を呼ばず no_route。
 
 ---
 

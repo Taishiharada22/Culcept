@@ -5,6 +5,7 @@
 - 規律: **コードを書かない**（docs-only）。provider 実行・transport cascade 接続・heuristic adapter 実装・Google Routes・geocode・currentLocation・weather API・RC2a compile 変更・UI/DB/production には進まない。
 - 上流: RD2d-a `40c0146f`（capability 型）+ RD2d-0B `f8969e4d`（DAG）+ RD2d-0A `6656f0bf`（identity/freshness/heuristic/pair gate）。
 - **RD2d-b0A 同期（2026-06-14）**: RD2d-a-A（`2faf8a2d`）の語彙・fail-closed projection・leaveBy computability を本 doc に同期。`travelDurationPresent`→`durationSignalPresent`・`leaveByEligible`→`leaveByComputable`・projection は `durationProjectionGradeOk` allowlist（fail-closed）・provider failure/malformed の fail-safe・RD2d-b 実装 GO 条件（§9.1）を確定。これで adapter 実装時に旧意味論が復活しない。
+- **実装記録（RD2d-b `56b90a06`・RD2d-b-A `d6f60bfe`・RD2d-a-B `88448f61`）**: adapter は provider self-claim を信用しきらない（freshnessBasisRef なし fresh→stale・scope corroboration・route evidence・raw-echo redact・failureReason taxonomy）。**walker 本体も evidence checker 化（RD2d-a-B）**ゆえ、adapter 以外の producer も freshness evidence/route parity/condition coherence/localHeuristicAllowed に束縛される（coherent liar が green を通れない）。
 
 ---
 

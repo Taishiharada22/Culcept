@@ -7,6 +7,8 @@
 
 ---
 
+> **実装記録（RD2d-a-B `88448f61`）**: walker を evidence checker へ昇格。DAG に `fetchedAtRefPresent`（planning は freshness evidence 必須）追加・route evidence parity（routeShapeKnown/routeOptionKnown は route evidenceRef 必須）・condition-basis coherence（heuristic は traffic/schedule/weather aware 不可）・`localHeuristicAllowed` field（pairExternalSendAllowed と直交）・no-raw-echo（違反 message が座標を echo しない）。direct caller も束縛。
+
 ## 0. 単調 lattice を採用しない理由（CEO 必須・独立検証）
 
 RD2d-0A の単調鎖 `mode→routeShape→duration→trafficAware→temporalScope→arrivalTarget→eta→leaveBy` は**実世界の route/ETA で破綻**する:
