@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import {
-  selectTodayOneOff,
+  selectDayAnchors,
   buildOperatorDaySnapshot,
   buildOperatorDayRealPayload,
   realDayPayloadLeakViolations,
@@ -17,6 +17,8 @@ import {
   type RealDaySurfacePayloadV0,
 } from "@/lib/plan/realityCore/operatorDayPreview";
 import { makeRealityInstantJst } from "@/lib/plan/realityCore/realityInstant";
+import { evaluateFeasibility } from "@/lib/plan/realityCore/feasibilityJudgment";
+import { buildRealityJudgmentInput } from "@/lib/plan/realityCore/realityJudgmentInput";
 
 const REF = new Date(Date.UTC(2026, 5, 12, 0, 0)); // JST 09:00
 const SUBJ = makeRealityInstantJst(REF).subjectiveDate; // "2026-06-12"
@@ -30,22 +32,22 @@ function recurring(over: Partial<ExternalAnchor> & { id: string; startTime: stri
 }
 const depsOf = (anchors: ExternalAnchor[]): OperatorDayPreviewDeps => ({ listAnchors: async () => anchors });
 
-describe("RD1a #4/#5 one-off 当日のみ抽出・recurring 除外", () => {
-  it("当日 one-off のみ oneOff・recurring は recurringCount に数えるが除外", () => {
+describe("RD1a #4/#5 day anchor 分離（one-off 当日 + recurring 全件）", () => {
+  it("当日 one-off のみ oneOff・recurring 全件 recurring", () => {
     const anchors = [
       oneOff({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" }),
       oneOff({ id: "a2", startTime: "09:00", endTime: "10:00", date: "2026-06-11" }), // 別日 → 除外
       recurring({ id: "r1", startTime: "10:00" }),
       recurring({ id: "r2", startTime: "12:00" }),
     ];
-    const { oneOff: sel, recurringCount } = selectTodayOneOff(anchors, SUBJ);
+    const { oneOff: sel, recurring: rec } = selectDayAnchors(anchors, SUBJ);
     expect(sel.map((a) => a.id)).toEqual(["a1"]);
-    expect(recurringCount).toBe(2);
+    expect(rec.map((a) => a.id)).toEqual(["r1", "r2"]);
   });
 });
 
-describe("RD1a #3/#6 read-only listAnchors + recurring excluded count が summary に", () => {
-  it("operator + listAnchors read のみ → summary に count", async () => {
+describe("RD1a #3/#6 read-only listAnchors + recurring 内訳 count が summary に", () => {
+  it("operator + listAnchors read のみ → summary に 4 count（recurring MO は当日=金 でない→excluded）", async () => {
     let calls = 0;
     const deps: OperatorDayPreviewDeps = {
       listAnchors: async (uid) => {
@@ -56,9 +58,23 @@ describe("RD1a #3/#6 read-only listAnchors + recurring excluded count が summar
     };
     const payload = await buildOperatorDayRealPayload({ operatorUserId: OP, referenceInstantUtc: REF }, deps);
     expect(calls).toBe(1);
-    expect(payload.summary.includedOneOffCount).toBe(1);
+    expect(payload.summary.oneOffIncludedCount).toBe(1);
+    expect(payload.summary.recurringIncludedCount).toBe(0); // BYDAY=MO は金曜でない
     expect(payload.summary.recurringExcludedCount).toBe(1);
     expect(payload.available).toBe(true);
+  });
+});
+
+describe("RD1b 当日 occur recurring（BYDAY=FR）→ graph に入る・recurringIncludedCount", () => {
+  it("金曜 rule → recurringIncludedCount 1・available（fake せず展開）", async () => {
+    const p = await buildOperatorDayRealPayload(
+      { operatorUserId: OP, referenceInstantUtc: REF },
+      depsOf([recurring({ id: "r1", startTime: "14:00", recurrenceRule: "FREQ=WEEKLY;BYDAY=FR" } as Partial<ExternalAnchor> & { id: string; startTime: string })]),
+    );
+    expect(p.available).toBe(true);
+    expect(p.summary.oneOffIncludedCount).toBe(0);
+    expect(p.summary.recurringIncludedCount).toBe(1);
+    expect(realDayPayloadLeakViolations(p)).toEqual([]); // recurrenceRule 等を漏らさない
   });
 });
 
@@ -70,12 +86,26 @@ describe("RD1a #7 unavailable 時 fixture へ fallback しない", () => {
     expect(p.consumerView).toBeNull();
     expect(p.renderedCopy).toBeNull();
   });
-  it("当日 one-off 0（recurring のみ）→ no_today_oneoff・consumerView null", async () => {
+  it("当日 event 0（recurring MO のみ・当日=金 occur せず）→ no_today_event・consumerView null", async () => {
     const p = await buildOperatorDayRealPayload({ operatorUserId: OP, referenceInstantUtc: REF }, depsOf([recurring({ id: "r1", startTime: "10:00" })]));
     expect(p.available).toBe(false);
-    expect(p.reasonCode).toBe("no_today_oneoff");
-    expect(p.summary.recurringExcludedCount).toBe(1);
+    expect(p.reasonCode).toBe("no_today_event");
+    expect(p.summary.recurringExcludedCount).toBe(1); // MO は金曜でない
     expect(p.consumerView).toBeNull();
+  });
+});
+
+describe("RD1b #8/#9 one-off + recurring 同 timeWindow → duplicate 断定しない（exact_time_collision_ambiguous）", () => {
+  it("同時刻の one-off + recurring(当日 FR) → exact_time_collision_ambiguous・infeasible/confirmed 直行しない", () => {
+    const dayAnchors = [
+      oneOff({ id: "a1", startTime: "14:00", endTime: "15:00", locationText: "渋谷" }),
+      recurring({ id: "r1", startTime: "14:00", endTime: "15:00", recurrenceRule: "FREQ=WEEKLY;BYDAY=FR" } as Partial<ExternalAnchor> & { id: string; startTime: string }),
+    ];
+    const snapshot = buildOperatorDaySnapshot(dayAnchors, SUBJ, REF, OP);
+    const fj = evaluateFeasibility(buildRealityJudgmentInput(snapshot, { kind: "day" }));
+    expect(fj.judgmentTrace.timeRelations.some((rel) => rel.relationKind === "exact_time_collision_ambiguous")).toBe(true);
+    expect(fj.feasibilityStatus).not.toBe("infeasible"); // confirmedBlocking 直行しない
+    expect(fj.confirmedBlockingReasons).toEqual([]); // duplicate を confirmed にしない
   });
 });
 

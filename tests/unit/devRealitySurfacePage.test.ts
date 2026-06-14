@@ -74,10 +74,11 @@ describe("RD1a page #5 real-data read は flag + auth の後（disabled path で
 });
 
 describe("RD1a client #6 real section が fixture と明確に分離・fallback なし", () => {
-  it("client に real section（あなたの当日）+ recurring 除外 count + fixture 区別が両方ある", () => {
+  it("client に real section（あなたの当日）+ recurring 当日/除外/不正 count + fixture 区別が両方ある", () => {
     expect(CLIENT.includes("real-day-section")).toBe(true);
     expect(CLIENT.includes("あなたの当日")).toBe(true);
-    expect(CLIENT.includes("recurring 除外")).toBe(true);
+    expect(CLIENT.includes("recurring 当日")).toBe(true); // RD1b: 当日 occur recurring count
+    expect(CLIENT.includes("不正")).toBe(true); // recurringInvalidCount
     expect(CLIENT.includes("代表シナリオ")).toBe(true); // fixture 区別
     // unavailable は reasonCode 表示（fixture を出さない＝fallback しない）
     expect(CLIENT.includes("real-day-unavailable")).toBe(true);

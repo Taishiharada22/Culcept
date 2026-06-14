@@ -18,6 +18,7 @@
  */
 
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
+import { resolveTodayRecurring } from "@/lib/plan/recurringDayResolver";
 import { buildDayGraph } from "@/lib/plan/dayGraph/buildDayGraph";
 import { deriveMomentState } from "@/lib/plan/dayState/deriveMomentState";
 import { compileEventRealityNodes } from "./compileEventRealityNodes";
@@ -54,10 +55,12 @@ export interface OperatorDayPreviewDeps {
   readonly listAnchors: (userId: string) => Promise<ExternalAnchor[]>;
 }
 
-/** safe summary（client へ渡してよい・raw anchor/internal を含まない） */
+/** safe summary（client へ渡してよい・raw anchor/internal を含まない・count のみ）。RD1b: recurring 内訳 4 種 */
 export interface RealDaySurfaceSummaryV0 {
-  readonly includedOneOffCount: number;
-  readonly recurringExcludedCount: number; // 当日 graph に入れていない recurring の件数
+  readonly oneOffIncludedCount: number;
+  readonly recurringIncludedCount: number; // 当日 occur して graph に入れた recurring（RD1b）
+  readonly recurringExcludedCount: number; // valid だが当日でない recurring
+  readonly recurringInvalidCount: number; // 展開不能（不正/非WEEKLY/期限外）→ 当日に入れない
 }
 
 /** real-day preview の safe DTO（client へ渡す唯一）。unavailable 時は consumerView 等 null・reasonCode は dev 用 generic status */
@@ -72,16 +75,16 @@ export interface RealDaySurfacePayloadV0 {
   readonly delivery: DeliverySafeSummaryV0 | null;
 }
 
-/** 当日 one-off 抽出 + recurring 件数（pure・filter で構築・recurring は除外＝当日 graph に入れない・RD1a・展開は RD1b） */
-export function selectTodayOneOff(anchors: ReadonlyArray<ExternalAnchor>, subjectiveDate: string): { oneOff: ExternalAnchor[]; recurringCount: number } {
+/** 当日 anchor 分離（pure・one-off 当日 + recurring 全件・recurring 展開は resolveTodayRecurring が担当） */
+export function selectDayAnchors(anchors: ReadonlyArray<ExternalAnchor>, subjectiveDate: string): { oneOff: ExternalAnchor[]; recurring: ExternalAnchor[] } {
   const oneOff = anchors.filter((a) => a.anchorKind === "one_off" && a.date === subjectiveDate);
-  const recurringCount = anchors.filter((a) => a.anchorKind === "recurring").length;
-  return { oneOff: [...oneOff], recurringCount };
+  const recurring = anchors.filter((a) => a.anchorKind === "recurring");
+  return { oneOff: [...oneOff], recurring: [...recurring] };
 }
 
-/** 当日 one-off anchor から RealityGraphSnapshot を組む（pure・既存 honest compile を consume・fake しない） */
-export function buildOperatorDaySnapshot(oneOff: ReadonlyArray<ExternalAnchor>, subjectiveDate: string, referenceInstantUtc: Date, operatorUserId: string): RealityGraphSnapshotV0 {
-  const anchors = [...oneOff];
+/** 当日 anchor（one-off + 当日 occur recurring）から RealityGraphSnapshot を組む（pure・既存 honest compile を consume・fake しない） */
+export function buildOperatorDaySnapshot(dayAnchors: ReadonlyArray<ExternalAnchor>, subjectiveDate: string, referenceInstantUtc: Date, operatorUserId: string): RealityGraphSnapshotV0 {
+  const anchors = [...dayAnchors];
   const { graph } = buildDayGraph({ anchors, date: subjectiveDate });
   const ern = compileEventRealityNodes({ date: subjectiveDate, graph, anchors });
   const mv = compileMovementReality({ date: subjectiveDate, graph });
@@ -109,17 +112,25 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
   try {
     anchors = await deps.listAnchors(input.operatorUserId); // read-only select（owner-RLS）
   } catch {
-    return unavailable("assemble_failed", { includedOneOffCount: 0, recurringExcludedCount: 0 });
+    return unavailable("assemble_failed", { oneOffIncludedCount: 0, recurringIncludedCount: 0, recurringExcludedCount: 0, recurringInvalidCount: 0 });
   }
 
-  const { oneOff, recurringCount } = selectTodayOneOff(anchors, subjectiveDate);
-  const summary: RealDaySurfaceSummaryV0 = { includedOneOffCount: oneOff.length, recurringExcludedCount: recurringCount };
+  const { oneOff, recurring } = selectDayAnchors(anchors, subjectiveDate);
+  // RD1b: recurring を既存 expandRecurrence で当日展開（materialize しない・不正は invalid 計上・当日に入れない）
+  const rec = resolveTodayRecurring(recurring, subjectiveDate);
+  const dayAnchors = [...oneOff, ...rec.included];
+  const summary: RealDaySurfaceSummaryV0 = {
+    oneOffIncludedCount: oneOff.length,
+    recurringIncludedCount: rec.included.length,
+    recurringExcludedCount: rec.excludedCount,
+    recurringInvalidCount: rec.invalidCount,
+  };
 
   if (anchors.length === 0) return unavailable("no_anchor", summary);
-  if (oneOff.length === 0) return unavailable("no_today_oneoff", summary); // **fixture へ fallback しない**
+  if (dayAnchors.length === 0) return unavailable("no_today_event", summary); // **fixture へ fallback しない**
 
   try {
-    const snapshot = buildOperatorDaySnapshot(oneOff, subjectiveDate, input.referenceInstantUtc, input.operatorUserId);
+    const snapshot = buildOperatorDaySnapshot(dayAnchors, subjectiveDate, input.referenceInstantUtc, input.operatorUserId);
     const scope = { kind: "day" } as const;
     const fj = evaluateFeasibility(buildRealityJudgmentInput(snapshot, scope));
     const crp = evaluateCollapseRisk({ graphSnapshot: snapshot, feasibilityJudgment: fj });

@@ -56,7 +56,8 @@ export function RealitySurfaceDogfoodClient({ payload, realPayload }: { payload:
         <section className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3" data-testid="real-day-section">
           <h2 className="text-base font-bold text-emerald-800">あなたの当日（real・read-only）</h2>
           <p className="mt-0.5 text-[11px] text-emerald-700/70">
-            one-off {realPayload.summary.includedOneOffCount} 件 / recurring 除外 {realPayload.summary.recurringExcludedCount} 件
+            one-off {realPayload.summary.oneOffIncludedCount} 件 / recurring 当日 {realPayload.summary.recurringIncludedCount} 件
+            （除外 {realPayload.summary.recurringExcludedCount} / 不正 {realPayload.summary.recurringInvalidCount}）
           </p>
           {!realPayload.available || !realPayload.consumerView || !realPayload.renderedCopy || !realPayload.delivery ? (
             <p className="mt-2 text-[12px] text-emerald-700/60" data-testid="real-day-unavailable">表示できません（{realPayload.reasonCode ?? "unavailable"}）</p>
