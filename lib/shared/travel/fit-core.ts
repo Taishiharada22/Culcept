@@ -18,7 +18,7 @@
  */
 
 import type { ViewerScopedRationale } from "./core-types";
-import { computeConstructBlend, type ConstructBlend, type ConstructBlendInput } from "./fit-constructs-core";
+import { computeConstructBlend, runInteractions, applyCap, type ConstructBlend, type ConstructBlendInput, type InteractionInputBundle } from "./fit-constructs-core";
 import type { ConstructIndicatorInput, ConstructPreferenceInput } from "./fit-constructs";
 import {
   BURDEN_TOLERANCE_MAP,
@@ -537,6 +537,10 @@ interface ParticipantEval {
   onsenSpring?: string;
   chosenRoleFull: AnyEntityRole | null;
   categoryMismatch: boolean;
+  /** C4 interaction 由来（shared-safe label 上限 + 情報 risk/missing） */
+  labelCap: EntityFitGrade | null;
+  interactionRiskFlags: RiskFlag[];
+  interactionMissing: MissingDataQuestion[];
 }
 
 const COMPENSABILITY: Record<FitComponentKey, FitComponent["compensability"]> = {
@@ -628,24 +632,50 @@ function evalParticipant(
   ctx: FitContext | undefined,
   relationship: RelationshipKind,
   blend?: ConstructBlend,
+  interBundle?: InteractionInputBundle,
 ): ParticipantEval {
   const built = buildComponents(user, entity, ctx, relationship, blend);
-  const hardBlocksFull = evaluateHardBlocks(user, entity, ctx);
+  let components = built.full;
+  let hardBlocksFull = evaluateHardBlocks(user, entity, ctx);
+  let labelCap: EntityFitGrade | null = null;
+  let interactionRiskFlags: RiskFlag[] = [];
+  let interactionMissing: MissingDataQuestion[] = [];
+
+  // ★ C4 interaction pass（presence-gated・buildComponents 後・deriveFitLabel 前）
+  if (interBundle) {
+    const inter = runInteractions(interBundle);
+    if (inter.componentDeltas.length > 0) {
+      components = built.full.map((c) => {
+        const dFull = inter.componentDeltas.filter((d) => d.component === c.key).reduce((s, d) => s + d.full, 0);
+        const dShared = inter.componentDeltas.filter((d) => d.component === c.key).reduce((s, d) => s + d.shared, 0);
+        if (dFull === 0 && dShared === 0) return c;
+        const vFull = clamp(c.valueFull + dFull);
+        return { ...c, valueFull: vFull, valueShared: clamp(c.valueShared + dShared), contribution: vFull * c.weight };
+      });
+    }
+    hardBlocksFull = [...hardBlocksFull, ...inter.hardBlocks];
+    labelCap = inter.labelCap;
+    interactionRiskFlags = inter.riskFlags;
+    interactionMissing = inter.missingQuestions;
+  }
   const hardBlocksShared = hardBlocksFull.filter((b) => b.visibility === "shared");
-  const labelFull = deriveFitLabel(labelInputs(built.full, "full"), hardBlocksFull);
-  const labelShared = deriveFitLabel(labelInputs(built.full, "shared"), hardBlocksShared);
+  // gate-first → label、その後 ★ shared-safe labelCap を適用（excellent 不可化等）
+  const lf = deriveFitLabel(labelInputs(components, "full"), hardBlocksFull);
+  const ls = deriveFitLabel(labelInputs(components, "shared"), hardBlocksShared);
+  const labelFull: FitLabelOutput = { ...lf, fitLabel: applyCap(lf.fitLabel, labelCap) };
+  const labelShared: FitLabelOutput = { ...ls, fitLabel: applyCap(ls.fitLabel, labelCap) };
 
   // confidence = field confidence（source は confidence にのみ影響）× component 充足度
   const fieldConf = aggregateFieldConfidence(entity.provenance?.sources);
   // ★ confidence は shared-safe availability から（private-only 信号が confidence 経由で shared に漏れない）
-  const availableWeight = built.full.filter((c) => c.availableShared).reduce((a, c) => a + c.weight, 0);
-  const totalWeight = built.full.reduce((a, c) => a + c.weight, 0) || 1;
+  const availableWeight = components.filter((c) => c.availableShared).reduce((a, c) => a + c.weight, 0);
+  const totalWeight = components.reduce((a, c) => a + c.weight, 0) || 1;
   const availabilityRatio = clamp(availableWeight / totalWeight);
   const confidence = clamp(0.4 * fieldConf + 0.6 * availabilityRatio);
 
   return {
     participantId,
-    componentsFull: built.full,
+    componentsFull: components,
     hardBlocksFull,
     hardBlocksShared,
     labelFull,
@@ -654,6 +684,9 @@ function evalParticipant(
     onsenSpring: built.onsenSpring,
     chosenRoleFull: built.chosenRoleFull,
     categoryMismatch: built.categoryMismatch,
+    labelCap,
+    interactionRiskFlags,
+    interactionMissing,
   };
 }
 
@@ -713,6 +746,7 @@ const HARDBLOCK_JA: Record<FitHardBlock["reason"], string> = {
   hard_constraint_violation: "必須条件を満たしません",
   support_unavailable: "必要な支援が確保できません",
   season_or_weather_unavailable: "時期・天候で成立しません",
+  safety_escalation: "夜間の安全に懸念があります",
 };
 
 function buildExplanations(
@@ -807,8 +841,14 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
       ? { entityIndicators: ci.entityIndicators, userPrefs: ci.userPrefs?.[p.participantId] }
       : undefined;
     const blend = computeConstructBlend(p.state, entity, context, blendInput);
-    return evalParticipant(p.participantId, p.state, entity, context, relationship, blend);
+    const interBundle: InteractionInputBundle | undefined = ci
+      ? { entityIndicators: ci.entityIndicators, ctx: context, isSolo: subject.kind === "solo", userPrefs: ci.userPrefs?.[p.participantId] }
+      : undefined;
+    return evalParticipant(p.participantId, p.state, entity, context, relationship, blend, interBundle);
   });
+  // ★ shared-safe な label 上限を全 participant で集約（strictest）
+  const caps = evals.map((e) => e.labelCap).filter((c): c is EntityFitGrade => c !== null);
+  const resultCap: EntityFitGrade | null = caps.length > 0 ? caps.reduce((a, b) => applyCap(a, b)) : null;
 
   const perParticipantFit: PerParticipantFit[] = evals.map((e) => ({
     participantId: e.participantId,
@@ -832,10 +872,12 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
   const binding = evals.find((e) => e.participantId === worstId) ?? evals[0];
 
   // solo は binding の label をそのまま。group は floor/overallScore を閾値判定。
-  const groupLabel: EntityFitGrade =
+  const groupLabel: EntityFitGrade = applyCap(
     subject.kind === "solo"
       ? binding.labelFull.fitLabel
-      : deriveGroupLabel(binding.labelFull.fitLabel === "blocked", group.floorBreached, group.overallScore);
+      : deriveGroupLabel(binding.labelFull.fitLabel === "blocked", group.floorBreached, group.overallScore),
+    resultCap,
+  );
 
   const expl = buildExplanations(binding.componentsFull, binding.hardBlocksFull, "full");
   const rationale = buildRationale(groupLabel, expl.whyFits, expl.whyMayFail, binding.onsenSpring);
@@ -875,6 +917,8 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
       missingDataQuestions.push({ field: `allergy:${hc.descriptor}`, reason: "safety_unknown" });
     }
   }
+  // C4 interaction 由来の情報 risk/missing を合流（full・shared 射影では §toSharedFitView が再導出）
+  missingDataQuestions.push(...binding.interactionMissing);
 
   return {
     authoritative: false,
@@ -884,13 +928,14 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
     mismatchReasons: expl.mismatchReasons,
     whyFits: expl.whyFits,
     whyMayFail: expl.whyMayFail,
-    riskFlags: expl.riskFlags,
+    riskFlags: [...expl.riskFlags, ...binding.interactionRiskFlags],
     rationale,
     perParticipantFit,
     groupAggregateFit: group,
     conflicts,
     confidence,
     labelStability,
+    labelCap: resultCap,
     missingDataQuestions,
     placeRefId: entity.placeRefId,
     subjectKind: subject.kind,
@@ -973,10 +1018,13 @@ export function toSharedFitView(r: FitResult): FitResult {
   }
 
   // 5. FitResult.fitLabel: solo は binding shared label・group は floor/overallScore
-  const fitLabel: EntityFitGrade =
+  // ★ shared-safe labelCap を shared label にも適用（安全 unknown は shared でも fully-safe にしない）
+  const fitLabel: EntityFitGrade = applyCap(
     r.subjectKind === "solo"
       ? sharedBindingLabel.fitLabel
-      : deriveGroupLabel(sharedBindingLabel.fitLabel === "blocked", sharedFloorBreached, group ? group.aggregateShared : 0);
+      : deriveGroupLabel(sharedBindingLabel.fitLabel === "blocked", sharedFloorBreached, group ? group.aggregateShared : 0),
+    r.labelCap,
+  );
 
   // 6. labelStability / missingData を shared 値から再計算（full の不安定性を持ち込まない）
   const baseScore = group ? group.aggregateShared : sharedBindingLabel.overall;
@@ -1023,6 +1071,7 @@ export function toSharedFitView(r: FitResult): FitResult {
     conflicts: sharedConflicts,
     confidence: r.confidence,
     labelStability,
+    labelCap: r.labelCap, // shared-safe（private は別途 hardBlock 経由で full のみに効く）
     missingDataQuestions: sharedMissing,
     placeRefId: r.placeRefId,
     subjectKind: r.subjectKind,

@@ -28,7 +28,19 @@ import {
   type MissingDataPolicy,
   type WiredConstruct,
 } from "./fit-constructs";
-import { FIT_COMPONENT_KEYS, type EntityBurdenAxis, type FitContext, type FitUserState, type SharedTraitAxis, type TravelObjectState } from "./fit-types";
+import {
+  FIT_COMPONENT_KEYS,
+  type EntityBurdenAxis,
+  type EntityFitGrade,
+  type FitComponentKey,
+  type FitContext,
+  type FitHardBlock,
+  type FitUserState,
+  type MissingDataQuestion,
+  type RiskFlag,
+  type SharedTraitAxis,
+  type TravelObjectState,
+} from "./fit-types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // §1 参照 helpers（registry getter・決定論）
@@ -373,4 +385,143 @@ export function computeConstructBlend(
     excludeUserTraitAxes: exTrait,
     excludeBurdenAxes: exBurden,
   };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// §6 T11-C4 interaction execution（相互作用=既存 component/hardBlock の修飾子・新スコア無）
+// ═════════════════════════════════════════════════════════════════════════════
+
+// --- 非 opaque 定数（safety floor / superadditive 係数 / rain 閾値・正本可視） ---
+export const SAFETY_VETO_FLOOR = 0.3; // 観測低安全がこれ未満→hardBlock
+export const SAFETY_CAUTION_FLOOR = 0.5; // 観測がこれ未満→caution（cap+mild）
+export const MIN_SAFETY_CONF = 0.5; // hardBlock は確度がこれ以上で
+export const SAFETY_NIGHT_CAP: EntityFitGrade = "good"; // 安全 unknown/caution → excellent 不可
+export const SAFETY_MILD_BURDEN_PENALTY = 0.15;
+export const K_SUPER = 0.5; // superadditive 係数（積の EXCESS のみ・線形は C3 で計上済）
+export const RAIN_SEVERITY_THRESHOLD = 0.5;
+export const OUTDOOR_THRESHOLD = 0.5;
+export const RAIN_MILD_PENALTY = 0.1;
+export const RAIN_STRONG_PENALTY = 0.3;
+export const RAIN_BLOCK_SEVERITY = 0.8;
+
+/** C4 第一 slice で実行する interaction（registry の id・15 全実行はしない） */
+export const WIRED_INTERACTIONS = ["IX_night_safety", "IX_baggage_stairs_crowd", "IX_rain_outdoor_fallback"] as const;
+
+export interface InteractionInputBundle {
+  entityIndicators?: ConstructIndicatorInput;
+  ctx?: FitContext;
+  /** solo-night 高リスク文脈の判定（neutral・relationship/subject 由来） */
+  isSolo: boolean;
+  /** viewer-specific safety concern 等の private 入力（private は full のみに効く） */
+  userPrefs?: ConstructPreferenceInput;
+}
+
+export interface InteractionEffect {
+  /** 既存 component への加法 delta（負=penalty・full/shared 二層） */
+  componentDeltas: { component: FitComponentKey; full: number; shared: number }[];
+  hardBlocks: FitHardBlock[];
+  riskFlags: RiskFlag[];
+  missingQuestions: MissingDataQuestion[];
+  /** shared-safe label 上限（excellent 不可化等） */
+  labelCap: EntityFitGrade | null;
+}
+
+const GRADE_RANK: Record<EntityFitGrade, number> = { blocked: 0, poor: 1, stretch: 2, good: 3, excellent: 4 };
+
+/** label 上限を適用（cap を超える grade は cap に丸める・blocked はそのまま） */
+export function applyCap(grade: EntityFitGrade, cap: EntityFitGrade | null): EntityFitGrade {
+  if (!cap) return grade;
+  return GRADE_RANK[grade] <= GRADE_RANK[cap] ? grade : cap;
+}
+const stricterCap = (a: EntityFitGrade, b: EntityFitGrade): EntityFitGrade => (GRADE_RANK[a] <= GRADE_RANK[b] ? a : b);
+
+function readInd(bundle: InteractionInputBundle, axis: ConstructAxis, key: string): { value: number; confidence: number } | undefined {
+  const all = bundle.entityIndicators as Partial<Record<ConstructAxis, Record<string, { value: number; confidence: number }>>> | undefined;
+  return all?.[axis]?.[key];
+}
+const emptyEffect = (): InteractionEffect => ({ componentDeltas: [], hardBlocks: [], riskFlags: [], missingQuestions: [], labelCap: null });
+
+/** IX_night_safety — veto_escalation（★corrected ladder: 欠落でも fully-safe にしない） */
+function execNightSafety(bundle: InteractionInputBundle): InteractionEffect | null {
+  const tod = bundle.ctx?.timeOfDayBand;
+  if (tod !== "evening" && tod !== "night") return null; // day → 無効（昼夜分離・daytimeSafety で代替しない）
+  const highRisk = bundle.isSolo; // solo-night context（neutral）
+  const sNight = readInd(bundle, "perceivedSafety", "nighttimeSafety"); // ★nighttimeSafety のみ（昼夜分離）
+  const privPref = bundle.userPrefs?.perceivedSafety;
+  const priv = privPref && privPref.visibility === "private" ? privPref : undefined;
+  const e = emptyEffect();
+
+  if (sNight && sNight.value < SAFETY_VETO_FLOOR && sNight.confidence >= MIN_SAFETY_CONF && highRisk) {
+    e.hardBlocks.push({ reason: "safety_escalation", visibility: "shared", ownerParticipantId: null });
+    return e; // 明白な危険 → hardBlock（soft penalty とは排他）
+  }
+  if (sNight && sNight.value < SAFETY_CAUTION_FLOOR) {
+    e.riskFlags.push({ code: "night_safety_caution", visibility: "shared", derivedFrom: "shared" });
+    e.componentDeltas.push({ component: "burdenFit", full: -SAFETY_MILD_BURDEN_PENALTY, shared: -SAFETY_MILD_BURDEN_PENALTY });
+    e.labelCap = SAFETY_NIGHT_CAP; // ★ fully-safe にしない
+  } else if (!sNight && highRisk) {
+    // ★ 欠落（fail-closed）: 安全と断定させない。欠落のみで hardBlock しない（夜 solo 全候補ブロック回避）が cap で excellent 不可
+    e.riskFlags.push({ code: "night_safety_unknown", visibility: "shared", derivedFrom: "shared" });
+    e.missingQuestions.push({ field: "perceivedSafety:nighttime", reason: "safety_unknown" });
+    e.labelCap = SAFETY_NIGHT_CAP;
+  }
+  // viewer-specific safety concern（private）→ full のみに効く private hardBlock（shared は drop）
+  if (priv && highRisk && (!sNight || sNight.value < SAFETY_CAUTION_FLOOR)) {
+    e.hardBlocks.push({ reason: "safety_escalation", visibility: "private", ownerParticipantId: null });
+  }
+  const any = e.hardBlocks.length || e.riskFlags.length || e.componentDeltas.length || e.missingQuestions.length || e.labelCap;
+  return any ? e : null;
+}
+
+/** IX_baggage_stairs_crowd — superadditive（★積の EXCESS のみ・線形は C3 で計上済） */
+function execBaggageStairsCrowd(bundle: InteractionInputBundle): InteractionEffect | null {
+  const b = readInd(bundle, "baggageLoad", "baggageVolumeWeight");
+  const st = readInd(bundle, "stairsSlopeLoad", "stairCount");
+  const cr = bundle.ctx?.expectedCrowdLevel;
+  if (!b || !st || !cr) return null; // ordinary 欠落 → 非発火（hallucinate しない）
+  const excess = K_SUPER * cl(b.value) * cl(st.value) * cl(cr.value);
+  if (excess <= 0) return null;
+  const e = emptyEffect();
+  e.componentDeltas.push({ component: "burdenFit", full: -excess, shared: -excess });
+  return e;
+}
+
+/** IX_rain_outdoor_fallback — gating（fallback 有無で mild↔強 penalty・severe で weather block） */
+function execRainOutdoorFallback(bundle: InteractionInputBundle): InteractionEffect | null {
+  const w = bundle.ctx?.weatherSeverity;
+  const o = readInd(bundle, "weatherTiming", "outdoorExposureRatio");
+  const f = readInd(bundle, "fallbackRouteAvailability", "weatherFallbackQuality");
+  if (w === undefined || !o) return null;
+  if (w < RAIN_SEVERITY_THRESHOLD || o.value < OUTDOOR_THRESHOLD) return null; // 雨×屋外でなければ無効
+  const fallback = f ? cl(f.value) : 0; // 欠落 fallback → 0（fail-closed: 代替なし側）
+  const e = emptyEffect();
+  if (fallback >= 0.5) {
+    e.componentDeltas.push({ component: "burdenFit", full: -RAIN_MILD_PENALTY, shared: -RAIN_MILD_PENALTY }); // gate 開: 緩和
+  } else {
+    e.componentDeltas.push({ component: "burdenFit", full: -RAIN_STRONG_PENALTY, shared: -RAIN_STRONG_PENALTY });
+    if (w >= RAIN_BLOCK_SEVERITY) e.hardBlocks.push({ reason: "season_or_weather_unavailable", visibility: "shared", ownerParticipantId: null });
+  }
+  return e;
+}
+
+export function executeInteraction(id: string, bundle: InteractionInputBundle): InteractionEffect | null {
+  if (id === "IX_night_safety") return execNightSafety(bundle);
+  if (id === "IX_baggage_stairs_crowd") return execBaggageStairsCrowd(bundle);
+  if (id === "IX_rain_outdoor_fallback") return execRainOutdoorFallback(bundle);
+  return null;
+}
+
+/** 全 wired interaction を集約（presence-gated・入力無→空 effect） */
+export function runInteractions(bundle: InteractionInputBundle): InteractionEffect {
+  const agg = emptyEffect();
+  for (const id of WIRED_INTERACTIONS) {
+    const e = executeInteraction(id, bundle);
+    if (!e) continue;
+    agg.componentDeltas.push(...e.componentDeltas);
+    agg.hardBlocks.push(...e.hardBlocks);
+    agg.riskFlags.push(...e.riskFlags);
+    agg.missingQuestions.push(...e.missingQuestions);
+    if (e.labelCap) agg.labelCap = agg.labelCap ? stricterCap(agg.labelCap, e.labelCap) : e.labelCap;
+  }
+  return agg;
 }

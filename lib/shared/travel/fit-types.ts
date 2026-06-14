@@ -540,7 +540,7 @@ export interface FitComponent {
 }
 
 export interface FitHardBlock {
-  reason: "red_line_violation" | "intended_role_unsupported" | "budget_over_hard_ceiling" | "hard_constraint_violation" | "support_unavailable" | "season_or_weather_unavailable";
+  reason: "red_line_violation" | "intended_role_unsupported" | "budget_over_hard_ceiling" | "hard_constraint_violation" | "support_unavailable" | "season_or_weather_unavailable" | "safety_escalation";
   visibility: Visibility;
   ownerParticipantId: string | null;
 }
@@ -614,6 +614,8 @@ export interface FitResult {
   /** 0..1 */
   confidence: number;
   labelStability: "stable" | "fragile";
+  /** ★ C4 interaction（安全 unknown/caution 等）が課す label 上限（shared-safe・null=上限なし） */
+  labelCap: EntityFitGrade | null;
   missingDataQuestions: MissingDataQuestion[];
   placeRefId: string;
   subjectKind: "solo" | "group";
