@@ -15,6 +15,9 @@
  */
 
 import type { TravelPlanEngineInput } from "./engine-types";
+import type { ExtractedSlot } from "./slot-types";
+import type { ReadinessPolicy } from "./readiness-types";
+import type { FairnessHistoryInput } from "./decision-types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // §1 source / prerequisite 語彙
@@ -75,10 +78,39 @@ export interface TravelInputNotReadyResult {
   status: "not_ready";
   /** input は持たない（fail-closed） */
   provenance: TravelInputProvenance;
+  /** 非 retracted slot が無い（=「聞く」: 提供させる） */
   missing: TravelInputPrerequisite[];
+  /**
+   * ★ T11-G1: slot は在るが confirmed-real でない（proposed / 派生のみ / partial）＝「確認させる」。
+   *   missing と分離（actionable）。dev fixture provider は使わない（undefined）。
+   */
+  unconfirmed?: TravelInputPrerequisite[];
 }
 
 export type TravelInputResult = TravelInputReadyResult | TravelInputNotReadyResult;
 
 /** provider = gate を受け input を供給 or 拒否するだけ。 */
 export type TravelInputProvider = (gate: TravelInputProviderGate) => TravelInputResult;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §4 T11-G1: session/intake provider 入力（server-only・正規化済 slots を受ける）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * server session/intake から組む real input の素材（**抽出/正規化済 slots を受ける**・生会話は受けない）。
+ *   - hard 必須（destination_area / date_or_range / participants）は confirmed-real 必須（§ helper）。
+ *   - soft 補完（budget/pace/mobility/red_line/soft_preference/time_window）は proposed/派生/private 可。
+ *   - ★ TravelPlanEngineInput 同様 server-only（private slot を含み得る・client へ serialize しない）。
+ */
+export interface TravelIntakeInput {
+  /** session 抽出 + slot-normalizer 正規化済（upstream の出力・retracted も含み得る＝provider が除外） */
+  slots: ExtractedSlot[];
+  /** 参加者（1–2・MVP・unique・非空を helper が検証） */
+  participantIds: string[];
+  /** 任意・viewer 射影対象（指定時は participantIds に含まれること） */
+  viewerId?: string;
+  /** 任意・intake で確認した予約意図（provider は derive せず pass-through） */
+  policy?: ReadinessPolicy;
+  /** 任意・過去の偏り（純 input） */
+  fairnessHistory?: FairnessHistoryInput;
+}
