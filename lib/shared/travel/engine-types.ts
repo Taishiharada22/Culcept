@@ -13,9 +13,10 @@
 import type { ExtractedSlot } from "./slot-types";
 import type { ContingencyScenario } from "./contingency-types";
 import type { DecisionState, FairnessHistoryInput } from "./decision-types";
-import type { ReadinessPolicy, ReadinessState } from "./readiness-types";
+import type { CancelWeatherEvidence, ReadinessPolicy, ReadinessState } from "./readiness-types";
 import type { NextAction, PlanDecisionPacket } from "./packet-types";
 import type { ProposalInputError } from "./proposal-types";
+import type { ProposalFitInput } from "./fit-decision-adapter-types";
 
 export interface TravelPlanEngineInput {
   /** 正規化済み slot（T2C normalizer 出力。正規化は本 facade の上流の責務） */
@@ -30,6 +31,17 @@ export interface TravelPlanEngineInput {
   scenarios?: ContingencyScenario[];
   /** 任意。viewer 射影を返す対象 participantId */
   viewerId?: string;
+  /**
+   * ★ T11-F: Fit-to-Decision 合成の純 input（**caller が candidateId に対応づけて供給**）。
+   *   不在時 → packet fitSummary なし＝従来 T9 output と byte 同一。fit は entity を捏造しない。
+   */
+  fit?: ProposalFitInput[];
+  /**
+   * ★ T11-C7/F: cancel_weather evidence（天候不確実 × 取消不能 commitment）。
+   *   供給時のみ `assessReadiness` に thread し weather_reversal_uncertainty 確認を起こす。
+   *   不在時 → readiness 挙動不変。**fit-core は producer にしない**（caller 供給の純 input）。
+   */
+  cancelWeather?: CancelWeatherEvidence;
 }
 
 /** 非 private な観測サマリ（debug/health 用・PII なし） */

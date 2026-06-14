@@ -19,6 +19,7 @@ import type { DecisionQuestion, DecisionState } from "./decision-types";
 import type { ReadinessState, RequiredConfirmation } from "./readiness-types";
 import type { ContingencyTrigger, FallbackAction } from "./contingency-types";
 import type { ProposalInputError } from "./proposal-types";
+import type { ProposalFitSummary } from "./fit-decision-adapter-types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // §1 next best action（束ねた単一の次の一手）
@@ -69,4 +70,11 @@ export interface PlanDecisionPacket {
    */
   rationale: ViewerScopedRationale;
   inputError: ProposalInputError | null;
+  /**
+   * ★ T11-F: Fit-to-Decision 合成の **advisory bounded summary**（additive・optional）。
+   *   - fit input 供給時のみ載る（不在時は undefined ＝ 従来 packet と byte 同一）。
+   *   - **raw FitResult を持たない**（engine-safe summary のみ）。**executionAuthority に不参加**。
+   *   - authoritative packet = full grade 反映 / shared・viewer packet = toSharedFitView 由来。
+   */
+  fitSummary?: ProposalFitSummary[];
 }
