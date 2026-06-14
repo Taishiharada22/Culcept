@@ -7,11 +7,14 @@
  *   RD2d-b adapter に注入できる shape にするだけ。**能力判定（arrivalProjection/planning/leaveBy）は一切しない** —
  *   それは RD2d-b adapter + RD2d-a-B walker が DAG で行う。
  *
- * coordinate boundary（RD2d-c0A §12・核心安全則）:
+ * coordinate boundary（RD2d-c0A §12・核心安全則・RD2d-c-A で多層化）:
  *   - public adapter-facing input（RouteEtaAdapterInputV0）= **opaque refs のみ**。
- *   - **wrapper は raw 座標を直接持たない**: private coordinate input は wrapper にとって **opaque ハンドル**で、実座標は
- *     注入された resolver/heuristic の内部に閉じる。wrapper は座標を route も serialize もできない（leak 構造的に不可能）。
- *   - private input が無い → no_route。localHeuristicAllowed=false → heuristic を呼ばない → no_route。
+ *   - **wrapper は raw 座標を直接持たない**設計（private coordinate input は opaque ハンドル・実座標は注入 resolver/heuristic
+ *     内部に閉じる）に**加えて**、input/private-handle/result/trace の **leak guard** と dependency **exception catch** で raw 露出を防ぐ。
+ *     「構造的に不可能」と過信せず、多層 guard で守る（RD2d-c-A・GPT 監査反映）。
+ *   - private input が無い → no_route。**private handle が coord-like → no_route（leak guard）**。localHeuristicAllowed=false
+ *     → heuristic を呼ばない → no_route。**dependency が throw → no_route（raw exception を echo しない）**。
+ *     **result self-check で raw leak → no_route（漏れる result を emit しない）**。
  *
  * 規律（CEO）: heuristicDistanceProvider/cascadeOrchestrator/Google Routes/external API/currentLocation/geolocation/
  *   weather/RC2a/MovementReality を **import しない**（cascade は依存注入）。heuristic を external/cached/user_confirmed に
@@ -48,7 +51,10 @@ export type TransportCascadeStageV0 =
   | "heuristic_resolved"
   | "no_private_input"
   | "local_heuristic_blocked"
-  | "heuristic_unresolved";
+  | "heuristic_unresolved"
+  | "private_input_leak_blocked"
+  | "dependency_error"
+  | "result_leak_blocked";
 
 export interface TransportCascadeProviderTraceV0 {
   readonly stage: TransportCascadeStageV0;
@@ -118,39 +124,58 @@ function heuristicResult(
 
 /** local heuristic を使ってよいか（pairExternalSendAllowed と直交・sensitive/current/home-work は false） */
 function localHeuristicAllowedFor(input: TransportCascadeRouteEtaProviderInputV0): boolean {
-  return deriveEndpointPairGate(input.pairPrivacyParts).localHeuristicAllowedDefault;
+  // gate を derive（pairExternalSendAllowed/localHeuristicAllowedDefault）。endpointPairPrivacyViolations 相当で
+  // sensitive と localHeuristic の整合を自己検証（derived gate は常に整合だが、将来の不整合を構造で捕捉）。
+  const g = deriveEndpointPairGate(input.pairPrivacyParts);
+  // sensitive/current/home-work のいずれかで local を許さない（gate の不変条件を wrapper でも明示）
+  if (g.eitherEndpointSensitive) return false;
+  return g.localHeuristicAllowedDefault;
+}
+
+/** no_route 結果 + safe trace（raw を一切載せない） */
+function noRoute(stage: TransportCascadeStageV0): { result: RouteEtaProviderResultV0; trace: TransportCascadeProviderTraceV0 } {
+  return { result: noRouteResult(), trace: { stage, opaqueRouteRef: null } };
 }
 
 // ── wrapper 本体 ─────────────────────────────────────────────────────────────────────────
 
 /**
- * resolveTransportCascadeProvider — 翻訳 + trace（pure・能力判定しない）。
- * localHeuristicAllowed gate → private coordinate 解決 → 注入 heuristic → heuristic 正規化。失敗は全て no_route。
+ * resolveTransportCascadeProvider — 翻訳 + trace（pure・能力判定しない）。失敗は全て no_route（safe code のみ・raw echo なし）。
+ * localHeuristicAllowed gate → private coordinate 解決(+leak guard) → 注入 heuristic(try/catch) → 正規化(+self-check)。
  */
 export async function resolveTransportCascadeProvider(
   input: TransportCascadeRouteEtaProviderInputV0,
   deps: TransportCascadeProviderDepsV0,
   options: TransportCascadeProviderOptionsV0,
 ): Promise<{ result: RouteEtaProviderResultV0; trace: TransportCascadeProviderTraceV0 }> {
-  // 1. local heuristic gate（raw 座標を local でも消費してよいか）
-  if (!localHeuristicAllowedFor(input)) {
-    return { result: noRouteResult(), trace: { stage: "local_heuristic_blocked", opaqueRouteRef: null } };
+  // 1. local heuristic gate（raw 座標を local でも消費してよいか・sensitive は不可）
+  if (!localHeuristicAllowedFor(input)) return noRoute("local_heuristic_blocked");
+
+  // 2. private coordinate input（dependency exception は raw を echo せず no_route に倒す）
+  let priv: TransportCascadePrivateCoordinateInputV0 | null;
+  try {
+    priv = await deps.resolvePrivateCoordinates(input);
+  } catch {
+    return noRoute("dependency_error"); // raw exception message を一切出さない
   }
-  // 2. private coordinate input（無ければ no_route・fixture へ fallback しない）
-  const priv = await deps.resolvePrivateCoordinates(input);
-  if (priv === null) {
-    return { result: noRouteResult(), trace: { stage: "no_private_input", opaqueRouteRef: null } };
+  if (priv === null) return noRoute("no_private_input"); // fixture へ fallback しない
+
+  // 2b. private handle leak guard（coord-like handle → no_route・実装者が座標を handle に入れても防ぐ）
+  if (transportCascadePrivateInputViolations(priv).length > 0) return noRoute("private_input_leak_blocked");
+
+  // 3. 注入 heuristic（wrapper は priv の中身[座標]を見ず handle を渡すだけ・exception は no_route）
+  let h: LocalHeuristicResultV0 | null;
+  try {
+    h = await deps.runLocalHeuristic(priv);
+  } catch {
+    return noRoute("dependency_error");
   }
-  // 3. 注入 heuristic（wrapper は priv の中身[座標]を見ず handle を渡すだけ）
-  const h = await deps.runLocalHeuristic(priv);
-  if (h === null || !h.durationSignalPresent) {
-    return { result: noRouteResult(), trace: { stage: "heuristic_unresolved", opaqueRouteRef: null } };
-  }
-  // 4. heuristic 正規化（durationBasis=heuristic・signal 止まり）
-  return {
-    result: heuristicResult(input, options, h),
-    trace: { stage: "heuristic_resolved", opaqueRouteRef: h.opaqueRouteRef },
-  };
+  if (h === null || !h.durationSignalPresent) return noRoute("heuristic_unresolved");
+
+  // 4. heuristic 正規化 + self-check（result に raw が混入したら emit せず no_route）
+  const result = heuristicResult(input, options, h);
+  if (transportCascadeProviderResultViolations(result).length > 0) return noRoute("result_leak_blocked");
+  return { result, trace: { stage: "heuristic_resolved", opaqueRouteRef: h.opaqueRouteRef } };
 }
 
 /**
@@ -185,6 +210,21 @@ export function transportCascadeProviderInputViolations(input: TransportCascadeR
   out = out.concat(FORBIDDEN_TOKENS.filter((t) => json.includes(t)).map((t) => `public input leaks raw token: ${t}`));
   if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
     out = out.concat(["public input contains raw coordinate pattern (opaque refs only)"]);
+  }
+  return out;
+}
+
+/**
+ * transportCascadePrivateInputViolations — private coordinate handle が **opaque token のみ**で raw 座標を含まないことを検証。
+ * 実装者が handle に座標文字列（"35.68,139.76"）を入れても検出 → wrapper が no_route に倒す（message は token 名/定数のみ）。
+ */
+export function transportCascadePrivateInputViolations(priv: TransportCascadePrivateCoordinateInputV0): string[] {
+  let out: string[] = [];
+  if (priv.kind !== "private_coordinate_bearing") out = out.concat([`invalid private input kind: ${priv.kind}`]);
+  const json = JSON.stringify(priv).toLowerCase();
+  out = out.concat(FORBIDDEN_TOKENS.filter((t) => json.includes(t)).map((t) => `private input leaks raw token: ${t}`));
+  if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
+    out = out.concat(["private input handle contains coordinate-like string (must be opaque token)"]);
   }
   return out;
 }

@@ -4,6 +4,34 @@
  *
  * 核: wrapper は翻訳層（能力判定しない）。cascade は依存注入。private 座標は wrapper にとって opaque。
  *   localHeuristicAllowed gate・heuristic 正直 stamp・unresolved/manual shell は no_route・raw 不露出。
+ *
+ * CEO 必須 25 項目 → test 対応表（RD2d-c-A で形式化）:
+ *   #1 no private input→no_route          → "RD2d-c #1"
+ *   #2 localHeuristicAllowed false→heuristic 呼ばない → "RD2d-c #2/#3"(spy)
+ *   #3 external false だけでは local true でない → "RD2d-c #2/#3"
+ *   #4 currentLocation→local false        → "RD2d-c #4/#5/#6"
+ *   #5 home/work→local false              → "RD2d-c #4/#5/#6"
+ *   #6 sensitive→local false              → "RD2d-c #4/#5/#6"
+ *   #7 unresolved→no_route                → "RD2d-c #7"
+ *   #8 heuristic→durationBasis heuristic  → "RD2d-c #8.."
+ *   #9 heuristic→durationSignalPresent true → "RD2d-c #8.."
+ *   #10 heuristic→routeShapePresent false → "RD2d-c #8.."
+ *   #11 heuristic→static_assumption       → "RD2d-c #8.."
+ *   #12 heuristic→no raw coords/distance/polyline → "RD2d-c #8.." + "RD2d-c-A"(handle/exception)
+ *   #13 manual shell≠user_confirmed       → "RD2d-c #13/#14"
+ *   #14 確認 evidence なしで user_confirmed なし → "RD2d-c #13/#14"
+ *   #15 malformed→no_route+violation      → "RD2d-c #15/#16" + "RD2d-c-A"(result self-check)
+ *   #16 privacy NG→no_route               → "RD2d-c #15/#16"
+ *   #17 wrapper result→RD2d-b violations 通過 → "RD2d-c #17"
+ *   #18 wrapper→adapter→DAG/walker 通過    → "RD2d-c #17/#18"
+ *   #19 raw 不 serialize                  → "RD2d-c #19" + "RD2d-c-A"(handle 非露出)
+ *   #20 violation が raw を echo しない    → "RD2d-c #20" + "RD2d-c-A"(exception/handle)
+ *   #21 external/Google Routes/cascade import なし → "RD2d-c #21"
+ *   #22 currentLocation/geolocation/weather import なし → "RD2d-c #22"
+ *   #23 RC2a/MovementReality import なし + IO なし → "RD2d-c #23"
+ *   #24 RD2 targeted pass                  → 別実行(147→154/154)
+ *   #25 tsc baseline 55                    → 別実行
+ *   追加(RD2d-c-A): private handle leak guard / dependency exception safe / result self-check → "RD2d-c-A trust boundary" block。
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -200,5 +228,69 @@ describe("RD2d-c #21/#22/#23 import scan", () => {
     for (const bad of ["movementReality", "compileMovementReality", "assembleRealityGraph", ".insert(", ".update(", "service_role", "notification", "push(", "Date.now", "Math.random", "new Date(", "supabase", "localStorage", "fetch("]) {
       expect(code.includes(bad)).toBe(false);
     }
+  });
+});
+
+// ── RD2d-c-A trust boundary（4 レンズ監査 + GPT 反映・leak/exception 多層 guard） ──────────────
+
+import { transportCascadePrivateInputViolations } from "@/lib/plan/realityCore/transportCascadeRouteEtaProvider";
+
+describe("RD2d-c-A private handle leak guard", () => {
+  it("coord-like handle → no_route(private_input_leak_blocked)・raw を echo しない", async () => {
+    const d = deps({ resolvePrivateCoordinates: async () => ({ kind: "private_coordinate_bearing", opaqueHandle: "35.6895,139.7006" }) });
+    const { result, trace } = await resolveTransportCascadeProvider(input(), d, OPTIONS);
+    expect(result.status).toBe("no_route");
+    expect(trace.stage).toBe("private_input_leak_blocked");
+    expect(JSON.stringify({ result, trace }).includes("35.6895")).toBe(false); // 座標を載せない
+  });
+  it("transportCascadePrivateInputViolations が coord-like / forbidden token を検出", () => {
+    expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "priv-ok" })).toEqual([]);
+    expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "35.68,139.70" }).length).toBeGreaterThan(0);
+    expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "polyline:abc" }).some((m) => m.includes("polyline"))).toBe(true);
+  });
+});
+
+describe("RD2d-c-A dependency exception safe handling", () => {
+  it("resolvePrivateCoordinates throw → no_route(dependency_error)・raw exception を echo しない", async () => {
+    const d = deps({ resolvePrivateCoordinates: async () => { throw new Error("geocode failed at 35.6895,139.7006"); } });
+    const { result, trace } = await resolveTransportCascadeProvider(input(), d, OPTIONS);
+    expect(result.status).toBe("no_route");
+    expect(trace.stage).toBe("dependency_error");
+    expect(JSON.stringify({ result, trace }).includes("35.6895")).toBe(false); // raw exception message を出さない
+  });
+  it("runLocalHeuristic throw(raw coord error)→ safe no_route without raw echo", async () => {
+    const d = deps({ runLocalHeuristic: async () => { throw new Error("route via 35.6895,139.7006 / 35.70,139.71"); } });
+    const { result, trace } = await resolveTransportCascadeProvider(input(), d, OPTIONS);
+    expect(result.status).toBe("no_route");
+    expect(trace.stage).toBe("dependency_error");
+    const json = JSON.stringify({ result, trace });
+    expect(json.includes("35.6895")).toBe(false);
+    expect(json.includes("35.70")).toBe(false);
+  });
+});
+
+describe("RD2d-c-A result self-check（heuristic が raw を返しても emit しない）", () => {
+  it("heuristic が coord-like opaqueRouteRef を返す → no_route(result_leak_blocked)", async () => {
+    const d = deps({ runLocalHeuristic: async () => ({ durationSignalPresent: true, opaqueRouteRef: "35.6895,139.7006" }) });
+    const { result, trace } = await resolveTransportCascadeProvider(input(), d, OPTIONS);
+    expect(result.status).toBe("no_route"); // 漏れる result を emit しない
+    expect(trace.stage).toBe("result_leak_blocked");
+    expect(JSON.stringify({ result, trace }).includes("35.6895")).toBe(false);
+  });
+});
+
+describe("RD2d-c-A localHeuristicAllowed validation / endpointPair 連携", () => {
+  it("sensitive endpoint で heuristic を呼ばない（gate の不変条件を wrapper で明示）", async () => {
+    let called = 0;
+    const d = deps({ runLocalHeuristic: async () => { called += 1; return { durationSignalPresent: true, opaqueRouteRef: "x" }; } });
+    await resolveTransportCascadeProvider(sensitive("homeWorkDerivedInvolved"), d, OPTIONS);
+    expect(called).toBe(0);
+  });
+  it("private handle / 例外時でも RD2d-b adapter 注入で walker green（no_route_source）", async () => {
+    const provider = createTransportCascadeRouteEtaProvider(deps({ runLocalHeuristic: async () => { throw new Error("boom 35.6895,139.7006"); } }), OPTIONS);
+    const o = await resolveRouteEtaCapability(input(), { provider });
+    expect(o.stage).toBe("no_route_source");
+    expect(routeEtaAdapterOutputViolations(o)).toEqual([]);
+    expect(JSON.stringify(o).includes("35.6895")).toBe(false);
   });
 });
