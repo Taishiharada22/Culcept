@@ -17,26 +17,62 @@ leaveBy は「capability の延長」でなく「**行動境界**」。誤った
 
 ---
 
+> **⚠ RD2e-0A 補正（GPT 監査 2026-06-14・採用）**: ①**旧 ETA 語を撤回** — `timeEstimateUsableForPlanning` / `arrivalProjectionKnown` / `durationSignalPresent`（RD2d-a-A 語彙）に統一（「planning-grade ETA」等は実装で旧語彙を復活させる危険）。②**leaveBy 時間契約（§1.1）を追加**（leaveBy は絶対時刻ゆえ TZ/subjectiveDate/instant 契約が必須）。③**currentLocation は RD2e-a で一切使わない（§4 裁定 A）**。④**buffer policy の evidence 契約（§2）を強化**。⑤**leaveByInstantComputed internal-only（§6）を強化**。
+
 ## 1. leaveByComputable から実 leaveBy 時刻を作る条件（CEO 論点・全条件 AND）
 
-`leaveByComputable=true`（= timeEstimateUsableForPlanning ∧ arrivalTargetScoped ∧ originUsableForLeaveBy ∧ bufferKnown ∧ ¬originConflict）に**加えて**、実時刻生成は以下が**全て**必要:
+`leaveByComputable=true`（= `timeEstimateUsableForPlanning` ∧ arrivalTargetScoped ∧ originUsableForLeaveBy ∧ bufferKnown ∧ ¬originConflict）に**加えて**、実時刻生成は以下が**全て**必要:
 
 1. **arrival target known**（到着すべき時刻・§3）
-2. **planning-grade ETA fresh**（RD2d-a-B: fetchedAtRef 必須・stale/expired 拒否・§5）
+2. **`timeEstimateUsableForPlanning=true`**（RD2d-a-B: fresh + fetchedAtRef 必須・stale/expired 拒否・§5）。**`durationSignalPresent` だけでは絶対に leaveBy 不可・heuristic 不可・`arrivalProjectionKnown` だけでも不可**（planning-grade のみ）。
 3. **origin が出発時刻に妥当**（RD2d-0A §6: future departure で current_location 不可・§4）
 4. **buffer policy known**（§2）
 5. **confidence/evidence present**（各供給の evidence）
+6. **時間契約成立**（§1.1: TZ/instant/arrival target instant）
 
-→ leaveBy 時刻 = arrival target − ETA − buffer（origin から）。**1 つでも欠ければ leaveBy 時刻 null**（leaveByComputable=true でも実時刻を出さない）。
+→ leaveBy instant = arrivalTargetInstant − (planning-grade travel time estimate) − buffer（origin から）。**1 つでも欠ければ leaveBy instant null**（leaveByComputable=true でも実時刻を出さない）。
+
+### 1.1 leaveBy 時間契約（CEO 論点・leaveBy は絶対時刻）
+
+leaveBy は時刻 → **絶対 instant 契約**が必要（minuteOfDay / HH だけで作らない）:
+
+| field | 意味 |
+|---|---|
+| `leaveByInstant` | 出発すべき絶対時刻（instant・TZ 込み） |
+| `timezone` | **JST v0 を明示**（browser local TZ 禁止） |
+| `subjectiveDate` | 主観日（JST・subjective-day 込み） |
+| `targetEventDate` | 対象 event の日付（date 跨ぎを無視しない） |
+| `arrivalTargetInstant` | 到着目標の絶対時刻 |
+| `evaluatedAt` | 評価時点（freshness 判定の基準） |
+| `sourceTimeEstimateRef` | 由来の travel time estimate（opaque ref） |
+| `bufferRef` | 適用 buffer の ref（§2） |
+| `computedAt` | 計算時刻（**identity 対象外**・再計算で変わるため） |
+
+- **禁止**: browser local timezone / HH だけの計算 / date 跨ぎ無視 / JST v0 を曖昧にする / minuteOfDay だけで absolute instant を作る。
+- RD2e-a 前に**時間型契約を固定**（leaveBy instant は makeRealityInstantJst 系の subjectiveDate/JST 規律に従う）。
 
 ---
 
-## 2. buffer policy（CEO 論点・未実装・要設計）
+## 2. buffer policy（CEO 論点・未実装・要設計・RD2e-0A で evidence 契約強化）
 
-- buffer = 到着前の余裕（準備・誤差吸収）。**verb/rigidity/mode 別**（work strict→大・social soft→小・徒歩→小・車→交通余裕）。
-- **v0 は固定 conservative buffer**（過小評価で遅刻を誘発しない方を選ぶ）。buffer には **evidence**（なぜその値か）。
-- **fake しない**: 根拠なき精密 buffer（「+7 分」等）を出さない。buffer は粗い保守値 + 理由。
-- weather friction（§7）を **qualitative に**加味しうるが分単位 delay を断定しない。
+- buffer = 到着前の余裕（準備・誤差吸収）。buffer は leaveBy instant を動かす → **根拠（evidence）が必須**。
+- **buffer 契約**（型として）:
+
+| field | 意味 |
+|---|---|
+| `bufferPolicyId` | 適用した policy の id |
+| `bufferKind` | preparation / error_margin / transition / conservative_default 等 |
+| `bufferCoarseBucket` | 粗い bucket（例 small/medium/large）or `bufferMinutesRange`（範囲・単一精密分数でない） |
+| `source` | policy 由来（rigidity/mode/event_kind） |
+| `evidenceRefs` | なぜその buffer か |
+| `confidence` | 確信度（low/moderate/...） |
+| `displayPolicy` | internal/notActionable 等 |
+| staleness | stale/unknown 扱い（古い policy は使わない） |
+
+- **mode/event rigidity との関係**: work strict→大・social soft→小・徒歩→小・車→交通余裕（mode/rigidity から bucket を選ぶ・evidence 付き）。
+- **v0 は固定 conservative buffer**（過小評価で遅刻を誘発しない方）。
+- **禁止**: 根拠なしの精密分数（「+7 分」）/ weather delay を数値化 / **buffer を「間に合う保証」として扱う/読ませる表現** / buffer があれば間に合うと読む文面。buffer は粗い保守値 + 理由であって安全保証ではない。
+- weather friction（§8）を **qualitative に**加味しうるが分単位 delay を断定しない。
 
 ---
 
@@ -53,15 +89,24 @@ leaveBy は「capability の延長」でなく「**行動境界**」。誤った
 - leaveBy は**未来の出発**についての claim → origin は**出発時刻に妥当**でなければならない（評価時点でなく）。
 - **`originUsabilityForLeaveBy`**（RD2d-0A §6）: 
   - `user_confirmed origin` / `previous_event_end`（chain）→ 出発時刻も妥当（可）。
-  - `current_location_candidate` → **imminent departure のみ可**（future departure では移動しうるので不可）。
+  - `current_location_candidate` → **RD2e-a では不可（§4.1 裁定 A・currentLocation は使わない）**。RD2e''（別 GO）まで HOLD。
   - `home_assumed`/`work_assumed` → assumed（leaveBy は目安・断定しない）。
-- **絶対則（CEO no currentLocation auto-use）**: **currentLocation を自動で出発 origin に使わない**。imminent + 明示 gate（RD2c origin の current_location_candidate・別 opt-in）でのみ。**勝手に「今ここから」で leaveBy を断定しない**。
+- **絶対則（CEO no currentLocation auto-use）**: **currentLocation を自動で出発 origin に使わない**。**勝手に「今ここから」で leaveBy を断定しない**。
+
+### 4.1 currentLocation 裁定（CEO 論点・「imminent」未定義 → RD2e-a は使わない＝選択肢 A）
+
+旧記述「imminent departure のみ currentLocation 可」は **imminent が未定義**で、実装者が勝手に判断する危険。RD2e-0A 裁定:
+
+- **RD2e-a では `current_location_candidate` を leaveBy origin に一切使わない（選択肢 A・採用）**。
+- 理由: ①**currentLocation 取得自体がまだ NO GO**（RD2c origin §8）②RD2e-a は型/walker から始める③currentLocation を使うなら **accuracy/freshness/evidence/gate を必須とする別 slice の gate 設計**が要る。
+- leaveBy origin は **`user_confirmed origin` / `previous_event_end`(chain)** のみ（home/work assumed は目安・断定しない）。`current_location_candidate` 起点の leaveBy は **RD2e''（別 GO・imminent window 定義 + currentLocation gate + accuracy/freshness/evidence 必須）**まで HOLD。
+- これにより「imminent」の未定義に乗じた currentLocation 誤用を構造排除。
 
 ---
 
 ## 5. stale route/ETA 拒否（CEO 論点）
 
-- **stale/expired な ETA から leaveBy 時刻を出さない**（RD2d-a-B: timeEstimateUsableForPlanning は fresh + fetchedAtRef 必須）。
+- **stale/expired な travel time estimate から leaveBy 時刻を出さない**（RD2d-a-B: `timeEstimateUsableForPlanning` は fresh + fetchedAtRef 必須・`arrivalProjectionKnown` だけでは不可）。
 - cache 種別別 freshness（RD2d-0B §6: trafficEta 短命）→ stale なら leaveBy null。
 - **「少し古いけど参考」で leaveBy に使わない**（古い所要で出発時刻を断定 = 遅刻リスク）。
 - origin の freshness（RD2d-0A §6 `originTemporalFreshness`）も同様（古い現在地で leaveBy を出さない）。
@@ -77,7 +122,13 @@ leaveBy には RD2d-a-A の 3 tier がある:
 | **leaveByInstantComputed**（RD2e 新） | 実 leaveBy 時刻を**内部で計算**した（§1 全条件） | **RD2e の出力** |
 | **departure line / user-facing** | ユーザーに「○時に出ましょう」を**見せる/促す** | **RD2e 射程外**（§7 別 gate） |
 
-- **絶対則**: RD2e は **leaveByInstantComputed（内部時刻）まで**。**departure line 文面・user-facing 表示・通知は作らない**（RJ2e copy / Permission / delivery の別 gate）。**leaveByInstantComputed=true は display/action を含意しない**（RD2d-a-A INV と同型）。
+- **絶対則**: RD2e は **leaveByInstantComputed（内部時刻）まで**。**departure line 文面・user-facing 表示・通知は作らない**（RJ2e copy / Permission / delivery の別 gate）。
+- **`leaveByInstantComputed` internal-only 不変条件（RD2e-0A 強化）**:
+  - **internal only**（consumer payload に出さない・client props に出さない）
+  - **RJ2e copy に出さない**・**notification に出さない**・**proposal に出さない**
+  - **`departureLineBoundary`（別 slice）まで HOLD**（departure line / prompt / notification は別 gate）
+  - **`leaveByInstantComputed=true` は display/action 許可を意味しない**（RD2d-a-A の computable ⇏ display ⇏ action と同型）
+  - RD2d 系の leak guard（raw 不露出）と同様、leaveBy instant は **internal 構造**に留め、user-facing への射出は RJ2e/RJ2d/Permission/RJ2f の各 gate を**全て**通った後のみ。
 
 ---
 
@@ -104,7 +155,7 @@ leaveBy には RD2d-a-A の 3 tier がある:
 | 禁止 | 内容 |
 |---|---|
 | **no fake leaveBy** | 条件（§1）が欠けたら leaveBy 時刻 null。推測で時刻を埋めない |
-| stale leaveBy | stale ETA/origin で leaveBy を出さない |
+| stale leaveBy | stale な travel time estimate(timeEstimateUsableForPlanning でない)/origin で leaveBy を出さない |
 | heuristic leaveBy | heuristic duration から leaveBy を出さない（projection-grade でない・RD2d-a-A） |
 | **no currentLocation auto-use** | 現在地を自動で出発 origin にしない（imminent + 明示 gate のみ） |
 | departure line | RD2e は文面を作らない（RJ2e/Permission/delivery 別 gate） |
@@ -136,14 +187,14 @@ leaveBy には RD2d-a-A の 3 tier がある:
 | consultedDepartments | Permission（origin temporal・currentLocation gate）・Communication（departure line 分離）・Risk（stale/weather/遅刻）・Context（arrival target/weather） |
 | blockingDepartments | **CEO**（RD2e-a 実装 GO・weather/delivery は別 gate）+ Permission + production gate |
 | outputs | RD2e-0 設計（leaveBy instant 条件・buffer policy・arrival target・origin temporal validity・stale 拒否・departure line 分離・user-facing/notification gate・weather friction HOLD・fake 禁止・RD2e-a 候補）。**コードなし** |
-| safetyGate | **leaveByComputable ⇏ leaveBy instant（全条件 AND 必須）**・**leaveByInstantComputed ⇏ display/action（departure line/notification は別 gate）**・**stale ETA/origin で leaveBy を出さない**・**heuristic から leaveBy を出さない**・**currentLocation を自動で出発 origin にしない**・**weather delay を分単位で断定しない（qualitative・HOLD）**・**fake leaveBy なし**・buffer は保守値 + evidence・production gate 未通過 |
+| safetyGate | **leaveByComputable ⇏ leaveBy instant（全条件 AND 必須）**・**leaveByInstantComputed ⇏ display/action（departure line/notification は別 gate）**・**stale な travel time estimate(timeEstimateUsableForPlanning でない)/origin で leaveBy を出さない**・**heuristic から leaveBy を出さない**・**currentLocation を自動で出発 origin にしない**・**weather delay を分単位で断定しない（qualitative・HOLD）**・**fake leaveBy なし**・buffer は保守値 + evidence・production gate 未通過 |
 | traceRefs | RD2d-a-A leaveByComputable / RD2d-0A §6 origin temporal / RD2-0 §5 leaveBy 条件 / RJ2d departure line 構造遮断 |
 
 ---
 
 ## 12. 自己判定
 
-- **RD2e-0 は設計 ready**。leaveBy instant は **行動境界**（capability の延長でなく）。leaveByComputable=true でも **全条件 AND（arrival target・origin 出発時刻妥当・fresh ETA・buffer）**が揃わなければ実時刻を出さない。出しても **display/action は別 gate**。
+- **RD2e-0 は設計 ready**。leaveBy instant は **行動境界**（capability の延長でなく）。leaveByComputable=true でも **全条件 AND(arrival target・origin 出発時刻妥当・timeEstimateUsableForPlanning・buffer)**が揃わなければ実時刻を出さない。出しても **display/action は別 gate**。
 - **RD2e-a 実装 GO は CEO 専管**。型・walker（pure）を先に・weather friction と delivery は別 gate（最後）。
 - 革新点（CEO ⑦）: **leaveBy を「最も行動に近い派生量」として最も厳格に gate** — `leaveByComputable`（計算可能）→ `leaveByInstantComputed`（時刻計算）→ `departure line`（表示）→ `notification`（行動促し）の **4 段を厳格分離**し、各段で別 gate を要求。「アプリが古い所要や勝手な現在地で出発時刻を断定して遅刻させる」事故を、stale 拒否 + origin temporal validity + currentLocation auto-use 禁止 + weather delay 非断定で構造排除。捏造しない reality OS を**移動の最終行動**まで貫く。
 - code 変更ゼロ・UI/storage/API/DB write/location/notification/external read 不接触・tree clean・production gate 未通過。
