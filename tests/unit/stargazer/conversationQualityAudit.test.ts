@@ -488,11 +488,11 @@ describe("Fix 2: DECISION_META 安全ストリップ", () => {
 
 describe("Fix 4: personalizedFacts ターンベースローテーション", () => {
   const mockFacts: TaggedFact[] = [
-    { text: "ひとりで考える時間が回復の源", tags: ["energy_source"], source: "axis" },
-    { text: "感情の波が判断に直結しやすい", tags: ["energy_source"], source: "axis" },
-    { text: "完璧を求めすぎて動き出しが遅れがち", tags: ["energy_source"], source: "axis" },
-    { text: "直感で動いた方がうまくいくタイプ", tags: ["energy_source"], source: "axis" },
-    { text: "人の評価を気にしすぎる傾向がある", tags: ["energy_source"], source: "axis" },
+    { text: "ひとりで考える時間が回復の源", tags: ["energy_state"], source: "axis" },
+    { text: "感情の波が判断に直結しやすい", tags: ["energy_state"], source: "axis" },
+    { text: "完璧を求めすぎて動き出しが遅れがち", tags: ["energy_state"], source: "axis" },
+    { text: "直感で動いた方がうまくいくタイプ", tags: ["energy_state"], source: "axis" },
+    { text: "人の評価を気にしすぎる傾向がある", tags: ["energy_state"], source: "axis" },
   ];
 
   it("turnNumber が異なると上位 facts の順序が変わる", () => {
