@@ -46,15 +46,19 @@ arrivalProjectionKnown     → travelDurationKnown
                            ∧ temporalFreshnessKnown
                            ∧ conditionAdequateForMode(mode, conditionModelStatus)   ← §2 マトリクス
 timeEstimateUsableForPlanning → arrivalProjectionKnown ∧ freshnessStatus=fresh ∧ ¬stale
-leaveByEligible (JOIN・§3) → timeEstimateUsableForPlanning
+leaveByComputable (JOIN・§3) → timeEstimateUsableForPlanning
                            ∧ arrivalTargetScoped
                            ∧ originUsabilityForLeaveBy (RD2d-0A §6)
                            ∧ bufferKnown
                            ∧ ¬originConflict (§5)
-                           ∧ pairPermissionOk (§8)
 ```
 
-- **絶対則（monotone 安全性・lattice の継承核）**: **どの能力も edges の入力が揃わなければ true にしない**（DAG 違反 = walker block）。`routeShapeKnown` と `travelDurationKnown` は**独立**（一方欠如が他方を落とさない）。
+> **⚠ RD2d-a-A 補正（実装 `40c0146f`+micro-fix・4 レンズ監査 wf_cef6e0fa 反映）**:
+> - **leaveBy join から `pairPermissionOk` を削除**（endpoint pair gate は external provider 送信可否を govern する sibling であって leaveBy computation の条件でない。user_confirmed route は外部送信なしで leaveBy 計算可）。上の式 + 下の表 + §17 line 17 の「∧ permission」は本補正で**撤回**。
+> - **語彙補正**: `travelDurationKnown`→`durationSignalPresent`（heuristic でも true ＝「known」は誇張・signal の有無のみ）／`temporalFreshnessKnown`→`temporalFreshnessEvaluated`（real freshness と区別）／`leaveByEligible`→`leaveByComputable`（tier-1 内部計算可能性のみ・display/action eligibility は RJ2/Permission/delivery の別 gate・computable ⇏ display ⇏ action）。
+> - **projection gate を DENYLIST(!heuristic)→ALLOWLIST(`durationProjectionGradeOk` ∈ {scheduled,user_confirmed,external_route,cached_route})**（fail-closed・straight-line 誤 stamp / basis="none" も projection 不可）+ `durationScopeBounded` を projection conjunct に追加。
+
+- **絶対則（monotone 安全性・lattice の継承核）**: **どの能力も edges の入力が揃わなければ true にしない**（DAG 違反 = walker block）。`routeShapeKnown` と `durationSignalPresent` は**独立**（一方欠如が他方を落とさない）。
 - `routeShapeKnown` は単独 capability（provider が返すか否か）で、duration/projection の必須入力**ではない**。
 
 ---
@@ -84,7 +88,7 @@ leaveByEligible (JOIN・§3) → timeEstimateUsableForPlanning
 | `travelDurationKnown` | 所要時間の見積りがある（mode 相対・時刻非依存可・durationBasis 付き） | external が duration 返した・heuristic・user 確認・時刻表 |
 | `arrivalProjectionKnown` | 特定 departure/arrival に対する**到着時刻投影**ができる（duration ∧ temporal scope ∧ condition adequate） | car traffic-aware + departure_time / transit schedule + 時刻 |
 | `timeEstimateUsableForPlanning` | projection が **fresh ∧ in-scope ∧ condition-adequate** で**行動計画に使える** | 上 + freshness fresh |
-| `leaveByEligible` | **出発時刻を出してよい**（planning-usable ∧ arrivalTarget ∧ origin-usable ∧ buffer ∧ ¬conflict ∧ permission） | §1.2 JOIN 全充足 |
+| `leaveByComputable` | **出発時刻を内部計算できる（tier-1・display/action でない）**（planning-usable ∧ arrivalTarget ∧ origin-usable ∧ buffer ∧ ¬conflict。**permission/pairPermission は含めない**＝RD2d-a-A 補正） | §1.2 JOIN 全充足 |
 
 - **絶対則**: **durationKnown ≠ arrivalProjectionKnown ≠ timeEstimateUsableForPlanning ≠ leaveByEligible**。external API が duration 返しても **travelDurationKnown** どまり（arrival target 無・condition 不適なら projection 不可）。**arrival target 無 → arrivalProjectionKnown でない**・**buffer 無 → leaveByEligible でない**・**stale → planning usable でない**。
 - 旧 `etaKnown` は廃語。RC2a 接続（§ RD2d-0A 8）では **etaKnown = timeEstimateUsableForPlanning** に対応付ける（planning-grade のみ true）。

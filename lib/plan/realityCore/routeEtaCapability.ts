@@ -2,24 +2,34 @@
  * routeEtaCapability — RD2d-a route/ETA の mode-aware capability DAG を pure type / invariant / walker として固定
  *
  * 正本: docs/reality-route-eta-supply-boundary-rd2d-0b.md（mode-aware capability DAG）/ RD2d-0A（identity/freshness/heuristic）
- *   / CEO RD2d-a 実装 GO（2026-06-14・types + walker only・adapter/provider 接続なし）
+ *   / CEO RD2d-a 実装 GO + RD2d-a-A micro-fix（2026-06-14・types + walker only・adapter/provider 接続なし）
  *
  * 思想（単調 lattice でなく mode-aware DAG）: route/duration/temporal/condition を独立ファミリに分け、precise edges で
  *   higher capability（arrivalProjection/planning/leaveBy）を導く。「各能力は edges 入力以上を主張しない」monotone 安全性
- *   のみ継承し、偽の直列（trafficAware 全 mode 必須・duration⊃routeShape・arrivalTarget/leaveBy 混入）を除去。
+ *   のみ継承し、偽の直列を除去。
+ *
+ * RD2d-a-A 補正（4 レンズ敵対監査 wf_cef6e0fa 反映・自立検証）:
+ *   ① duration 語彙: travelDurationKnown → durationSignalPresent（heuristic でも true ＝「known」は誇張。「signal が
+ *      ある」だけ。durationBasis が真の epistemic 状態を持つ）。durationScopeKnown → durationScopeBounded。
+ *      temporalFreshnessKnown → temporalFreshnessEvaluated（real freshness[freshnessStatus]との誤読防止）。
+ *   ② projection gate を DENYLIST(!heuristic)→ALLOWLIST(durationProjectionGradeOk)。straight-line を external_route と
+ *      誤 stamp / durationBasis="none" でも projection に登れた fail-open hole を fail-closed に。conditionAdequateForMode
+ *      とは独立（条件は condition、duration 品質は basis grade）。durationScopeBounded も projection conjunct に追加。
+ *   ③ leaveBy 語彙: leaveByEligible → leaveByComputable（tier-1 内部計算可能性のみ。display/action eligibility は RJ2/
+ *      Permission/delivery の別 gate。INV-1..3: computable ⇏ display/departure-line/action）。endpoint pair gate は
+ *      leaveBy computation の条件でない（sibling・external send 可否のみ govern）。
+ *   ④ leak guard: serialized-output scan 維持 + encodedpolyline/waypoints token + 粗い座標 pair pattern 追加
+ *      （2 桁小数 lat,lng pair も検出）。bare lat/lng は free-text 誤検出ゆえ非採用。
  *
  * 不変条件（CEO RD2d-a 必守）:
- *   ① travelDurationKnown ≠ arrivalProjectionKnown ≠ timeEstimateUsableForPlanning ≠ leaveByEligible（DAG derive で強制）
- *   ② routeShapeKnown と travelDurationKnown は独立（直列にしない）
- *   ③ mode 別 condition adequacy（car=traffic_aware / walk=static / transit=schedule / unknown=projection 不可）
- *   ④ heuristic は travelDuration まで・projection/planning/leaveBy/action input にしない・displayPolicy=internalReference|debugOnly
- *   ⑤ user_confirmed は scope 別・全能力 true にしない・scope mismatch は stale/unknown
- *   ⑥ origin conflict で leaveByEligible=false・user_confirmed origin を current 観測で上書きしない
- *   ⑦ endpoint pair gate（片側 sensitive で external send 不可・current 観測座標は最強 sensitive・raw 座標 log/id 禁止）
- *
- * 修正（RD2d-0B §1.2 の自己補正）: leaveByEligible の join に pairPermissionOk を入れない。endpoint pair gate は external
- *   provider 呼び出し可否を govern するもので、leaveBy eligibility の条件ではない（user_confirmed route は外部送信なしで
- *   leaveBy 可能）。両者を分離。
+ *   - durationSignalPresent ≠ arrivalProjectionKnown ≠ timeEstimateUsableForPlanning ≠ leaveByComputable（DAG derive で強制）
+ *   - routeShapeKnown と durationSignalPresent は独立（直列にしない）
+ *   - mode 別 condition adequacy（car=traffic_aware / walk=static / transit=schedule / unknown=projection 不可）
+ *   - projection-grade durationBasis（scheduled/user_confirmed/external_route/cached_route）のみ projection に登れる（heuristic/none 不可）
+ *   - heuristic は durationSignalPresent 止まり・action input にしない・displayPolicy=internalReference|debugOnly
+ *   - origin conflict で leaveByComputable=false・current 観測で user_confirmed origin を上書きしない
+ *   - endpoint pair gate（片側 sensitive で external send 不可）は leaveBy 条件でない
+ *   - raw lat/lng/address/label を consumer 前提 field に出さない（opaque ref のみ・serialized leak guard）
  *
  * 規律（CEO）: route/ETA provider・transport cascade・Google Routes・geocode・currentLocation 取得・weather API・
  *   RC2a compile 変更・UI/DB/Supabase/localStorage・notification・external 接続なし。adapter はまだ作らない（RD2d-b）。
@@ -65,9 +75,11 @@ export interface RouteCapabilityV0 {
 }
 
 export interface DurationCapabilityV0 {
-  readonly travelDurationKnown: boolean;
+  /** duration の「値が存在する」だけ（heuristic でも true）。品質は durationBasis が持つ。「known」ではない。 */
+  readonly durationSignalPresent: boolean;
   readonly durationBasis: DurationBasisV0;
-  readonly durationScopeKnown: boolean;
+  /** duration の scope（origin/dest/timeBand）が pin されているか */
+  readonly durationScopeBounded: boolean;
 }
 
 export interface TemporalCapabilityV0 {
@@ -75,7 +87,8 @@ export interface TemporalCapabilityV0 {
   readonly arrivalTargetScoped: boolean;
   readonly timeBandScoped: boolean;
   readonly evaluatedAtKnown: boolean;
-  readonly temporalFreshnessKnown: boolean;
+  /** freshness が「評価済」か（real freshness は freshnessStatus・混同しない） */
+  readonly temporalFreshnessEvaluated: boolean;
 }
 
 export interface ConditionCapabilityV0 {
@@ -96,10 +109,14 @@ export interface PlanningEligibilityV0 {
   readonly confidenceForAction: ActionConfidenceV0;
 }
 
-export interface LeaveByEligibilityPreconditionV0 {
+/**
+ * leaveBy の **tier-1（内部計算可能性）のみ**。computable ⇏ display-eligible ⇏ action-eligible。
+ * display/action は RJ2 surface / Permission / delivery の別 gate。
+ */
+export interface LeaveByComputabilityV0 {
   readonly originUsableForLeaveBy: boolean;
   readonly bufferKnown: boolean;
-  readonly leaveByEligible: boolean;
+  readonly leaveByComputable: boolean;
 }
 
 export interface RouteEtaIdentityBasisV0 {
@@ -156,7 +173,7 @@ export interface RouteEtaCapabilityV0 {
   readonly condition: ConditionCapabilityV0;
   readonly freshness: RouteEtaFreshnessV0;
   readonly planning: PlanningEligibilityV0;
-  readonly leaveBy: LeaveByEligibilityPreconditionV0;
+  readonly leaveBy: LeaveByComputabilityV0;
   readonly originConflict: OriginConflictForRouteV0;
   readonly pairPrivacy: EndpointPairPrivacyGateV0;
   readonly evidenceRefs: ReadonlyArray<RouteEtaEvidenceRef>;
@@ -165,10 +182,10 @@ export interface RouteEtaCapabilityV0 {
   readonly displayPolicy: RouteEtaDisplayPolicyV0;
 }
 
-// ── mode × condition adequacy（CEO #3・trafficAware を全 mode 共通必須にしない） ─────────────
+// ── mode × condition adequacy（CEO #3・trafficAware を全 mode 共通必須にしない・CONDITION のみ） ──────
 
 /**
- * conditionAdequateForMode — mode に対し planning-grade projection に十分な condition か。
+ * conditionAdequateForMode — mode に対し planning-grade projection に十分な **condition** か（duration 品質は別 gate）。
  * car=traffic_aware / walk・bike=static_assumption|weather_aware|not_applicable / transit=schedule_aware / unknown=不可。
  */
 export function conditionAdequateForMode(mode: TransportModeV0, status: ConditionModelStatusV0): boolean {
@@ -179,15 +196,25 @@ export function conditionAdequateForMode(mode: TransportModeV0, status: Conditio
   return status === "static_assumption" || status === "weather_aware" || status === "not_applicable";
 }
 
+/**
+ * durationProjectionGradeOk — projection に登ってよい duration basis の ALLOWLIST（fail-closed）。
+ * heuristic（straight-line）/ none（provenance 不明）は projection-grade でない。これにより straight-line を
+ * 別 basis に誤 stamp しても、また未知 basis でも、fail-closed で projection に登れない。
+ */
+export function durationProjectionGradeOk(basis: DurationBasisV0): boolean {
+  return basis === "scheduled" || basis === "user_confirmed" || basis === "external_route" || basis === "cached_route";
+}
+
 // ── DAG derive（precise edges・各能力は入力以上を主張しない） ────────────────────────────────
 
 export interface CapabilityDeriveParts {
   readonly mode: TransportModeV0;
-  readonly travelDurationKnown: boolean;
+  readonly durationSignalPresent: boolean;
   readonly durationBasis: DurationBasisV0;
+  readonly durationScopeBounded: boolean;
   readonly departureTimeScoped: boolean;
   readonly arrivalTargetScoped: boolean;
-  readonly temporalFreshnessKnown: boolean;
+  readonly temporalFreshnessEvaluated: boolean;
   readonly conditionModelStatus: ConditionModelStatusV0;
   readonly freshnessStatus: RouteEtaFreshnessStatusV0;
   readonly originUsableForLeaveBy: boolean;
@@ -198,29 +225,29 @@ export interface CapabilityDeriveParts {
 export interface DerivedCapabilityFlags {
   readonly arrivalProjectionKnown: boolean;
   readonly timeEstimateUsableForPlanning: boolean;
-  readonly leaveByEligible: boolean;
+  readonly leaveByComputable: boolean;
 }
 
 /**
  * deriveCapabilityFlagsFromParts — DAG edges を適用して higher capability を導く。
- * heuristic / unknown mode / condition 不適 / temporal 未 scope / stale / origin conflict は上位を false に落とす。
+ * projection は ALLOWLIST(durationProjectionGradeOk) + scope bounded + temporal + condition adequate（heuristic/none は fail-closed）。
  */
 export function deriveCapabilityFlagsFromParts(p: CapabilityDeriveParts): DerivedCapabilityFlags {
-  const heuristic = p.durationBasis === "heuristic";
   const arrivalProjectionKnown =
-    !heuristic &&
-    p.travelDurationKnown &&
+    durationProjectionGradeOk(p.durationBasis) &&
+    p.durationSignalPresent &&
+    p.durationScopeBounded &&
     (p.departureTimeScoped || p.arrivalTargetScoped) &&
-    p.temporalFreshnessKnown &&
+    p.temporalFreshnessEvaluated &&
     conditionAdequateForMode(p.mode, p.conditionModelStatus);
   const timeEstimateUsableForPlanning = arrivalProjectionKnown && p.freshnessStatus === "fresh";
-  const leaveByEligible =
+  const leaveByComputable =
     timeEstimateUsableForPlanning &&
     p.arrivalTargetScoped &&
     p.originUsableForLeaveBy &&
     p.bufferKnown &&
     p.originConflictStatus !== "conflict";
-  return { arrivalProjectionKnown, timeEstimateUsableForPlanning, leaveByEligible };
+  return { arrivalProjectionKnown, timeEstimateUsableForPlanning, leaveByComputable };
 }
 
 /** endpoint pair gate を導く（片側 sensitive / current 観測 / home-work 由来 → 外部送信不可） */
@@ -240,10 +267,11 @@ export function deriveEndpointPairGate(parts: {
 
 // ── walkers ───────────────────────────────────────────────────────────────────────────────
 
-// 注: "rawcoord"/"coordinate" は legit field 名（rawCoordinateLoggingProhibited/coordinatePrecisionPolicy）に
-// 部分一致するため forbidden に含めない。実 raw 座標は latitude/longitude/polyline + COORD_PATTERN で検出。
+// serialized-output scan（output-only・source scan は #18/#19/#20 が別途担当）。
+// 注: "rawcoord"/"coordinate" は legit field 名に部分一致するため不採用。bare "lat"/"lng" も free-text 誤検出ゆえ不採用。
 const FORBIDDEN_RAW_TOKENS: ReadonlyArray<string> = [
   "polyline",
+  "encodedpolyline",
   "latitude",
   "longitude",
   "lnglat",
@@ -252,8 +280,12 @@ const FORBIDDEN_RAW_TOKENS: ReadonlyArray<string> = [
   "coordinates",
   "routeresponse",
   "address",
+  "waypoints",
 ];
+/** 高精度単一座標（4 桁以上小数・整数部 3 桁以下） */
 const COORD_PATTERN = /\d{1,3}\.\d{4,}/;
+/** 粗い座標ペア（2 桁以上小数の lat,lng pair・providerVersion 等の単一小数を誤検出しない） */
+const COORD_PAIR_PATTERN = /-?\d{1,3}\.\d{2,}\s*[,;]\s*-?\d{1,3}\.\d{2,}/;
 
 /** endpointPairPrivacyViolations — pair gate の不変条件（空配列 = 健全） */
 export function endpointPairPrivacyViolations(g: EndpointPairPrivacyGateV0): string[] {
@@ -271,15 +303,12 @@ export function endpointPairPrivacyViolations(g: EndpointPairPrivacyGateV0): str
     g.pairExternalSendAllowed !== derived.pairExternalSendAllowed,
     `pairExternalSendAllowed mismatch (expected ${String(derived.pairExternalSendAllowed)})`,
   );
-  // 片側 sensitive / current 観測 / home-work 由来なら external send 不可
   add(g.eitherEndpointSensitive && g.pairExternalSendAllowed, "sensitive endpoint pair must not allow external send");
   add(
     g.currentObservationInvolved && g.pairExternalSendAllowed,
     "current observation endpoint is strongest sensitive — external send must be blocked",
   );
-  // raw 座標 log/id 禁止は常に true
   add(g.rawCoordinateLoggingProhibited !== true, "rawCoordinateLoggingProhibited must be true");
-  // precision policy: 送信許可なら minimized・不許可なら not_sending
   add(
     g.pairExternalSendAllowed && g.coordinatePrecisionPolicy !== "minimized",
     "external send requires coordinatePrecisionPolicy minimized",
@@ -292,7 +321,7 @@ export function endpointPairPrivacyViolations(g: EndpointPairPrivacyGateV0): str
 }
 
 /**
- * routeEtaCapabilityViolations — capability DAG / heuristic / origin conflict / raw / pair gate の不変条件を検証。
+ * routeEtaCapabilityViolations — capability DAG / projection grade / heuristic / origin conflict / raw / pair gate を検証。
  */
 export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[] {
   let out: string[] = [];
@@ -302,14 +331,15 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
 
   add(cap.schemaVersion !== 0, `schemaVersion must be 0 (got ${String(cap.schemaVersion)})`);
 
-  // ① DAG derive consistency（各能力は edges 入力以上を主張しない）
+  // DAG derive consistency（各能力は edges 入力以上を主張しない）
   const derived = deriveCapabilityFlagsFromParts({
     mode: cap.identity.transportMode,
-    travelDurationKnown: cap.duration.travelDurationKnown,
+    durationSignalPresent: cap.duration.durationSignalPresent,
     durationBasis: cap.duration.durationBasis,
+    durationScopeBounded: cap.duration.durationScopeBounded,
     departureTimeScoped: cap.temporal.departureTimeScoped,
     arrivalTargetScoped: cap.temporal.arrivalTargetScoped,
-    temporalFreshnessKnown: cap.temporal.temporalFreshnessKnown,
+    temporalFreshnessEvaluated: cap.temporal.temporalFreshnessEvaluated,
     conditionModelStatus: cap.condition.conditionModelStatus,
     freshnessStatus: cap.freshness.freshnessStatus,
     originUsableForLeaveBy: cap.leaveBy.originUsableForLeaveBy,
@@ -325,15 +355,21 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
     `timeEstimateUsableForPlanning must equal DAG derive ${String(derived.timeEstimateUsableForPlanning)}`,
   );
   add(
-    cap.leaveBy.leaveByEligible !== derived.leaveByEligible,
-    `leaveByEligible must equal DAG derive ${String(derived.leaveByEligible)}`,
+    cap.leaveBy.leaveByComputable !== derived.leaveByComputable,
+    `leaveByComputable must equal DAG derive ${String(derived.leaveByComputable)}`,
   );
 
-  // ④ heuristic 境界
+  // projection grade ALLOWLIST: 非 projection-grade basis は arrivalProjection を持てない（fail-closed・明示 invariant）
+  add(
+    !durationProjectionGradeOk(cap.duration.durationBasis) && cap.planning.arrivalProjectionKnown,
+    `non-projection-grade durationBasis (${cap.duration.durationBasis}) must not yield arrivalProjectionKnown`,
+  );
+
+  // heuristic 境界（displayPolicy は derive で導けないので明示・projection 系は ALLOWLIST と二重防御）
   if (cap.duration.durationBasis === "heuristic") {
     add(cap.planning.arrivalProjectionKnown, "heuristic must not yield arrivalProjectionKnown");
     add(cap.planning.timeEstimateUsableForPlanning, "heuristic must not yield timeEstimateUsableForPlanning");
-    add(cap.leaveBy.leaveByEligible, "heuristic must not yield leaveByEligible");
+    add(cap.leaveBy.leaveByComputable, "heuristic must not yield leaveByComputable");
     add(
       cap.displayPolicy !== "internalReference" && cap.displayPolicy !== "debugOnly",
       "heuristic displayPolicy must be internalReference|debugOnly",
@@ -347,7 +383,7 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
     "confidence high reserved for user_confirmed in-scope planning-usable supply",
   );
 
-  // ⑤ user_confirmed は evidence 必須
+  // user_confirmed は evidence 必須
   add(
     cap.duration.durationBasis === "user_confirmed" && cap.evidenceRefs.length === 0,
     "user_confirmed duration requires non-empty evidenceRefs",
@@ -358,23 +394,23 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
     add(cap.identity.providerVersion.length === 0, "external/cached duration requires providerVersion");
   }
 
-  // ⑥ origin conflict
+  // origin conflict
   add(
     cap.originConflict.currentObservationOverrodeConfirmed !== false,
     "current observation must not override user_confirmed origin (currentObservationOverrodeConfirmed must be false)",
   );
   add(
-    cap.originConflict.originConflictStatus === "conflict" && cap.leaveBy.leaveByEligible,
-    "origin conflict must force leaveByEligible false",
+    cap.originConflict.originConflictStatus === "conflict" && cap.leaveBy.leaveByComputable,
+    "origin conflict must force leaveByComputable false",
   );
 
-  // ⑦ endpoint pair gate
+  // endpoint pair gate（leaveBy 条件でない sibling）
   out = out.concat(endpointPairPrivacyViolations(cap.pairPrivacy));
 
-  // raw 座標 / polyline / route response の混入を構造 backstop（serialization scan）
+  // raw 座標 / polyline / route response の混入を serialized-output backstop
   const json = JSON.stringify(cap).toLowerCase();
   out = out.concat(FORBIDDEN_RAW_TOKENS.filter((t) => json.includes(t)).map((t) => `output leaks raw token: ${t}`));
-  if (COORD_PATTERN.test(json)) {
+  if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
     out = out.concat(["output contains raw coordinate pattern (refs must be opaque)"]);
   }
 
@@ -405,8 +441,8 @@ export interface BuildRouteEtaCapabilityInput {
   readonly displayPolicy?: RouteEtaDisplayPolicyV0;
 }
 
-function deriveConfidence(basis: DurationBasisV0, planningUsable: boolean, durationKnown: boolean): ActionConfidenceV0 {
-  if (!planningUsable) return durationKnown ? "low" : "none";
+function deriveConfidence(basis: DurationBasisV0, planningUsable: boolean, signalPresent: boolean): ActionConfidenceV0 {
+  if (!planningUsable) return signalPresent ? "low" : "none";
   return basis === "user_confirmed" ? "high" : "moderate";
 }
 
@@ -414,11 +450,12 @@ function deriveConfidence(basis: DurationBasisV0, planningUsable: boolean, durat
 export function buildRouteEtaCapability(input: BuildRouteEtaCapabilityInput): RouteEtaCapabilityV0 {
   const flags = deriveCapabilityFlagsFromParts({
     mode: input.identity.transportMode,
-    travelDurationKnown: input.duration.travelDurationKnown,
+    durationSignalPresent: input.duration.durationSignalPresent,
     durationBasis: input.duration.durationBasis,
+    durationScopeBounded: input.duration.durationScopeBounded,
     departureTimeScoped: input.temporal.departureTimeScoped,
     arrivalTargetScoped: input.temporal.arrivalTargetScoped,
-    temporalFreshnessKnown: input.temporal.temporalFreshnessKnown,
+    temporalFreshnessEvaluated: input.temporal.temporalFreshnessEvaluated,
     conditionModelStatus: input.condition.conditionModelStatus,
     freshnessStatus: input.freshness.freshnessStatus,
     originUsableForLeaveBy: input.originUsableForLeaveBy,
@@ -443,13 +480,13 @@ export function buildRouteEtaCapability(input: BuildRouteEtaCapabilityInput): Ro
       confidenceForAction: deriveConfidence(
         input.duration.durationBasis,
         flags.timeEstimateUsableForPlanning,
-        input.duration.travelDurationKnown,
+        input.duration.durationSignalPresent,
       ),
     },
     leaveBy: {
       originUsableForLeaveBy: input.originUsableForLeaveBy,
       bufferKnown: input.bufferKnown,
-      leaveByEligible: flags.leaveByEligible,
+      leaveByComputable: flags.leaveByComputable,
     },
     originConflict: input.originConflict,
     pairPrivacy: {
