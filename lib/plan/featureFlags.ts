@@ -371,6 +371,20 @@ export const PLAN_FLAGS = {
   realityPipelinePreview: process.env.REALITY_PIPELINE_PREVIEW === "true",
 
   /**
+   * T11-A: Travel projection の **read-only dev preview**（fixture 投影を /plan dev route で観測するだけ）。
+   *   true  : /plan/dev-travel-projection が **fixture** `PlanIntelligenceProjection` を read-only 表示。
+   *   false : Disabled 表示（**本番デフォルト**・render しない）。
+   *
+   * env: PLAN_TRAVEL_PROJECTION_PREVIEW=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。default OFF。
+   *
+   * 設計: docs/t11-ui-coalter-consume-wiring-preflight.md §7（Option A）
+   * 制約: **fixture 入力のみ**（live engine 非配線・runTravelPlanEngine 非実行）・**read-only**・
+   *   no API/fetch/DB/送信/realtime/read receipt/useCoAlter・**本番 `/plan` 体験に非接触**・action button なし。
+   *   projection は display tier（DisplayPacketForClient 由来）のみ・authoritative/raw FitResult/diagnostics 非搭載。
+   */
+  travelProjectionPreview: process.env.PLAN_TRAVEL_PROJECTION_PREVIEW === "true",
+
+  /**
    * A-4-c7: Life Ops 実データ read-only の flag 群（**dormant・default OFF・consumer なし**＝設計/contract のみ）。
    *   将来 wiring: master ∧ per-source の AND + staging triple-guard + production hard block。
    *   有効化条件: 5層cap 配線の実データ量検証 + staging 観測 ≥2 週間 + CEO 承認（docs/life-ops-realdata-readiness-a4-c7-mini-design.md）。
