@@ -23,7 +23,9 @@ import { notFound } from "next/navigation";
 import { isCandidateActionsPreviewHostAllowed } from "@/lib/plan/reality/candidateActionsPreviewHost";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { supabaseServer } from "@/lib/supabase/server";
+import { createSupabaseExternalAnchorRepository } from "@/lib/plan/external-anchor-repository-supabase";
 import { buildDogfoodPreviewScenarios, dogfoodPayloadLeakViolations } from "@/lib/plan/realityCore/dogfoodPreview";
+import { buildOperatorDayRealPayload, realDayPayloadLeakViolations, type RealDaySurfacePayloadV0 } from "@/lib/plan/realityCore/operatorDayPreview";
 import { RealitySurfaceDogfoodClient } from "./RealitySurfaceDogfoodClient";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +77,18 @@ export default async function DevRealitySurfacePage() {
     return <Disabled reason="preview 利用不可（leak guard / no data）。" />;
   }
 
-  // client には safe payload のみ（internal object を渡さない）。
-  return <RealitySurfaceDogfoodClient payload={payload} />;
+  // ── RD1a: operator 当日 one-off の real-data section（read-only・listAnchors select のみ・recurring 除外・fallback なし）──
+  // listAnchors は注入（owner-RLS・service_role 不使用）。referenceInstant は server now（JST v0）。
+  const anchorRepo = createSupabaseExternalAnchorRepository(supabase);
+  let realPayload: RealDaySurfacePayloadV0 | null = await buildOperatorDayRealPayload(
+    { operatorUserId: user.id, referenceInstantUtc: new Date() },
+    { listAnchors: (uid) => anchorRepo.listAnchors(uid) },
+  );
+  // page 側でも leak guard（fail-closed・defense in depth）。leak 検出時は real section を出さない（fixture へ fallback しない）。
+  if (realDayPayloadLeakViolations(realPayload).length > 0) {
+    realPayload = null;
+  }
+
+  // client には safe payload のみ（internal object を渡さない）。fixture と real は client で明確に分離表示。
+  return <RealitySurfaceDogfoodClient payload={payload} realPayload={realPayload} />;
 }

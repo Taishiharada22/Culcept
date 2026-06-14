@@ -43,10 +43,43 @@ describe("RJ2g client #3 表示専用（derive 関数を import しない・no-a
 });
 
 describe("RJ2g client #4 内部 object を props 型に持たない（safe payload のみ）", () => {
-  it("client は SurfaceProjectionInternalBundle / BoundSurface / DeliveryDecisionV0 / SurfaceClaimSet を import しない", () => {
-    for (const bad of ["SurfaceProjectionInternalBundleV0", "BoundSurfaceV0", "DeliveryDecisionV0", "SurfaceClaimSetV0", "ClarificationQuestionSetV0", "JudgmentSurfacePlanV0"]) {
-      expect(CLIENT.includes(bad)).toBe(false);
-      expect(PAGE.includes(bad)).toBe(false); // page も client へ internal を渡さない
+  // client / page 共通の internal surface 型（どちらも import 不可）
+  const INTERNAL = ["SurfaceProjectionInternalBundleV0", "BoundSurfaceV0", "DeliveryDecisionV0", "SurfaceClaimSetV0", "ClarificationQuestionSetV0", "JudgmentSurfacePlanV0", "RealityGraphSnapshotV0"];
+  it("client は internal surface 型 + raw ExternalAnchor を import しない", () => {
+    for (const bad of [...INTERNAL, "ExternalAnchor"]) expect(CLIENT.includes(bad)).toBe(false);
+  });
+  it("page は internal surface 型を client へ渡さない（repo の ExternalAnchor 取得は server 限定で許容）", () => {
+    for (const bad of INTERNAL) expect(PAGE.includes(bad)).toBe(false);
+  });
+});
+
+describe("RD1a page #5 real-data read は flag + auth の後（disabled path で chain 非実行）", () => {
+  it("await buildOperatorDayRealPayload は flag check / auth.getUser の後に呼ばれる", () => {
+    const flagIdx = PAGE.indexOf("PLAN_FLAGS.realitySurfacePreview");
+    const authIdx = PAGE.indexOf("auth.getUser");
+    const realCallIdx = PAGE.indexOf("await buildOperatorDayRealPayload"); // 呼び出し（import でなく）
+    expect(realCallIdx).toBeGreaterThan(flagIdx); // flag OFF なら real read に到達しない
+    expect(realCallIdx).toBeGreaterThan(authIdx); // 非 operator なら real read に到達しない
+  });
+  it("page が real payload を leak guard で double-guard する", () => {
+    expect(PAGE.includes("realDayPayloadLeakViolations")).toBe(true);
+  });
+  it("real read は listAnchors 注入のみ（owner-RLS・write メソッド呼び出しなし）", () => {
+    const code = PAGE.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code.includes("listAnchors")).toBe(true);
+    for (const bad of ["createSourceWithAnchors", "deleteSource", "updateAnchor", ".insert(", ".upsert("]) {
+      expect(code.includes(bad)).toBe(false);
     }
+  });
+});
+
+describe("RD1a client #6 real section が fixture と明確に分離・fallback なし", () => {
+  it("client に real section（あなたの当日）+ recurring 除外 count + fixture 区別が両方ある", () => {
+    expect(CLIENT.includes("real-day-section")).toBe(true);
+    expect(CLIENT.includes("あなたの当日")).toBe(true);
+    expect(CLIENT.includes("recurring 除外")).toBe(true);
+    expect(CLIENT.includes("代表シナリオ")).toBe(true); // fixture 区別
+    // unavailable は reasonCode 表示（fixture を出さない＝fallback しない）
+    expect(CLIENT.includes("real-day-unavailable")).toBe(true);
   });
 });
