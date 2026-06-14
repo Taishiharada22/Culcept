@@ -246,7 +246,9 @@ describe("RD2d-c-A private handle leak guard", () => {
   it("transportCascadePrivateInputViolations が coord-like / forbidden token を検出", () => {
     expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "priv-ok" })).toEqual([]);
     expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "35.68,139.70" }).length).toBeGreaterThan(0);
-    expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "polyline:abc" }).some((m) => m.includes("polyline"))).toBe(true);
+    const polyV = transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "polyline:abc" });
+    expect(polyV.length).toBeGreaterThan(0);
+    expect(polyV.join(" ").includes("polyline:abc")).toBe(false); // message は raw handle を echo しない
   });
 });
 
@@ -292,5 +294,46 @@ describe("RD2d-c-A localHeuristicAllowed validation / endpointPair 連携", () =
     expect(o.stage).toBe("no_route_source");
     expect(routeEtaAdapterOutputViolations(o)).toEqual([]);
     expect(JSON.stringify(o).includes("35.6895")).toBe(false);
+  });
+});
+
+// ── RD2d-c-A2 監査 wf_befd6b47 反映: evasive 座標 form + totality(throw しない) ───────────────
+
+describe("RD2d-c-A2 evasive coordinate forms も leak guard が捕捉", () => {
+  for (const handle of ["35.68 139.76", "35.6,139.7", "35,139", "geohash:xn76urx6", "8Q7XMQHC+2V", "35.689"]) {
+    it(`private handle "${handle}" → no_route(private_input_leak_blocked)`, async () => {
+      const d = deps({ resolvePrivateCoordinates: async () => ({ kind: "private_coordinate_bearing", opaqueHandle: handle }) });
+      const { result, trace } = await resolveTransportCascadeProvider(input(), d, OPTIONS);
+      expect(result.status).toBe("no_route");
+      expect(trace.stage).toBe("private_input_leak_blocked");
+    });
+  }
+  it("heuristic が evasive coord opaqueRouteRef を返しても result self-check → no_route", async () => {
+    const d = deps({ runLocalHeuristic: async () => ({ durationSignalPresent: true, opaqueRouteRef: "35.68 139.76" }) });
+    expect((await resolveTransportCascadeProvider(input(), d, OPTIONS)).result.status).toBe("no_route");
+  });
+  it("正常 opaque handle/ref は false-positive しない（priv-ok / opaque-route-h / cascade-v0 / 2026-06-12）", async () => {
+    expect(transportCascadePrivateInputViolations({ kind: "private_coordinate_bearing", opaqueHandle: "priv-ok-abc" })).toEqual([]);
+    const { result } = await resolveTransportCascadeProvider(input(), deps(), OPTIONS);
+    expect(result.status).toBe("ok"); // 正常 fixture は通る
+    expect(transportCascadeProviderResultViolations(result)).toEqual([]);
+  });
+});
+
+describe("RD2d-c-A2 totality: wrapper は throw しない（provider 契約・adapter chain 安全）", () => {
+  it("input.pairPrivacyParts null → throw せず no_route", async () => {
+    const bad = { ...input(), pairPrivacyParts: null } as unknown as TransportCascadeRouteEtaProviderInputV0;
+    const { result } = await resolveTransportCascadeProvider(bad, deps(), OPTIONS);
+    expect(result.status).toBe("no_route");
+  });
+  it("dependency が truthy 非 object を返す → no_route", async () => {
+    const d = deps({ resolvePrivateCoordinates: async () => "not-an-object" as unknown as TransportCascadePrivateCoordinateInputV0 });
+    const { result } = await resolveTransportCascadeProvider(input(), d, OPTIONS);
+    expect(result.status).toBe("no_route");
+  });
+  it("provider(createTransportCascadeRouteEtaProvider)は bad input でも reject しない", async () => {
+    const provider = createTransportCascadeRouteEtaProvider(deps(), OPTIONS);
+    const bad = { ...input(), pairPrivacyParts: undefined } as unknown as TransportCascadeRouteEtaProviderInputV0;
+    await expect(provider(bad)).resolves.toBeDefined(); // throw/reject しない
   });
 });

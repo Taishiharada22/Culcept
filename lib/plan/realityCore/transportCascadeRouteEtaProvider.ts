@@ -148,34 +148,46 @@ export async function resolveTransportCascadeProvider(
   deps: TransportCascadeProviderDepsV0,
   options: TransportCascadeProviderOptionsV0,
 ): Promise<{ result: RouteEtaProviderResultV0; trace: TransportCascadeProviderTraceV0 }> {
-  // 1. local heuristic gate（raw 座標を local でも消費してよいか・sensitive は不可）
-  if (!localHeuristicAllowedFor(input)) return noRoute("local_heuristic_blocked");
-
-  // 2. private coordinate input（dependency exception は raw を echo せず no_route に倒す）
-  let priv: TransportCascadePrivateCoordinateInputV0 | null;
+  // 全体を outer try/catch で包み **総関数（throw しない）**にする（RD2d-c-A 監査 wf_befd6b47）。
+  // localHeuristicAllowedFor / JSON.stringify 等の同期パスが throw しても provider は reject せず、adapter chain が安全。
   try {
-    priv = await deps.resolvePrivateCoordinates(input);
+    // 0. input 防御（pairPrivacyParts 欠落等で deriveEndpointPairGate が throw する前に privacy-safe default で倒す）
+    if (input === null || input === undefined || input.pairPrivacyParts === null || input.pairPrivacyParts === undefined) {
+      return noRoute("local_heuristic_blocked");
+    }
+    // 1. local heuristic gate（raw 座標を local でも消費してよいか・sensitive は不可）
+    if (!localHeuristicAllowedFor(input)) return noRoute("local_heuristic_blocked");
+
+    // 2. private coordinate input（dependency exception は raw を echo せず no_route に倒す）
+    let priv: TransportCascadePrivateCoordinateInputV0 | null;
+    try {
+      priv = await deps.resolvePrivateCoordinates(input);
+    } catch {
+      return noRoute("dependency_error"); // raw exception message を一切出さない
+    }
+    // null / 非 object（buggy dependency が truthy string 等を返す）→ no_route
+    if (priv === null || typeof priv !== "object") return noRoute("no_private_input");
+
+    // 2b. private handle leak guard（coord-like handle → no_route・実装者が座標を handle に入れても防ぐ）
+    if (transportCascadePrivateInputViolations(priv).length > 0) return noRoute("private_input_leak_blocked");
+
+    // 3. 注入 heuristic（wrapper は priv の中身[座標]を見ず handle を渡すだけ・exception は no_route）
+    let h: LocalHeuristicResultV0 | null;
+    try {
+      h = await deps.runLocalHeuristic(priv);
+    } catch {
+      return noRoute("dependency_error");
+    }
+    if (h === null || typeof h !== "object" || !h.durationSignalPresent) return noRoute("heuristic_unresolved");
+
+    // 4. heuristic 正規化 + self-check（result に raw が混入したら emit せず no_route）
+    const result = heuristicResult(input, options, h);
+    if (transportCascadeProviderResultViolations(result).length > 0) return noRoute("result_leak_blocked");
+    // trace は **vetted な result.opaqueRouteRef** から構築（trace が result より緩い値を運ばない不変条件を textual に保証）
+    return { result, trace: { stage: "heuristic_resolved", opaqueRouteRef: result.opaqueRouteRef } };
   } catch {
-    return noRoute("dependency_error"); // raw exception message を一切出さない
+    return noRoute("dependency_error"); // 想定外の同期 throw（circular JSON 等）も raw を出さず no_route
   }
-  if (priv === null) return noRoute("no_private_input"); // fixture へ fallback しない
-
-  // 2b. private handle leak guard（coord-like handle → no_route・実装者が座標を handle に入れても防ぐ）
-  if (transportCascadePrivateInputViolations(priv).length > 0) return noRoute("private_input_leak_blocked");
-
-  // 3. 注入 heuristic（wrapper は priv の中身[座標]を見ず handle を渡すだけ・exception は no_route）
-  let h: LocalHeuristicResultV0 | null;
-  try {
-    h = await deps.runLocalHeuristic(priv);
-  } catch {
-    return noRoute("dependency_error");
-  }
-  if (h === null || !h.durationSignalPresent) return noRoute("heuristic_unresolved");
-
-  // 4. heuristic 正規化 + self-check（result に raw が混入したら emit せず no_route）
-  const result = heuristicResult(input, options, h);
-  if (transportCascadeProviderResultViolations(result).length > 0) return noRoute("result_leak_blocked");
-  return { result, trace: { stage: "heuristic_resolved", opaqueRouteRef: h.opaqueRouteRef } };
 }
 
 /**
@@ -199,33 +211,63 @@ const FORBIDDEN_TOKENS: ReadonlyArray<string> = [
   "coordinates",
   "waypoints",
   "address",
+  // location-encoding schemes（小数を含まず位置を運ぶ・RD2d-c-A 監査 wf_befd6b47 反映）
+  "geohash",
+  "pluscode",
+  "plus_code",
+  "what3words",
+  "mgrs",
+  "s2cell",
 ];
-const COORD_PATTERN = /\d{1,3}\.\d{4,}/;
-const COORD_PAIR_PATTERN = /-?\d{1,3}\.\d{2,}\s*[,;]\s*-?\d{1,3}\.\d{2,}/;
+/** 高精度単一座標（3 桁以上小数・~110m 以下精度も捕捉） */
+const COORD_PATTERN = /\d{1,3}\.\d{3,}/;
+/** Open Location Code(plus code)構造（"8Q7XMQHC+..."） */
+const PLUS_CODE_PATTERN = /[23456789cfghjmpqrvwx]{4,}\+[23456789cfghjmpqrvwx]{2,}/i;
 
-/** public input が opaque-only（raw 座標が混入していない）ことを検証（空 = 健全） */
-export function transportCascadeProviderInputViolations(input: TransportCascadeRouteEtaProviderInputV0): string[] {
-  let out: string[] = [];
-  const json = JSON.stringify(input).toLowerCase();
-  out = out.concat(FORBIDDEN_TOKENS.filter((t) => json.includes(t)).map((t) => `public input leaks raw token: ${t}`));
-  if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
-    out = out.concat(["public input contains raw coordinate pattern (opaque refs only)"]);
+/**
+ * coordinate-shaped pair を magnitude bound で検出（RD2d-c-A 監査反映）。
+ * "35.68 139.76"(空白)/"35.6,139.7"(1 桁)/"35,139"(整数)等の evasive form も、lat∈[-90,90]∧lng∈[-180,180] の
+ * 範囲なら座標と判定（範囲外の任意の整数ペアは誤検出しない）。delimiter は , ; / | 空白。
+ */
+function containsCoordinatePair(s: string): boolean {
+  const re = /(-?\d{1,3}(?:\.\d+)?)\s*[ ,;/|]\s*(-?\d{1,3}(?:\.\d+)?)/g;
+  let m: RegExpExecArray | null = re.exec(s);
+  while (m !== null) {
+    const a = Math.abs(parseFloat(m[1]));
+    const b = Math.abs(parseFloat(m[2]));
+    const hasDecimal = m[1].indexOf(".") >= 0 || m[2].indexOf(".") >= 0;
+    // 小数ありで lat/lng 範囲、または非ゼロ整数ペアで lat/lng 範囲 → 座標とみなす（fail-closed）
+    if (a <= 90 && b <= 180 && (hasDecimal || (a > 0 && b > 0))) return true;
+    m = re.exec(s);
   }
-  return out;
+  return false;
+}
+
+/** serialized 文字列に raw 座標/位置 encoding が含まれるか（token + 単一高精度 + ペア + plus code） */
+function containsRawLocation(jsonLower: string): boolean {
+  return (
+    FORBIDDEN_TOKENS.some((t) => jsonLower.includes(t)) ||
+    COORD_PATTERN.test(jsonLower) ||
+    PLUS_CODE_PATTERN.test(jsonLower) ||
+    containsCoordinatePair(jsonLower)
+  );
+}
+
+/** public input が opaque-only（raw 座標/位置 encoding が混入していない）ことを検証（空 = 健全・message は定数のみ） */
+export function transportCascadeProviderInputViolations(input: TransportCascadeRouteEtaProviderInputV0): string[] {
+  const json = JSON.stringify(input).toLowerCase();
+  return containsRawLocation(json) ? ["public input contains raw location (coordinate/encoding) — opaque refs only"] : [];
 }
 
 /**
- * transportCascadePrivateInputViolations — private coordinate handle が **opaque token のみ**で raw 座標を含まないことを検証。
- * 実装者が handle に座標文字列（"35.68,139.76"）を入れても検出 → wrapper が no_route に倒す（message は token 名/定数のみ）。
+ * transportCascadePrivateInputViolations — private coordinate handle が **opaque token のみ**で raw 座標/位置 encoding を
+ * 含まないことを検証。実装者が handle に座標("35.68,139.76"・"35,139"・geohash 等)を入れても検出 → wrapper が no_route に倒す。
  */
 export function transportCascadePrivateInputViolations(priv: TransportCascadePrivateCoordinateInputV0): string[] {
   let out: string[] = [];
-  if (priv.kind !== "private_coordinate_bearing") out = out.concat([`invalid private input kind: ${priv.kind}`]);
+  if (priv.kind !== "private_coordinate_bearing") out = out.concat(["invalid private input kind"]);
   const json = JSON.stringify(priv).toLowerCase();
-  out = out.concat(FORBIDDEN_TOKENS.filter((t) => json.includes(t)).map((t) => `private input leaks raw token: ${t}`));
-  if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
-    out = out.concat(["private input handle contains coordinate-like string (must be opaque token)"]);
-  }
+  if (containsRawLocation(json)) out = out.concat(["private input handle contains coordinate/location encoding (must be opaque token)"]);
   return out;
 }
 
@@ -237,6 +279,10 @@ export function transportCascadeProviderResultViolations(result: RouteEtaProvide
   const add = (cond: boolean, msg: string): void => {
     out = cond ? out.concat([msg]) : out;
   };
+  // wrapper 独自の強化 raw-location scan（adapter の scan より広く・evasive coord/geohash/plus code を捕捉）
+  if (containsRawLocation(JSON.stringify(result).toLowerCase())) {
+    out = out.concat(["result contains raw location (coordinate/encoding) — opaque refs only"]);
+  }
   // heuristic は signal 止まり（projection-grade にしない・route shape なし・condition は static/na/unknown）
   if (result.durationBasis === "heuristic") {
     add(result.routeShapePresent, "heuristic result must not claim routeShapePresent");
