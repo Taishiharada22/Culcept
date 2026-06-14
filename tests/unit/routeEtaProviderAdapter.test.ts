@@ -4,6 +4,35 @@
  *
  * 核: adapter は能力を上げない。必ず DAG(deriveCapabilityFlagsFromParts)+walker(routeEtaCapabilityViolations)経由。
  *   provider 未注入/failure/malformed → no_route_source。heuristic は durationSignalPresent 止まり。raw 不露出。
+ *
+ * CEO 必須 25 項目 → test 対応表（RD2d-b-A で形式化）:
+ *   #1 provider 未注入→no_route        → "RD2d-b #1/#2"（it: 未注入）
+ *   #2 provider failure→no_route       → "RD2d-b #1/#2"（it: failure）
+ *   #3 malformed→fail-safe/violation   → "RD2d-b #3"（2 it）+ "RD2d-b-A"（malformed_enum）
+ *   #4 basis unknown/none→projection 不可 → "RD2d-b #4"
+ *   #5 heuristic→signal のみ            → "RD2d-b #5/#6/#7/#8"
+ *   #6 heuristic→projection false       → "RD2d-b #5/#6/#7/#8"
+ *   #7 heuristic→planning false         → "RD2d-b #5/#6/#7/#8"
+ *   #8 heuristic→leaveByComputable false→ "RD2d-b #5/#6/#7/#8"
+ *   #9 duration 返しても allowlist 外→不可 → "RD2d-b #9"
+ *   #10 condition だけでは projection 不可 → "RD2d-b #10"
+ *   #11 scope bounded なし→projection 不可 → "RD2d-b #11" + "RD2d-b-A"（origin/dest なし）
+ *   #12 stale→planning false            → "RD2d-b #12" + "RD2d-b-A"（fresh unsubstantiated）
+ *   #13 user_confirmed scope mismatch→planning false → "RD2d-b #13"
+ *   #14 external+car+traffic+bounded+fresh→projection → "RD2d-b #14"
+ *   #15 walking route-shaped scoped→projection → "RD2d-b #15"
+ *   #16 transit scheduled scoped→projection → "RD2d-b #16"
+ *   #17 provider overclaim→walker 検出   → "RD2d-b #17"
+ *   #18 raw route data が output に出ない → "RD2d-b #18/#19"（it 1）+ "RD2d-b-A"（raw echo）
+ *   #19 opaque ref のみ                  → "RD2d-b #18/#19"（opaque trace は route evidence のみ）
+ *   #20 missingInputRefs を heuristic で消さない → "RD2d-b #20"
+ *   #21 capability + adapter violations 両方走る → "RD2d-b #21" + 各 it の routeEtaAdapterOutputViolations
+ *   #22 cascade/external/currentLocation import なし → "RD2d-b #22"
+ *   #23 IO source-scan green             → "RD2d-b #23"
+ *   #24 RD2 targeted tests pass          → 別実行（106→112/112）
+ *   #25 tsc baseline 55 維持             → 別実行（npx tsc）
+ *   追加(RD2d-b-A): provider self-claim 防御（freshness basis / scope corroboration / route evidence /
+ *     malformed reason 分類 / raw echo redaction）→ "RD2d-b-A 自己検証" block。
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -65,6 +94,7 @@ function result(over: Partial<RouteEtaProviderResultV0> = {}): RouteEtaProviderR
     conditionModelStatus: "traffic_aware",
     opaqueRouteRef: "opaque-route-1",
     freshnessStatus: "fresh",
+    freshnessBasisRef: "fb1", // substantiated fresh（RD2d-b-A: basis 無しの fresh は stale へ downgrade）
     ...over,
   };
 }
@@ -91,7 +121,7 @@ describe("RD2d-b #3 malformed provider result → fail-safe / violation", () => 
     const bad = { ...result(), durationBasis: "WAT" } as unknown as RouteEtaProviderResultV0;
     const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(bad) });
     expect(o.stage).toBe("no_route_source");
-    expect(o.failureReason).toBe("malformed_result");
+    expect(o.failureReason).toBe("malformed_enum"); // 非 raw enum 違反は malformed_enum（RD2d-b-A 分類）
     expect(o.violations.length).toBeGreaterThan(0);
   });
   it("routeEtaProviderResultViolations が enum/raw を検出", () => {
@@ -210,18 +240,70 @@ describe("RD2d-b #17 provider overclaim を walker で検出", () => {
   });
 });
 
-describe("RD2d-b #18/#19 raw route data が output に出ない・opaque ref のみ", () => {
-  it("output JSON に raw 座標/polyline/waypoints/route response なし（opaqueRouteRef も載らない）", async () => {
+describe("RD2d-b #18/#19 raw route data が output に出ない・opaque ref は internal evidence のみ", () => {
+  it("output JSON に raw 座標/polyline/waypoints/route response なし（opaqueRouteRef は opaque trace として route evidence にのみ）", async () => {
     const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ opaqueRouteRef: "opaque-route-xyz" })) });
     const json = JSON.stringify(o).toLowerCase();
-    for (const t of ["latitude", "longitude", "polyline", "encodedpolyline", "waypoints", "routeresponse", "coordinates", "opaque-route-xyz"]) {
-      expect(json.includes(t)).toBe(false); // opaqueRouteRef すら capability に載せない
+    for (const t of ["latitude", "longitude", "polyline", "encodedpolyline", "waypoints", "routeresponse", "coordinates"]) {
+      expect(json.includes(t)).toBe(false); // raw route data は出さない
     }
+    // opaqueRouteRef は raw でなく opaque trace → route evidenceRef に残る（auditability・RD2d-b-A）
+    const routeEv = (o.capability?.evidenceRefs ?? []).filter((e) => e.capability === "route");
+    expect(routeEv.length).toBeGreaterThan(0);
+    expect(routeEv.some((e) => e.code.includes("opaque-route-xyz"))).toBe(true);
   });
-  it("provider が opaqueRouteRef に座標を入れても adapter は no_route_source に倒す", async () => {
+  it("provider が opaqueRouteRef に座標を入れても adapter は no_route_source(raw_route_data_detected)に倒す", async () => {
     const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ opaqueRouteRef: "35.6895,139.7006" })) });
     expect(o.stage).toBe("no_route_source");
-    expect(o.failureReason).toBe("malformed_result");
+    expect(o.failureReason).toBe("raw_route_data_detected"); // 独立 loud reason（benign に丸めない）
+    // raw 値そのものは violation にも出ない（INV-NO-RAW-ECHO）
+    expect(o.violations.some((v) => v.includes("35.6895"))).toBe(false);
+    expect(routeEtaAdapterOutputViolations(o)).toEqual([]);
+  });
+});
+
+describe("RD2d-b-A 自己検証: provider self-claim を信用しきらない（4 レンズ監査 wf_c8839639 反映）", () => {
+  it("freshnessStatus fresh だが basis ref なし → stale へ downgrade → planning false", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ freshnessStatus: "fresh", freshnessBasisRef: null })) });
+    expect(o.capability?.planning.arrivalProjectionKnown).toBe(true); // projection は立つ（freshness 非依存）
+    expect(o.capability?.planning.timeEstimateUsableForPlanning).toBe(false); // fresh が unsubstantiated → planning に上げない
+    expect(o.capability?.freshness.freshnessStatus).toBe("stale"); // downgrade されている
+    expect(o.capability?.leaveBy.leaveByComputable).toBe(false); // planning 不可 → leaveBy も不可
+  });
+  it("freshnessBasisRef あり fresh は planning に上げてよい（基準あり）", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ freshnessStatus: "fresh", freshnessBasisRef: "fb1" })) });
+    expect(o.capability?.planning.timeEstimateUsableForPlanning).toBe(true);
+    expect(o.capability?.freshness.fetchedAtRef).toBe("fb1"); // basis を trace に保持
+  });
+  it("durationScopeBounded claim でも origin/dest が無ければ scope を信じない → projection false", async () => {
+    const o = await resolveRouteEtaCapability(
+      baseInput({ originRef: null }),
+      { provider: provider(result({ durationScopeBounded: true })) },
+    );
+    expect(o.capability?.planning.arrivalProjectionKnown).toBe(false);
+  });
+  it("routeShapeKnown は route evidenceRef を要求（forged: route flag だが evidence なし → violation）", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ routeShapePresent: true })) });
+    expect(o.capability?.evidenceRefs.some((e) => e.capability === "route")).toBe(true); // 正常時は route evidence あり
+    const forged = {
+      ...o,
+      capability: o.capability ? { ...o.capability, evidenceRefs: o.capability.evidenceRefs.filter((e) => e.capability !== "route") } : null,
+    } as typeof o;
+    expect(routeEtaAdapterOutputViolations(forged).some((m) => m.includes("routeShapeKnown requires a route evidenceRef"))).toBe(true);
+  });
+  it("malformed enum(非 raw) は malformed_enum・raw-leak とは別 reason", async () => {
+    const bad = { ...result(), durationBasis: "WAT" } as unknown as RouteEtaProviderResultV0;
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(bad) });
+    expect(o.failureReason).toBe("malformed_enum");
+    expect(o.violations.length).toBeGreaterThan(0);
+  });
+  it("enum field に座標を詰めても violation message は raw 値を echo しない（redact）", async () => {
+    const bad = { ...result(), durationBasis: "35.6895,139.7006" } as unknown as RouteEtaProviderResultV0;
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(bad) });
+    expect(o.failureReason).toBe("raw_route_data_detected"); // leak が enum より優先
+    expect(o.violations.join(" ").includes("35.6895")).toBe(false); // redact 済
+    expect(o.violations.some((v) => v.includes("redacted"))).toBe(true);
+    expect(routeEtaAdapterOutputViolations(o)).toEqual([]); // echo guard も green
   });
 });
 

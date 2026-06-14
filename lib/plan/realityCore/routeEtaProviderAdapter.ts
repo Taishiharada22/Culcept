@@ -65,15 +65,19 @@ export interface RouteEtaProviderResultV0 {
   readonly routeShapePresent: boolean;
   readonly routeOptionPresent: boolean;
   readonly conditionModelStatus: ConditionModelStatusV0;
-  /** internal opaque（adapter は capability に載せない・raw 座標不可） */
+  /** internal opaque route ref（raw 座標不可・evidenceRef に opaque trace として残す・RD2d-b-A） */
   readonly opaqueRouteRef: string | null;
   readonly freshnessStatus: RouteEtaFreshnessStatusV0;
+  /** freshness の根拠 opaque ref（fetchedAt/validUntil 相当）。fresh は basis 無しでは planning に上げない（RD2d-b-A self-claim 防御） */
+  readonly freshnessBasisRef: string | null;
 }
 
 export type RouteEtaProviderFailureReasonV0 =
   | "not_injected"
   | "provider_failed"
   | "no_route"
+  | "raw_route_data_detected"
+  | "malformed_enum"
   | "malformed_result"
   | "basis_unknown"
   | "no_duration_signal";
@@ -159,20 +163,36 @@ const FORBIDDEN_RESULT_TOKENS: ReadonlyArray<string> = [
 const COORD_PATTERN = /\d{1,3}\.\d{4,}/;
 const COORD_PAIR_PATTERN = /-?\d{1,3}\.\d{2,}\s*[,;]\s*-?\d{1,3}\.\d{2,}/;
 
-/** routeEtaProviderResultViolations — provider result の shape / enum / raw-leak を検証（空 = 健全） */
+/** 値が raw 座標/polyline 様なら redact（違反 message が leak guard を defeat しないため・RD2d-b-A INV-NO-RAW-ECHO） */
+function redactIfRaw(v: string): string {
+  const lower = v.toLowerCase();
+  if (COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v) || FORBIDDEN_RESULT_TOKENS.some((t) => lower.includes(t))) {
+    return "<redacted: matched raw-data pattern>";
+  }
+  return v;
+}
+
+/** raw-leak signal が立っているか（reason precedence: leak > enum > structural） */
+export function providerResultHasRawLeak(r: RouteEtaProviderResultV0): boolean {
+  const json = JSON.stringify(r).toLowerCase();
+  return FORBIDDEN_RESULT_TOKENS.some((t) => json.includes(t)) || COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json);
+}
+
+/** routeEtaProviderResultViolations — provider result の shape / enum / raw-leak を検証（空 = 健全・値は redact 済） */
 export function routeEtaProviderResultViolations(r: RouteEtaProviderResultV0): string[] {
   let out: string[] = [];
   const add = (cond: boolean, msg: string): void => {
     out = cond ? out.concat([msg]) : out;
   };
 
-  add(["ok", "no_route", "failed"].indexOf(r.status) < 0, `invalid status: ${String(r.status)}`);
-  add(PROVIDER_KINDS.indexOf(r.providerKind) < 0, `invalid providerKind: ${String(r.providerKind)}`);
-  add(DURATION_BASES.indexOf(r.durationBasis) < 0, `invalid durationBasis: ${String(r.durationBasis)}`);
-  add(CONDITION_STATUSES.indexOf(r.conditionModelStatus) < 0, `invalid conditionModelStatus: ${String(r.conditionModelStatus)}`);
-  add(FRESHNESS_STATUSES.indexOf(r.freshnessStatus) < 0, `invalid freshnessStatus: ${String(r.freshnessStatus)}`);
+  // enum 違反 message は raw 値を echo しない（redactIfRaw）
+  add(["ok", "no_route", "failed"].indexOf(r.status) < 0, `invalid status: ${redactIfRaw(String(r.status))}`);
+  add(PROVIDER_KINDS.indexOf(r.providerKind) < 0, `invalid providerKind: ${redactIfRaw(String(r.providerKind))}`);
+  add(DURATION_BASES.indexOf(r.durationBasis) < 0, `invalid durationBasis: ${redactIfRaw(String(r.durationBasis))}`);
+  add(CONDITION_STATUSES.indexOf(r.conditionModelStatus) < 0, `invalid conditionModelStatus: ${redactIfRaw(String(r.conditionModelStatus))}`);
+  add(FRESHNESS_STATUSES.indexOf(r.freshnessStatus) < 0, `invalid freshnessStatus: ${redactIfRaw(String(r.freshnessStatus))}`);
 
-  // raw-leak（input 境界）: opaqueRouteRef / providerVersion / providerKind 等に座標/polyline が混入していないか
+  // raw-leak（input 境界・message は token 名/定数のみ・raw 値を含めない）
   const json = JSON.stringify(r).toLowerCase();
   out = out.concat(FORBIDDEN_RESULT_TOKENS.filter((t) => json.includes(t)).map((t) => `provider result leaks raw token: ${t}`));
   if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
@@ -261,8 +281,11 @@ export async function resolveRouteEtaCapability(
   const result = await provider(input);
 
   // provider result 境界 validation（malformed / raw-leak → no_route_source に fail-safe）
+  // reason precedence: raw-leak > enum（leak は privacy-contract breach ゆえ独立 loud reason・benign に丸めない）
   const rv = routeEtaProviderResultViolations(result);
-  if (rv.length > 0) return buildNoRouteSource(input, "malformed_result", rv);
+  if (rv.length > 0) {
+    return buildNoRouteSource(input, providerResultHasRawLeak(result) ? "raw_route_data_detected" : "malformed_enum", rv);
+  }
 
   if (result.status === "failed") return buildNoRouteSource(input, "provider_failed");
   if (result.status === "no_route") return buildNoRouteSource(input, "no_route");
@@ -270,6 +293,27 @@ export async function resolveRouteEtaCapability(
   // status ok だが basis 不正/none/signal なし → fail-safe
   if (result.durationBasis === "none") return buildNoRouteSource(input, "basis_unknown");
   if (!result.durationSignalPresent) return buildNoRouteSource(input, "no_duration_signal");
+
+  // self-claim corroboration（provider を信用しきらない・adapter-side trusted context で gate）
+  // freshness: 'fresh' は基準 ref（freshnessBasisRef）が無ければ planning に上げない → stale へ downgrade
+  const freshnessSubstantiated = result.freshnessBasisRef !== null && result.freshnessBasisRef.length > 0;
+  const effectiveFreshness: RouteEtaFreshnessStatusV0 =
+    result.freshnessStatus === "fresh" && !freshnessSubstantiated ? "stale" : result.freshnessStatus;
+  const freshnessStaleReason =
+    result.freshnessStatus === "fresh" && !freshnessSubstantiated ? "freshness_unsubstantiated" : null;
+  // scope bounded: trusted caller context（origin/dest present）が無ければ provider の scopeBounded を信じない
+  const effectiveScopeBounded = result.durationScopeBounded && input.originRef !== null && input.destinationRef !== null;
+
+  // evidenceRefs: duration + route（flag を立てるなら field-level route evidence・opaqueRouteRef は opaque trace のみ）
+  const evidenceRefs: RouteEtaEvidenceRef[] = [
+    { code: `provider:${result.durationBasis}`, capability: "duration", source: result.durationBasis },
+    ...(result.routeShapePresent
+      ? [{ code: `route:shape:${result.providerKind}@${result.providerVersion}#${result.opaqueRouteRef ?? "noref"}`, capability: "route" as const, source: result.durationBasis }]
+      : []),
+    ...(result.routeOptionPresent
+      ? [{ code: `route:option:${result.providerKind}@${result.providerVersion}`, capability: "route" as const, source: result.durationBasis }]
+      : []),
+  ];
 
   // capability 構築（必ず DAG derive 経由・adapter は flag を直接立てない）
   const built = buildRouteEtaCapability({
@@ -283,16 +327,16 @@ export async function resolveRouteEtaCapability(
     duration: {
       durationSignalPresent: result.durationSignalPresent,
       durationBasis: result.durationBasis,
-      durationScopeBounded: result.durationScopeBounded,
+      durationScopeBounded: effectiveScopeBounded,
     },
     temporal: input.temporal,
     condition: { conditionModelStatus: result.conditionModelStatus },
-    freshness: { freshnessStatus: result.freshnessStatus, staleReason: null, fetchedAtRef: null, validUntilRef: null },
+    freshness: { freshnessStatus: effectiveFreshness, staleReason: freshnessStaleReason, fetchedAtRef: result.freshnessBasisRef, validUntilRef: null },
     originUsableForLeaveBy: input.originUsableForLeaveBy,
     bufferKnown: input.bufferKnown,
     originConflict: input.originConflict,
     pairPrivacyParts: input.pairPrivacyParts,
-    evidenceRefs: [{ code: `provider:${result.durationBasis}`, capability: "duration", source: result.durationBasis }],
+    evidenceRefs,
     subjectNodeId: input.subjectNodeId,
   });
   const cap = withMissingInputs(built);
@@ -328,8 +372,21 @@ export function routeEtaAdapterOutputViolations(o: RouteEtaAdapterOutputV0): str
       o.stage === "no_route_source" && o.capability.duration.durationSignalPresent,
       "stage no_route_source must not carry a duration signal",
     );
+    // route 系 flag は field-level route evidence が必要（flags-without-evidence 禁止・INV-R1）
+    const hasRouteEvidence = o.capability.evidenceRefs.some((e) => e.capability === "route");
+    add(o.capability.route.routeShapeKnown && !hasRouteEvidence, "routeShapeKnown requires a route evidenceRef");
+    add(o.capability.route.routeOptionKnown && !hasRouteEvidence, "routeOptionKnown requires a route evidenceRef");
   }
   add(o.capability === null && o.resolved, "null capability must not be resolved");
   add(o.resolved && o.failureReason !== null, "resolved output must not carry a failureReason");
+  // contract violation を benign に丸めない: malformed/raw failureReason は violation を伴う（INV-SURVIVE）
+  add(
+    (o.failureReason === "raw_route_data_detected" || o.failureReason === "malformed_enum" || o.failureReason === "malformed_result") &&
+      o.violations.length === 0,
+    "malformed/raw failureReason must carry violations",
+  );
+  // violation message 自体が raw 座標値を echo しない（leak guard を message が defeat しない・INV-NO-RAW-ECHO）
+  const echoed = o.violations.filter((v) => COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v));
+  out = out.concat(echoed.map(() => "violation message must not echo raw coordinate value"));
   return out;
 }
