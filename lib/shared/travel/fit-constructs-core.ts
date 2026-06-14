@@ -13,15 +13,22 @@
 
 import {
   CONSTRUCT_REGISTRY,
+  CONSTRUCT_WIRING,
+  CONTEXT_ROLLUP_OVERRIDE,
   INDICATOR_REGISTRY,
   INTERACTION_REGISTRY,
+  ROLLUP_WEIGHTS,
+  WIRED_CONSTRUCTS,
   type ConstructAxis,
   type ConstructFamilyId,
+  type ConstructIndicatorInput,
+  type ConstructPreferenceInput,
   type InteractionTerm,
   type LayerId,
   type MissingDataPolicy,
+  type WiredConstruct,
 } from "./fit-constructs";
-import { FIT_COMPONENT_KEYS } from "./fit-types";
+import { FIT_COMPONENT_KEYS, type EntityBurdenAxis, type FitContext, type FitUserState, type SharedTraitAxis, type TravelObjectState } from "./fit-types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // §1 参照 helpers（registry getter・決定論）
@@ -183,4 +190,187 @@ export function computeConstructScore(
   }
   if (used === 0 || wSum === 0) return { score: 0, confidence: 0, available: false, usedIndicators: 0 };
   return { score: acc / wSum, confidence: confAcc / used, available: true, usedIndicators: used };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// §5 T11-C3 construct rollup → fit-core 接続用 helpers（pure・fit-core を import しない）
+// ═════════════════════════════════════════════════════════════════════════════
+
+const cl = (x: number, lo = 0, hi = 1): number => (x < lo ? lo : x > hi ? hi : x);
+const match = (a: number, b: number): number => 1 - Math.abs(a - b) / 2; // -1..1 → fit 0..1
+
+/** valence 多因子（第一 slice は recoveryStyle + tripIntent・valenceSensitive のみ動く） */
+export function valenceMultiplier(axis: WiredConstruct, user: FitUserState, ctx?: FitContext): number {
+  if (!CONSTRUCT_WIRING[axis].valenceSensitive) return 1;
+  // tranquility 等: rest_to_recover で価値・stimulation_to_recover で退屈（符号弱化）
+  const rs = user.recoveryStyle;
+  let m = rs === "rest_to_recover" ? 1.0 : rs === "stimulation_to_recover" ? 0.4 : 0.7;
+  if (ctx?.tripIntent === "recovery") m *= 1.1;
+  else if (ctx?.tripIntent === "exploration") m *= 0.85;
+  return cl(m, 0, 1.3);
+}
+
+export interface RawLite {
+  value: number;
+  available: boolean;
+  confidence: number;
+}
+
+export interface ConstructBlend {
+  /** traitFit へ（tranquility/hygiene/noveltySeeking の集約・二層） */
+  traitFull: RawLite | null;
+  traitShared: RawLite | null;
+  /** burdenFit へ（mobilityBurden） */
+  burden: RawLite | null;
+  /** roleFit へ（mealRoleAffinity・food のみ） */
+  role: RawLite | null;
+  /** recoveryFit へ（arrivalFreshness） */
+  recovery: RawLite | null;
+  /** 二重計上回避: legacy traitFit の user-trait loop から除外する軸 */
+  excludeUserTraitAxes: SharedTraitAxis[];
+  /** 二重計上回避: legacy burdenFit から除外する entity 負荷軸 */
+  excludeBurdenAxes: EntityBurdenAxis[];
+}
+
+export interface ConstructBlendInput {
+  entityIndicators?: ConstructIndicatorInput;
+  /** この participant の construct 選好 */
+  userPrefs?: ConstructPreferenceInput;
+}
+
+interface Contribution {
+  component: WiredConstructComponent;
+  full: RawLite;
+  shared: RawLite;
+}
+type WiredConstructComponent = (typeof CONSTRUCT_WIRING)[WiredConstruct]["component"];
+
+/** 1 construct の entity スコア（指標 rollup または legacy trait 軸）。null=未供給 */
+function entityScoreOf(
+  axis: WiredConstruct,
+  entity: TravelObjectState,
+  input: ConstructBlendInput,
+  ctx?: FitContext,
+): { value: number; confidence: number } | null {
+  const w = CONSTRUCT_WIRING[axis];
+  if (w.entityScoreFrom === "legacy_trait") {
+    const t = w.legacyTraitAxis ? entity.traits?.[w.legacyTraitAxis] : undefined;
+    if (!t) return null;
+    return { value: t.value, confidence: t.confidence };
+  }
+  // indicators rollup（public 型は厳格・内部読みは均一 record にキャストして homomorphic 添字を回避）
+  const allObs = input.entityIndicators as Partial<Record<ConstructAxis, Partial<Record<string, { value: number; confidence: number }>>>> | undefined;
+  const obs = allObs?.[axis];
+  if (!obs) return null;
+  const base = ROLLUP_WEIGHTS[axis] ?? {};
+  const override = ctx?.tripIntent ? CONTEXT_ROLLUP_OVERRIDE[ctx.tripIntent]?.[axis] : undefined;
+  const weights = override ? { ...base, ...override } : base;
+  const r = computeConstructScore(axis, obs as Partial<Record<string, IndicatorObservation>>, weights);
+  if (!r.available) return null;
+  return { value: r.score, confidence: r.confidence };
+}
+
+/** 1 construct の fit 寄与（kind 別写像・二層）。null=非発火（presence-gated） */
+function constructContribution(
+  axis: WiredConstruct,
+  user: FitUserState,
+  entity: TravelObjectState,
+  ctx: FitContext | undefined,
+  input: ConstructBlendInput,
+): Contribution | null {
+  const w = CONSTRUCT_WIRING[axis];
+  if (w.categoryGate && entity.category !== w.categoryGate) return null;
+  // safety_critical guard（第一 slice の構築子に該当なしだが将来 construct 用に fail-closed を組込む）
+  if (CONSTRUCT_REGISTRY[axis].missingData === "safety_critical") {
+    const allObs = input.entityIndicators as Partial<Record<ConstructAxis, Record<string, unknown>>> | undefined;
+    const obs = allObs?.[axis];
+    if (!obs || Object.keys(obs).length === 0) return null; // 安全 critical 未確認は寄与させない（満たさず）
+  }
+  const es = entityScoreOf(axis, entity, input, ctx);
+  if (!es) return null;
+
+  const pref = input.userPrefs?.[axis] ?? (w.userPrefFallbackTraitAxis ? user.traits?.[w.userPrefFallbackTraitAxis] : undefined);
+  const isPrivate = (input.userPrefs?.[axis]?.visibility ?? undefined) === "private";
+
+  if (w.kind === "trait_match") {
+    if (!pref) return null; // 照合先 user 選好が無ければ非発火
+    const v = cl(match(pref.value, es.value) * valenceMultiplier(axis, user, ctx));
+    const conf = cl(es.confidence) * cl(pref.confidence);
+    const full: RawLite = { value: v, available: true, confidence: conf };
+    const shared: RawLite = isPrivate ? { value: 0, available: false, confidence: 0 } : full;
+    return { component: "traitFit", full, shared };
+  }
+  if (w.kind === "burden_penalty") {
+    const tol = (w.toleranceAxis ? user.tolerances[w.toleranceAxis] : undefined) ?? 0.5;
+    const effTol = cl(tol - 0.4 * (ctx?.todayFatigueSpike ?? 0));
+    const v = cl(1 - cl(es.value) * (1 - effTol));
+    const raw: RawLite = { value: v, available: true, confidence: cl(es.confidence) };
+    return { component: "burdenFit", full: raw, shared: raw };
+  }
+  if (w.kind === "role_affinity") {
+    const raw: RawLite = { value: cl(es.value), available: true, confidence: cl(es.confidence) };
+    return { component: "roleFit", full: raw, shared: raw };
+  }
+  // recovery_value
+  const raw: RawLite = { value: cl(es.value), available: true, confidence: cl(es.confidence) };
+  return { component: "recoveryFit", full: raw, shared: raw };
+}
+
+const aggRaw = (xs: RawLite[]): RawLite | null => {
+  const a = xs.filter((x) => x.available);
+  if (a.length === 0) return null;
+  let wSum = 0;
+  let acc = 0;
+  for (const x of a) {
+    const wc = cl(x.confidence) || 1e-6;
+    acc += x.value * wc;
+    wSum += wc;
+  }
+  return { value: cl(acc / wSum), available: true, confidence: cl(a.reduce((s, x) => s + x.confidence, 0) / a.length) };
+};
+
+/**
+ * presence-gated blend 入力を計算（fit-core が消費）。
+ * construct 入力が無ければ全 null + 空 exclude → fit-core は legacy 挙動（従来 34 テスト不変）。
+ */
+export function computeConstructBlend(
+  user: FitUserState,
+  entity: TravelObjectState,
+  ctx: FitContext | undefined,
+  input: ConstructBlendInput | undefined,
+): ConstructBlend {
+  const empty: ConstructBlend = { traitFull: null, traitShared: null, burden: null, role: null, recovery: null, excludeUserTraitAxes: [], excludeBurdenAxes: [] };
+  if (!input || (!input.entityIndicators && !input.userPrefs)) return empty;
+
+  const traitFulls: RawLite[] = [];
+  const traitShareds: RawLite[] = [];
+  const burdens: RawLite[] = []; // ★ 複数 burden construct(walking/stairs/transfer/baggage)を集約
+  let role: RawLite | null = null;
+  let recovery: RawLite | null = null;
+  const exTrait: SharedTraitAxis[] = [];
+  const exBurden: EntityBurdenAxis[] = [];
+
+  for (const axis of WIRED_CONSTRUCTS) {
+    const c = constructContribution(axis, user, entity, ctx, input);
+    if (!c) continue;
+    const w = CONSTRUCT_WIRING[axis];
+    for (const a of w.supersedeUserTraitAxes ?? []) if (!exTrait.includes(a)) exTrait.push(a);
+    for (const a of w.supersedeBurdenAxes ?? []) if (!exBurden.includes(a)) exBurden.push(a);
+    if (c.component === "traitFit") {
+      traitFulls.push(c.full);
+      traitShareds.push(c.shared);
+    } else if (c.component === "burdenFit") burdens.push(c.full);
+    else if (c.component === "roleFit") role = c.full;
+    else if (c.component === "recoveryFit") recovery = c.full;
+  }
+
+  return {
+    traitFull: aggRaw(traitFulls),
+    traitShared: aggRaw(traitShareds),
+    burden: aggRaw(burdens),
+    role,
+    recovery,
+    excludeUserTraitAxes: exTrait,
+    excludeBurdenAxes: exBurden,
+  };
 }

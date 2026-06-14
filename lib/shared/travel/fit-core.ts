@@ -18,6 +18,8 @@
  */
 
 import type { ViewerScopedRationale } from "./core-types";
+import { computeConstructBlend, type ConstructBlend, type ConstructBlendInput } from "./fit-constructs-core";
+import type { ConstructIndicatorInput, ConstructPreferenceInput } from "./fit-constructs";
 import {
   BURDEN_TOLERANCE_MAP,
   ENTITY_FIT_GRADES,
@@ -192,7 +194,7 @@ export function traitFit(
   user: FitUserState,
   entityTraits: Partial<Record<SharedTraitAxis, TraitValue>>,
   primaryRole: AnyEntityRole | null,
-  opts: { includePrivate: boolean },
+  opts: { includePrivate: boolean; excludeUserAxes?: ReadonlySet<SharedTraitAxis> },
 ): ComponentRaw {
   const userTraits = user.traits ?? {};
   const importance = (primaryRole && ROLE_AXIS_IMPORTANCE[primaryRole]) || {};
@@ -205,6 +207,7 @@ export function traitFit(
     const u = userTraits[axis];
     if (!u) continue;
     if (!opts.includePrivate && u.visibility === "private") continue;
+    if (opts.excludeUserAxes?.has(axis)) continue; // C3 supersede: construct が担う軸は legacy から除外
     const e = entityTraits[axis];
     const imp = importance[axis] ?? 1.0;
     const wc = clamp(u.confidence) * imp;
@@ -283,11 +286,12 @@ function effectiveTolerance(axis: EntityBurdenAxis, base: number, ctx?: FitConte
 }
 
 /** 負荷適合（対称写像・FitContext で effectiveTolerance を当日値に・base trait 不変） */
-export function burdenFit(user: FitUserState, entity: TravelObjectState, ctx?: FitContext): ComponentRaw {
+export function burdenFit(user: FitUserState, entity: TravelObjectState, ctx?: FitContext, excludeBurdenAxes?: ReadonlySet<EntityBurdenAxis>): ComponentRaw {
   const burden = entity.burden ?? {};
   const penalties: number[] = [];
   const confs: number[] = [];
   for (const axis of Object.keys(burden) as EntityBurdenAxis[]) {
+    if (excludeBurdenAxes?.has(axis)) continue; // C3 supersede: construct が担う burden 軸は legacy から除外
     const b = burden[axis];
     const bv = val(b);
     if (bv === undefined) continue;
@@ -544,21 +548,41 @@ const COMPENSABILITY: Record<FitComponentKey, FitComponent["compensability"]> = 
   budgetFit: "compensatory",
 };
 
+/** C3 presence-gated blend: construct 寄与を legacy raw に confidence 加重で畳む（非供給時=legacy 同一） */
+function blendRaw(legacy: ComponentRaw, c: { value: number; available: boolean; confidence: number } | null | undefined): ComponentRaw {
+  if (!c || !c.available) return legacy;
+  if (!legacy.available) return { value: clamp(c.value), available: true, confidence: clamp(c.confidence), signalBasis: "observed" };
+  const wL = clamp(legacy.confidence) || 1e-6;
+  const wC = clamp(c.confidence) || 1e-6;
+  return {
+    value: clamp((legacy.value * wL + c.value * wC) / (wL + wC)),
+    available: true,
+    confidence: clamp(Math.max(legacy.confidence, c.confidence)),
+    signalBasis: legacy.signalBasis,
+  };
+}
+
 function buildComponents(
   user: FitUserState,
   entity: TravelObjectState,
   ctx: FitContext | undefined,
   relationship: RelationshipKind,
+  blend?: ConstructBlend,
 ): { full: FitComponent[]; chosenRoleFull: AnyEntityRole | null; chosenRoleShared: AnyEntityRole | null; categoryMismatch: boolean; onsenSpring?: string } {
   const derived = deriveEntityTraits(entity);
+  const exUserTrait = blend && blend.excludeUserTraitAxes.length > 0 ? new Set(blend.excludeUserTraitAxes) : undefined;
+  const exBurden = blend && blend.excludeBurdenAxes.length > 0 ? new Set(blend.excludeBurdenAxes) : undefined;
 
   const roleFull = roleFit(user, entity, { includePrivate: true });
   const roleShared = roleFit(user, entity, { includePrivate: false });
-  const traitFull = traitFit(user, derived.traits, roleFull.chosenRole, { includePrivate: true });
-  const traitShared = traitFit(user, derived.traits, roleShared.chosenRole, { includePrivate: false });
-  const burden = burdenFit(user, entity, ctx);
-  const recovery = recoveryFit(user, entity, ctx);
+  const traitFull = blendRaw(traitFit(user, derived.traits, roleFull.chosenRole, { includePrivate: true, excludeUserAxes: exUserTrait }), blend?.traitFull);
+  const traitShared = blendRaw(traitFit(user, derived.traits, roleShared.chosenRole, { includePrivate: false, excludeUserAxes: exUserTrait }), blend?.traitShared);
+  const burden = blendRaw(burdenFit(user, entity, ctx, exBurden), blend?.burden);
+  const recovery = blendRaw(recoveryFit(user, entity, ctx), blend?.recovery);
   const relational = relationalFit(entity, relationship);
+  // ★ roleFit blend: construct mealRole は private でない → full/shared 同一寄与（chosenRole は legacy 維持）
+  const roleFullRaw = blendRaw(roleFull.raw, blend?.role);
+  const roleSharedRaw = blendRaw(roleShared.raw, blend?.role);
   const budget = budgetFit(user, entity);
 
   const pair = (key: FitComponentKey, full: ComponentRaw, shared: ComponentRaw): FitComponent => {
@@ -571,12 +595,13 @@ function buildComponents(
       contribution: full.value * weight,
       compensability: COMPENSABILITY[key],
       available: full.available,
+      availableShared: shared.available,
       signalBasis: full.signalBasis,
     };
   };
 
   const full: FitComponent[] = [
-    pair("roleFit", roleFull.raw, roleShared.raw),
+    pair("roleFit", roleFullRaw, roleSharedRaw),
     pair("traitFit", traitFull, traitShared),
     pair("burdenFit", burden, burden),
     pair("recoveryFit", recovery, recovery),
@@ -591,7 +616,7 @@ function labelInputs(components: FitComponent[], projection: "full" | "shared"):
   return components.map((c) => ({
     key: c.key,
     value: projection === "full" ? c.valueFull : c.valueShared,
-    available: c.available,
+    available: projection === "full" ? c.available : c.availableShared,
     signalBasis: c.signalBasis,
   }));
 }
@@ -602,8 +627,9 @@ function evalParticipant(
   entity: TravelObjectState,
   ctx: FitContext | undefined,
   relationship: RelationshipKind,
+  blend?: ConstructBlend,
 ): ParticipantEval {
-  const built = buildComponents(user, entity, ctx, relationship);
+  const built = buildComponents(user, entity, ctx, relationship, blend);
   const hardBlocksFull = evaluateHardBlocks(user, entity, ctx);
   const hardBlocksShared = hardBlocksFull.filter((b) => b.visibility === "shared");
   const labelFull = deriveFitLabel(labelInputs(built.full, "full"), hardBlocksFull);
@@ -611,7 +637,8 @@ function evalParticipant(
 
   // confidence = field confidence（source は confidence にのみ影響）× component 充足度
   const fieldConf = aggregateFieldConfidence(entity.provenance?.sources);
-  const availableWeight = built.full.filter((c) => c.available).reduce((a, c) => a + c.weight, 0);
+  // ★ confidence は shared-safe availability から（private-only 信号が confidence 経由で shared に漏れない）
+  const availableWeight = built.full.filter((c) => c.availableShared).reduce((a, c) => a + c.weight, 0);
   const totalWeight = built.full.reduce((a, c) => a + c.weight, 0) || 1;
   const availabilityRatio = clamp(availableWeight / totalWeight);
   const confidence = clamp(0.4 * fieldConf + 0.6 * availabilityRatio);
@@ -750,10 +777,20 @@ function buildRationale(
 // §10 public: evaluateFit / evaluateFitBatch
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** C3 construct rollup の任意入力（非供給時=従来 legacy 挙動・34 テスト不変） */
+export interface EvaluateFitConstructInput {
+  /** entity の typed 指標観測（registry の per-construct key のみ） */
+  entityIndicators?: ConstructIndicatorInput;
+  /** participantId → その人の construct 選好（solo は "self"） */
+  userPrefs?: Record<string, ConstructPreferenceInput>;
+}
+
 export interface EvaluateFitArgs {
   entity: TravelObjectState;
   subject: FitSubject;
   context?: FitContext;
+  /** ★ optional・presence-gated。未供給なら construct 寄与ゼロ＝従来挙動 */
+  constructInput?: EvaluateFitConstructInput;
 }
 
 export function evaluateFit(args: EvaluateFitArgs): FitResult {
@@ -763,8 +800,15 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
       ? [{ participantId: "self", state: subject.user }]
       : subject.participants;
   const relationship: RelationshipKind = subject.kind === "solo" ? "solo" : subject.relationship;
+  const ci = args.constructInput;
 
-  const evals = participants.map((p) => evalParticipant(p.participantId, p.state, entity, context, relationship));
+  const evals = participants.map((p) => {
+    const blendInput: ConstructBlendInput | undefined = ci
+      ? { entityIndicators: ci.entityIndicators, userPrefs: ci.userPrefs?.[p.participantId] }
+      : undefined;
+    const blend = computeConstructBlend(p.state, entity, context, blendInput);
+    return evalParticipant(p.participantId, p.state, entity, context, relationship, blend);
+  });
 
   const perParticipantFit: PerParticipantFit[] = evals.map((e) => ({
     participantId: e.participantId,
@@ -891,6 +935,8 @@ export function toSharedFitView(r: FitResult): FitResult {
     ...c,
     valueFull: c.valueShared,
     contribution: c.valueShared * c.weight,
+    available: c.availableShared, // ★ shared 可用性に揃える（private-only 信号を available で漏らさない）
+    signalBasis: c.availableShared ? c.signalBasis : "default", // ★ shared 信号が無ければ basis も漏らさない
   }));
   const sharedHardBlocks = r.hardBlocks.filter((b) => b.visibility === "shared");
 

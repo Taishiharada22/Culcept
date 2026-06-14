@@ -534,6 +534,8 @@ export interface FitComponent {
   contribution: number;
   compensability: "compensatory" | "partial" | "veto";
   available: boolean;
+  /** ★ shared 射影での可用性（private-only 信号が shared の available を立てて漏れるのを防ぐ） */
+  availableShared: boolean;
   signalBasis: "observed" | "inferred_from_trait" | "default";
 }
 

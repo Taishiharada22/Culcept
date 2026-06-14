@@ -13,7 +13,7 @@
  * 厳格性: 型 + as-const のみ。fetch/API/DB/UI/時刻API/乱数 なし。import は ./fit-types の型のみ。
  */
 
-import type { FitComponentKey } from "./fit-types";
+import type { EntityBurdenAxis, FitComponentKey, SharedTraitAxis, UserToleranceAxis } from "./fit-types";
 
 export const CONSTRUCT_FAMILY_IDS = ["A_sensory", "B_burden", "C_time", "D_food", "E_money", "F_social", "G_meaning", "H_route", "I_support", "J_safety", "K_condition", "L_communication", "M_infra_work", "N_crosscut"] as const;
 export type ConstructFamilyId = (typeof CONSTRUCT_FAMILY_IDS)[number];
@@ -346,4 +346,85 @@ export const DOUBLE_COUNT_RULES: readonly DoubleCountRule[] = [
   { left: "noveltySeeking", right: "localnessValue", rule: "trait は符号反転のみ・自身を score に足さない" },
   { left: "interaction", right: "base_component", rule: "相互作用は既存 component の修飾子・新並列スコアを作らない" },
 ];
+
+// ═══ T11-C3 rollup wiring（construct→fit-core 接続の型/写像・typed registry を崩さない） ═══
+
+/**
+ * ★ entity 指標入力（**typed**: per-construct の許可 indicator key のみ受ける・`string` に戻さない）。
+ * 供給は optional・非供給時は construct 寄与ゼロ（presence-gated・従来挙動）。
+ */
+export type ConstructIndicatorInput = {
+  [A in ConstructAxis]?: Partial<Record<(typeof INDICATOR_REGISTRY)[A][number], { value: number; confidence: number }>>;
+};
+
+/** user 側の construct 選好（visibility=private は full に効くが shared 射影に出ない） */
+export interface ConstructPreference {
+  value: number;
+  confidence: number;
+  visibility?: "shared" | "private";
+}
+export type ConstructPreferenceInput = Partial<Record<ConstructAxis, ConstructPreference>>;
+
+/**
+ * C3 第一 slice で配線する construct（registry の実名・全 700 は配線しない）。
+ * 概念「mobilityBurden」は registry 分解どおり walkingLoad/stairsSlopeLoad/transferBurden/baggageLoad の
+ * 4 burden construct（walking/stairs/transfer/baggage 指標を被覆）。概念「tranquility」= registry の quietness。
+ */
+export const WIRED_CONSTRUCTS = [
+  "quietness",
+  "hygieneCleanliness",
+  "noveltySeeking",
+  "walkingLoad",
+  "stairsSlopeLoad",
+  "transferBurden",
+  "baggageLoad",
+  "mealRoleAffinity",
+  "arrivalFreshness",
+] as const;
+export type WiredConstruct = (typeof WIRED_CONSTRUCTS)[number];
+
+export interface ConstructWiring {
+  /** 修飾する既存 component（新並列スコアを作らない） */
+  component: Extract<FitComponentKey, "traitFit" | "burdenFit" | "roleFit" | "recoveryFit">;
+  kind: "trait_match" | "burden_penalty" | "role_affinity" | "recovery_value";
+  /** entity スコアの供給源: 指標 rollup / 既存 legacy trait 軸 */
+  entityScoreFrom: "indicators" | "legacy_trait";
+  /** entityScoreFrom=legacy_trait の参照 entity 軸 */
+  legacyTraitAxis?: SharedTraitAxis;
+  /** 二重計上回避: legacy user-trait loop から除外する軸（supersede） */
+  supersedeUserTraitAxes?: readonly SharedTraitAxis[];
+  /** 二重計上回避: legacy burdenFit から除外する entity 負荷軸 */
+  supersedeBurdenAxes?: readonly EntityBurdenAxis[];
+  /** userPref 未供給時の legacy fallback 軸（user.traits[axis]） */
+  userPrefFallbackTraitAxis?: SharedTraitAxis;
+  /** burden_penalty の user 耐性軸 */
+  toleranceAxis?: UserToleranceAxis;
+  /** role_affinity の category gate */
+  categoryGate?: "food";
+  /** valence 多因子（recoveryStyle/tripIntent）で符号/強度が動くか */
+  valenceSensitive?: boolean;
+}
+
+export const CONSTRUCT_WIRING: Record<WiredConstruct, ConstructWiring> = {
+  quietness: { component: "traitFit", kind: "trait_match", entityScoreFrom: "indicators", supersedeUserTraitAxes: ["quietLively"], userPrefFallbackTraitAxis: "quietLively", valenceSensitive: true },
+  hygieneCleanliness: { component: "traitFit", kind: "trait_match", entityScoreFrom: "indicators" },
+  noveltySeeking: { component: "traitFit", kind: "trait_match", entityScoreFrom: "legacy_trait", legacyTraitAxis: "noveltyFamiliar", supersedeUserTraitAxes: ["noveltyFamiliar"], userPrefFallbackTraitAxis: "noveltyFamiliar" },
+  walkingLoad: { component: "burdenFit", kind: "burden_penalty", entityScoreFrom: "indicators", supersedeBurdenAxes: ["travelBurden"], toleranceAxis: "mobilityTolerance" },
+  stairsSlopeLoad: { component: "burdenFit", kind: "burden_penalty", entityScoreFrom: "indicators", supersedeBurdenAxes: ["physicalLoad"], toleranceAxis: "stairSlopeTolerance" },
+  transferBurden: { component: "burdenFit", kind: "burden_penalty", entityScoreFrom: "indicators", supersedeBurdenAxes: ["travelBurden"], toleranceAxis: "mobilityTolerance" },
+  baggageLoad: { component: "burdenFit", kind: "burden_penalty", entityScoreFrom: "indicators", supersedeBurdenAxes: ["baggageBurden"], toleranceAxis: "mobilityTolerance" },
+  mealRoleAffinity: { component: "roleFit", kind: "role_affinity", entityScoreFrom: "indicators", categoryGate: "food" },
+  arrivalFreshness: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
+};
+
+/** 指標→construct rollup の重み（非 opaque・未列挙=等重み） */
+export const ROLLUP_WEIGHTS: Partial<Record<WiredConstruct, Partial<Record<string, number>>>> = {
+  quietness: { nightQuietness: 1.3, ambientNoiseFloorDb: 1.2 },
+  walkingLoad: { walkingDistanceKm: 1.3, egressWalkShare: 1.2 },
+};
+
+/** tripIntent による rollup 重み上書き（A3 §6・第一 slice は最小） */
+export const CONTEXT_ROLLUP_OVERRIDE: Partial<Record<"recovery" | "exploration" | "social" | "work" | "romance", Partial<Record<WiredConstruct, Partial<Record<string, number>>>>>> = {
+  work: { quietness: { nightQuietness: 1.6 } },
+};
 
