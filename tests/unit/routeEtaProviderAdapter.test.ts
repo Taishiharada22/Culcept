@@ -157,8 +157,13 @@ describe("RD2d-b #5/#6/#7/#8 heuristic result → durationSignalPresent のみ�
 
 describe("RD2d-b #9 provider が duration を返しても allowlist 外なら projection 不可", () => {
   it("heuristic basis は durationProjectionGradeOk 外 → projection false", async () => {
-    const o = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ durationBasis: "heuristic" })) });
+    // heuristic は coherent な static_assumption + routeShape なし（RD2d-a-B coherence guard）
+    const o = await resolveRouteEtaCapability(
+      baseInput(),
+      { provider: provider(result({ providerKind: "heuristic_distance", durationBasis: "heuristic", routeShapePresent: false, conditionModelStatus: "static_assumption" })) },
+    );
     expect(o.capability?.planning.arrivalProjectionKnown).toBe(false);
+    expect(o.capability?.duration.durationSignalPresent).toBe(true);
   });
 });
 

@@ -147,7 +147,13 @@ export interface EndpointPairPrivacyGateV0 {
   readonly currentObservationInvolved: boolean;
   readonly homeWorkDerivedInvolved: boolean;
   readonly eitherEndpointSensitive: boolean;
+  /** external 第三者送信の可否 */
   readonly pairExternalSendAllowed: boolean;
+  /**
+   * raw 座標を **local（外部送信なし）で距離計算に使ってよいか**。pairExternalSendAllowed と **直交**な別 gate
+   * （RD2d-a-B）。local heuristic も raw 座標を消費するので external 可否とは別判断。sensitive/current/home-work は false。
+   */
+  readonly localHeuristicAllowed: boolean;
   readonly coordinatePrecisionPolicy: "minimized" | "not_sending";
   /** 不変条件: 常に true */
   readonly rawCoordinateLoggingProhibited: boolean;
@@ -217,6 +223,8 @@ export interface CapabilityDeriveParts {
   readonly temporalFreshnessEvaluated: boolean;
   readonly conditionModelStatus: ConditionModelStatusV0;
   readonly freshnessStatus: RouteEtaFreshnessStatusV0;
+  /** freshness の根拠 ref（fetchedAt 相当）が存在するか。fresh は basis なしでは planning に上げない（RD2d-a-B） */
+  readonly fetchedAtRefPresent: boolean;
   readonly originUsableForLeaveBy: boolean;
   readonly bufferKnown: boolean;
   readonly originConflictStatus: "none" | "minor_discrepancy" | "conflict";
@@ -231,6 +239,7 @@ export interface DerivedCapabilityFlags {
 /**
  * deriveCapabilityFlagsFromParts — DAG edges を適用して higher capability を導く。
  * projection は ALLOWLIST(durationProjectionGradeOk) + scope bounded + temporal + condition adequate（heuristic/none は fail-closed）。
+ * planning は freshnessStatus=fresh **かつ** freshness evidence（fetchedAtRefPresent）必須（RD2d-a-B・self-claim fresh を弾く）。
  */
 export function deriveCapabilityFlagsFromParts(p: CapabilityDeriveParts): DerivedCapabilityFlags {
   const arrivalProjectionKnown =
@@ -240,7 +249,7 @@ export function deriveCapabilityFlagsFromParts(p: CapabilityDeriveParts): Derive
     (p.departureTimeScoped || p.arrivalTargetScoped) &&
     p.temporalFreshnessEvaluated &&
     conditionAdequateForMode(p.mode, p.conditionModelStatus);
-  const timeEstimateUsableForPlanning = arrivalProjectionKnown && p.freshnessStatus === "fresh";
+  const timeEstimateUsableForPlanning = arrivalProjectionKnown && p.freshnessStatus === "fresh" && p.fetchedAtRefPresent;
   const leaveByComputable =
     timeEstimateUsableForPlanning &&
     p.arrivalTargetScoped &&
@@ -250,19 +259,23 @@ export function deriveCapabilityFlagsFromParts(p: CapabilityDeriveParts): Derive
   return { arrivalProjectionKnown, timeEstimateUsableForPlanning, leaveByComputable };
 }
 
-/** endpoint pair gate を導く（片側 sensitive / current 観測 / home-work 由来 → 外部送信不可） */
+/**
+ * endpoint pair gate を導く（片側 sensitive / current 観測 / home-work 由来 → 外部送信不可）。
+ * localHeuristicAllowed は default `!either`（保守的）だが pairExternalSendAllowed とは **別フィールド**（直交・privacy guard が
+ * override で tighten 可能・ただし sensitive を loosen はできない＝walker が enforce）。
+ */
 export function deriveEndpointPairGate(parts: {
   readonly originEndpointSensitive: boolean;
   readonly destinationEndpointSensitive: boolean;
   readonly currentObservationInvolved: boolean;
   readonly homeWorkDerivedInvolved: boolean;
-}): { readonly eitherEndpointSensitive: boolean; readonly pairExternalSendAllowed: boolean } {
+}): { readonly eitherEndpointSensitive: boolean; readonly pairExternalSendAllowed: boolean; readonly localHeuristicAllowedDefault: boolean } {
   const either =
     parts.originEndpointSensitive ||
     parts.destinationEndpointSensitive ||
     parts.currentObservationInvolved ||
     parts.homeWorkDerivedInvolved;
-  return { eitherEndpointSensitive: either, pairExternalSendAllowed: !either };
+  return { eitherEndpointSensitive: either, pairExternalSendAllowed: !either, localHeuristicAllowedDefault: !either };
 }
 
 // ── walkers ───────────────────────────────────────────────────────────────────────────────
@@ -287,6 +300,15 @@ const COORD_PATTERN = /\d{1,3}\.\d{4,}/;
 /** 粗い座標ペア（2 桁以上小数の lat,lng pair・providerVersion 等の単一小数を誤検出しない） */
 const COORD_PAIR_PATTERN = /-?\d{1,3}\.\d{2,}\s*[,;]\s*-?\d{1,3}\.\d{2,}/;
 
+/** 違反 message が raw 座標値を echo して leak guard を defeat しないよう redact（RD2d-a-B・INV-NO-RAW-ECHO） */
+function redactIfRaw(v: string): string {
+  const lower = v.toLowerCase();
+  if (COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v) || FORBIDDEN_RAW_TOKENS.some((t) => lower.includes(t))) {
+    return "<redacted: matched raw-data pattern>";
+  }
+  return v;
+}
+
 /** endpointPairPrivacyViolations — pair gate の不変条件（空配列 = 健全） */
 export function endpointPairPrivacyViolations(g: EndpointPairPrivacyGateV0): string[] {
   let out: string[] = [];
@@ -308,6 +330,13 @@ export function endpointPairPrivacyViolations(g: EndpointPairPrivacyGateV0): str
     g.currentObservationInvolved && g.pairExternalSendAllowed,
     "current observation endpoint is strongest sensitive — external send must be blocked",
   );
+  // localHeuristicAllowed は external send とは別 gate（直交）。但し sensitive/current/home-work は local heuristic も不可
+  add(g.eitherEndpointSensitive && g.localHeuristicAllowed, "sensitive endpoint pair must not allow local heuristic (raw coords)");
+  add(
+    g.currentObservationInvolved && g.localHeuristicAllowed,
+    "current observation endpoint must not allow local heuristic (strongest sensitive)",
+  );
+  add(g.homeWorkDerivedInvolved && g.localHeuristicAllowed, "home/work-derived endpoint must not allow local heuristic by default");
   add(g.rawCoordinateLoggingProhibited !== true, "rawCoordinateLoggingProhibited must be true");
   add(
     g.pairExternalSendAllowed && g.coordinatePrecisionPolicy !== "minimized",
@@ -331,6 +360,7 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
 
   add(cap.schemaVersion !== 0, `schemaVersion must be 0 (got ${String(cap.schemaVersion)})`);
 
+  const fetchedAtRefPresent = cap.freshness.fetchedAtRef !== null && cap.freshness.fetchedAtRef.length > 0;
   // DAG derive consistency（各能力は edges 入力以上を主張しない）
   const derived = deriveCapabilityFlagsFromParts({
     mode: cap.identity.transportMode,
@@ -342,6 +372,7 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
     temporalFreshnessEvaluated: cap.temporal.temporalFreshnessEvaluated,
     conditionModelStatus: cap.condition.conditionModelStatus,
     freshnessStatus: cap.freshness.freshnessStatus,
+    fetchedAtRefPresent,
     originUsableForLeaveBy: cap.leaveBy.originUsableForLeaveBy,
     bufferKnown: cap.leaveBy.bufferKnown,
     originConflictStatus: cap.originConflict.originConflictStatus,
@@ -362,7 +393,31 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
   // projection grade ALLOWLIST: 非 projection-grade basis は arrivalProjection を持てない（fail-closed・明示 invariant）
   add(
     !durationProjectionGradeOk(cap.duration.durationBasis) && cap.planning.arrivalProjectionKnown,
-    `non-projection-grade durationBasis (${cap.duration.durationBasis}) must not yield arrivalProjectionKnown`,
+    `non-projection-grade durationBasis (${redactIfRaw(cap.duration.durationBasis)}) must not yield arrivalProjectionKnown`,
+  );
+
+  // freshness evidence: planning usable は freshnessStatus=fresh かつ fetchedAtRef 必須（self-claim fresh を弾く・RD2d-a-B）
+  add(
+    cap.planning.timeEstimateUsableForPlanning && cap.freshness.freshnessStatus !== "fresh",
+    "timeEstimateUsableForPlanning requires freshnessStatus fresh",
+  );
+  add(
+    cap.planning.timeEstimateUsableForPlanning && !fetchedAtRefPresent,
+    "timeEstimateUsableForPlanning requires freshness evidence (fetchedAtRef)",
+  );
+
+  // route evidence parity: route flag を立てるなら field-level route evidenceRef が必要（flags-without-evidence 禁止）
+  const hasRouteEvidence = cap.evidenceRefs.some((e) => e.capability === "route");
+  add(cap.route.routeShapeKnown && !hasRouteEvidence, "routeShapeKnown requires a route evidenceRef");
+  add(cap.route.routeOptionKnown && !hasRouteEvidence, "routeOptionKnown requires a route evidenceRef");
+
+  // condition-basis coherence: heuristic は traffic/schedule/weather aware の condition を持てない（incoherent lie-up）
+  add(
+    cap.duration.durationBasis === "heuristic" &&
+      (cap.condition.conditionModelStatus === "traffic_aware" ||
+        cap.condition.conditionModelStatus === "schedule_aware" ||
+        cap.condition.conditionModelStatus === "weather_aware"),
+    "heuristic basis cannot carry a condition-modeled status (traffic/schedule/weather aware)",
   );
 
   // heuristic 境界（displayPolicy は derive で導けないので明示・projection 系は ALLOWLIST と二重防御）
@@ -414,6 +469,10 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
     out = out.concat(["output contains raw coordinate pattern (refs must be opaque)"]);
   }
 
+  // INV-NO-RAW-ECHO: 違反 message 自体が raw 座標値を echo していないか（leak guard を message が defeat しない）
+  const echoed = out.filter((v) => COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v));
+  out = out.concat(echoed.map(() => "violation message must not echo raw coordinate value"));
+
   return out;
 }
 
@@ -434,6 +493,8 @@ export interface BuildRouteEtaCapabilityInput {
     readonly destinationEndpointSensitive: boolean;
     readonly currentObservationInvolved: boolean;
     readonly homeWorkDerivedInvolved: boolean;
+    /** privacy guard による local heuristic override（default `!eitherEndpointSensitive`・tighten のみ可・sensitive は loosen 不可） */
+    readonly localHeuristicAllowed?: boolean;
   };
   readonly evidenceRefs?: ReadonlyArray<RouteEtaEvidenceRef>;
   readonly missingInputs?: ReadonlyArray<RouteEtaMissingInput>;
@@ -458,11 +519,17 @@ export function buildRouteEtaCapability(input: BuildRouteEtaCapabilityInput): Ro
     temporalFreshnessEvaluated: input.temporal.temporalFreshnessEvaluated,
     conditionModelStatus: input.condition.conditionModelStatus,
     freshnessStatus: input.freshness.freshnessStatus,
+    fetchedAtRefPresent: input.freshness.fetchedAtRef !== null && input.freshness.fetchedAtRef.length > 0,
     originUsableForLeaveBy: input.originUsableForLeaveBy,
     bufferKnown: input.bufferKnown,
     originConflictStatus: input.originConflict.originConflictStatus,
   });
   const gate = deriveEndpointPairGate(input.pairPrivacyParts);
+  // localHeuristicAllowed: privacy guard override（あれば）を採用。但し sensitive では default(false)を超えて loosen しない
+  const localHeuristicAllowed =
+    input.pairPrivacyParts.localHeuristicAllowed === undefined
+      ? gate.localHeuristicAllowedDefault
+      : input.pairPrivacyParts.localHeuristicAllowed && gate.localHeuristicAllowedDefault;
   const heuristic = input.duration.durationBasis === "heuristic";
   const displayPolicy: RouteEtaDisplayPolicyV0 =
     input.displayPolicy ?? (heuristic ? "internalReference" : "notActionable");
@@ -496,6 +563,7 @@ export function buildRouteEtaCapability(input: BuildRouteEtaCapabilityInput): Ro
       homeWorkDerivedInvolved: input.pairPrivacyParts.homeWorkDerivedInvolved,
       eitherEndpointSensitive: gate.eitherEndpointSensitive,
       pairExternalSendAllowed: gate.pairExternalSendAllowed,
+      localHeuristicAllowed,
       coordinatePrecisionPolicy: gate.pairExternalSendAllowed ? "minimized" : "not_sending",
       rawCoordinateLoggingProhibited: true,
     },

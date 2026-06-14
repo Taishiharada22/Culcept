@@ -60,13 +60,23 @@ function baseInput(over: Partial<BuildRouteEtaCapabilityInput> = {}): BuildRoute
       currentObservationInvolved: false,
       homeWorkDerivedInvolved: false,
     },
-    evidenceRefs: [{ code: "ext_route", capability: "duration", source: "external_route" }],
+    evidenceRefs: [
+      { code: "ext_route", capability: "duration", source: "external_route" },
+      { code: "route:shape:x", capability: "route", source: "external_route" }, // routeShapeKnown true → route evidence 必須(RD2d-a-B)
+    ],
     ...over,
   };
 }
 
+// heuristic は route shape を持たない → routeShapeKnown false・condition は static_assumption(coherent)
 const heuristicInput = (over: Partial<BuildRouteEtaCapabilityInput> = {}) =>
-  baseInput({ duration: { durationSignalPresent: true, durationBasis: "heuristic", durationScopeBounded: false }, evidenceRefs: [], ...over });
+  baseInput({
+    duration: { durationSignalPresent: true, durationBasis: "heuristic", durationScopeBounded: false },
+    route: { transportModeKnown: true, routeShapeKnown: false, routeOptionKnown: false, providerKindKnown: false },
+    condition: { conditionModelStatus: "static_assumption" },
+    evidenceRefs: [],
+    ...over,
+  });
 
 // ── RD2d-a-A required ────────────────────────────────────────────────────────────────────
 
@@ -185,7 +195,7 @@ describe("RD2d-a-A DAG: projection は ALLOWLIST（fail-closed・none/heuristic 
   it("durationBasis 'none' は projection に登れない（fail-closed・誤 stamp 防御）", () => {
     expect(durationProjectionGradeOk("none")).toBe(false);
     const cap = buildRouteEtaCapability(
-      baseInput({ duration: { durationSignalPresent: true, durationBasis: "none", durationScopeBounded: true }, evidenceRefs: [] }),
+      baseInput({ duration: { durationSignalPresent: true, durationBasis: "none", durationScopeBounded: true }, route: { transportModeKnown: true, routeShapeKnown: false, routeOptionKnown: false, providerKindKnown: false }, evidenceRefs: [] }),
     );
     expect(cap.planning.arrivalProjectionKnown).toBe(false);
     expect(routeEtaCapabilityViolations(cap)).toEqual([]);
@@ -199,7 +209,7 @@ describe("RD2d-a-A DAG: projection は ALLOWLIST（fail-closed・none/heuristic 
   });
   it("偽造: none basis で arrivalProjectionKnown true → violation", () => {
     const cap = buildRouteEtaCapability(
-      baseInput({ duration: { durationSignalPresent: true, durationBasis: "none", durationScopeBounded: true }, evidenceRefs: [] }),
+      baseInput({ duration: { durationSignalPresent: true, durationBasis: "none", durationScopeBounded: true }, route: { transportModeKnown: true, routeShapeKnown: false, routeOptionKnown: false, providerKindKnown: false }, evidenceRefs: [] }),
     );
     const forged: RouteEtaCapabilityV0 = { ...cap, planning: { ...cap.planning, arrivalProjectionKnown: true } };
     expect(routeEtaCapabilityViolations(forged).some((m) => m.includes("non-projection-grade"))).toBe(true);
@@ -278,7 +288,7 @@ describe("RD2d-a routeShape 独立 / mode condition / 分離 / conflict / pair�
     const flags = deriveCapabilityFlagsFromParts({
       mode: "car", durationSignalPresent: true, durationBasis: "external_route", durationScopeBounded: true,
       departureTimeScoped: false, arrivalTargetScoped: false, temporalFreshnessEvaluated: false,
-      conditionModelStatus: "traffic_aware", freshnessStatus: "fresh", originUsableForLeaveBy: true, bufferKnown: true, originConflictStatus: "none",
+      conditionModelStatus: "traffic_aware", freshnessStatus: "fresh", fetchedAtRefPresent: true, originUsableForLeaveBy: true, bufferKnown: true, originConflictStatus: "none",
     });
     expect(flags.arrivalProjectionKnown).toBe(false); // temporal 未 scope → projection false
   });
@@ -308,5 +318,104 @@ describe("RD2d-a #18 route/ETA provider import なし / #19 external/location/we
     for (const bad of [".insert(", ".update(", ".delete(", ".upsert(", "service_role", "notification", "push(", "Date.now", "Math.random", "new Date(", "writeFile", "process.env", "fetch(", "supabase", "localStorage"]) {
       expect(code.includes(bad)).toBe(false);
     }
+  });
+});
+
+// ── RD2d-a-B: walker を evidence checker へ昇格（CEO 必須項目・direct caller も束縛） ───────────
+
+describe("RD2d-a-B #1/#2 freshness evidence を walker 本体で強制", () => {
+  it("#1 freshnessBasisRef(fetchedAtRef)なしの fresh は planning usable にならない", () => {
+    const cap = buildRouteEtaCapability(baseInput({ freshness: { freshnessStatus: "fresh", staleReason: null, fetchedAtRef: null, validUntilRef: null } }));
+    expect(cap.planning.arrivalProjectionKnown).toBe(true); // projection は立つ
+    expect(cap.planning.timeEstimateUsableForPlanning).toBe(false); // fetchedAtRef なし → planning に上げない
+  });
+  it("#1 forged: fetchedAtRef なし + planning true → violation", () => {
+    const cap = buildRouteEtaCapability(baseInput({ freshness: { freshnessStatus: "fresh", staleReason: null, fetchedAtRef: null, validUntilRef: null } }));
+    const forged: RouteEtaCapabilityV0 = { ...cap, planning: { ...cap.planning, timeEstimateUsableForPlanning: true } };
+    expect(routeEtaCapabilityViolations(forged).some((m) => m.includes("freshness evidence"))).toBe(true);
+  });
+  it("#2 stale/expired freshness で planning usable true は violation", () => {
+    const base = buildRouteEtaCapability(baseInput({ freshness: { freshnessStatus: "stale", staleReason: "x", fetchedAtRef: "f", validUntilRef: null } }));
+    const forged: RouteEtaCapabilityV0 = { ...base, planning: { ...base.planning, timeEstimateUsableForPlanning: true } };
+    expect(routeEtaCapabilityViolations(forged).some((m) => m.includes("freshnessStatus fresh"))).toBe(true);
+  });
+});
+
+describe("RD2d-a-B #3/#4/#5 route evidence parity を walker 本体で強制", () => {
+  it("#3/#5 routeShapeKnown true だが route evidenceRef なし → violation", () => {
+    const cap = buildRouteEtaCapability(baseInput({ evidenceRefs: [{ code: "d", capability: "duration", source: "external_route" }] }));
+    expect(routeEtaCapabilityViolations(cap).some((m) => m.includes("routeShapeKnown requires a route evidenceRef"))).toBe(true);
+  });
+  it("#4 routeOptionKnown true だが route evidenceRef なし → violation", () => {
+    const cap = buildRouteEtaCapability(
+      baseInput({ route: { transportModeKnown: true, routeShapeKnown: false, routeOptionKnown: true, providerKindKnown: true }, evidenceRefs: [{ code: "d", capability: "duration", source: "external_route" }] }),
+    );
+    expect(routeEtaCapabilityViolations(cap).some((m) => m.includes("routeOptionKnown requires a route evidenceRef"))).toBe(true);
+  });
+  it("route evidence ありなら green（opaque code・raw でない）", () => {
+    const cap = buildRouteEtaCapability(baseInput());
+    expect(cap.evidenceRefs.some((e) => e.capability === "route")).toBe(true);
+    expect(routeEtaCapabilityViolations(cap)).toEqual([]);
+  });
+});
+
+describe("RD2d-a-B #6/#7/#8/#9 projection は condition だけ/allowlist 外/scope なしで不可（再確認）", () => {
+  it("condition adequate だけ（duration heuristic）→ projection 不可", () => {
+    const cap = buildRouteEtaCapability(heuristicInput()); // walk-like static は condition adequate だが heuristic
+    expect(cap.planning.arrivalProjectionKnown).toBe(false);
+  });
+  it("durationProjectionGradeOk false / heuristic / scope なし → projection 不可", () => {
+    expect(durationProjectionGradeOk("heuristic")).toBe(false);
+    expect(buildRouteEtaCapability(baseInput({ duration: { durationSignalPresent: true, durationBasis: "external_route", durationScopeBounded: false } })).planning.arrivalProjectionKnown).toBe(false);
+  });
+  it("condition-basis coherence: heuristic + traffic_aware → violation", () => {
+    const cap = buildRouteEtaCapability(heuristicInput({ condition: { conditionModelStatus: "traffic_aware" } }));
+    expect(routeEtaCapabilityViolations(cap).some((m) => m.includes("heuristic basis cannot carry a condition-modeled"))).toBe(true);
+  });
+});
+
+describe("RD2d-a-B #10/#11/#12 localHeuristicAllowed gate を型分離", () => {
+  it("#12 currentObservation endpoint → localHeuristicAllowed default false", () => {
+    const cap = buildRouteEtaCapability(baseInput({ pairPrivacyParts: { originEndpointSensitive: false, destinationEndpointSensitive: false, currentObservationInvolved: true, homeWorkDerivedInvolved: false } }));
+    expect(cap.pairPrivacy.localHeuristicAllowed).toBe(false);
+    expect(cap.pairPrivacy.pairExternalSendAllowed).toBe(false);
+    expect(routeEtaCapabilityViolations(cap)).toEqual([]);
+  });
+  it("#10 forged: sensitive で localHeuristicAllowed true → violation（heuristic local 不可）", () => {
+    const cap = buildRouteEtaCapability(baseInput({ pairPrivacyParts: { originEndpointSensitive: true, destinationEndpointSensitive: false, currentObservationInvolved: false, homeWorkDerivedInvolved: false } }));
+    const forged: RouteEtaCapabilityV0 = { ...cap, pairPrivacy: { ...cap.pairPrivacy, localHeuristicAllowed: true } };
+    expect(endpointPairPrivacyViolations(forged.pairPrivacy).some((m) => m.includes("local heuristic"))).toBe(true);
+  });
+  it("#11 pairExternalSendAllowed と localHeuristicAllowed は独立（非 sensitive で local だけ tighten 可）", () => {
+    const cap = buildRouteEtaCapability(baseInput({ pairPrivacyParts: { originEndpointSensitive: false, destinationEndpointSensitive: false, currentObservationInvolved: false, homeWorkDerivedInvolved: false, localHeuristicAllowed: false } }));
+    expect(cap.pairPrivacy.pairExternalSendAllowed).toBe(true); // external は可
+    expect(cap.pairPrivacy.localHeuristicAllowed).toBe(false); // local は privacy guard が tighten
+    expect(routeEtaCapabilityViolations(cap)).toEqual([]); // 独立（等値を強制しない）
+  });
+});
+
+describe("RD2d-a-B #13 user_confirmed は real evidence なしでは扱わない", () => {
+  it("user_confirmed + evidenceRefs 空 → violation（shell を最高 grade に昇格しない）", () => {
+    const cap = buildRouteEtaCapability(
+      baseInput({ identity: { ...baseInput().identity, transportMode: "walk" }, route: { transportModeKnown: true, routeShapeKnown: false, routeOptionKnown: false, providerKindKnown: false }, duration: { durationSignalPresent: true, durationBasis: "user_confirmed", durationScopeBounded: true }, condition: { conditionModelStatus: "static_assumption" }, evidenceRefs: [] }),
+    );
+    expect(routeEtaCapabilityViolations(cap).some((m) => m.includes("user_confirmed duration requires non-empty evidenceRefs"))).toBe(true);
+  });
+});
+
+describe("RD2d-a-B #14/#15 raw leak guard / no-raw-echo を walker 本体で維持", () => {
+  it("#14 raw 座標/polyline/waypoints を walker が検出", () => {
+    const cap = buildRouteEtaCapability(baseInput());
+    const f1: RouteEtaCapabilityV0 = { ...cap, identity: { ...cap.identity, temporalScopeRef: "35.6895,139.7006" } };
+    expect(routeEtaCapabilityViolations(f1).some((m) => m.includes("coordinate"))).toBe(true);
+    const f2 = { ...cap, encodedPolyline: "abc" } as unknown as RouteEtaCapabilityV0;
+    expect(routeEtaCapabilityViolations(f2).some((m) => m.includes("raw token") || m.includes("encodedpolyline"))).toBe(true);
+  });
+  it("#15 違反 message が raw 座標値を echo しない（durationBasis に座標を詰めても redact）", () => {
+    const cap = buildRouteEtaCapability(baseInput());
+    const forged = { ...cap, duration: { ...cap.duration, durationBasis: "35.6895,139.7006" } } as unknown as RouteEtaCapabilityV0;
+    const v = routeEtaCapabilityViolations(forged);
+    expect(v.join(" ").includes("35.6895")).toBe(false); // redact 済
+    expect(v.some((m) => m.includes("redacted") || m.includes("coordinate"))).toBe(true);
   });
 });
