@@ -18,6 +18,8 @@ import type { DecisionResult } from "./decision-types";
 import type { TravelProposal } from "./proposal-types";
 import type {
   ActionKind,
+  CancelWeatherEvidence,
+  CancelWeatherRisk,
   ConfirmationReason,
   ReadinessPolicy,
   ReadinessResult,
@@ -29,6 +31,82 @@ export interface ReadinessInput {
   /** decision.recommendedProposalId に一致する案（呼び出し側が供給・T6 は lookup しない） */
   selected: TravelProposal | null;
   policy?: ReadinessPolicy;
+  /**
+   * T11-C7: cancel_weather の純 evidence（天候不確実 × 取消不能 commitment）。
+   * **供給時のみ** weather_reversal_uncertainty 確認を起こす。未供給 → 既存 readiness 挙動は不変。
+   * ★ fit-core は本 slice では producer にしない（caller が渡す純データ）。
+   */
+  cancelWeather?: CancelWeatherEvidence;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T11-C7: cancel_weather 純評価（**readiness 層・非 opaque**）
+//   weatherVulnerability(uncertainty) × 低 reversibility(取消不能) → commitment を defer すべき risk。
+//   real options / irreversibility: 不確実 × 取消不能が高いほど「待つ/確認する」価値が上がる。
+//   fit burden（体験の重さ）でなく commitment safety。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 天候脆弱性がこの値以上で material（確認・question の前提） */
+export const CANCEL_WEATHER_VULN_THRESHOLD = 0.5;
+/** 取消柔軟性がこの値未満で rigid（取消不能寄り） */
+export const CANCEL_WEATHER_REVERSIBILITY_THRESHOLD = 0.5;
+/** risk がこの値以上で（commitment 下）shared 確認を要求 */
+export const CANCEL_WEATHER_CONFIRM_RISK_FLOOR = 0.35;
+/** fallback による最大 fractional relief（< 1.0・feasibility/booking を grant しない部分緩和のみ） */
+export const CANCEL_WEATHER_FALLBACK_RELIEF = 0.6;
+/** private リスク許容度がこの値以下で concern を押し上げる */
+export const CANCEL_WEATHER_PRIVATE_TOLERANCE_THRESHOLD = 0.4;
+
+const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
+
+/**
+ * cancel_weather risk を純評価。**副作用なし・決定論・fit-core 非依存**。
+ * 欠落は推測しない: weather 不明 → risk 0（rain を仮定しない）/ 取消柔軟性 不明 → question 化
+ * （rigid 側に fail-closed しつつ「推測した」ことにはしない）。
+ */
+export function assessCancelWeatherRisk(ev: CancelWeatherEvidence | undefined): CancelWeatherRisk {
+  const none: CancelWeatherRisk = {
+    risk: 0,
+    needsConfirmation: false,
+    needsQuestion: false,
+    privateElevation: false,
+    confidence: 0,
+    missingFields: [],
+  };
+  if (!ev) return none;
+  // weather 欠落 → rain を hallucinate しない（risk 0・missing 記録のみ）
+  if (ev.weatherVulnerability === undefined) {
+    return { ...none, confidence: clamp01(ev.confidence ?? 0), missingFields: ["weatherVulnerability"] };
+  }
+  const wv = clamp01(ev.weatherVulnerability);
+  // 屋外露出は任意の係数（提供時のみ・未提供は露出を仮定せず wv をそのまま）
+  const severity = ev.outdoorExposure !== undefined ? wv * clamp01(ev.outdoorExposure) : wv;
+
+  const missingFields: string[] = [];
+  const flexibilityKnown = ev.cancellationFlexibility !== undefined;
+  if (!flexibilityKnown) missingFields.push("cancellationFlexibility");
+  // 未知 → 取消不能寄り(0)に fail-closed（推測ではなく question 化）。単一 reversibility 軸。
+  const reversibility = flexibilityKnown ? clamp01(ev.cancellationFlexibility as number) : 0;
+  const trapFactor = 1 - reversibility; // rigid ほど天候不確実が commitment を縛る
+
+  let risk = severity * trapFactor;
+  // fallback は concern を部分緩和（< 1.0・feasibility/booking authority は grant しない）
+  if (ev.fallbackAvailability !== undefined) {
+    risk *= 1 - CANCEL_WEATHER_FALLBACK_RELIEF * clamp01(ev.fallbackAvailability);
+  }
+  risk = clamp01(risk);
+
+  const material = wv >= CANCEL_WEATHER_VULN_THRESHOLD;
+  const rigid = flexibilityKnown && reversibility < CANCEL_WEATHER_REVERSIBILITY_THRESHOLD;
+  const needsConfirmation = material && rigid && risk >= CANCEL_WEATHER_CONFIRM_RISK_FLOOR;
+  const needsQuestion = material && !flexibilityKnown; // 取消柔軟性 不明 → 推測せず問う
+  const privateElevation =
+    ev.privateRiskTolerance !== undefined &&
+    ev.privateRiskTolerance <= CANCEL_WEATHER_PRIVATE_TOLERANCE_THRESHOLD &&
+    severity > 0;
+
+  const confidence = clamp01(ev.confidence ?? (flexibilityKnown ? 0.7 : 0.4));
+  return { risk, needsConfirmation, needsQuestion, privateElevation, confidence, missingFields };
 }
 
 const ACTION_RANK: Record<ActionKind, number> = {
@@ -105,6 +183,28 @@ export function assessReadiness(input: ReadinessInput): ReadinessResult {
   detect("high_uncertainty", uncertaintyHigh, rank >= 1, "shared");
   detect("private_constraint_conflict", stretchedPrivate, rank >= 1, "private");
 
+  // ── T11-C7: cancel_weather（天候不確実 × 取消不能 commitment）。**evidence 供給時のみ・既存挙動不変** ──
+  //   commitment（schedule_hold 以上）でのみ発火。fit burdenFit/labelFit は触らない（readiness のみ）。
+  if (input.cancelWeather) {
+    const cw = assessCancelWeatherRisk(input.cancelWeather);
+    const commits = rank >= 2; // 提案(propose_plan)は commit でない → 天候 reversal は無関係
+    const wvMaterial = (input.cancelWeather.weatherVulnerability ?? 0) >= CANCEL_WEATHER_VULN_THRESHOLD;
+    // reserve 時に paid/irreversible が未知 ∧ 天候 material → 取消可逆性を確かめずに booking-ready にさせない
+    const bookingUnknown =
+      rank >= 3 && (input.policy?.involvesPaidBooking === undefined || input.policy?.irreversible === undefined);
+    // shared な天候 reversal 確認: 既知 rigid / 取消柔軟性 未知 / reserve かつ paid・irreversible 未知
+    const sharedWeather = commits && (cw.needsConfirmation || cw.needsQuestion || (bookingUnknown && wvMaterial));
+    // private リスク許容度のみが押し上げ（shared が立たないときだけ・authoritative 専用）
+    const privateWeather = commits && !sharedWeather && cw.privateElevation;
+    if (sharedWeather) {
+      riskFlags.push("weather_reversal_uncertainty");
+      requiredConfirmations.push({ reason: "weather_reversal_uncertainty", visibility: "shared" });
+    } else if (privateWeather) {
+      riskFlags.push("weather_reversal_uncertainty");
+      requiredConfirmations.push({ reason: "weather_reversal_uncertainty", visibility: "private" });
+    }
+  }
+
   const state: ReadinessResult["state"] = requiredConfirmations.length > 0 ? "needs_confirmation" : "ready_to_propose";
   // schedule_hold 以上は共有資源を commit → 参加者承認が必要
   const participantApprovalRequired = rank >= 2 && multiParticipant ? participantIds : [];
@@ -171,7 +271,17 @@ function buildRecommendRationale(
  */
 export function toSharedReadinessView(r: ReadinessResult): ReadinessResult {
   const sharedConfirmations = r.requiredConfirmations.filter((c) => c.visibility === "shared");
-  const sharedRiskFlags = r.riskFlags.filter((f) => f !== "private_constraint_conflict");
+  // ★ riskFlags の shared 射影: 本質的に private な理由（private_constraint_conflict）に加え、
+  //   **private 確認としてのみ存在する理由**（例: private リスク許容度のみが押し上げた
+  //   weather_reversal_uncertainty）も除去する。名前固定の filter では visibility 依存の
+  //   理由（同名で shared/private 両義）を取りこぼすため、確認の visibility から導出する。
+  const sharedConfirmedReasons = new Set(sharedConfirmations.map((c) => c.reason));
+  const privateOnlyReasons = new Set(
+    r.requiredConfirmations.filter((c) => c.visibility === "private").map((c) => c.reason),
+  );
+  const sharedRiskFlags = r.riskFlags.filter(
+    (f) => f !== "private_constraint_conflict" && !(privateOnlyReasons.has(f) && !sharedConfirmedReasons.has(f)),
+  );
   const state: ReadinessResult["state"] =
     r.state === "needs_confirmation" && sharedConfirmations.length === 0 ? "ready_to_propose" : r.state;
   return {
