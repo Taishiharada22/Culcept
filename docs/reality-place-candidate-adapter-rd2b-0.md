@@ -4,6 +4,7 @@
 - 位置づけ: RD2a で `PlaceResolutionV0`（場所解決の段階・不変条件）を型として確定した。RD2b-0 は **locationText → place candidate（unresolved/selected/confirmed）への adapter** をどう設計するか — 既存 `placeResolver` を consume するか・external API gate・raw place data の internal 扱い・RC2a placeCertainty への接続条件・dogfood generic 表示 — を確定する。
 - 規律: **コードを書かない**（docs-only）。provider 実行・Places/Google Maps/geocode API 接続・currentLocation 取得・UI/Alter tab/本線/RC2a compile 変更・production には進まない。
 - 上流: RD2a `0b7e8f90`（PlaceResolution 型）+ RD2-0 `39fb0144`（§2 + §2.1 補正）。
+- **実装記録**: RD2b（pure adapter）= `e1e429a3`（`lib/plan/realityCore/placeCandidateAdapter.ts` + test・19/19 PASS・tsc 寄与 0・build は 8GB 環境 OOM で pure-type 環境例外適用）。本書 §1-9 の設計どおり「provenance → 段階の写像」で実装。provider 実行/Places API/RC2a 接続は未着手（§10 の RD2b'/RC2a 接続/永続化は各々別 GO・BX0 build 環境対策も別 slice）。
 
 ---
 
