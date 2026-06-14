@@ -219,17 +219,40 @@ export function deriveRouteObservations(routeChain: RouteChainState): RouteDeriv
   const out: RouteDerivedIndicators = {};
 
   if (c.legs.length > 0) {
-    // ★ door-to-door 総負荷を**単一** route burden(walkingLoad)へ（legs+transfers+terminals+egress+PTI を内包）。
-    //   分割平均だと「乗換多い air が平均で得」する逆転が起きるため total ベースに統一。
+    // ★ C5.1: door-to-door 総負荷を**route 専用集約 construct(routeChainBurden)**へ（walkingLoad に総負荷を入れない）。
+    //   単一 aggregate signal で平均化逆転を回避しつつ、意味論を「歩行」でなく「総 route 負荷」に正す。
     const stationHotel = (c.stationToHotelBurden?.walkMin ?? 0) * ROUTE_CHAIN_WEIGHTS.lastMile;
     const airportCity = (c.airportToCityBurden?.accessMin ?? 0) * ROUTE_CHAIN_WEIGHTS.lastMile;
     const totalWithEgress = bd.total + stationHotel + airportCity;
     const burdenNorm = clamp(totalWithEgress / ROUTE_C5_WEIGHTS.burdenScaleMin);
-    out.walkingLoad = { walkingDistanceKm: mk(burdenNorm) };
+    out.routeChainBurden = { doorToDoorTotalNorm: mk(burdenNorm) };
     out.arrivalFreshness = { energyCarryToFirstActivity: mk(1 - burdenNorm) };
   }
   if (c.comfort?.workability !== undefined) out.workabilityValue = { workability: mk(c.comfort.workability) };
   if (c.comfort?.sleepability !== undefined) out.sleepabilityValue = { sleepability: mk(c.comfort.sleepability) };
+  return out;
+}
+
+/**
+ * C5.1: route 負荷の**分解 sub-observation**（説明 / 将来 interaction / missing-question 用）。
+ * ★ fit には供給しない（burdenFit を二重計上しない）。walkingLoad は**歩行専用**（walk leg のみ）。
+ */
+export function deriveRouteDecomposition(routeChain: RouteChainState): RouteDerivedIndicators {
+  const c = routeChain.connection;
+  const dropped = baggageDroppedByOrdering(routeChain) || c.baggageState?.droppedState === "dropped";
+  const bd = doorToDoorBurden(routeChain, { baggageDropped: dropped });
+  const conf = 0.7;
+  const mk = (value: number): RouteDerivedObservation => ({ value: clamp(value), confidence: conf, provenance: ROUTE_DERIVED_PROVENANCE });
+  const out: RouteDerivedIndicators = {};
+  // walkingLoad = ★歩行のみ（walk leg / walk-kind の合計・総負荷ではない）
+  const walkMin = c.legs.filter((l) => l.mode === "walk" || l.inVehicleKind === "walk").reduce((a, l) => a + l.timeMin + (l.walkingMin ?? 0), 0);
+  if (walkMin > 0) out.walkingLoad = { walkingDistanceKm: mk(walkMin / 120) };
+  if (c.transferNodes.length > 0) out.transferBurden = { transferCountTyped: mk(clamp(c.transferNodes.length / 5)) };
+  if ((c.terminals?.length ?? 0) > 0) out.terminalWalkingBurden = { terminalWalkMin: mk(clamp(bd.terminalsBurden / 120)) };
+  if (!dropped && (c.baggageState || c.baggage)) out.baggageLoad = { baggageVolumeWeight: mk(clamp(bd.baggageBurden / ROUTE_C5_WEIGHTS.baggageScaleMin)) };
+  if (c.stationToHotelBurden?.walkMin !== undefined) out.stationToHotelBurden = { stationHotelWalkMin: mk(clamp(c.stationToHotelBurden.walkMin / 60)) };
+  if (c.airportToCityBurden?.accessMin !== undefined) out.airportToCityBurden = { airportCityAccessMin: mk(clamp(c.airportToCityBurden.accessMin / 90)) };
+  if (c.reliability?.planningTimeIndex !== undefined) out.reliabilityBurden = { ptiBurden: mk(clamp(c.reliability.planningTimeIndex)) };
   return out;
 }
 

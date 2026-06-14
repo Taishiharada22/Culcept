@@ -115,6 +115,8 @@ export const INDICATOR_REGISTRY = {
   sleepabilityValue: ["sleepability", "reclineDepth", "darknessQuietForSleep", "interruptionFrequency", "overnightOption", "restRecoveryYield"],
   scenicValue: ["scenicValue", "windowAccessQuality", "routeSceneryRarity", "seasonalSceneryPeak", "daylightOverlapForView", "modeAsExperience"],
   arrivalFreshness: ["cumulativeRouteFatigue", "totalDoorToDoorMin", "restOpportunityEnRoute", "arrivalTimeOfDayQuality", "transitionSmoothness", "energyCarryToFirstActivity"],
+  // C5.1: ★ door-to-door 総 route 負荷の集約 construct（walkingLoad に総負荷を入れない意味論修正）
+  routeChainBurden: ["doorToDoorTotalNorm", "egressAsymmetry", "terminalOverhead", "transferPenalty", "reliabilityPenalty", "baggageInteraction", "accessEgressBurden"],
   luggageDropBurden: ["dropAffordance", "lockerAvailabilityDensity", "earlyCheckinPossible", "luggageHoldBeforeCheckin", "deliveryServiceAvail", "dropDetourCost"],
   destinationOrderingBurden: ["mustPrecedeConstraints", "luggageDropEnablesOrdering", "reorderabilityDegree", "shortestFromTerminalGain", "backtrackPenalty", "geographicClustering"],
   lastDepartureLockBurden: ["lastDepartureTime", "lockHardness", "bufferToLastDeparture", "fallbackAfterLastDeparture", "lockTightnessVsPlan"],
@@ -247,6 +249,7 @@ export const CONSTRUCT_REGISTRY: Record<ConstructAxis, ConstructSpec> = {
   sleepabilityValue: { family: "H_route", ja: "車内睡眠/休息価値", layer: "L4r", secondaryLayer: "L1", valence: ["tripIntent", "fatigue", "phase", "timeOfDay"], missingData: "ordinary" },
   scenicValue: { family: "H_route", ja: "車窓・移動景観価値", layer: "L4r", secondaryLayer: "L1", valence: ["tripIntent", "recoveryStyle", "timeOfDay", "role", "context"], missingData: "ordinary" },
   arrivalFreshness: { family: "H_route", ja: "到着時鮮度", layer: "L4r", secondaryLayer: "L4", valence: ["fatigue", "phase", "tripIntent", "timeOfDay", "role"], missingData: "ordinary" },
+  routeChainBurden: { family: "H_route", ja: "door-to-door 総 route 負荷", layer: "L7", secondaryLayer: "L2", valence: ["tripIntent", "fatigue", "role"], missingData: "ordinary" },
   luggageDropBurden: { family: "H_route", ja: "荷物預け/身軽化負荷", layer: "L2", secondaryLayer: "L7", valence: ["fatigue", "phase", "role", "timeOfDay"], missingData: "ordinary" },
   destinationOrderingBurden: { family: "H_route", ja: "目的地順序負荷", layer: "L6", secondaryLayer: "L7", valence: ["tripIntent", "phase", "role", "context"], missingData: "ordinary" },
   lastDepartureLockBurden: { family: "H_route", ja: "最終便/終電ロック負荷", layer: "L5", secondaryLayer: "L7", valence: ["tripIntent", "role", "phase", "context"], missingData: "ordinary" },
@@ -383,6 +386,8 @@ export const WIRED_CONSTRUCTS = [
   // C5: route comfort 価値（recoveryFit へ・presence-gated・主に routeInput 派生で供給）
   "workabilityValue",
   "sleepabilityValue",
+  // C5.1: ★ door-to-door 総 route 負荷の集約（burdenFit へ・walkingLoad は歩行専用に戻す）
+  "routeChainBurden",
 ] as const;
 export type WiredConstruct = (typeof WIRED_CONSTRUCTS)[number];
 
@@ -420,6 +425,8 @@ export const CONSTRUCT_WIRING: Record<WiredConstruct, ConstructWiring> = {
   arrivalFreshness: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
   workabilityValue: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
   sleepabilityValue: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
+  // C5.1: route 総負荷 → burdenFit（travelBurden を supersede・walkingLoad とは別軸=歩行と総負荷の混同を排す）
+  routeChainBurden: { component: "burdenFit", kind: "burden_penalty", entityScoreFrom: "indicators", supersedeBurdenAxes: ["travelBurden"], toleranceAxis: "mobilityTolerance" },
 };
 
 /** 指標→construct rollup の重み（非 opaque・未列挙=等重み） */

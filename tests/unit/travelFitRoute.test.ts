@@ -17,6 +17,7 @@ import {
   hasFitActionAuthority,
   doorToDoorBurden,
   deriveRouteObservations,
+  deriveRouteDecomposition,
   routeLockSignals,
   type EvaluateFitConstructInput,
 } from "@/lib/shared/travel/fit-core";
@@ -146,20 +147,48 @@ describe("6. route comfort（work/sleep）→ recoveryFit", () => {
 describe("7. derived observation（★派生値・live data でない）", () => {
   it("derived observation は derived_from_connection_state provenance を持つ", () => {
     const d = deriveRouteObservations(air);
-    expect(d.walkingLoad!.walkingDistanceKm!.provenance).toBe(ROUTE_DERIVED_PROVENANCE);
+    expect(d.routeChainBurden!.doorToDoorTotalNorm!.provenance).toBe(ROUTE_DERIVED_PROVENANCE);
     expect(ROUTE_DERIVED_PROVENANCE).toBe("derived_from_connection_state");
   });
   it("derived confidence は入力 completeness を反映（rich>sparse・派生は満点でない）", () => {
     const rich: RouteChainState = { connection: { ...rail.connection, reliability: { planningTimeIndex: 0.5 }, comfort: { workability: 0.5 }, terminals: [{ kind: "security", overheadMin: 10 }], baggageState: { spatialOccupancy: 0.3 }, airportToCityBurden: { applicable: true, accessMin: 10 }, stationToHotelBurden: { walkMin: 5 } } };
-    const cRich = deriveRouteObservations(rich).walkingLoad!.walkingDistanceKm!.confidence;
-    const cSparse = deriveRouteObservations(rail).walkingLoad!.walkingDistanceKm!.confidence;
+    const cRich = deriveRouteObservations(rich).routeChainBurden!.doorToDoorTotalNorm!.confidence;
+    const cSparse = deriveRouteObservations(rail).routeChainBurden!.doorToDoorTotalNorm!.confidence;
     expect(cRich).toBeGreaterThan(cSparse);
     expect(cRich).toBeLessThan(1); // 派生は満点にしない
   });
-  it("欠落 route data を hallucinate しない（comfort 無→workability/sleepability 派生せず・legs 無→walkingLoad 無）", () => {
+  it("欠落 route data を hallucinate しない（comfort 無→workability/sleepability 派生せず・legs 無→routeChainBurden 無）", () => {
     expect(deriveRouteObservations(rail).workabilityValue).toBeUndefined();
     const empty: RouteChainState = { connection: { fromRef: "a", toRef: "b", legs: [], transferNodes: [] } };
-    expect(deriveRouteObservations(empty).walkingLoad).toBeUndefined();
+    expect(deriveRouteObservations(empty).routeChainBurden).toBeUndefined();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+describe("11. ★C5.1 意味論修正: 総 route 負荷は walkingLoad でなく routeChainBurden", () => {
+  it("door-to-door 総負荷は walkingLoad に格納しない（routeChainBurden へ）", () => {
+    const d = deriveRouteObservations(air);
+    expect(d.walkingLoad).toBeUndefined(); // 総負荷は walkingLoad に入れない
+    expect(d.routeChainBurden!.doorToDoorTotalNorm).toBeDefined();
+  });
+  it("routeChainBurden は terminal/transfer/egress/PTI を含む総負荷を反映（air > rail）", () => {
+    const airB = deriveRouteObservations(air).routeChainBurden!.doorToDoorTotalNorm!.value;
+    const railB = deriveRouteObservations(rail).routeChainBurden!.doorToDoorTotalNorm!.value;
+    expect(airB).toBeGreaterThan(railB); // air は terminal+egress で総負荷大
+  });
+  it("walkingLoad は歩行専用（分解 sub-observation・歩行 leg のみ・総負荷でない）", () => {
+    const decomp = deriveRouteDecomposition(rail);
+    // rail は walk firstMile(10)+walk lastMile(5)=15 分のみ → 歩行のみで小さい（総 255 分でない）
+    expect(decomp.walkingLoad!.walkingDistanceKm!.value).toBeLessThan(0.5);
+    expect(decomp.walkingLoad!.walkingDistanceKm!.provenance).toBe(ROUTE_DERIVED_PROVENANCE);
+  });
+  it("分解は terminal/transfer/station-hotel/PTI を別 sub-observation に保持（説明用・fit に二重計上しない）", () => {
+    const rich: RouteChainState = { connection: { ...air.connection, stationToHotelBurden: { walkMin: 20 }, reliability: { planningTimeIndex: 0.6 } } };
+    const d = deriveRouteDecomposition(rich);
+    expect(d.transferBurden).toBeDefined();
+    expect(d.terminalWalkingBurden).toBeDefined();
+    expect(d.stationToHotelBurden).toBeDefined();
+    expect(d.reliabilityBurden).toBeDefined();
   });
 });
 
