@@ -371,6 +371,15 @@ export const PLAN_FLAGS = {
   realityPipelinePreview: process.env.REALITY_PIPELINE_PREVIEW === "true",
 
   /**
+   * RJ2g: Reality Surface Chain operator-only read-only dogfood preview（RJ2a–2f の consumer view / copy /
+   *   delivery 可否を operator が観測するだけ）。設計: docs/reality-surface-dogfood-preview-boundary-rj2g-0.md
+   * 制約: **server default OFF・operator-only / dev・staging 限定（triple-guard で production hard block）**・read-only。
+   *   v0 は代表シナリオ（DB read なし・決定論的 fixture）。plan を書き換えない・apply しない・通知しない・
+   *   deliveredNow=false 維持・user-facing でない（NEXT_PUBLIC なし＝server-side のみ評価）。
+   */
+  realitySurfacePreview: process.env.REALITY_SURFACE_PREVIEW === "true",
+
+  /**
    * W3a: /plan に ALTER タブ（Day State 人体バッテリー）を出すか。
    *   true  : PlanClient のタブ列に「ALTER」が追加され、AlterTab（実 DayGraph 由来 VM）が描画される
    *   false : タブ列・描画とも既存と完全不変（**本番デフォルト**・dead code 化）
