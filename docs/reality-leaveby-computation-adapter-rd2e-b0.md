@@ -63,7 +63,7 @@ leaveBy adapter は単純な「− 算」でなく、**全 precondition（planni
   - **JST 固定**（browser local TZ 禁止・§6）。
   - travelDurationMinutes は **planning-grade estimate**（capability から・heuristic 不可）。
   - bufferMinutes は **粗い bucket → 保守的分**（精密捏造しない）。
-- 演算は **純粋な時刻計算**（既存 `makeRealityInstantJst` 系の JST/subjectiveDate 規律に従う・新規 TZ ロジックを作らない）。
+- 演算は **純粋な時刻計算**。**⚠ RD2e-b0A 補正（監査 wf_20a3e3bb）**: 既存 `makeRealityInstantJst` は **Date を取り getTime/getTimezoneOffset を使う impure** ゆえ pure core で使えない（IO scan 禁止）。RD2e-b は **新規 pure `instantMinusMinutes`（closed-form epoch-minute 演算・Date 不使用）**を作る（RD2e-b0A §4）。
 
 ---
 
