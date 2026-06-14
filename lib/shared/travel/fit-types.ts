@@ -276,6 +276,16 @@ export interface AccessLeg {
   timeMin: number;
   /** mainLeg の重み選択（firstMile/lastMile は legKind 重みを使う・default in_vehicle） */
   inVehicleKind?: "in_vehicle" | "wait" | "walk";
+  // --- C5 拡張（additive・optional） ---
+  walkingMin?: number;
+  waitingMin?: number;
+  boardingAlightingMin?: number;
+  /** 0..1 着席確率・作業可・睡眠可・車窓価値・快適度（RouteComfortState へ集約） */
+  seatProbability?: number;
+  workability?: number;
+  sleepability?: number;
+  scenicValue?: number;
+  comfort?: number;
 }
 
 /** GTFS transfers.txt transfer_type（0 推奨 / 1 timed / 2 min-time / 3 不可 / 4 in-seat / 5 in-station） */
@@ -288,11 +298,71 @@ export interface TransferNode {
   minTransferMin: number;
   pathwayMode?: GtfsPathwayMode;
   accessibilityBarrier?: boolean;
+  // --- C5 拡張 ---
+  /** 0..1 乗換複雑性・接続失敗リスク・案内分かりにくさ */
+  transferComplexity?: number;
+  missedConnectionRisk?: number;
+  signageComplexity?: number;
 }
 
 export interface TerminalBurdenSpec {
-  kind: "security" | "station_walk" | "check_in" | "fare_gate" | "none";
+  kind: "security" | "station_walk" | "check_in" | "fare_gate" | "immigration_placeholder" | "none";
   overheadMin: number;
+  /** C5: 構内歩行 m / 行列ばらつき 0..1 */
+  walkM?: number;
+  queueVariance?: number;
+}
+
+/** C5: 荷物状態遷移（carried↔dropped・C4 superadditive と整合の交互作用 hook） */
+export interface BaggageState {
+  pieces?: number;
+  spatialOccupancy?: number;
+  weightBurden?: number;
+  droppedState?: "carried" | "dropped";
+  stairInteraction?: number;
+  crowdInteraction?: number;
+}
+
+/** C5: 荷物 drop 可否（locker/hotel/delivery） */
+export interface LuggageDropAffordance {
+  locker?: boolean;
+  hotel?: boolean;
+  delivery?: boolean;
+}
+
+/** C5: 信頼性（PTI placeholder・実 API 無・全 field 推定値） */
+export interface RouteReliabilityState {
+  /** Planning Time Index（0..1 正規化推定・95%ile/free-flow 思想・実時刻断定でない） */
+  planningTimeIndex?: number;
+  bufferIndex?: number;
+  delayRisk?: number;
+  weatherVulnerability?: number;
+  seasonalSuspensionRisk?: number;
+  transferFragility?: number;
+  lastDepartureFragility?: number;
+}
+
+/** C5: 移動快適性（seat/work/sleep/scenic 集約） */
+export interface RouteComfortState {
+  seatProbability?: number;
+  workability?: number;
+  sleepability?: number;
+  scenicValue?: number;
+  comfort?: number;
+}
+
+/** C5: tripIntent×role で route 価値を変調（説明材料・推薦権限ではない） */
+export interface RoutePurposeModifier {
+  tripIntent?: "recovery" | "exploration" | "social" | "work" | "romance";
+  emphasizeWorkability?: boolean;
+  emphasizeSleepability?: boolean;
+  emphasizeScenic?: boolean;
+}
+
+/** C5: 到着時残存エネルギー（arrivalFreshness 構築子へ供給） */
+export interface ArrivalFreshnessState {
+  residualEnergy?: number;
+  cumulativeRouteFatigue?: number;
 }
 
 /** object と object の「間」に置く横断状態。fromRef/toRef は placeRefId。 */
@@ -304,9 +374,29 @@ export interface ConnectionState {
   terminals?: TerminalBurdenSpec[];
   /** 荷物（空間占有で非線形・terminal×混雑の交互作用項） */
   baggage?: { pieces?: number; spatialOccupancy?: number };
+  // --- C5 拡張 ---
+  baggageState?: BaggageState;
+  dropAffordance?: LuggageDropAffordance;
+  reliability?: RouteReliabilityState;
+  comfort?: RouteComfortState;
+  airportToCityBurden?: { applicable: boolean; accessMin?: number };
+  stationToHotelBurden?: { walkMin?: number; transferToHotel?: boolean };
 }
 
-export const ORDERING_KINDS = ["must_precede", "luggage_drop_enables", "reorderable", "derive_shortest_from_terminal"] as const;
+export const ORDERING_KINDS = [
+  "must_precede",
+  "luggage_drop_enables",
+  "reorderable",
+  "derive_shortest_from_terminal",
+  // --- C5 拡張: lock 群（carry のみ・solver が並べる・scheduling 権限なし） ---
+  "timed_entry_lock",
+  "last_departure_lock",
+  "open_hours_window_lock",
+  "checkin_window_lock",
+  "checkout_window_lock",
+  "meal_time_lock",
+  "reservation_window_lock",
+] as const;
 export type OrderingKind = (typeof ORDERING_KINDS)[number];
 
 /** object 間 dependency/ordering（itinerary 実装でなく状態 carrier・T11-A2 §7） */
@@ -321,6 +411,16 @@ export interface OrderingConstraint {
 export interface RouteChainState {
   connection: ConnectionState;
   ordering?: OrderingConstraint[];
+  purpose?: RoutePurposeModifier;
+}
+
+/** C5: ConnectionState 由来の派生観測（★実観測でなく派生値・live route data でない） */
+export const ROUTE_DERIVED_PROVENANCE = "derived_from_connection_state" as const;
+export interface RouteDerivedObservation {
+  value: number;
+  confidence: number;
+  /** ★ 派生値であることを明示（live observed と混同させない） */
+  provenance: typeof ROUTE_DERIVED_PROVENANCE;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

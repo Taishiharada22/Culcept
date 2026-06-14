@@ -357,8 +357,8 @@ export function computeConstructBlend(
   const traitFulls: RawLite[] = [];
   const traitShareds: RawLite[] = [];
   const burdens: RawLite[] = []; // ★ 複数 burden construct(walking/stairs/transfer/baggage)を集約
+  const recoveries: RawLite[] = []; // ★ 複数 recovery construct(arrivalFreshness/workability/sleepability)を集約
   let role: RawLite | null = null;
-  let recovery: RawLite | null = null;
   const exTrait: SharedTraitAxis[] = [];
   const exBurden: EntityBurdenAxis[] = [];
 
@@ -373,7 +373,7 @@ export function computeConstructBlend(
       traitShareds.push(c.shared);
     } else if (c.component === "burdenFit") burdens.push(c.full);
     else if (c.component === "roleFit") role = c.full;
-    else if (c.component === "recoveryFit") recovery = c.full;
+    else if (c.component === "recoveryFit") recoveries.push(c.full);
   }
 
   return {
@@ -381,7 +381,7 @@ export function computeConstructBlend(
     traitShared: aggRaw(traitShareds),
     burden: aggRaw(burdens),
     role,
-    recovery,
+    recovery: aggRaw(recoveries),
     excludeUserTraitAxes: exTrait,
     excludeBurdenAxes: exBurden,
   };

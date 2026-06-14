@@ -28,6 +28,7 @@ import {
   MISERY_FLOOR,
   ROLE_FLOOR,
   ROUTE_CHAIN_WEIGHTS,
+  ROUTE_DERIVED_PROVENANCE,
   VETO_FLOORS,
   type AnyEntityRole,
   type EntityBurdenAxis,
@@ -49,6 +50,7 @@ import {
   type RelationshipKind,
   type RiskFlag,
   type RouteChainState,
+  type RouteDerivedObservation,
   type SharedTraitAxis,
   type TraitValue,
   type TravelObjectState,
@@ -129,26 +131,119 @@ export function doorToDoorBurden(
   for (const t of c.transferNodes) {
     // 型付き乗換（回数でない）: in-seat(4)=0 / in-station(5)=半額 / その他=18 分相当
     const penalty = t.transferType === 4 ? 0 : t.transferType === 5 ? w.transferPenaltyMin * 0.5 : w.transferPenaltyMin;
-    transfersBurden += penalty + t.minTransferMin;
+    // C5: 乗換複雑性（additive・undefined→0）
+    transfersBurden += penalty + t.minTransferMin + (t.transferComplexity ?? 0) * ROUTE_C5_WEIGHTS.transferComplexityMin;
   }
 
-  const terminalsBurden = (c.terminals ?? []).reduce((a, t) => a + t.overheadMin, 0);
+  // C5: terminal は overhead + 構内歩行 + 行列ばらつき（新 field undefined→0 で既存不変）
+  const terminalsBurden = (c.terminals ?? []).reduce(
+    (a, t) => a + t.overheadMin + (t.walkM ?? 0) * ROUTE_C5_WEIGHTS.terminalWalkFactor + (t.queueVariance ?? 0) * ROUTE_C5_WEIGHTS.queueVarianceMin,
+    0,
+  );
 
+  // C5: baggageState.droppedState も荷物 drop と見なす（ordering opts と OR）
+  const dropped = opts?.baggageDropped || c.baggageState?.droppedState === "dropped";
   let baggageBurden = 0;
-  if (!opts?.baggageDropped) {
-    const occ = c.baggage?.spatialOccupancy ?? (c.baggage?.pieces ? clamp(c.baggage.pieces * 0.3) : 0);
+  if (!dropped) {
+    const occ = c.baggageState?.spatialOccupancy ?? c.baggage?.spatialOccupancy ?? (c.baggage?.pieces ? clamp(c.baggage.pieces * 0.3) : 0);
     const stair = c.transferNodes.some((t) => t.pathwayMode === 2) ? w.stairBaggageFactor : 1;
     const crowd = 1 + (opts?.crowd ?? 0) * 0.5;
     baggageBurden = occ * stair * crowd * 10; // 分相当スケール
   }
 
+  // C5: 信頼性 modifier（PTI 高で全体補正・undefined→×1 で既存 Hiroshima 不変）
+  const pti = c.reliability?.planningTimeIndex;
+  const reliabilityMul = pti !== undefined ? 1 + clamp(pti) * ROUTE_C5_WEIGHTS.reliabilityK : 1;
+  const base = legsBurden + transfersBurden + terminalsBurden + baggageBurden;
+
   return {
-    total: legsBurden + transfersBurden + terminalsBurden + baggageBurden,
+    total: base * reliabilityMul,
     legsBurden,
     transfersBurden,
     terminalsBurden,
     baggageBurden,
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// §1.5 T11-C5 ConnectionState deepening helpers（pure・実 route API 無）
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** C5 非 opaque 係数（door-to-door 分→0..1 正規化スケール等・export） */
+export const ROUTE_C5_WEIGHTS = {
+  transferComplexityMin: 12,
+  terminalWalkFactor: 0.05,
+  queueVarianceMin: 8,
+  reliabilityK: 0.5,
+  burdenScaleMin: 300,
+  transferScaleMin: 150,
+  baggageScaleMin: 50,
+} as const;
+
+export interface RouteLockSignals {
+  /** 終電/最終便 lock 由来の risk（scheduling せず signal のみ） */
+  lastDepartureRisk: boolean;
+  timedEntryConstraints: number;
+  openHoursConstraints: number;
+  checkinCheckoutLocks: number;
+  reorderable: boolean;
+}
+
+/** ordering/lock を**carry signal**として読む（solver/scheduling/booking しない） */
+export function routeLockSignals(routeChain: RouteChainState): RouteLockSignals {
+  const o = routeChain.ordering ?? [];
+  return {
+    lastDepartureRisk: o.some((x) => x.kind === "last_departure_lock"),
+    timedEntryConstraints: o.filter((x) => x.kind === "timed_entry_lock").length,
+    openHoursConstraints: o.filter((x) => x.kind === "open_hours_window_lock").length,
+    checkinCheckoutLocks: o.filter((x) => x.kind === "checkin_window_lock" || x.kind === "checkout_window_lock").length,
+    reorderable: o.some((x) => x.kind === "reorderable"),
+  };
+}
+
+/** ConnectionState 由来の指標観測マップ（★派生値・provenance=derived_from_connection_state） */
+export type RouteDerivedIndicators = Partial<Record<string, Partial<Record<string, RouteDerivedObservation>>>>;
+
+/**
+ * ConnectionState から H_route 構築子の**派生観測**を作る（★実観測でなく派生・live route data でない）。
+ * confidence は入力 completeness の集約（派生は満点にしない）。欠落 field は派生しない（hallucinate しない）。
+ */
+export function deriveRouteObservations(routeChain: RouteChainState): RouteDerivedIndicators {
+  const c = routeChain.connection;
+  const dropped = baggageDroppedByOrdering(routeChain) || c.baggageState?.droppedState === "dropped";
+  const bd = doorToDoorBurden(routeChain, { baggageDropped: dropped });
+  // aggregate input confidence = 入力の充実度（派生 confidence の上限 0.85）
+  const richFields = [c.reliability, c.comfort, c.terminals?.length, c.baggageState, c.airportToCityBurden, c.stationToHotelBurden, c.transferNodes.length > 0 ? 1 : 0].filter(Boolean).length;
+  const conf = clamp(0.4 + 0.06 * richFields, 0, 0.85);
+  const mk = (value: number): RouteDerivedObservation => ({ value: clamp(value), confidence: conf, provenance: ROUTE_DERIVED_PROVENANCE });
+  const out: RouteDerivedIndicators = {};
+
+  if (c.legs.length > 0) {
+    // ★ door-to-door 総負荷を**単一** route burden(walkingLoad)へ（legs+transfers+terminals+egress+PTI を内包）。
+    //   分割平均だと「乗換多い air が平均で得」する逆転が起きるため total ベースに統一。
+    const stationHotel = (c.stationToHotelBurden?.walkMin ?? 0) * ROUTE_CHAIN_WEIGHTS.lastMile;
+    const airportCity = (c.airportToCityBurden?.accessMin ?? 0) * ROUTE_CHAIN_WEIGHTS.lastMile;
+    const totalWithEgress = bd.total + stationHotel + airportCity;
+    const burdenNorm = clamp(totalWithEgress / ROUTE_C5_WEIGHTS.burdenScaleMin);
+    out.walkingLoad = { walkingDistanceKm: mk(burdenNorm) };
+    out.arrivalFreshness = { energyCarryToFirstActivity: mk(1 - burdenNorm) };
+  }
+  if (c.comfort?.workability !== undefined) out.workabilityValue = { workability: mk(c.comfort.workability) };
+  if (c.comfort?.sleepability !== undefined) out.sleepabilityValue = { sleepability: mk(c.comfort.sleepability) };
+  return out;
+}
+
+/** 派生観測 + 直接観測を merge（★直接観測=実観測が派生に優先）→ C3 rollup 入力へ */
+function mergeRouteIntoIndicators(derived: RouteDerivedIndicators, direct?: ConstructIndicatorInput): ConstructIndicatorInput {
+  const result: Record<string, Record<string, { value: number; confidence: number }>> = {};
+  for (const [axis, inds] of Object.entries(derived)) {
+    if (!inds) continue;
+    result[axis] = {};
+    for (const [k, o] of Object.entries(inds)) if (o) result[axis][k] = { value: o.value, confidence: o.confidence };
+  }
+  const directAny = direct as Record<string, Record<string, { value: number; confidence: number }>> | undefined;
+  if (directAny) for (const [axis, inds] of Object.entries(directAny)) result[axis] = { ...(result[axis] ?? {}), ...inds };
+  return result as ConstructIndicatorInput;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -658,6 +753,15 @@ function evalParticipant(
     interactionRiskFlags = inter.riskFlags;
     interactionMissing = inter.missingQuestions;
   }
+  // ★ C5: private mobility/accessibility 懸念（private な walkingLoad 選好）→ full のみ burdenFit penalty。
+  //   shared には漏らさない（valueShared 不変・private mobility 状態を shared から逆算不能）。
+  const privMob = interBundle?.userPrefs?.walkingLoad;
+  if (privMob && privMob.visibility === "private") {
+    const pen = 0.25 * clamp(privMob.value);
+    components = components.map((c) =>
+      c.key === "burdenFit" ? { ...c, valueFull: clamp(c.valueFull - pen), contribution: clamp(c.valueFull - pen) * c.weight } : c,
+    );
+  }
   const hardBlocksShared = hardBlocksFull.filter((b) => b.visibility === "shared");
   // gate-first → label、その後 ★ shared-safe labelCap を適用（excellent 不可化等）
   const lf = deriveFitLabel(labelInputs(components, "full"), hardBlocksFull);
@@ -825,6 +929,11 @@ export interface EvaluateFitArgs {
   context?: FitContext;
   /** ★ optional・presence-gated。未供給なら construct 寄与ゼロ＝従来挙動 */
   constructInput?: EvaluateFitConstructInput;
+  /**
+   * ★ C5 optional・presence-gated。ConnectionState を H_route 構築子 observation(派生・provenance付)に変換し
+   * C3 rollup へ供給して burdenFit/recoveryFit を修飾する。**route 推薦/予約/scheduling 権限を生成しない**。
+   */
+  routeInput?: RouteChainState;
 }
 
 export function evaluateFit(args: EvaluateFitArgs): FitResult {
@@ -835,14 +944,18 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
       : subject.participants;
   const relationship: RelationshipKind = subject.kind === "solo" ? "solo" : subject.relationship;
   const ci = args.constructInput;
+  // ★ C5: ConnectionState → 派生 H_route 観測（direct 観測が優先）。route+construct を 1 入力に統一。
+  const routeDerived = args.routeInput ? deriveRouteObservations(args.routeInput) : undefined;
+  const effectiveEntityIndicators = routeDerived ? mergeRouteIntoIndicators(routeDerived, ci?.entityIndicators) : ci?.entityIndicators;
+  const hasInput = ci !== undefined || routeDerived !== undefined;
 
   const evals = participants.map((p) => {
-    const blendInput: ConstructBlendInput | undefined = ci
-      ? { entityIndicators: ci.entityIndicators, userPrefs: ci.userPrefs?.[p.participantId] }
+    const blendInput: ConstructBlendInput | undefined = hasInput
+      ? { entityIndicators: effectiveEntityIndicators, userPrefs: ci?.userPrefs?.[p.participantId] }
       : undefined;
     const blend = computeConstructBlend(p.state, entity, context, blendInput);
-    const interBundle: InteractionInputBundle | undefined = ci
-      ? { entityIndicators: ci.entityIndicators, ctx: context, isSolo: subject.kind === "solo", userPrefs: ci.userPrefs?.[p.participantId] }
+    const interBundle: InteractionInputBundle | undefined = hasInput
+      ? { entityIndicators: effectiveEntityIndicators, ctx: context, isSolo: subject.kind === "solo", userPrefs: ci?.userPrefs?.[p.participantId] }
       : undefined;
     return evalParticipant(p.participantId, p.state, entity, context, relationship, blend, interBundle);
   });

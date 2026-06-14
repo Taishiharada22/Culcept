@@ -380,6 +380,9 @@ export const WIRED_CONSTRUCTS = [
   "baggageLoad",
   "mealRoleAffinity",
   "arrivalFreshness",
+  // C5: route comfort 価値（recoveryFit へ・presence-gated・主に routeInput 派生で供給）
+  "workabilityValue",
+  "sleepabilityValue",
 ] as const;
 export type WiredConstruct = (typeof WIRED_CONSTRUCTS)[number];
 
@@ -415,6 +418,8 @@ export const CONSTRUCT_WIRING: Record<WiredConstruct, ConstructWiring> = {
   baggageLoad: { component: "burdenFit", kind: "burden_penalty", entityScoreFrom: "indicators", supersedeBurdenAxes: ["baggageBurden"], toleranceAxis: "mobilityTolerance" },
   mealRoleAffinity: { component: "roleFit", kind: "role_affinity", entityScoreFrom: "indicators", categoryGate: "food" },
   arrivalFreshness: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
+  workabilityValue: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
+  sleepabilityValue: { component: "recoveryFit", kind: "recovery_value", entityScoreFrom: "indicators" },
 };
 
 /** 指標→construct rollup の重み（非 opaque・未列挙=等重み） */
