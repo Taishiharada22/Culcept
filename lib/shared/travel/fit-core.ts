@@ -18,7 +18,7 @@
  */
 
 import type { ViewerScopedRationale } from "./core-types";
-import { computeConstructBlend, runInteractions, applyCap, type ConstructBlend, type ConstructBlendInput, type InteractionInputBundle } from "./fit-constructs-core";
+import { computeConstructBlend, runInteractions, applyCap, hotelDropPolicy, type ConstructBlend, type ConstructBlendInput, type InteractionInputBundle } from "./fit-constructs-core";
 import type { ConstructIndicatorInput, ConstructPreferenceInput } from "./fit-constructs";
 import {
   BURDEN_TOLERANCE_MAP,
@@ -210,7 +210,7 @@ export type RouteDerivedIndicators = Partial<Record<string, Partial<Record<strin
  */
 export function deriveRouteObservations(routeChain: RouteChainState): RouteDerivedIndicators {
   const c = routeChain.connection;
-  const dropped = baggageDroppedByOrdering(routeChain) || c.baggageState?.droppedState === "dropped";
+  const dropped = hotelDropPolicy(routeChain) || c.baggageState?.droppedState === "dropped"; // ★C6: ordering単独でなくpolicy(ordering+affordance)/明示droppedState
   const bd = doorToDoorBurden(routeChain, { baggageDropped: dropped });
   // aggregate input confidence = 入力の充実度（派生 confidence の上限 0.85）
   const richFields = [c.reliability, c.comfort, c.terminals?.length, c.baggageState, c.airportToCityBurden, c.stationToHotelBurden, c.transferNodes.length > 0 ? 1 : 0].filter(Boolean).length;
@@ -239,7 +239,7 @@ export function deriveRouteObservations(routeChain: RouteChainState): RouteDeriv
  */
 export function deriveRouteDecomposition(routeChain: RouteChainState): RouteDerivedIndicators {
   const c = routeChain.connection;
-  const dropped = baggageDroppedByOrdering(routeChain) || c.baggageState?.droppedState === "dropped";
+  const dropped = hotelDropPolicy(routeChain) || c.baggageState?.droppedState === "dropped"; // ★C6: ordering単独でなくpolicy(ordering+affordance)/明示droppedState
   const bd = doorToDoorBurden(routeChain, { baggageDropped: dropped });
   const conf = 0.7;
   const mk = (value: number): RouteDerivedObservation => ({ value: clamp(value), confidence: conf, provenance: ROUTE_DERIVED_PROVENANCE });
@@ -977,8 +977,8 @@ export function evaluateFit(args: EvaluateFitArgs): FitResult {
       ? { entityIndicators: effectiveEntityIndicators, userPrefs: ci?.userPrefs?.[p.participantId] }
       : undefined;
     const blend = computeConstructBlend(p.state, entity, context, blendInput);
-    const interBundle: InteractionInputBundle | undefined = hasInput
-      ? { entityIndicators: effectiveEntityIndicators, ctx: context, isSolo: subject.kind === "solo", userPrefs: ci?.userPrefs?.[p.participantId] }
+    const interBundle: InteractionInputBundle | undefined = hasInput || args.routeInput
+      ? { entityIndicators: effectiveEntityIndicators, ctx: context, isSolo: subject.kind === "solo", userPrefs: ci?.userPrefs?.[p.participantId], routeChain: args.routeInput }
       : undefined;
     return evalParticipant(p.participantId, p.state, entity, context, relationship, blend, interBundle);
   });

@@ -38,6 +38,7 @@ import {
   type FitUserState,
   type MissingDataQuestion,
   type RiskFlag,
+  type RouteChainState,
   type SharedTraitAxis,
   type TravelObjectState,
 } from "./fit-types";
@@ -405,7 +406,23 @@ export const RAIN_STRONG_PENALTY = 0.3;
 export const RAIN_BLOCK_SEVERITY = 0.8;
 
 /** C4 第一 slice で実行する interaction（registry の id・15 全実行はしない） */
-export const WIRED_INTERACTIONS = ["IX_night_safety", "IX_baggage_stairs_crowd", "IX_rain_outdoor_fallback"] as const;
+export const WIRED_INTERACTIONS = ["IX_night_safety", "IX_baggage_stairs_crowd", "IX_rain_outdoor_fallback", "IX_hoteldrop_order_luggage", "IX_earlymorning_terminal_sleepdebt"] as const;
+
+// --- C6 非 opaque 係数（earlyMorning superadditive・export） ---
+export const K_EARLY = 0.4;
+export const EARLY_TERMINAL_SCALE = 90; // terminal overhead 分 → 0..1（90 分で 1.0）
+export const EARLY_CAP_THRESHOLD = 0.2; // excess がこれ超で labelCap
+
+/**
+ * ★ C6: hotelDrop policy — 荷物 drop による relief が**可能か**（ordering AND affordance）。
+ * ★ ordering 単独・affordance 単独では relief しない（明示 droppedState とは別概念）。
+ */
+export function hotelDropPolicy(routeChain: RouteChainState): boolean {
+  const hasOrdering = (routeChain.ordering ?? []).some((o) => o.kind === "luggage_drop_enables");
+  const aff = routeChain.connection.dropAffordance;
+  const hasAffordance = !!aff && (aff.hotel === true || aff.locker === true || aff.delivery === true);
+  return hasOrdering && hasAffordance;
+}
 
 export interface InteractionInputBundle {
   entityIndicators?: ConstructIndicatorInput;
@@ -414,6 +431,8 @@ export interface InteractionInputBundle {
   isSolo: boolean;
   /** viewer-specific safety concern 等の private 入力（private は full のみに効く） */
   userPrefs?: ConstructPreferenceInput;
+  /** C6: route-chain 状態（hotelDrop/earlyMorning が ordering/terminal/lock を読む） */
+  routeChain?: RouteChainState;
 }
 
 export interface InteractionEffect {
@@ -504,10 +523,43 @@ function execRainOutdoorFallback(bundle: InteractionInputBundle): InteractionEff
   return e;
 }
 
+/** IX_hoteldrop_order_luggage — drop relief は routeChainBurden 派生で 1 回適用（ここは説明 riskFlag のみ・二重計上しない・solve/schedule/book しない） */
+function execHotelDrop(bundle: InteractionInputBundle): InteractionEffect | null {
+  const rc = bundle.routeChain;
+  if (!rc || !hotelDropPolicy(rc)) return null; // ordering+affordance 両方必須
+  const e = emptyEffect();
+  e.riskFlags.push({ code: "luggage_drop_relief", visibility: "shared", derivedFrom: "shared" });
+  return e;
+}
+
+/** IX_earlymorning_terminal_sleepdebt — superadditive(早朝×terminal×★explicit fatigue の積 EXCESS)・sleepDebt を invent しない */
+function execEarlyMorning(bundle: InteractionInputBundle): InteractionEffect | null {
+  const ctx = bundle.ctx;
+  if (!ctx) return null;
+  const rc = bundle.routeChain;
+  const earlyDeparture = ctx.timeOfDayBand === "early_morning";
+  const hasEarlyLock = rc ? (rc.ordering ?? []).some((o) => o.kind === "checkout_window_lock" || o.kind === "last_departure_lock") : false;
+  const early = earlyDeparture ? 1 : hasEarlyLock ? 0.6 : 0;
+  if (early === 0) return null;
+  const terminalOverhead = rc?.connection.terminals?.reduce((a, t) => a + t.overheadMin, 0) ?? 0;
+  const terminal = cl(terminalOverhead / EARLY_TERMINAL_SCALE);
+  if (terminal <= 0) return null; // ★ terminal burden 無 → 非発火
+  const fatigue = ctx.todayFatigueSpike ?? 0; // ★ explicit のみ・sleepDebt を infer しない
+  if (fatigue <= 0) return null; // ★ fatigue 文脈無 → 非発火（hallucinate しない）
+  const excess = K_EARLY * early * cl(terminal) * cl(fatigue); // 積=全部高い時のみ大（線形 terminal は C5 で既計上）
+  if (excess <= 0) return null;
+  const e = emptyEffect();
+  e.componentDeltas.push({ component: "burdenFit", full: -excess, shared: -excess });
+  if (excess > EARLY_CAP_THRESHOLD) e.labelCap = "good";
+  return e;
+}
+
 export function executeInteraction(id: string, bundle: InteractionInputBundle): InteractionEffect | null {
   if (id === "IX_night_safety") return execNightSafety(bundle);
   if (id === "IX_baggage_stairs_crowd") return execBaggageStairsCrowd(bundle);
   if (id === "IX_rain_outdoor_fallback") return execRainOutdoorFallback(bundle);
+  if (id === "IX_hoteldrop_order_luggage") return execHotelDrop(bundle);
+  if (id === "IX_earlymorning_terminal_sleepdebt") return execEarlyMorning(bundle);
   return null;
 }
 
