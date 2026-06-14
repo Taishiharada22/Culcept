@@ -406,12 +406,42 @@ export const RAIN_STRONG_PENALTY = 0.3;
 export const RAIN_BLOCK_SEVERITY = 0.8;
 
 /** C4 第一 slice で実行する interaction（registry の id・15 全実行はしない） */
-export const WIRED_INTERACTIONS = ["IX_night_safety", "IX_baggage_stairs_crowd", "IX_rain_outdoor_fallback", "IX_hoteldrop_order_luggage", "IX_earlymorning_terminal_sleepdebt"] as const;
+export const WIRED_INTERACTIONS = ["IX_night_safety", "IX_baggage_stairs_crowd", "IX_rain_outdoor_fallback", "IX_hoteldrop_order_luggage", "IX_earlymorning_terminal_sleepdebt", "IX_last_departure_strand"] as const;
 
 // --- C6 非 opaque 係数（earlyMorning superadditive・export） ---
 export const K_EARLY = 0.4;
 export const EARLY_TERMINAL_SCALE = 90; // terminal overhead 分 → 0..1（90 分で 1.0）
 export const EARLY_CAP_THRESHOLD = 0.2; // excess がこれ超で labelCap
+
+// --- C6.1 非 opaque 係数（last departure strand risk・export） ---
+export const STRAND_VETO_FLOOR = 0.6; // strand>これ → labelCap=stretch
+export const STRAND_CAUTION_FLOOR = 0.3; // strand>これ → labelCap=good
+export const STRAND_FRAGILITY_AMP = 1.0; // transfer/egress fragility の増幅重み
+export const STRAND_FALLBACK_RELIEF = 0.5; // fallback による緩和率
+
+/** 終電/最終便 lock があるか（strand の gate） */
+export function hasLastDepartureLock(routeChain: RouteChainState): boolean {
+  return (routeChain.ordering ?? []).some((o) => o.kind === "last_departure_lock");
+}
+
+/**
+ * strand risk（終電/最終便逃しリスク・★delayRisk/buffer/fragility を使い PTI は使わない＝二重計上回避）。
+ * 戻り値: 0..1 / 0=lock 無で非発火 / null=lock 有だが reliability 欠落（安全と断定させない）。
+ */
+export function strandRisk(routeChain: RouteChainState): number | null {
+  if (!hasLastDepartureLock(routeChain)) return 0; // gate: lock 無→非発火
+  const rel = routeChain.connection.reliability;
+  if (!rel || rel.delayRisk === undefined) return null; // ★ reliability 欠落（lock 有）→ unknown
+  const delayRisk = cl(rel.delayRisk);
+  const buffer = cl(rel.bufferIndex ?? 0.5); // buffer 不明は中立 0.5
+  const transferFragility = cl(rel.transferFragility ?? 0);
+  const egressFragility = cl(rel.weatherVulnerability ?? 0);
+  const fallback = cl(rel.fallbackAvailability ?? 0);
+  const strandBase = delayRisk * (1 - buffer); // 遅延 × 余裕不足（buffer 理論）
+  const amp = 1 + STRAND_FRAGILITY_AMP * ((transferFragility + egressFragility) / 2);
+  const relief = 1 - fallback * STRAND_FALLBACK_RELIEF;
+  return cl(strandBase * amp * relief);
+}
 
 /**
  * ★ C6: hotelDrop policy — 荷物 drop による relief が**可能か**（ordering AND affordance）。
@@ -554,12 +584,43 @@ function execEarlyMorning(bundle: InteractionInputBundle): InteractionEffect | n
   return e;
 }
 
+/**
+ * IX_last_departure_strand — 終電/最終便逃しリスク。
+ * ★ riskFlag / labelCap / missing question のみ（burdenFit は修飾しない＝routeChainBurden と二重計上しない）。
+ * ★ schedule/route 選択せず・live timetable 断定せず・authority 無。
+ */
+function execLastDepartureStrand(bundle: InteractionInputBundle): InteractionEffect | null {
+  const rc = bundle.routeChain;
+  if (!rc || !hasLastDepartureLock(rc)) return null; // lock 無→非発火
+  const s = strandRisk(rc);
+  const e = emptyEffect();
+  if (s === null) {
+    // ★ lock 有 ∧ reliability 欠落 → 安全と断定させない（labelCap + question・hardBlock しない）
+    e.riskFlags.push({ code: "last_departure_reliability_unknown", visibility: "shared", derivedFrom: "shared" });
+    e.missingQuestions.push({ field: "routeReliability:delayRisk", reason: "low_confidence" });
+    e.labelCap = "good";
+    return e;
+  }
+  if (s > STRAND_VETO_FLOOR) {
+    e.riskFlags.push({ code: "last_departure_strand_high", visibility: "shared", derivedFrom: "shared" });
+    e.labelCap = "stretch"; // 既存 EntityFitGrade・脆い route を top rec にしない
+    return e;
+  }
+  if (s > STRAND_CAUTION_FLOOR) {
+    e.riskFlags.push({ code: "last_departure_strand_caution", visibility: "shared", derivedFrom: "shared" });
+    e.labelCap = "good";
+    return e;
+  }
+  return null; // 低 strand → 効果なし
+}
+
 export function executeInteraction(id: string, bundle: InteractionInputBundle): InteractionEffect | null {
   if (id === "IX_night_safety") return execNightSafety(bundle);
   if (id === "IX_baggage_stairs_crowd") return execBaggageStairsCrowd(bundle);
   if (id === "IX_rain_outdoor_fallback") return execRainOutdoorFallback(bundle);
   if (id === "IX_hoteldrop_order_luggage") return execHotelDrop(bundle);
   if (id === "IX_earlymorning_terminal_sleepdebt") return execEarlyMorning(bundle);
+  if (id === "IX_last_departure_strand") return execLastDepartureStrand(bundle);
   return null;
 }
 

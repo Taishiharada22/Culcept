@@ -340,6 +340,8 @@ export interface RouteReliabilityState {
   seasonalSuspensionRisk?: number;
   transferFragility?: number;
   lastDepartureFragility?: number;
+  /** C6.1: 代替経路の余裕（strand risk を緩和・推定値） */
+  fallbackAvailability?: number;
 }
 
 /** C5: 移動快適性（seat/work/sleep/scenic 集約） */
