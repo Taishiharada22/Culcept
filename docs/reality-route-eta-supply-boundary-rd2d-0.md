@@ -116,15 +116,16 @@
 
 ## 9. leaveBy へ渡してよい条件（CEO 論点・RD2-0 §5 を精緻化）
 
-leaveBy を null でなく出してよいのは**全条件 AND**（RD2-0 §5）:
-1. **origin known**（RD2c・assumed 単独不可・confirmed/current_candidate/previous）
+leaveBy を null でなく出してよいのは**全条件 AND**（RD2-0 §5・**RD2d-0A で精緻化**）:
+1. **origin usable for leaveBy**（RD2c・assumed 単独不可・**`current_location_candidate` は単独不可** — 出発時刻までに移動しうる。`originUsabilityForLeaveBy` が別途 true の時のみ。詳細 RD2d-0A §6）
 2. **destination known**（RD2a・exact_confirmed・candidate 不可）
-3. **route/ETA known = etaKnown true**（§8・**heuristic では不可**）
+3. **etaKnown true（実 ETA・traffic-aware・temporal-scope 内）**（§8・**heuristic では不可**・**travelDuration だけでも不可** — RD2d-0A §1 の lattice）
 4. **arrival target known**（event startTime + fixedness）
 5. **buffer policy known**（RD2e 設計）
-6. **confidence / evidence present**
+6. **freshness 内 + confidence / evidence present**（stale な ETA/origin は不可・RD2d-0A §3）
 
 - **絶対則（核心）**: **heuristic だけでは leaveBy を出さない**（条件 3 を満たさない）。ETA が無ければ leaveBy は null（既存 honest）。`heuristicDurationHint` は leaveBy に渡さない。
+- **⚠ RD2d-0A 補正（GPT 監査反映 2026-06-14）**: 本 §9 の旧記述「origin known に current_candidate 含む」は**危険**（現在地は評価時点の位置・出発時刻には移動しうる）。leaveBy origin は `current_location_candidate` 単独では不可 → **RD2d-0A §6（origin usability / temporal validity）で再定義**。route/duration/ETA/leaveBy の粗い混同も **RD2d-0A §1（capability lattice）で分離**。本 §9 は RD2d-0A を正本とする。
 - leaveBy 自体の導出（buffer・weather friction）は **RD2e**（別設計）。RD2d は etaKnown を leaveBy に渡してよいかの**境界**まで。
 
 ---
