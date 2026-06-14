@@ -16,12 +16,23 @@ const read = (rel: string) => stripComments(fs.readFileSync(path.join(process.cw
 const PAGE = read("app/(culcept)/plan/dev-travel-engine-projection/page.tsx");
 const INPUT = read("app/(culcept)/plan/dev-travel-engine-projection/engine-fixture-input.ts");
 
-describe("1. flag gate（既存 flag 再利用・default OFF・fail-closed）", () => {
-  it("既存 PLAN_FLAGS.travelProjectionPreview を再利用（新 flag なし）", () => {
+describe("1. provider seam gate（既存 flag→fixtureAllowed・not_ready→fail-closed）", () => {
+  it("既存 PLAN_FLAGS.travelProjectionPreview を fixtureAllowed に解決（新 flag なし）", () => {
     expect(PLAN_FLAGS.travelProjectionPreview).toBe(false);
-    expect(PAGE).toMatch(/if\s*\(\s*!PLAN_FLAGS\.travelProjectionPreview\s*\)/);
     expect([...new Set(PAGE.match(/PLAN_FLAGS\.\w+/g) ?? [])]).toEqual(["PLAN_FLAGS.travelProjectionPreview"]);
+    expect(PAGE).toMatch(/getDevFixtureTravelInput\(\s*FIXTURE_ENGINE_INPUT\s*,\s*\{\s*fixtureAllowed:\s*PLAN_FLAGS\.travelProjectionPreview\s*\}/);
     expect(PAGE).toContain("<Disabled");
+  });
+  it("provider not_ready → engine を走らせず Disabled（status !== ready で gate）", () => {
+    expect(PAGE).toMatch(/provided\.status\s*!==\s*["']ready["']/);
+    // engine は ready 後・provider が供給した input でのみ実行（raw FIXTURE を直接 engine に渡さない）。
+    expect(PAGE).toMatch(/runTravelPlanEngine\(\s*provided\.input\s*\)/);
+    expect(PAGE).not.toMatch(/runTravelPlanEngine\(\s*FIXTURE_ENGINE_INPUT\s*\)/);
+  });
+  it("provider provenance を client へ出さない（render しない・server-only）", () => {
+    expect(PAGE).not.toMatch(/provenance=\{/);
+    expect(PAGE).not.toMatch(/\{provided\.provenance\}/);
+    expect(PAGE).not.toMatch(/\{provided\}/);
   });
 });
 

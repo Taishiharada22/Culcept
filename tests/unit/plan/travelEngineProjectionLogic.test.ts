@@ -10,6 +10,7 @@ import { toDisplayPacket } from "@/lib/shared/travel/engine-consume";
 import { buildPlanIntelligenceProjection } from "@/lib/shared/travel/plan-intelligence-projection";
 import { deriveCoAlterProjectionCues } from "@/lib/shared/travel/coalter-projection-consume";
 import { COALTER_PROJECTION_DISPLAY_ACTIONS } from "@/lib/shared/travel/coalter-projection-consume-types";
+import { getDevFixtureTravelInput } from "@/lib/shared/travel/travel-input-provider";
 import { FIXTURE_ENGINE_INPUT, FIXTURE_ENGINE_VIEWER_ID } from "@/app/(culcept)/plan/dev-travel-engine-projection/engine-fixture-input";
 import type { TravelPlanEngineInput } from "@/lib/shared/travel/engine-types";
 
@@ -70,5 +71,21 @@ describe("5. baseline: fit 入力を除くと fitAdvisory 空", () => {
   it("fit undefined → fitAdvisory []", () => {
     const { projection } = chain({ ...FIXTURE_ENGINE_INPUT, fit: undefined });
     expect(projection.fitAdvisory).toEqual([]);
+  });
+});
+
+describe("6. provider seam: ready→engine 可 / not_ready→input なし(engine 不可)", () => {
+  it("fixtureAllowed true → ready・provided.input が同じ fixture・chain が走る", () => {
+    const provided = getDevFixtureTravelInput(FIXTURE_ENGINE_INPUT, { fixtureAllowed: true });
+    expect(provided.status).toBe("ready");
+    if (provided.status === "ready") {
+      expect(provided.input).toBe(FIXTURE_ENGINE_INPUT);
+      expect(chain(provided.input).projection.answer.nextAction).toBeDefined(); // ready の input で engine 実行可
+    }
+  });
+  it("fixtureAllowed false → not_ready・input なし＝engine を走らせられない（fail-closed）", () => {
+    const provided = getDevFixtureTravelInput(FIXTURE_ENGINE_INPUT, { fixtureAllowed: false });
+    expect(provided.status).toBe("not_ready");
+    expect("input" in provided).toBe(false); // engine に渡す input が存在しない
   });
 });
