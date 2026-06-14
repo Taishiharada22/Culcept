@@ -149,7 +149,7 @@ describe("RD2e-a #14 timezone / subjectiveDate / targetEventDate 必須", () => 
   });
   it("targetEventDate 空 → violation・HH だけ instant → violation", () => {
     expect(leaveByComputationViolations({ ...computed(), timeContract: { ...CONTRACT, targetEventDate: "" } }).some((m) => m.includes("targetEventDate"))).toBe(true);
-    expect(leaveByComputationViolations({ ...computed(), leaveByInstant: { instant: "08:30", timezone: "JST" } }).some((m) => m.includes("absolute date-time"))).toBe(true);
+    expect(leaveByComputationViolations({ ...computed(), leaveByInstant: { instant: "08:30", timezone: "JST" } }).some((m) => m.includes("canonical JST ISO"))).toBe(true);
   });
 });
 
@@ -208,5 +208,64 @@ describe("RD2e-a baseline: 全 origin/source の computed が健全", () => {
     for (const s of ["external_route", "scheduled", "user_confirmed", "cached_route"] as const) {
       expect(leaveByComputationViolations(computed({ source: s, evidenceRefs: [{ code: "e", capability: "time_estimate", source: s }] }))).toEqual([]);
     }
+  });
+});
+
+// ── RD2e-a-A: walker time safety（canonical JST ISO + leaveBy ≤ arrival）─────────────────────
+
+import { isCanonicalJstIso, leaveByAtOrBeforeArrival } from "@/lib/plan/realityCore/leaveByComputation";
+
+describe("RD2e-a-A #1/#2 canonical JST ISO 強制", () => {
+  it("canonical 以外（UTC/非 padding/空白/offset 違い）→ violation", () => {
+    for (const bad of ["2026-06-12T08:30:00Z", "2026-6-12T8:30:00+09:00", "2026-06-12 08:30:00+09:00", "2026-06-12T08:30:00+00:00", "2026-06-12T08:30+09:00"]) {
+      expect(leaveByComputationViolations({ ...computed(), leaveByInstant: { instant: bad, timezone: "JST" } }).some((m) => m.includes("canonical JST ISO"))).toBe(true);
+    }
+  });
+  it("#2 offset +09:00 以外 → violation（arrivalTargetInstant/evaluatedAt も）", () => {
+    expect(leaveByComputationViolations({ ...computed(), timeContract: { ...CONTRACT, arrivalTargetInstant: "2026-06-12T09:00:00+00:00" } }).some((m) => m.includes("arrivalTargetInstant must be canonical"))).toBe(true);
+    expect(leaveByComputationViolations({ ...computed(), timeContract: { ...CONTRACT, evaluatedAt: "2026-06-12T07:00:00Z" } }).some((m) => m.includes("evaluatedAt must be canonical"))).toBe(true);
+    expect(isCanonicalJstIso("2026-06-12T08:30:00+09:00")).toBe(true);
+    expect(isCanonicalJstIso("2026-06-12T08:30:00+00:00")).toBe(false);
+  });
+});
+
+describe("RD2e-a-A #3/#4/#5/#6 leaveByInstant ≤ arrivalTargetInstant", () => {
+  it("#3 leaveBy が arrival より後 → violation", () => {
+    const forged = { ...computed(), leaveByInstant: { instant: "2026-06-12T09:30:00+09:00", timezone: "JST" as const } };
+    expect(leaveByComputationViolations(forged).some((m) => m.includes("at or before arrivalTargetInstant"))).toBe(true);
+  });
+  it("#4 leaveBy == arrival → 許容（equality）", () => {
+    const eq = { ...computed(), leaveByInstant: { instant: CONTRACT.arrivalTargetInstant, timezone: "JST" as const } };
+    expect(leaveByComputationViolations(eq).some((m) => m.includes("at or before"))).toBe(false);
+    expect(leaveByAtOrBeforeArrival(CONTRACT.arrivalTargetInstant, CONTRACT.arrivalTargetInstant)).toBe(true);
+  });
+  it("#5 cross-midnight: 前日 leaveBy は許容（date 跨ぎ）", () => {
+    const c = computed({
+      leaveByInstant: { instant: "2026-06-11T23:50:00+09:00", timezone: "JST" },
+      timeContract: { timezone: "JST", subjectiveDate: "2026-06-12", targetEventDate: "2026-06-12", arrivalTargetInstant: "2026-06-12T00:30:00+09:00", evaluatedAt: "2026-06-11T23:00:00+09:00" },
+    });
+    expect(leaveByComputationViolations(c)).toEqual([]);
+  });
+  it("#6 month/year rollover も許容", () => {
+    const c = computed({
+      leaveByInstant: { instant: "2025-12-31T23:50:00+09:00", timezone: "JST" },
+      timeContract: { timezone: "JST", subjectiveDate: "2025-12-31", targetEventDate: "2026-01-01", arrivalTargetInstant: "2026-01-01T00:30:00+09:00", evaluatedAt: "2025-12-31T23:00:00+09:00" },
+      computedAt: "2025-12-31T23:05:00+09:00",
+    });
+    expect(leaveByComputationViolations(c)).toEqual([]);
+  });
+});
+
+describe("RD2e-a-A #12 displayPolicy visible → violation", () => {
+  it("forged: displayPolicy visible → violation（全 status）", () => {
+    const forged = { ...computed(), displayPolicy: "visible" } as unknown as LeaveByComputationV0;
+    expect(leaveByComputationViolations(forged).some((m) => m.includes("must not be visible"))).toBe(true);
+  });
+});
+
+describe("RD2e-a-A: computedAt canonical + identity 外維持", () => {
+  it("computedAt 非 canonical → violation・正常 computed は green", () => {
+    expect(leaveByComputationViolations({ ...computed(), computedAt: "now" }).some((m) => m.includes("computedAt must be canonical"))).toBe(true);
+    expect(leaveByComputationViolations(computed())).toEqual([]);
   });
 });

@@ -209,7 +209,21 @@ const FORBIDDEN_FIELDS: ReadonlyArray<string> = [
 ];
 
 /**
+ * canonical JST ISO（`YYYY-MM-DDTHH:MM:SS+09:00`・zero-padded・+09:00 固定）。
+ * これに揃うと **lexicographic string 比較 = 時系列比較**が健全（JST 固定 offset・DST なし・Date 不使用）。
+ */
+const CANONICAL_JST_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$/;
+export function isCanonicalJstIso(s: string): boolean {
+  return CANONICAL_JST_ISO.test(s);
+}
+/** leaveBy が arrival 以前か（両者 canonical 前提・lexicographic = 時系列・cross-midnight/rollover も date prefix で正しく順序） */
+export function leaveByAtOrBeforeArrival(leaveByInstant: string, arrivalTargetInstant: string): boolean {
+  return leaveByInstant <= arrivalTargetInstant;
+}
+
+/**
  * leaveByComputationViolations — 不変条件違反を列挙（空配列 = 健全）。computed は全 precondition + 時間契約 + internal-only を要求。
+ * RD2e-a-A: canonical JST ISO 強制 + leaveByInstant ≤ arrivalTargetInstant + timezone consistency（violation message は raw instant を echo しない）。
  */
 export function leaveByComputationViolations(c: LeaveByComputationV0): string[] {
   let out: string[] = [];
@@ -223,23 +237,37 @@ export function leaveByComputationViolations(c: LeaveByComputationV0): string[] 
     // ③ planning-grade gate
     add(!c.timeEstimateUsableForPlanning, "computed requires timeEstimateUsableForPlanning=true");
     add(PLANNING_GRADE_SOURCES.indexOf(c.source) < 0, `computed requires planning-grade source (got ${c.source})`);
-    // 時間契約 + instant
+    // 時間契約 + instant（canonical JST ISO 強制・message に raw instant を echo しない）
     add(c.leaveByInstant === null, "computed requires leaveByInstant");
     add(c.leaveByInstant !== null && c.leaveByInstant.timezone !== "JST", "leaveByInstant.timezone must be JST (v0)");
     add(
-      c.leaveByInstant !== null && (c.leaveByInstant.instant.length === 0 || c.leaveByInstant.instant.indexOf("T") < 0),
-      "leaveByInstant.instant must be an absolute date-time (not HH/minuteOfDay only)",
+      c.leaveByInstant !== null && !isCanonicalJstIso(c.leaveByInstant.instant),
+      "leaveByInstant.instant must be canonical JST ISO (YYYY-MM-DDTHH:MM:SS+09:00)",
     );
     add(c.timeContract === null, "computed requires timeContract");
     if (c.timeContract !== null) {
       add(c.timeContract.timezone !== "JST", "timeContract.timezone must be JST (v0)");
       add(c.timeContract.subjectiveDate.length === 0, "timeContract requires subjectiveDate");
       add(c.timeContract.targetEventDate.length === 0, "timeContract requires targetEventDate (date-crossing not ignored)");
-      add(c.timeContract.arrivalTargetInstant.length === 0, "computed requires arrivalTargetInstant");
-      add(c.timeContract.evaluatedAt.length === 0, "computed requires evaluatedAt");
+      add(!isCanonicalJstIso(c.timeContract.arrivalTargetInstant), "arrivalTargetInstant must be canonical JST ISO (YYYY-MM-DDTHH:MM:SS+09:00)");
+      add(!isCanonicalJstIso(c.timeContract.evaluatedAt), "evaluatedAt must be canonical JST ISO (YYYY-MM-DDTHH:MM:SS+09:00)");
       // computedAt は identity-bearing timeContract に含めない
       const tcKeys = Object.keys(c.timeContract as unknown as Record<string, unknown>).map((k) => k.toLowerCase());
       add(tcKeys.indexOf("computedat") >= 0, "computedAt must not be part of timeContract (identity-excluded)");
+    }
+    // computedAt も canonical（top-level metadata・identity 外だが instant 形式は揃える）
+    add(c.computedAt !== null && !isCanonicalJstIso(c.computedAt), "computedAt must be canonical JST ISO (YYYY-MM-DDTHH:MM:SS+09:00)");
+    // leaveByInstant ≤ arrivalTargetInstant（両者 canonical 時のみ比較・equality 可・after は violation）
+    if (
+      c.leaveByInstant !== null &&
+      c.timeContract !== null &&
+      isCanonicalJstIso(c.leaveByInstant.instant) &&
+      isCanonicalJstIso(c.timeContract.arrivalTargetInstant)
+    ) {
+      add(
+        !leaveByAtOrBeforeArrival(c.leaveByInstant.instant, c.timeContract.arrivalTargetInstant),
+        "leaveByInstant must be at or before arrivalTargetInstant (leave before arrival)",
+      );
     }
     // refs
     add(c.sourceTimeEstimateRef === null || c.sourceTimeEstimateRef.length === 0, "computed requires sourceTimeEstimateRef");
@@ -264,6 +292,9 @@ export function leaveByComputationViolations(c: LeaveByComputationV0): string[] 
     add(c.timeContract !== null, "uncomputed must not carry timeContract");
     add(c.source !== "none", "uncomputed must have source none");
   }
+
+  // internal-only: displayPolicy は visible にならない（forged cast 防御・全 status）
+  add(String(c.displayPolicy) === "visible", "displayPolicy must not be visible (leaveBy is internal-only)");
 
   // 構造 backstop: user-facing/action/raw field を持たない
   const keys = Object.keys(c as unknown as Record<string, unknown>).map((k) => k.toLowerCase());
