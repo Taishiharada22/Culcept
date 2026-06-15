@@ -76,13 +76,15 @@ RD2e-b 唯一の新規算術。**`new Date(` / `Date.now` を使わない**（re
 - 非 canonical instant / 非 integer minutes / minutes<0 → `null`（呼び出し側で `uncomputed`）。
 - 返り値も canonical JST ISO（`isCanonicalJstIso` green）。
 
-**アルゴリズム（pure civil-date 算術・Howard Hinnant days_from_civil）**:
-1. 正規表現で `Y, Mo, D, h, m, s` を整数抽出。
+> **⚠ RD2e-b0B-A（`docs/reality-leaveby-computation-adapter-rd2e-b0b-a.md`）で確定・本節を上書き**: (1) 入力は `isCalendarValidMinuteJstIso`（regex + 暦妥当性 + ss=00）で検証（regex だけでは `2026-02-31` 等を通す穴があった）。(2) **seconds=00 固定**ゆえ演算は **whole-minute epoch**（下記の totalSeconds でなく `epochMin = days*1440 + h*60 + m`）— 秒演算を排除。(3) 減算後 `Y' ∉ [2000,2100]` は `null`（range guard）。以下は概念図であり、最終契約は b0B-A §7。
+
+**アルゴリズム（pure 整数・Howard Hinnant days_from_civil・b0B-A で minute epoch に確定）**:
+1. 正規表現 + 暦妥当性で `Y, Mo, D, h, m`（ss=00）を整数抽出。
 2. `days = daysFromCivil(Y, Mo, D)`（閏年含む確定式・分岐のみ・浮動小数なし）。
-3. `totalSeconds = days*86400 + h*3600 + m*60 + s`。
-4. `totalSeconds -= minutes*60`。
-5. `civilFromDays(floor(totalSeconds/86400))` で `Y',Mo',D'` を逆算、剰余で `h',m',s'`。
-6. zero-pad して canonical JST ISO 文字列を再構成（`+09:00` 固定）。
+3. `epochMin = days*1440 + h*60 + m`（whole-minute epoch・秒なし）。
+4. `epochMin -= minutes`。
+5. `civilFromDays(floor(epochMin/1440))` で `Y',Mo',D'` を逆算、剰余で `h',m'`。
+6. zero-pad して canonical JST ISO 文字列を再構成（ss=`00`・`+09:00` 固定）。range guard。
 - **date 跨ぎ**（深夜出発が前日になる）も civil 算術で正しく処理。`leaveByAtOrBeforeArrival(leaveBy, arrival)` で leaveBy ≤ arrival を最終 assert（RD2e-a-A 実装済・lexicographic 比較ゆえ canonical 同士で chronological）。
 - 合算減算は **一度だけ**: `leaveByInstant = instantMinusMinutes(arrivalTargetInstant, durationUpperBoundMinutes + bufferMinutes)`。duration と buffer を別々に 2 回引かない（丸め二重適用回避・両者 %5 ゆえ和も %5）。
 
