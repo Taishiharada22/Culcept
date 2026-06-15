@@ -39,19 +39,37 @@ function isPrecedence(kind: string): boolean {
   return kind === "must_precede" || kind === "luggage_drop_enables";
 }
 
+/** 閉じた STN（all-pairs 最短路 = 最緊 bound）+ 変数 index。S2 region 抽出と S3 flip-and-test が共有 */
+export interface ClosedStn {
+  D: number[][];
+  idxS: Map<string, number>;
+  idxE: Map<string, number>;
+  m: number;
+  nodeIds: string[];
+}
+export type BuildStnResult =
+  | { kind: "ok"; stn: ClosedStn }
+  | { kind: "needs_input"; gaps: SolverInputGap[] }
+  | { kind: "infeasible"; reason: UnsatisfiedConstraint["reason"] };
+
+/** shared-safe な infeasibility（conflictSet は code のみ・private descriptor を含まない） */
+export function temporalInfeasibility(reason: UnsatisfiedConstraint["reason"]) {
+  return {
+    state: "infeasible_constraints" as const,
+    conflictSet: [{ constraintId: "temporal", reason, visibility: "shared" as const, ownerParticipantId: null }],
+  };
+}
+
 /**
- * feasibility-region を計算。`includePrivate=false` は private な lock/time bound を除外（shared 投影）。
- *   - feasible_region: 各 event の [earliest, latest]
- *   - infeasible: negative cycle 等（shared-safe conflictSet）
- *   - needs_input: explicit 値欠落（fail-closed gap）
+ * explicit 制約を STN にコンパイルし Floyd–Warshall で閉じる。**S2/S3 共通基盤**。
+ *   `includePrivate=false` は private lock/time bound を除外（shared 投影）。
+ *   - ok: 閉じた STN（consistent）
+ *   - needs_input: explicit 値欠落（fail-closed gap・descriptor を parse しない）
+ *   - infeasible: cross-day precedence 違反 / negative cycle
  */
-export function computeTemporalFeasibility(
-  input: SolverScheduleInput,
-  opts?: { includePrivate?: boolean },
-): TemporalFeasibilityResult {
+export function buildClosedStn(input: SolverScheduleInput, opts?: { includePrivate?: boolean }): BuildStnResult {
   const includePrivate = opts?.includePrivate !== false; // 既定 authoritative
   const draft = input.draft;
-  const candidateId = draft.candidateId;
   const nodes = draft.candidateNodes;
   const gaps: SolverInputGap[] = [];
 
@@ -82,7 +100,7 @@ export function computeTemporalFeasibility(
     const hasMetric = routeEdges.length > 0 && routeEdges.every((e) => typeof input.edgeDurations[edgeKey(e.fromNodeId, e.toNodeId)] === "number");
     if (!hasMetric) gaps.push({ kind: "ordering_directive_unsupported", ref: "derive_shortest_from_terminal" });
   }
-  if (gaps.length > 0) return { outcome: "needs_input", missingForSchedule: gaps, authoritative: false, draft: true, candidateId };
+  if (gaps.length > 0) return { kind: "needs_input", gaps };
 
   // ── STN 変数: X0(0) + 各 node の s,e ──
   const idxS = new Map<string, number>();
@@ -180,27 +198,36 @@ export function computeTemporalFeasibility(
   for (let i = 0; i < m; i++) if (D[i][i] < 0) negativeCycle = true;
 
   if (negativeCycle || crossDayPrecedenceViolation) {
-    const reason: UnsatisfiedConstraint["reason"] = crossDayPrecedenceViolation ? "no_feasible_placement" : "impossible_time_lock";
-    const infeasibility = {
-      state: "infeasible_constraints" as const,
-      conflictSet: [{ constraintId: "temporal", reason, visibility: "shared" as const, ownerParticipantId: null }],
-    };
-    return { outcome: "infeasible", infeasibility, authoritative: false, draft: true, candidateId };
+    return { kind: "infeasible", reason: crossDayPrecedenceViolation ? "no_feasible_placement" : "impossible_time_lock" };
   }
+  return { kind: "ok", stn: { D, idxS, idxE, m, nodeIds: nodes.map((n) => n.nodeId) } };
+}
 
-  // earliest(v) = −D[v][X0], latest(v) = D[X0][v]
+/**
+ * feasibility-region を計算（S2 公開 API）。`includePrivate=false` は private を除外（shared 投影）。
+ *   - feasible_region: 各 event の [earliest, latest]
+ *   - infeasible: negative cycle / cross-day precedence 違反（shared-safe conflictSet）
+ *   - needs_input: explicit 値欠落（fail-closed gap）
+ */
+export function computeTemporalFeasibility(
+  input: SolverScheduleInput,
+  opts?: { includePrivate?: boolean },
+): TemporalFeasibilityResult {
+  const candidateId = input.draft.candidateId;
+  const r = buildClosedStn(input, opts);
+  if (r.kind === "needs_input") return { outcome: "needs_input", missingForSchedule: r.gaps, authoritative: false, draft: true, candidateId };
+  if (r.kind === "infeasible") return { outcome: "infeasible", infeasibility: temporalInfeasibility(r.reason), authoritative: false, draft: true, candidateId };
+  const { D, idxS, idxE, nodeIds } = r.stn;
+  const X0 = 0;
   const events: Record<string, EventRegion> = {};
-  for (const n of nodes) {
-    const s = idxS.get(n.nodeId)!;
-    const e = idxE.get(n.nodeId)!;
+  for (const id of nodeIds) {
+    const s = idxS.get(id)!;
+    const e = idxE.get(id)!;
     const startEarliest = -D[s][X0] + 0; // +0 で -0 を +0 に正規化（決定的・Object.is 安定）
     const startLatest = D[X0][s];
     const endEarliest = -D[e][X0] + 0;
     const endLatest = D[X0][e];
-    events[n.nodeId] = {
-      startEarliest, startLatest, endEarliest, endLatest,
-      forced: startEarliest === startLatest && endEarliest === endLatest,
-    };
+    events[id] = { startEarliest, startLatest, endEarliest, endLatest, forced: startEarliest === startLatest && endEarliest === endLatest };
   }
   return { outcome: "feasible_region", events, authoritative: false, draft: true, candidateId };
 }
