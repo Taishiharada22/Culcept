@@ -28,6 +28,7 @@ import {
   type RouteEtaProviderResultV0,
 } from "./routeEtaProviderAdapter";
 import { deriveEndpointPairGate } from "./routeEtaCapability";
+import { containsRawLocation } from "./routeEtaSafety";
 
 export const TRANSPORT_CASCADE_ROUTE_ETA_PROVIDER_VERSION = 0;
 
@@ -200,58 +201,7 @@ export function createTransportCascadeRouteEtaProvider(
   return async (input) => (await resolveTransportCascadeProvider(input, deps, options)).result;
 }
 
-// ── violations（input/result の opaque 性・raw 不露出を検証） ────────────────────────────────
-
-const FORBIDDEN_TOKENS: ReadonlyArray<string> = [
-  "polyline",
-  "encodedpolyline",
-  "latitude",
-  "longitude",
-  "geometry",
-  "coordinates",
-  "waypoints",
-  "address",
-  // location-encoding schemes（小数を含まず位置を運ぶ・RD2d-c-A 監査 wf_befd6b47 反映）
-  "geohash",
-  "pluscode",
-  "plus_code",
-  "what3words",
-  "mgrs",
-  "s2cell",
-];
-/** 高精度単一座標（3 桁以上小数・~110m 以下精度も捕捉） */
-const COORD_PATTERN = /\d{1,3}\.\d{3,}/;
-/** Open Location Code(plus code)構造（"8Q7XMQHC+..."） */
-const PLUS_CODE_PATTERN = /[23456789cfghjmpqrvwx]{4,}\+[23456789cfghjmpqrvwx]{2,}/i;
-
-/**
- * coordinate-shaped pair を magnitude bound で検出（RD2d-c-A 監査反映）。
- * "35.68 139.76"(空白)/"35.6,139.7"(1 桁)/"35,139"(整数)等の evasive form も、lat∈[-90,90]∧lng∈[-180,180] の
- * 範囲なら座標と判定（範囲外の任意の整数ペアは誤検出しない）。delimiter は , ; / | 空白。
- */
-function containsCoordinatePair(s: string): boolean {
-  const re = /(-?\d{1,3}(?:\.\d+)?)\s*[ ,;/|]\s*(-?\d{1,3}(?:\.\d+)?)/g;
-  let m: RegExpExecArray | null = re.exec(s);
-  while (m !== null) {
-    const a = Math.abs(parseFloat(m[1]));
-    const b = Math.abs(parseFloat(m[2]));
-    const hasDecimal = m[1].indexOf(".") >= 0 || m[2].indexOf(".") >= 0;
-    // 小数ありで lat/lng 範囲、または非ゼロ整数ペアで lat/lng 範囲 → 座標とみなす（fail-closed）
-    if (a <= 90 && b <= 180 && (hasDecimal || (a > 0 && b > 0))) return true;
-    m = re.exec(s);
-  }
-  return false;
-}
-
-/** serialized 文字列に raw 座標/位置 encoding が含まれるか（token + 単一高精度 + ペア + plus code） */
-function containsRawLocation(jsonLower: string): boolean {
-  return (
-    FORBIDDEN_TOKENS.some((t) => jsonLower.includes(t)) ||
-    COORD_PATTERN.test(jsonLower) ||
-    PLUS_CODE_PATTERN.test(jsonLower) ||
-    containsCoordinatePair(jsonLower)
-  );
-}
+// ── violations（input/result の opaque 性・raw 不露出を検証・RD2d-b-B で shared routeEtaSafety に集約） ───
 
 /** public input が opaque-only（raw 座標/位置 encoding が混入していない）ことを検証（空 = 健全・message は定数のみ） */
 export function transportCascadeProviderInputViolations(input: TransportCascadeRouteEtaProviderInputV0): string[] {

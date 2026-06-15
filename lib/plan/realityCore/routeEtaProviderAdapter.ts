@@ -40,6 +40,7 @@ import {
   type RouteEtaEvidenceRef,
   type RouteEtaMissingInput,
 } from "./routeEtaCapability";
+import { containsRawLocation, redactRouteEtaUnsafeValue } from "./routeEtaSafety";
 
 export const ROUTE_ETA_PROVIDER_ADAPTER_VERSION = 0;
 
@@ -149,33 +150,12 @@ const CONDITION_STATUSES: ReadonlyArray<ConditionModelStatusV0> = [
 ];
 const FRESHNESS_STATUSES: ReadonlyArray<RouteEtaFreshnessStatusV0> = ["fresh", "stale", "expired"];
 
-// provider result の raw-leak 検出（adapter 入口・opaqueRouteRef/providerVersion 等に座標が混入したら malformed 扱い）
-const FORBIDDEN_RESULT_TOKENS: ReadonlyArray<string> = [
-  "polyline",
-  "encodedpolyline",
-  "latitude",
-  "longitude",
-  "geometry",
-  "coordinates",
-  "waypoints",
-  "address",
-];
-const COORD_PATTERN = /\d{1,3}\.\d{4,}/;
-const COORD_PAIR_PATTERN = /-?\d{1,3}\.\d{2,}\s*[,;]\s*-?\d{1,3}\.\d{2,}/;
-
-/** 値が raw 座標/polyline 様なら redact（違反 message が leak guard を defeat しないため・RD2d-b-A INV-NO-RAW-ECHO） */
-function redactIfRaw(v: string): string {
-  const lower = v.toLowerCase();
-  if (COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v) || FORBIDDEN_RESULT_TOKENS.some((t) => lower.includes(t))) {
-    return "<redacted: matched raw-data pattern>";
-  }
-  return v;
-}
+// raw-leak 検出は shared routeEtaSafety に集約（RD2d-b-B・全層で同一の最強検出）
+const redactIfRaw = redactRouteEtaUnsafeValue;
 
 /** raw-leak signal が立っているか（reason precedence: leak > enum > structural） */
 export function providerResultHasRawLeak(r: RouteEtaProviderResultV0): boolean {
-  const json = JSON.stringify(r).toLowerCase();
-  return FORBIDDEN_RESULT_TOKENS.some((t) => json.includes(t)) || COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json);
+  return containsRawLocation(JSON.stringify(r).toLowerCase());
 }
 
 /** routeEtaProviderResultViolations — provider result の shape / enum / raw-leak を検証（空 = 健全・値は redact 済） */
@@ -192,11 +172,9 @@ export function routeEtaProviderResultViolations(r: RouteEtaProviderResultV0): s
   add(CONDITION_STATUSES.indexOf(r.conditionModelStatus) < 0, `invalid conditionModelStatus: ${redactIfRaw(String(r.conditionModelStatus))}`);
   add(FRESHNESS_STATUSES.indexOf(r.freshnessStatus) < 0, `invalid freshnessStatus: ${redactIfRaw(String(r.freshnessStatus))}`);
 
-  // raw-leak（input 境界・message は token 名/定数のみ・raw 値を含めない）
-  const json = JSON.stringify(r).toLowerCase();
-  out = out.concat(FORBIDDEN_RESULT_TOKENS.filter((t) => json.includes(t)).map((t) => `provider result leaks raw token: ${t}`));
-  if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
-    out = out.concat(["provider result contains raw coordinate pattern (opaque refs only)"]);
+  // raw-leak（input 境界・message は定数のみ・raw 値を含めない・shared 最強検出）
+  if (containsRawLocation(JSON.stringify(r).toLowerCase())) {
+    out = out.concat(["provider result contains raw location (coordinate/encoding) — opaque refs only"]);
   }
   return out;
 }
@@ -385,8 +363,8 @@ export function routeEtaAdapterOutputViolations(o: RouteEtaAdapterOutputV0): str
       o.violations.length === 0,
     "malformed/raw failureReason must carry violations",
   );
-  // violation message 自体が raw 座標値を echo しない（leak guard を message が defeat しない・INV-NO-RAW-ECHO）
-  const echoed = o.violations.filter((v) => COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v));
-  out = out.concat(echoed.map(() => "violation message must not echo raw coordinate value"));
+  // violation message 自体が raw 座標/位置を echo しない（leak guard を message が defeat しない・INV-NO-RAW-ECHO・shared 検出）
+  const echoed = o.violations.filter((v) => containsRawLocation(v.toLowerCase()));
+  out = out.concat(echoed.map(() => "violation message must not echo raw location value"));
   return out;
 }

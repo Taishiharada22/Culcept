@@ -173,7 +173,7 @@ describe("RD2d-a-A #9 raw coordinate / polyline leak guard（serialized・高精
     expect(routeEtaCapabilityViolations(f2).some((m) => m.includes("coordinate"))).toBe(true);
     // polyline / encodedPolyline token
     const f3 = { ...cap, encodedPolyline: "abc" } as unknown as RouteEtaCapabilityV0;
-    expect(routeEtaCapabilityViolations(f3).some((m) => m.includes("encodedpolyline") || m.includes("raw token"))).toBe(true);
+    expect(routeEtaCapabilityViolations(f3).some((m) => m.includes("raw location"))).toBe(true);
   });
 });
 
@@ -409,7 +409,7 @@ describe("RD2d-a-B #14/#15 raw leak guard / no-raw-echo を walker 本体で維�
     const f1: RouteEtaCapabilityV0 = { ...cap, identity: { ...cap.identity, temporalScopeRef: "35.6895,139.7006" } };
     expect(routeEtaCapabilityViolations(f1).some((m) => m.includes("coordinate"))).toBe(true);
     const f2 = { ...cap, encodedPolyline: "abc" } as unknown as RouteEtaCapabilityV0;
-    expect(routeEtaCapabilityViolations(f2).some((m) => m.includes("raw token") || m.includes("encodedpolyline"))).toBe(true);
+    expect(routeEtaCapabilityViolations(f2).some((m) => m.includes("raw location"))).toBe(true);
   });
   it("#15 違反 message が raw 座標値を echo しない（durationBasis に座標を詰めても redact）", () => {
     const cap = buildRouteEtaCapability(baseInput());

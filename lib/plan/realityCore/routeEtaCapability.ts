@@ -36,6 +36,8 @@
  *   pure（IO・時刻 API[Date.now/new Date]・乱数[Math.random]・navigator/geolocation なし）。freshnessStatus は外部計算済を受け取る。
  */
 
+import { containsRawLocation, redactRouteEtaUnsafeValue } from "./routeEtaSafety";
+
 export const ROUTE_ETA_CAPABILITY_VERSION = 0;
 
 export type TransportModeV0 = "walk" | "transit" | "car" | "bike" | "unknown";
@@ -280,34 +282,8 @@ export function deriveEndpointPairGate(parts: {
 
 // ── walkers ───────────────────────────────────────────────────────────────────────────────
 
-// serialized-output scan（output-only・source scan は #18/#19/#20 が別途担当）。
-// 注: "rawcoord"/"coordinate" は legit field 名に部分一致するため不採用。bare "lat"/"lng" も free-text 誤検出ゆえ不採用。
-const FORBIDDEN_RAW_TOKENS: ReadonlyArray<string> = [
-  "polyline",
-  "encodedpolyline",
-  "latitude",
-  "longitude",
-  "lnglat",
-  "latlng",
-  "geometry",
-  "coordinates",
-  "routeresponse",
-  "address",
-  "waypoints",
-];
-/** 高精度単一座標（4 桁以上小数・整数部 3 桁以下） */
-const COORD_PATTERN = /\d{1,3}\.\d{4,}/;
-/** 粗い座標ペア（2 桁以上小数の lat,lng pair・providerVersion 等の単一小数を誤検出しない） */
-const COORD_PAIR_PATTERN = /-?\d{1,3}\.\d{2,}\s*[,;]\s*-?\d{1,3}\.\d{2,}/;
-
-/** 違反 message が raw 座標値を echo して leak guard を defeat しないよう redact（RD2d-a-B・INV-NO-RAW-ECHO） */
-function redactIfRaw(v: string): string {
-  const lower = v.toLowerCase();
-  if (COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v) || FORBIDDEN_RAW_TOKENS.some((t) => lower.includes(t))) {
-    return "<redacted: matched raw-data pattern>";
-  }
-  return v;
-}
+// serialized-output scan は shared routeEtaSafety に集約（RD2d-b-B・全層で同一の最強検出・source scan は #18/#19/#20 が担当）。
+const redactIfRaw = redactRouteEtaUnsafeValue;
 
 /** endpointPairPrivacyViolations — pair gate の不変条件（空配列 = 健全） */
 export function endpointPairPrivacyViolations(g: EndpointPairPrivacyGateV0): string[] {
@@ -464,14 +440,13 @@ export function routeEtaCapabilityViolations(cap: RouteEtaCapabilityV0): string[
 
   // raw 座標 / polyline / route response の混入を serialized-output backstop
   const json = JSON.stringify(cap).toLowerCase();
-  out = out.concat(FORBIDDEN_RAW_TOKENS.filter((t) => json.includes(t)).map((t) => `output leaks raw token: ${t}`));
-  if (COORD_PATTERN.test(json) || COORD_PAIR_PATTERN.test(json)) {
-    out = out.concat(["output contains raw coordinate pattern (refs must be opaque)"]);
+  if (containsRawLocation(json)) {
+    out = out.concat(["output contains raw location (coordinate/encoding) — refs must be opaque"]);
   }
 
-  // INV-NO-RAW-ECHO: 違反 message 自体が raw 座標値を echo していないか（leak guard を message が defeat しない）
-  const echoed = out.filter((v) => COORD_PATTERN.test(v) || COORD_PAIR_PATTERN.test(v));
-  out = out.concat(echoed.map(() => "violation message must not echo raw coordinate value"));
+  // INV-NO-RAW-ECHO: 違反 message 自体が raw 座標/位置を echo していないか（leak guard を message が defeat しない）
+  const echoed = out.filter((v) => containsRawLocation(v.toLowerCase()));
+  out = out.concat(echoed.map(() => "violation message must not echo raw location value"));
 
   return out;
 }
