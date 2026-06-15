@@ -50,6 +50,12 @@ export const SOLVER_INPUT_GAP_KINDS = [
   "low_confidence",
   "area_unresolved",
   "price_unknown",
+  // --- T11 real-solver additions (S1)・additive 拡張 ---
+  "split_day_required", // per-day node > CAP（S3 で使用・heuristic でなく分割要求）
+  "cross_midnight_unsupported", // 深夜跨ぎ node（per-day 0-1439 で表現不可・actionable）
+  "explicit_time_bound_missing", // time-axis red_line/hard の数値 bound 未供給（descriptor を parse しない）
+  "explicit_lock_window_missing", // 数値 lock 窓（lockWindowsNumeric）未供給（presence boolean は bound に使わない）
+  "ordering_directive_unsupported", // derive_shortest_from_terminal だが explicit route metric 欠落
 ] as const;
 export type SolverInputGapKind = (typeof SOLVER_INPUT_GAP_KINDS)[number];
 
