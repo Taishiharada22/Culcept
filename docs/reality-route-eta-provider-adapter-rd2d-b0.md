@@ -137,6 +137,15 @@ adapter は **任意 provider 注入**を受ける。provider が `throw`/`rejec
 - **heuristic / duration-only / stale / origin conflict / future-departure current origin では leaveBy に渡さない**（leaveByComputable=false）。
 - **endpoint pair gate は leaveByComputable の条件ではない**（RD2d-a-A の自己補正・external send 可否と leaveBy computation は別 sibling。user_confirmed route は外部送信なしで leaveBy 計算可）。
 
+### 8.1 sibling duration value channel（RD2d-b-VALUE `c99afd46` 実装記録）
+
+leaveByComputable は **計算可能性 flag**（minutes を持たない）。leaveBy の実計算には数値が要る → adapter は capability と **別の sibling** で internal-only の `durationValue` を返す（`docs/reality-route-eta-duration-value-rd2d-b-value-0.md` 正本）。
+
+- `RouteEtaAdapterOutputV0.durationValue: PlanningGradeDurationValueV0 | null`。**capability に nest しない**・**server-only**・**consumer 非露出**。
+- provider result の生分（`durationMinutesRaw?`・optional・additive）から adapter が **rounded safe upper bound**（integer/%5/ceil）に昇格し **raw は捨てる**。allowed basis のみ（external_route/cached_route/scheduled/user_confirmed・fail-closed）。
+- **二鍵**: `durationValue.usableForLeaveByComputation` は bind 先 capability の `timeEstimateUsableForPlanning` + freshness/scope/basis を要する。**capabilityIdentityRef（短縮 key）一致だけでは bind 成立にしない** — full basis（`bindDurationValueToCapability`）照合を RD2e-b で行う。`routeEtaAdapterOutputViolations` は output レベルで「usable value ⇒ capability planning true ∧ full binding match」を強制。
+- value は **leaveBy 計算をしない**（instant/arrival 減算/buffer/departure line/notification/RC2a なし）。それは RD2e-b。
+
 ---
 
 ## 9. RD2d-b 実装候補（次段・各々別 GO）

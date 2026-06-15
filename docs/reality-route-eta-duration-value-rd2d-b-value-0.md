@@ -1,5 +1,7 @@
 # RD2d-b-VALUE-0 — Internal Duration Value Channel Design（設計提出のみ・コード禁止）
 
+> **✅ RD2d-b-VALUE 実装完了（`c99afd46`・2026-06-15）**: 本設計を実コード化。新規 pure `lib/plan/realityCore/routeEtaDurationValue.ts`（`PlanningGradeDurationValueV0` + 二鍵 binding + `createPlanningGradeDurationValue`/`createUnusableDurationValue`/`durationValueViolations`/`bindDurationValueToCapability`/`buildDurationValueBinding`/`deriveDurationValueFromProviderResult`）+ adapter sibling return（`RouteEtaAdapterOutputV0.durationValue: PlanningGradeDurationValueV0 | null`・capability に nest しない）。allowed basis fail-closed・rounded safe upper bound（integer/%5/ceil・pre-ceil raw 非保持）・full basis binding（短縮 key は内容証明でない）・shared leak guard・**leaveBy 計算なし**。tests 30/30・RD2 targeted 256/256・tsc 55。**この設計文書は実装の正本**。次は RD2e-b（leaveBy adapter・二鍵照合 + subtraction）。
+
 - 日付: 2026-06-14 / 作成: duration value channel 設計セッション
 - 位置づけ: RD2e-b0A（`8b26254c`）+ adversarial verify（`wf_20a3e3bb`）が発見した根本ギャップ —「**`leaveBy = arrival − duration − buffer` の duration 数値がどこにも存在しない**」— を埋める。`RouteEtaCapabilityV0` は consumer-safe な **flag projection**（durationSignalPresent/timeEstimateUsableForPlanning は bool）で **minutes を持たない**。leaveBy 計算には数値が要る → capability とは別の **internal-only planning-grade duration value channel** を設計する。
 - 規律: **コードを書かない**（docs-only）。value channel 実装・provider/adapter の value 出力・capability binding 実装・route provider 接続・currentLocation・weather・RC2a・UI・production には進まない。
