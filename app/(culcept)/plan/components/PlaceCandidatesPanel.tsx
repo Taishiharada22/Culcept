@@ -438,45 +438,17 @@ export function PlaceCandidatesPanel({
 
   if (!isActive) return null;
 
-  // ★Phase 2 REDO-2: flag ON は「規定の枠」を使わず、候補が主役の専用フレームを別 return（既存 <section> は flag OFF で完全不変）。
+  // ★Phase 2 REDO-3: flag ON は「規定の枠」を完全撤廃。intent ラベル/privacy/枠付き close を出さず、
+  //   候補 UI（カード）そのものを再構築した CandidateLensPanel を素のまま描画する（既存 <section> は flag OFF で完全不変）。
   if (isCandidateLensUiEnabled() && !loading && results.length > 0) {
-    const intentLabel =
-      intentType === "intent_with_area"
-        ? `「${debouncedTitle.trim()}」を ${debouncedQuery.trim()} 周辺で`
-        : intentType === "intent_only"
-          ? `「${debouncedTitle.trim()}」の候補`
-          : "場所の候補";
     return (
-      <section
-        role="complementary"
-        aria-label="場所候補 (任意)"
-        data-testid="plan-place-candidates-panel"
-        className="relative mt-3"
-      >
-        <div className="mb-2 flex items-start justify-between gap-2 px-0.5">
-          <div className="min-w-0">
-            <p className="truncate text-[12px] font-medium text-slate-500" data-testid="plan-place-candidates-intent-label">{intentLabel}</p>
-            <p className="mt-0.5 text-[10px] italic text-slate-400" data-testid="plan-place-candidates-privacy-hint">入力した場所を Google に確認しています（キャンセル可）</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            aria-label="場所候補パネルを閉じる"
-            data-testid="plan-place-candidates-close"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-          >
-            ✕
-          </button>
-        </div>
-
-        <CandidateLensPanel
-          candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
-          title={debouncedTitle.trim() || title}
-          affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
-          onSelect={(c) => handleSelect(c as PlaceCandidate)}
-          onSkip={handleSkip}
-        />
-      </section>
+      <CandidateLensPanel
+        candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
+        title={debouncedTitle.trim() || title}
+        affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
+        onSelect={(c) => handleSelect(c as PlaceCandidate)}
+        onSkip={handleSkip}
+      />
     );
   }
 
