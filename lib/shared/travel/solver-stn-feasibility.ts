@@ -146,6 +146,16 @@ export function buildClosedStn(input: SolverScheduleInput, opts?: { includePriva
     // 同日: e_subj ≤ s_obj
     addLe(idxS.get(oc.objectRef)!, idxE.get(oc.subjectRef)!, 0);
   }
+  // S4 選択由来 precedence（from before to・precedence と同一規則）
+  for (const sp of input.selectionPrecedence ?? []) {
+    if (!idxE.has(sp.from) || !idxS.has(sp.to)) continue;
+    const dFrom = dayOf(sp.from, input);
+    const dTo = dayOf(sp.to, input);
+    if (dFrom === null || dTo === null) continue;
+    if (dFrom > dTo) { crossDayPrecedenceViolation = true; continue; }
+    if (dFrom < dTo) continue;
+    addLe(idxS.get(sp.to)!, idxE.get(sp.from)!, 0);
+  }
   // route δ（同日のみ・edge 方向は与件・S2 は順序選択しない）
   for (const e of draft.edges) {
     if (e.kind !== "route_transition") continue;

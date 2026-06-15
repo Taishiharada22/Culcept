@@ -181,6 +181,8 @@ export interface SolverScheduleInput {
   nodeDayBindings?: Record<string, number>; // nodeId → dayIndex（range で必須・scope から導出しない）
   lockBounds?: SolverLockBoundInput[]; // explicit 数値 lock 窓
   timeBounds?: SolverTimeBoundInput[]; // explicit 数値 time-axis bound
+  /** ★ S4 選択由来 precedence（must_precede と同様に STN へ注入・S4 が ChoiceSelection を edge 化する経路） */
+  selectionPrecedence?: Array<{ from: string; to: string }>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
