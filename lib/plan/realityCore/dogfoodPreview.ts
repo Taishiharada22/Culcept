@@ -25,6 +25,9 @@ import { compileCommitmentSignals, type CommitmentSignalV0 } from "./commitmentS
 import { deriveDecisionDebt } from "./decisionDebt";
 import { deriveMomentSnapshot } from "./momentSnapshot";
 import { assembleRealityGraph } from "./realityGraphSnapshot";
+import { assembleLeaveByBindings } from "./leaveByAssembly";
+import { LEAVEBY_LEAK_TOKENS } from "./leaveByLeakTokens";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { graphViewerKey } from "./graphIdentity";
 import { makeRealityInstantJst } from "./realityInstant";
 import { inferredAttribute } from "./realityAttribute";
@@ -143,7 +146,14 @@ function buildScenario(def: ScenarioDef, referenceInstantUtc: Date): DogfoodScen
     const { ernOverrides, csOverrides } = def.overrides(ernBase);
     const ern = ernBase.map((e) => (ernOverrides[e.eventRealityNodeId] ? { ...e, ...ernOverrides[e.eventRealityNodeId] } : e));
     const cs = csBase.map((c) => (csOverrides[c.targetNodeId] ? { ...c, ...csOverrides[c.targetNodeId] } : c));
-    const snapshot = assembleRealityGraph({ ern, mv, cs, momentSnapshot, viewerKey: VIEWER });
+
+    // RD2f-wiring-P1: flag-gated leaveBy enrichment seam（empty supply ゆえ no-op = 何も attach されない）。
+    // supplyCandidates: [] 固定・ernScopeByNodeId: {} 固定・RD2e-SUPPLY 非呼び出し。trace は破棄（client 非露出）。
+    // OFF（本番デフォルト）→ 完全 skip・ern そのまま（DOM-diff zero）。consumingInstant は既存 fixture instant を流用。
+    const ernForGraph = PLAN_FLAGS.realityLeaveByEnrichPreview
+      ? assembleLeaveByBindings({ eventRealityNodes: ern, supplyCandidates: [], consumingInstant: instant, ernScopeByNodeId: {} }).eventRealityNodes
+      : ern;
+    const snapshot = assembleRealityGraph({ ern: ernForGraph, mv, cs, momentSnapshot, viewerKey: VIEWER });
 
     const fj = evaluateFeasibility(buildRealityJudgmentInput(snapshot, def.scope));
     const crp = evaluateCollapseRisk({ graphSnapshot: snapshot, feasibilityJudgment: fj });
@@ -205,6 +215,8 @@ const LEAK_TOKENS: ReadonlyArray<string> = [
   "confirmed",
   "inferred",
   "graphviewerkey",
+  // RD2f-wiring-P1: leaveBy internal field token（leavebycomputed/leavebyinstant/arrivaltargetinstant/timecontract/sourcetimeestimateref/bufferref）
+  ...LEAVEBY_LEAK_TOKENS,
 ];
 
 export function dogfoodPayloadLeakViolations(payload: RealitySurfaceDogfoodPreviewPayloadV0): string[] {

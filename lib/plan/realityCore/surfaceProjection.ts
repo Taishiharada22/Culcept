@@ -27,6 +27,7 @@
  */
 
 import type { RealityInstant } from "./realityInstant";
+import { LEAVEBY_LEAK_TOKENS } from "./leaveByLeakTokens";
 import { fnv1a64Hex, canonicalSerialize } from "./graphIdentity";
 import { surfacePlanViolations, type JudgmentSurfacePlanV0 } from "./judgmentSurfacePlan";
 import {
@@ -266,6 +267,8 @@ const FORBIDDEN_TOKENS: ReadonlyArray<string> = [
   "rj2d",
   "_v0",
   "graphviewerkey",
+  // RD2f-wiring-P1: leaveBy internal field token（consumerView に exact instant / timeContract が漏れないことを保証）
+  ...LEAVEBY_LEAK_TOKENS,
 ];
 
 function keysExact(obj: Record<string, unknown>, allowed: ReadonlyArray<string>): boolean {

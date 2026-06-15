@@ -319,6 +319,21 @@ export const PLAN_FLAGS = {
   realityLearningEventWrite: process.env.REALITY_LEARNING_EVENT_WRITE === "true",
 
   /**
+   * RD2f-wiring-P1: dev-only dogfood fixture preview に **leaveBy enrichment pass**（`assembleLeaveByBindings`）を
+   *   empty supply で挟むかのフラグ（no-op wiring の seam）。
+   *   true  : `dogfoodPreview.buildScenario` が `assembleRealityGraph` 直前で `assembleLeaveByBindings`
+   *           （`supplyCandidates: []` 固定・RD2e-SUPPLY 非呼び出し）を実行。**supply が空ゆえ何も attach されず**
+   *           snapshot/DTO は byte 同一（inert plumbing）。
+   *   false : enrichment pass を**実行しない**・ern そのまま（**本番デフォルト**・DOM-diff zero・既存挙動完全不変）。
+   * env: REALITY_LEAVEBY_ENRICH_PREVIEW=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし・production OFF**）。
+   * 設計: docs/reality-leaveby-assembly-wiring-rd2f-assembly-wiring-0.md §5
+   * 制約: **default OFF**。`REALITY_SURFACE_PREVIEW`（dev-reality-surface host gate）を雑流用しない（独立 flag）。
+   *   ON でも supply 空ゆえ no-op（route ETA provider 未接続）。leaveByKnown 反映なし・MovementReality 不変・
+   *   exact timestamp / departure line / notification は出さない（別 GO）。operator real-data / product /plan / Alter は NO GO。
+   */
+  realityLeaveByEnrichPreview: process.env.REALITY_LEAVEBY_ENRICH_PREVIEW === "true",
+
+  /**
    * A1-7-33: operator が proposal を review し decision を **M2/M3 に書く** route（POST /api/reality/review-decision）の有効化。
    *   true  : flag ON で route が server 再導出 proposal を review→M2 insert→approve なら M3 entry insert（review_decision_id FK）。
    *   false : route は no-op（**本番デフォルト**・M2/M3 write 0・既存挙動不変）。

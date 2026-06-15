@@ -27,6 +27,7 @@ import { compileCommitmentSignals } from "./commitmentSignal";
 import { deriveDecisionDebt } from "./decisionDebt";
 import { deriveMomentSnapshot } from "./momentSnapshot";
 import { assembleRealityGraph, type RealityGraphSnapshotV0 } from "./realityGraphSnapshot";
+import { LEAVEBY_LEAK_TOKENS } from "./leaveByLeakTokens";
 import { graphViewerKey } from "./graphIdentity";
 import { makeRealityInstantJst } from "./realityInstant";
 import { buildRealityJudgmentInput } from "./realityJudgmentInput";
@@ -194,6 +195,8 @@ const REAL_LEAK_TOKENS: ReadonlyArray<string> = [
   "sourceid",
   "companions",
   "title",
+  // RD2f-wiring-P1: leaveBy internal field token（defense-in-depth・operator real-data path は本 slice で未配線）
+  ...LEAVEBY_LEAK_TOKENS,
 ];
 
 export function realDayPayloadLeakViolations(payload: RealDaySurfacePayloadV0): string[] {
