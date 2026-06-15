@@ -1,5 +1,7 @@
 # U2-minimal-0 — OriginTemporalValidity 供給設計（previous_event_end のみ）docs-only
 
+> **✅ U2-minimal 実装完了（`9600e012`・2026-06-15）**: 本設計を実コード化。新規 pure `lib/plan/realityCore/leaveBySupplyOrigin.ts`（`buildPreviousEventEndOriginValidity`/`materializePreviousEventEndInstant`/`deriveOriginLocationState` + 型）+ `originInference.ts` の `STAGE_MAX_CONFIDENCE` walker micro-fix。**migration なし（pure compute）**。validity full-AND fail-closed・freshness=snapshotId 実 asOf・location tri-state・他 stage→null・RD2e-b-A scope 回帰なし。22/22 tests・full 20956 + baseline FAIL 2・tsc 55。RD2e-b 接続は別 GO。
+
 - 日付: 2026-06-15 / 位置づけ: U2（`docs/reality-leaveby-upstream-provenance-u1-u2-0.md`）の**最小 scope 第 1 片**。RD2e-SUPPLY が origin を honest に供給するための builder を、**temporal validity が今日のデータから honest に導ける唯一の origin kind = `previous_event_end`** に限定して念密設計する。
 - scope を最小に割る理由（CEO）: corner-cut でなく**詳細プランの精度のため**。他 origin kind は fail-closed 既定で本片の対象外（各々別 scoped slice）。
 - 規律: 本書は**コードを書かない**。supply builder 実装・RD2e-b 接続・currentLocation・home/work profile 拡張・production には進まない。
