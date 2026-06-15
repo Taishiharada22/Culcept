@@ -69,6 +69,16 @@ interface CreateExternalAnchorInputBase {
    * present の時だけ DB 列に書く（migration 未適用環境でも legacy 保存を壊さない）。
    */
   companions?: string[];
+
+  // ── U1-minimal startTime provenance **signals**（2026-06-15）──
+  // client は label（startTimeSource）を渡さない（mislabel 防止）。各 path は honest な signal だけ載せ、
+  // server（anchorInsertPayload / RPC）が startTimeSource を導出する。
+  /** manual 専用: startTime が user の実 onChange 由来か（prefill 未編集なら false）。`manual` のみ user_explicit に効く。 */
+  startTimeUserEntered?: boolean;
+  /** ICS 専用: all-day import（00:00 placeholder）か。true → assumed_default（exact 不可）。 */
+  icsIsAllDay?: boolean;
+  /** ICS 専用: tzid（floating[null]なら imported_exact にしない → system_inferred）。 */
+  icsTzid?: string | null;
 }
 
 /** 単発予定の入力 */

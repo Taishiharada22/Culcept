@@ -76,6 +76,10 @@ export function draftToAnchorInput(draft: IcsAnchorDraft): CreateExternalAnchorI
     rigidity: draft.rigidity,
     sourceType: "ics" as const,
     externalUid: draft.sourceUid,
+    // U1-minimal（2026-06-15）: startTime provenance signal を server へ thread。
+    // all-day → server で assumed_default / timed+tzid → imported_exact / timed+floating → system_inferred。
+    icsIsAllDay: draft.source.isAllDay,
+    icsTzid: draft.source.tzid ?? null,
   };
 
   if (draft.anchorKind === "recurring") {

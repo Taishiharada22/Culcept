@@ -47,6 +47,11 @@ export interface AnchorFormState {
   /** 共通必須 */
   title: string;
   startTime: string; // HH:MM
+  /**
+   * U1-minimal（2026-06-15）: startTime が user の実 onChange 由来か。prefill（mergeInitialState）では false、
+   * time 入力の onChange でのみ true。manual + true のみ server で user_explicit になる（prefill 未編集 → assumed_default）。
+   */
+  startTimeUserEntered: boolean;
 
   /** 共通 optional */
   endTime: string;    // HH:MM、空文字なら未指定
@@ -79,6 +84,7 @@ export function emptyAnchorFormState(): AnchorFormState {
     kind: "one_off",
     title: "",
     startTime: "",
+    startTimeUserEntered: false,
     endTime: "",
     rigidity: "",
     locationCategory: "",
@@ -242,6 +248,8 @@ export function mergeInitialState(
   return {
     ...empty,
     ...initial,
+    // U1-minimal: prefill は定義上「user 実入力」でない。time 入力の onChange でのみ true になる。
+    startTimeUserEntered: false,
     selectedWeekdays:
       initial.selectedWeekdays !== undefined
         ? [...initial.selectedWeekdays]
@@ -363,6 +371,8 @@ export function buildAnchorInputFromForm(
     startTime: state.startTime,
     rigidity: state.rigidity as AnchorRigidity,
     sourceType,
+    // U1-minimal: signal を server へ渡す（label は渡さない）。manual のみ server で user_explicit に効く。
+    startTimeUserEntered: state.startTimeUserEntered,
   };
 
   // optional fields は undefined 透過 (exactOptionalPropertyTypes 配慮)

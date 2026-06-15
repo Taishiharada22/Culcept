@@ -30,6 +30,22 @@ export type AnchorSensitiveCategory =
   | "other";   // ユーザー指定
 
 /** OneOff / Recurring に共通する base */
+/**
+ * U1-minimal（2026-06-15）: startTime の provenance（由来）。RD2e-SUPPLY が arrival fixedness を
+ * honest に判定する土台。**creation 時に server が確定して persist**（read で derive しない）。
+ * - `user_explicit`: ユーザーが時刻を実入力（manual + 打鍵あり）。confirmed 候補。
+ * - `imported_exact`: 外部 import の確定時刻（ICS timed + tzid あり）。confirmed 候補。
+ * - `system_inferred`: 推定（ICS timed だが tzid 不明=floating 等）。tentative（fixed にしない）。
+ * - `assumed_default`: 既定値（ICS all-day 00:00 / manual prefill 未編集）。reject。
+ * - `unknown`: 未確定 / scope 外 path / legacy NULL 行。fail-closed（fixed にしない）。
+ */
+export type StartTimeSource =
+  | "user_explicit"
+  | "imported_exact"
+  | "system_inferred"
+  | "assumed_default"
+  | "unknown";
+
 interface ExternalAnchorBase {
   id: string;
   userId: string;
@@ -71,6 +87,24 @@ interface ExternalAnchorBase {
    * - migration 未適用環境では永続化されない（読込時 undefined・後方互換）
    */
   companions?: string[];
+
+  /**
+   * U1-minimal（2026-06-15）: startTime 由来。**server が creation 時に確定**（manual + ICS-timed のみ本片対象）。
+   * - DB column: external_anchors.start_time_source TEXT NULL（CHECK enum）。legacy NULL 行は読込時 `"unknown"` に倒す。
+   * - RD2e-SUPPLY はこれを READ（derive しない）。`{user_explicit, imported_exact} ∧ ¬isAllDayPlaceholder` のみ fixed 候補。
+   */
+  startTimeSource?: StartTimeSource;
+  /** U1-minimal: all-day import の 00:00 placeholder か（exact に偽装不可・DB CHECK で強制） */
+  isAllDayPlaceholder?: boolean;
+  /** U1-minimal: ICS tzid（imported_exact の honest 根拠。floating[tzid 無]は exact にしない） */
+  timezoneOfRecord?: string | null;
+  /**
+   * U1-minimal: **startTime provenance を記録した時刻**（anchor 存在の `confirmedAt` とは別）。
+   * - `imported_exact`: imported source の時刻 provenance を記録した時刻。
+   * - `user_explicit`: ユーザー入力時刻の provenance を記録した時刻。
+   * - この timestamp 単独で user_explicit 判定をしない（startTimeSource が正本）。
+   */
+  startTimeProvenanceRecordedAt?: string | null;
 }
 
 /** 単発予定: 特定の日付に紐づく */

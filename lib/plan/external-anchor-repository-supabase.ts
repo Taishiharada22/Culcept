@@ -33,6 +33,11 @@ import type {
 import type { ExternalAnchorSource } from "./external-anchor-source";
 import type { CreateExternalAnchorInput } from "./external-anchor-input";
 import { validateCreateExternalAnchorInput } from "./external-anchor-input";
+import {
+  deriveStartTimeProvenance,
+  startTimeProvenanceRecordedAt,
+  coerceStartTimeSource,
+} from "./anchor-start-time-provenance";
 import { collectSourceInputErrors } from "./external-anchor-source-input";
 import type {
   BundleError,
@@ -140,6 +145,11 @@ interface ExternalAnchorRow {
    * migration 20260602100000 未適用環境では select に含まれず undefined になる（後方互換）。
    */
   companions?: string[] | null;
+  // ── U1-minimal startTime provenance（2026-06-15・migration 未適用環境では select に含まれず undefined）──
+  start_time_source?: string | null;
+  is_all_day_placeholder?: boolean | null;
+  timezone_of_record?: string | null;
+  start_time_provenance_recorded_at?: string | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -162,6 +172,18 @@ function rowToSource(row: ExternalAnchorSourceRow): ExternalAnchorSource {
   return base;
 }
 
+/** U1-minimal: optional provenance 列を domain anchor に写す（列 absent / NULL は skip・後方互換） */
+function applyOptionalStartTimeProvenance(
+  target: OneOffExternalAnchor | RecurringExternalAnchor,
+  row: ExternalAnchorRow,
+): void {
+  if (row.is_all_day_placeholder != null) target.isAllDayPlaceholder = row.is_all_day_placeholder;
+  if (row.timezone_of_record != null) target.timezoneOfRecord = row.timezone_of_record;
+  if (row.start_time_provenance_recorded_at != null) {
+    target.startTimeProvenanceRecordedAt = row.start_time_provenance_recorded_at;
+  }
+}
+
 function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
   // 共通 base
   const commonBase = {
@@ -172,6 +194,8 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
     startTime: row.start_time,
     rigidity: row.rigidity,
     confirmedAt: row.confirmed_at,
+    // U1-minimal: NULL / 列 absent（migration 未適用）/ 未知値 → "unknown"（fail-closed・fixed にしない）
+    startTimeSource: coerceStartTimeSource(row.start_time_source),
   } as const;
 
   if (row.anchor_kind === "one_off") {
@@ -199,6 +223,7 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
     if (row.companions != null && row.companions.length > 0) {
       oneOff.companions = row.companions;
     }
+    applyOptionalStartTimeProvenance(oneOff, row);
     return oneOff;
   }
 
@@ -231,6 +256,7 @@ function rowToAnchor(row: ExternalAnchorRow): ExternalAnchor {
   if (row.companions != null && row.companions.length > 0) {
     recurring.companions = row.companions;
   }
+  applyOptionalStartTimeProvenance(recurring, row);
   return recurring;
 }
 
@@ -263,7 +289,7 @@ function sourceInsertPayload(
  * id / confirmed_at は client 補完（confirmed_at は now、id は DB DEFAULT）。
  * 直交制約: one_off なら recurring 専用列を null、recurring なら date を null。
  */
-function anchorInsertPayload(
+export function anchorInsertPayload(
   userId: string,
   sourceId: string,
   input: CreateExternalAnchorInput,
@@ -296,6 +322,12 @@ function anchorInsertPayload(
   if (input.companions && input.companions.length > 0) {
     payload.companions = input.companions;
   }
+  // U1-minimal（2026-06-15）: startTime provenance を server 導出して persist（sequential 経路）
+  const prov = deriveStartTimeProvenance(input);
+  payload.start_time_source = prov.source;
+  payload.is_all_day_placeholder = prov.isAllDayPlaceholder;
+  payload.timezone_of_record = prov.timezoneOfRecord;
+  payload.start_time_provenance_recorded_at = startTimeProvenanceRecordedAt(prov.source, nowIso);
   return payload;
 }
 
@@ -330,7 +362,7 @@ function sourceInsertPayloadForRpc(
  *   (p_user_id / v_source.id / NOW())
  * - id / created_at / updated_at は DB DEFAULT
  */
-function anchorInsertPayloadForRpc(
+export function anchorInsertPayloadForRpc(
   input: CreateExternalAnchorInput
 ): Record<string, unknown> {
   const isOneOff = input.anchorKind === "one_off";
@@ -357,6 +389,12 @@ function anchorInsertPayloadForRpc(
   if (input.companions && input.companions.length > 0) {
     payload.companions = input.companions;
   }
+  // U1-minimal（2026-06-15）: provenance label / signal を JSONB に載せる。
+  // start_time_provenance_recorded_at は RPC SQL 側が NOW() で埋める（source<>'unknown' の時）→ 両経路一致。
+  const prov = deriveStartTimeProvenance(input);
+  payload.start_time_source = prov.source;
+  payload.is_all_day_placeholder = prov.isAllDayPlaceholder;
+  payload.timezone_of_record = prov.timezoneOfRecord;
   return payload;
 }
 

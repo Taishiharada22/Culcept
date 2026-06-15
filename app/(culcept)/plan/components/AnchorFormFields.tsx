@@ -345,7 +345,11 @@ export function AnchorFormFields({
         <input
           type="time"
           value={form.startTime}
-          onChange={(e) => onChange("startTime", e.target.value)}
+          onChange={(e) => {
+            // U1-minimal: 実 onChange = user 実入力 → startTimeUserEntered=true（prefill では false のまま）
+            onChange("startTime", e.target.value);
+            onChange("startTimeUserEntered", true);
+          }}
           disabled={submitting}
           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
         />

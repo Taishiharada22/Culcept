@@ -50,6 +50,11 @@ const SANITIZED_KEYS = new Set([
   "capturedAt",
   "createdAt",
   "updatedAt",
+  // U1-minimal（2026-06-15）: startTime provenance は **server 決定**・client patch 不可（confirmedAt/sourceId と同格）
+  "startTimeSource",
+  "isAllDayPlaceholder",
+  "timezoneOfRecord",
+  "startTimeProvenanceRecordedAt",
 ]);
 
 /**
