@@ -60,6 +60,14 @@
   - 集中作業: 徒歩◀・相性・種別。**注記「静かさ・Wi-Fi・電源 はまだ確認できていません」**。
   - 会話: 徒歩◀・余白・相性・種別。注記「会話のしやすさ はまだ確認できていません」。
 
+## 6.5 Phase 2-UI REDO（2026-06-15・CEO「0点」差戻し → 画像準拠で全面再構成）
+初回 UI は **NO GO（0点）**。根因の自己監査=**既存パネルの小箱(`max-h-60`)に候補を間借りさせ、候補を主役化できなかった**（メディア極小・カード小・③が同箱内で窮屈）。安全側に寄せ「理想画像をないものとして既存UIへ最小侵襲で足した」のが失敗。
+REDO（ロジック/resolver/honesty は不変・UI/layout のみ）:
+- `PlaceCandidatesPanel`: lens ON 時のみコンテナを「候補が主役の探索エリア」へ（小箱脱・`bg-slate-50`・`max-h-28rem`）。flag OFF/production は既存 `<ul>`・コンテナ完全不変。
+- `CandidateLensPanel` 全面書き直し: ① hero カード（大メディアタイル＋名前＋相性＋理由＋honest チップ＋住所＋2 ボタン・1 枚ずつ snap・次がのぞく）/ ② 大インライン詳細（大メディア＋住所＋evidence チップ＋「なぜここをおすすめ？」＋∧）/ ③ 全画面 takeover 比較（戻る＋比較中＋2 候補メディアヘッダー＋▲▼/スワイプ＋アイコン付き比較表＋優位セル薄紫✓＋✨おすすめバナー＋選択→確定）。
+- `CARD_CHIP_KEYS` に category 追加で honest チップ richer（徒歩＋種別）。写真→抽象タイル（category 色＋📍）・未確認は捏造せず主表除外。
+- **実スクショ確認（CEO 必須）**: 非認証 temp harness で**実コンポーネント**を描画→ ①list / ②detail / ③compare / ③selected を撮影→ harness・proxy public 追加・flag override は**全て revert**。29 tests PASS・eslint clean・tsc footprint 0(baseline 55)。
+
 ## 7. 次（CEO GO 待ち）
 - **Phase 3（学習配線）**: 確定時に preference を**観測のみ**で記録（local・sufficient-gate・捏造なし）→ resolver に供給。別 GO。
 - gap 配線（予定接続/余白を実値化）= AnchorFormFields → panel に gapMinutes を渡す軽改修。Phase 2 はスコープ外（既存パネル不変）。
