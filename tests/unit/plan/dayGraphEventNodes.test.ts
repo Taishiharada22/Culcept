@@ -483,3 +483,50 @@ describe("anchor mutation 不可 (= Invariant 10)", () => {
     expect(JSON.stringify(anchors)).toBe(frozen);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// U1-EventNode propagation (2026-06-15): anchor.startTimeSource → EventNode.startTimeSource
+// safe enum のみ伝播・欠落→unknown・raw tzid/timestamp 非伝播
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+describe("U1-EventNode propagation: startTimeSource", () => {
+  function node(over: Partial<ExternalAnchor> = {}) {
+    const r = buildEventNodeFromAnchor({
+      anchor: makeAnchor(over),
+      allDayAnchors: [makeAnchor(over)],
+      overlapsIds: new Set(),
+      bounds: DEFAULT_BOUNDS,
+    });
+    if (!r.ok) throw new Error("expected ok");
+    return r.node;
+  }
+
+  it("#1 user_explicit 伝播", () => {
+    expect(node({ startTimeSource: "user_explicit" }).startTimeSource).toBe("user_explicit");
+  });
+  it("#2 imported_exact 伝播", () => {
+    expect(node({ startTimeSource: "imported_exact" }).startTimeSource).toBe("imported_exact");
+  });
+  it("#3 system_inferred 伝播", () => {
+    expect(node({ startTimeSource: "system_inferred" }).startTimeSource).toBe("system_inferred");
+  });
+  it("#4 assumed_default 伝播", () => {
+    expect(node({ startTimeSource: "assumed_default" }).startTimeSource).toBe("assumed_default");
+  });
+  it("#5 欠落（undefined）→ unknown（fail-closed）", () => {
+    expect(node({}).startTimeSource).toBe("unknown");
+  });
+  it("#6 recurring 展開後の anchor でも rule 由来 startTimeSource が伝播", () => {
+    const n = node({ anchorKind: "recurring", validFrom: "2026-05-01", recurrenceRule: "FREQ=WEEKLY;BYDAY=MO", date: undefined, startTimeSource: "user_explicit" } as Partial<ExternalAnchor>);
+    expect(n.startTimeSource).toBe("user_explicit");
+  });
+  it("#7/#8/#9 EventNode に timezoneOfRecord / startTimeProvenanceRecordedAt / raw tzid・timestamp が出ない", () => {
+    const n = node({ startTimeSource: "imported_exact", timezoneOfRecord: "Asia/Tokyo", startTimeProvenanceRecordedAt: "2026-06-12T00:00:00Z", isAllDayPlaceholder: false } as Partial<ExternalAnchor>);
+    const keys = Object.keys(n);
+    expect(keys.includes("timezoneOfRecord")).toBe(false);
+    expect(keys.includes("startTimeProvenanceRecordedAt")).toBe(false);
+    expect(keys.includes("isAllDayPlaceholder")).toBe(false);
+    const s = JSON.stringify(n);
+    expect(s.includes("Asia/Tokyo")).toBe(false); // raw tzid 非伝播
+    expect(s.includes("2026-06-12T00:00:00Z")).toBe(false); // raw timestamp 非伝播
+  });
+});

@@ -27,6 +27,7 @@ import type {
   AnchorRigidity,
   AnchorSensitiveCategory,
   ExternalAnchor,
+  StartTimeSource,
 } from "@/lib/plan/external-anchor";
 import type { LocationCategory } from "@/lib/plan/location-category";
 
@@ -187,6 +188,13 @@ export interface EventNode extends DayGraphNodeBase {
   readonly sensitiveCategory?: AnchorSensitiveCategory;
   /** 同日他 EventNode との時刻 overlap (= detectTimedAnchorOverlaps 由来 anchor id list) */
   readonly overlapsWithNodeIds: ReadonlyArray<string>;
+  /**
+   * U1-EventNode propagation（2026-06-15）: anchor.startTimeSource を **safe enum のみ**伝播。
+   * RD2e-SUPPLY が arrival fixedness / previous_event_end origin を honest に判定するため。
+   * - 欠落（draft / U1 migration 未適用 / U1-rest 未対応 path）→ "unknown"（fail-closed）。
+   * - **raw tzid / timestamp / raw anchor は載せない**（client-facing ゆえ・timezoneOfRecord/startTimeProvenanceRecordedAt 非伝播）。
+   */
+  readonly startTimeSource?: StartTimeSource;
 }
 
 export interface GapNode extends DayGraphNodeBase {

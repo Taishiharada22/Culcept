@@ -282,6 +282,9 @@ export function buildEventNodeFromAnchor(input: {
     sensitive,
     sensitiveCategory: anchor.sensitiveCategory,
     overlapsWithNodeIds,
+    // U1-EventNode propagation: anchor.startTimeSource を safe enum で伝播（欠落→unknown fail-closed）。
+    // durationSource/sourceType/confirmedAt から再導出しない・raw tzid/timestamp は載せない。
+    startTimeSource: anchor.startTimeSource ?? "unknown",
   };
 
   return { ok: true, node };
