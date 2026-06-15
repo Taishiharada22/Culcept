@@ -27,8 +27,10 @@ import { compileCommitmentSignals } from "./commitmentSignal";
 import { deriveDecisionDebt } from "./decisionDebt";
 import { deriveMomentSnapshot } from "./momentSnapshot";
 import { assembleRealityGraph, type RealityGraphSnapshotV0 } from "./realityGraphSnapshot";
+import { assembleLeaveByBindings } from "./leaveByAssembly";
 import { LEAVEBY_LEAK_TOKENS } from "./leaveByLeakTokens";
 import { graphViewerKey } from "./graphIdentity";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { makeRealityInstantJst } from "./realityInstant";
 import { buildRealityJudgmentInput } from "./realityJudgmentInput";
 import { evaluateFeasibility } from "./feasibilityJudgment";
@@ -94,7 +96,15 @@ export function buildOperatorDaySnapshot(dayAnchors: ReadonlyArray<ExternalAncho
   const instant = makeRealityInstantJst(referenceInstantUtc);
   const momentState = deriveMomentState({ nowHHMM: instant.wallClockHHMM, segments: [] });
   const momentSnapshot = deriveMomentSnapshot({ instant, momentState, ern, mv, cs, decisionDebt });
-  return assembleRealityGraph({ ern, mv, cs, momentSnapshot, viewerKey: graphViewerKey(operatorUserId) });
+
+  // RD2f-wiring-P2: flag-gated leaveBy enrichment seam（real-data path・empty supply ゆえ no-op = 何も attach されない）。
+  // supplyCandidates: [] 固定・ernScopeByNodeId: {} 固定・RD2e-SUPPLY/computeLeaveBy 非呼び出し・trace 破棄（client 非露出）。
+  // OFF（本番デフォルト）→ 完全 skip・ern そのまま（payload 差分ゼロ）。consumingInstant は既存 instant を流用。
+  // mv は by-reference 不変（leaveByKnown/routeKnown/etaKnown/missingInputs を触らない）。
+  const ernForGraph = PLAN_FLAGS.realityLeaveByEnrichPreview
+    ? assembleLeaveByBindings({ eventRealityNodes: ern, supplyCandidates: [], consumingInstant: instant, ernScopeByNodeId: {} }).eventRealityNodes
+    : ern;
+  return assembleRealityGraph({ ern: ernForGraph, mv, cs, momentSnapshot, viewerKey: graphViewerKey(operatorUserId) });
 }
 
 function unavailable(reasonCode: string, summary: RealDaySurfaceSummaryV0): RealDaySurfacePayloadV0 {
