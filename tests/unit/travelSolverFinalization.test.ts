@@ -191,6 +191,54 @@ describe("7. private narrowing は shared に漏れない", () => {
   });
 });
 
+// ── 9. cascade 帰属 / per-choice batch accept / no day phantom ────────────────
+describe("9. cascade / batch / no-day-phantom", () => {
+  it("ordering 選択が他 node を forced 化 → cascade_of_choice を選択に帰属", () => {
+    // a は lock で 09:00 固定(540-600 forced)・b は return_by 660 + dwell 60。base では b は a の前/後の 2 択。
+    // a→b 選択で b は a の後に強制 → return_by で 600-660 に collapse = cascade。
+    const d = draftOf(["a", "b"], { orderingConstraints: [{ kind: "reorderable", subjectRef: "a", objectRef: "b", relaxable: true }] });
+    const [a, b] = d.candidateNodes.map((n) => n.nodeId);
+    const b0: SolverScheduleInput = {
+      ...base(d),
+      lockBounds: [{ nodeId: a, kind: "timed_entry_lock", windowStartMin: 540, windowEndMin: 540 }],
+      timeBounds: [{ nodeId: b, event: "end", kind: "no_later_than", minute: 660, constraintId: "tb:ret" }],
+    };
+    const ordSel: ChoiceSelection = { selectionId: "o1", kind: "ordering_choice", ref: `${a}|${b}`, selected: { mode: "ordering", option: `${a}→${b}` }, origin: "user_explicit" };
+    const r = applySelectionLedger({ base: b0, sequencing: computeSequencingFeasibility(b0), ledger: [ordSel] });
+    expect(r.outcome).toBe("assembly_input_candidate");
+    if (r.outcome === "assembly_input_candidate") {
+      const bp = r.handoffProvenance.find((p) => p.ref === b)!;
+      expect(bp.basis).toBe("cascade_of_choice");
+      expect(bp.selectionId).toBe("o1"); // 明示選択に帰属
+      expect(r.handoffProvenance.find((p) => p.ref === a)!.basis).toBe("forced_by_constraint"); // a は lock 由来
+    }
+  });
+  it("batch accept は choice ごとの個別 accept_default entry（暗黙の一括解決でない）", () => {
+    // 別日 2 node（range・binding）→ 同日 ordering 曖昧なし・time choice 2 つを個別 accept
+    const d = draftOf(["a", "b"]);
+    const [a, b] = d.candidateNodes.map((n) => n.nodeId);
+    const range1: TravelPlanScope = { mode: "travel", window: { kind: "range", startDate: "2026-07-01", endDate: "2026-07-02", nights: 1 } };
+    const b0: SolverScheduleInput = { ...base(d), scope: range1, nodeDayBindings: { [a]: 0, [b]: 1 } };
+    const pre = applySelectionLedger({ base: b0, sequencing: computeSequencingFeasibility(b0), ledger: [] });
+    if (pre.outcome !== "unresolved_choices") throw new Error("expected unresolved");
+    const fp = (cp: (typeof pre.residualChoicePoints)[number]) => `${cp.kind}|${cp.ref}|${(cp.feasibleOptions ?? []).join(",")}|${cp.feasibleRange ? `${cp.feasibleRange.lo}-${cp.feasibleRange.hi}` : ""}|${cp.provisionalDefault ?? ""}|${cp.namedTieBreak}`;
+    const sels: ChoiceSelection[] = pre.residualChoicePoints
+      .filter((c) => c.kind === "time_window_choice")
+      .map((c, i) => ({ selectionId: `acc${i}`, kind: "time_window_choice" as const, ref: c.ref, selected: { mode: "time" as const, startMin: c.provisionalDefault! }, origin: "accept_default" as const, acceptedDefaultIdentity: fp(c) }));
+    expect(sels).toHaveLength(2); // ★ choice ごと個別 entry（一括 flag でない）
+    const r = applySelectionLedger({ base: b0, sequencing: computeSequencingFeasibility(b0), ledger: sels });
+    expect(r.outcome).toBe("assembly_input_candidate");
+  });
+  it("residual choice に day_assignment_choice phantom が出ない", () => {
+    const d = draftOf(["a", "b"]);
+    const r = applySelectionLedger(input(d, []));
+    if (r.outcome === "unresolved_choices") {
+      expect(r.residualChoicePoints.every((c) => c.kind === "ordering_choice" || c.kind === "time_window_choice")).toBe(true);
+      expect(r.residualChoicePoints.some((c) => c.kind === "day_assignment_choice")).toBe(false);
+    }
+  });
+});
+
 // ── 8. 境界 + import 純度（source-contract）───────────────────────────────────
 describe("8. 境界 + import 純度", () => {
   const strip = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
