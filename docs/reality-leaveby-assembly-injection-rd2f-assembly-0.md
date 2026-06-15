@@ -1,5 +1,7 @@
 # RD2f-assembly-0 — LeaveBy enrichment pass 注入設計（docs-only）
 
+> **✅ RD2f-assembly 実装完了（`2a6ad554`・2026-06-15）**: §8 の RD2f-assembly を実コード化。新規 pure `lib/plan/realityCore/leaveByAssembly.ts`（`assembleLeaveByBindings`/`buildLeaveBySupplyMap`・ern[] 駆動・cardinality/orphan/duplicate-ern/same-ref no-op）+ RD2f-bind 追従（`consumingInstant` staleness gate `computation_stale`・`empty_id` guard・`jstMinuteEpoch` export）。**call-site 接続・preview・MovementReality 更新・leaveByKnown 反映はしない**。candidate は leaveBy+computedScope のみ（bundle 構造的非進入）。assembly 18/18 + binding 23/23・full 21025 + baseline FAIL 2・tsc 55。次は call-site wiring（別 GO）/ RD2f-mv / feasibility-guard。
+
 - 日付: 2026-06-15 / 位置づけ: RD2f-bind（`da1fff96`）の `attachComputedLeaveBy` を使い、`leaveByComputed` を RealityGraph assembly の**どこで・どの条件で・どう注入するか**を実装前設計。**まだ実装ではない**。leaveByComputed は依然 internal-only。
 - 規律: 本書は**コードを書かない**。assembly/MovementReality/Feasibility/CollapseRisk/Intervention/Surface/preview/departure line/notification/DB write には進まない。
 - 方法（CEO ①②③ + ultracode）: **adversarial workflow（`wf_028e4af8`・4 grounding + 2 synthesize・file:line 根拠）**で assembly mechanics を監査。下記は確認事実。
