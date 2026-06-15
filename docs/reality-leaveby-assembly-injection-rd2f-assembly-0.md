@@ -1,5 +1,7 @@
 # RD2f-assembly-0 — LeaveBy enrichment pass 注入設計（docs-only）
 
+> **→ call-site 接続設計 = `docs/reality-leaveby-assembly-wiring-rd2f-assembly-wiring-0.md`（RD2f-assembly-wiring-0）**。grounding（`wf_51a16ae5`）で **supply は今日空（RouteEtaCapability/durationValue 未接続）→ wiring は inert plumbing**・`assembleRealityGraph` は dev-only（product/Alter 未配線）・leak guard が leaveBy token 未 scan と確定。first target=dogfoodPreview・新 default-OFF flag・empty supplyCandidates。
+
 > **✅ RD2f-assembly 実装完了（`2a6ad554`・2026-06-15）**: §8 の RD2f-assembly を実コード化。新規 pure `lib/plan/realityCore/leaveByAssembly.ts`（`assembleLeaveByBindings`/`buildLeaveBySupplyMap`・ern[] 駆動・cardinality/orphan/duplicate-ern/same-ref no-op）+ RD2f-bind 追従（`consumingInstant` staleness gate `computation_stale`・`empty_id` guard・`jstMinuteEpoch` export）。**call-site 接続・preview・MovementReality 更新・leaveByKnown 反映はしない**。candidate は leaveBy+computedScope のみ（bundle 構造的非進入）。assembly 18/18 + binding 23/23・full 21025 + baseline FAIL 2・tsc 55。次は call-site wiring（別 GO）/ RD2f-mv / feasibility-guard。
 
 - 日付: 2026-06-15 / 位置づけ: RD2f-bind（`da1fff96`）の `attachComputedLeaveBy` を使い、`leaveByComputed` を RealityGraph assembly の**どこで・どの条件で・どう注入するか**を実装前設計。**まだ実装ではない**。leaveByComputed は依然 internal-only。
