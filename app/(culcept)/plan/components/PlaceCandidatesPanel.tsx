@@ -443,12 +443,13 @@ export function PlaceCandidatesPanel({
       role="complementary"
       aria-label="場所候補 (任意)"
       data-testid="plan-place-candidates-panel"
-      className="
-        mt-2 rounded-xl border border-slate-200 bg-white p-3
-        max-h-60 overflow-y-auto
-        relative
-        shadow-sm
-      "
+      className={
+        isCandidateLensUiEnabled()
+          ? // ★lens ON: 候補が主役の探索エリア。小箱(max-h-60)を脱し、白カードが沈むシート背景・余白広め。
+            "relative mt-2 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 max-h-[28rem] overflow-y-auto shadow-sm"
+          : // 既存(flag OFF/production)＝完全不変
+            "mt-2 rounded-xl border border-slate-200 bg-white p-3 max-h-60 overflow-y-auto relative shadow-sm"
+      }
     >
       {/* close button (× icon、右上、tap target 28px、C3 polish) */}
       <button

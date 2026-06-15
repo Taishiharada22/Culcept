@@ -51,12 +51,12 @@ export interface LensCandidateView {
   readonly attrs: Record<AttributeKey, PlaceAttribute>;
 }
 
-/** lens ごとに ① card の主役チップに出す軸（実値があるものだけ採用）。 */
+/** lens ごとに ① card の主役チップに出す軸（実値があるものだけ採用）。徒歩＋種別を基本に、gap があれば予定接続/余白も。 */
 const CARD_CHIP_KEYS: Record<PurposeLens, readonly AttributeKey[]> = {
-  meeting_prep: ["walk_estimate", "schedule_fit", "margin_impact"],
+  meeting_prep: ["walk_estimate", "schedule_fit", "margin_impact", "category"],
   focus_work: ["walk_estimate", "category"],
-  conversation: ["walk_estimate", "margin_impact"],
-  errand: ["walk_estimate", "schedule_fit"],
+  conversation: ["walk_estimate", "margin_impact", "category"],
+  errand: ["walk_estimate", "schedule_fit", "category"],
   generic: ["walk_estimate", "category"],
 };
 

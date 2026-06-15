@@ -2,12 +2,15 @@
 
 /**
  * app/(culcept)/plan/components/CandidateLensPanel.tsx
- *   — Purpose-Adaptive Candidate Lens / Phase 2 UI（3 画面・参照画像 add-search1/2/3 準拠で再構成）
+ *   — Purpose-Adaptive Candidate Lens / Phase 2 UI（参照画像 add-search1/2/3 を**非トレース**で忠実再構成）
  *
- * ★flag default OFF / dev-only（呼び側 PlaceCandidatesPanel が isCandidateLensUiEnabled で分岐）。既存パネルは不変。
- * ★CEO 補正(2026-06-15): 未確認は主比較表に「—」を並べず名前だけ補助注記・写真は外部 API なしゆえ出さない
- *   （map/address/reason/種別 を主役・抽象タイルは写真でない）・evidenceType を UI に反映・B は「約/目安」表記。
- * ★トレース/画像切り貼り/写真捏造なし。pure helper(candidateLensUi)を消費。確定は onSelect → ① へ戻る（親が close）。
+ * ★flag default OFF / dev-only（呼び側 PlaceCandidatesPanel が isCandidateLensUiEnabled で分岐）。flag OFF は既存 <ul> 不変。
+ * ★3 画面（画像準拠）:
+ *   ① 候補が出る   … 候補が「主役」の探索エリア。hero カード（大メディア＋名前＋相性＋理由＋徒歩＋住所＋2 ボタン）を 1 枚ずつ・下に次がのぞく。
+ *   ② 詳細がひらく … 同じ画面内で大きくインライン展開。住所/種別/honest チップ＋「なぜここをおすすめ？」。
+ *   ③ 候補を比較   … 別状態の全画面 takeover。2 候補ヘッダー＋アイコン付き比較表（優位は薄紫＋✓）＋推薦バナー。
+ * ★honesty（CEO）: 写真/Wi-Fi/電源/静か等の未確認は**捏造しない**。写真→抽象タイル・住所/理由を主役・未確認は主表から外し小注記・
+ *   優位ハイライトは「表示値に差がある行」のみ・Evidence B は「約/目安」。トレース/画像切り貼り/写真捏造なし。
  */
 import { useState } from "react";
 import {
@@ -15,9 +18,10 @@ import {
   buildLensComparisonView,
   purposeLensFromSchedule,
   type LensCandidate,
+  type LensCandidateView,
 } from "@/lib/plan/candidateLens/candidateLensUi";
 import { PURPOSE_LENS_LABEL } from "@/lib/plan/candidateLens/purposeLens";
-import type { EvidenceType } from "@/lib/plan/candidateLens/placeAttributeModel";
+import type { AttributeKey, EvidenceType } from "@/lib/plan/candidateLens/placeAttributeModel";
 
 export interface CandidateLensPanelProps {
   readonly candidates: readonly LensCandidate[];
@@ -31,17 +35,77 @@ export interface CandidateLensPanelProps {
   readonly onSelect: (candidate: LensCandidate) => void;
 }
 
-/** evidenceType → 小さなラベル（A 事実 / B 計算 / C 推定 / D 未確認）。 */
+/** evidenceType → 小ラベル（A 事実 / B 計算 / C 推定 / D 未確認）。 */
 const EVIDENCE_TAG: Record<EvidenceType, string> = { fact: "事実", computed: "計算", weak: "推定", unconfirmed: "未確認" };
 
-/** 写真でない抽象タイル（種別の頭文字・写真捏造でない装飾）。 */
-function PlaceTile({ category }: { category: string | null }) {
+/** 属性 → アイコン（参照画像のアイコン付き行・チップを再現。絵文字＝外部 API 不要）。 */
+const ATTR_ICON: Record<AttributeKey, string> = {
+  walk_estimate: "🚶",
+  schedule_fit: "🗓️",
+  margin_impact: "🌿",
+  affinity_reason: "💜",
+  category: "🏷️",
+  address: "📍",
+  social_fit: "💬",
+  quiet: "🤫",
+  wifi: "📶",
+  power: "🔌",
+  hours: "🕐",
+  crowd: "👥",
+  photo: "📷",
+};
+
+/** カテゴリ → 抽象タイルの色味（写真でない・designed placeholder と分かる装飾）。 */
+function tileTone(category: string | null): string {
+  switch (category) {
+    case "カフェ":
+    case "ベーカリー":
+      return "from-amber-100 to-orange-50 text-amber-700";
+    case "レストラン":
+    case "バー":
+    case "テイクアウト":
+      return "from-rose-100 to-red-50 text-rose-700";
+    case "図書館":
+    case "書店":
+      return "from-sky-100 to-indigo-50 text-sky-700";
+    case "公園":
+      return "from-emerald-100 to-green-50 text-emerald-700";
+    case "ジム":
+      return "from-violet-100 to-purple-50 text-violet-700";
+    default:
+      return "from-slate-100 to-slate-50 text-slate-500";
+  }
+}
+
+/** 写真でない抽象メディアタイル（category 頭文字＋場所グリフ）。size で hero/detail を切替。 */
+function PlaceMedia({ category, size = "card" }: { category: string | null; size?: "card" | "detail" | "mini" }) {
+  const dim = size === "detail" ? "h-24 w-full" : size === "mini" ? "h-14 w-full" : "h-16 w-16";
   return (
     <div
       aria-hidden
-      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 text-[11px] font-medium text-slate-500 ring-1 ring-black/5"
+      className={`relative flex ${dim} shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br ${tileTone(category)} ring-1 ring-black/5`}
     >
-      {category ?? "場所"}
+      <span className="text-[18px]">📍</span>
+      <span className="absolute bottom-1 left-1.5 text-[10px] font-medium opacity-80">{category ?? "場所"}</span>
+    </div>
+  );
+}
+
+/** honest チップ（実値のある主役軸のみ・evidence 付き）。 */
+function ChipRow({ view, withEvidence = false }: { view: LensCandidateView; withEvidence?: boolean }) {
+  if (view.primaryChips.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {view.primaryChips.map((chip) => (
+        <span
+          key={chip.key}
+          className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-[12px] text-slate-700 ring-1 ring-black/5"
+        >
+          <span aria-hidden className="text-[11px]">{ATTR_ICON[chip.key]}</span>
+          {chip.value}
+          {withEvidence && <span className="ml-0.5 text-[9px] text-slate-300">{EVIDENCE_TAG[view.attrs[chip.key].evidenceType]}</span>}
+        </span>
+      ))}
     </div>
   );
 }
@@ -63,7 +127,8 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   const openDetail = (i: number) => { setPrimaryIndex(i); setMode("detail"); };
   const openCompare = (i: number) => {
     setPrimaryIndex(i);
-    setCompareIndex(views.findIndex((_, j) => j !== i) >= 0 ? views.findIndex((_, j) => j !== i) : i);
+    const other = views.findIndex((_, j) => j !== i);
+    setCompareIndex(other >= 0 ? other : i);
     setSelectedSide(null);
     setMode("compare");
   };
@@ -76,105 +141,152 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     setSelectedSide(null);
   };
 
-  // ───────────────────────── ① 候補が出る（1 枚ずつ・スクロール） ─────────────────────────
+  // ───────────────────────── ① 候補が出る（候補が主役・1 枚ずつ・下に次がのぞく） ─────────────────────────
   if (mode === "list") {
     return (
-      <div data-testid="lens-list" className="space-y-2">
-        <p className="px-0.5 text-[13px] font-semibold tracking-tight text-slate-900">
-          おすすめの候補
-          <span className="ml-1.5 text-[11px] font-normal text-slate-400">{PURPOSE_LENS_LABEL[lens]}の目的で</span>
-        </p>
-        <div className="max-h-[19rem] snap-y space-y-2 overflow-y-auto pr-0.5">
+      <div data-testid="lens-list" className="space-y-3">
+        <div className="flex items-baseline justify-between px-0.5">
+          <p className="text-[14px] font-semibold tracking-tight text-slate-900">おすすめの候補</p>
+          <span className="text-[11px] font-medium text-purple-600">{PURPOSE_LENS_LABEL[lens]}の目的で</span>
+        </div>
+
+        <div className="snap-y snap-mandatory space-y-3">
           {views.map((v, i) => (
             <article
               key={v.placeId}
               data-testid="lens-card"
-              className="snap-start rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_6px_24px_rgba(0,0,0,0.06)] ring-1 ring-black/5"
+              className="snap-start rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(0,0,0,0.07)] ring-1 ring-black/5"
             >
-              <div className="flex items-start gap-3">
-                <PlaceTile category={v.category} />
+              <div className="flex items-start gap-3.5">
+                <PlaceMedia category={v.category} />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h4 className="truncate text-[15px] font-semibold tracking-tight text-slate-900">{v.name}</h4>
+                  <div className="flex items-start justify-between gap-2">
+                    <h4 className="text-[16px] font-semibold leading-snug tracking-tight text-slate-900">{v.name}</h4>
                     {v.affinityBadge && (
-                      <span className="shrink-0 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">{v.affinityBadge}高め</span>
+                      <span className="mt-0.5 shrink-0 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                        {v.affinityBadge}高め
+                      </span>
                     )}
                   </div>
-                  {v.whyLine && <p className="mt-1 text-[12px] leading-relaxed text-slate-500">{v.whyLine}</p>}
-                  {v.primaryChips.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {v.primaryChips.map((chip) => (
-                        <span key={chip.key} className="rounded-full bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 ring-1 ring-black/5">
-                          {chip.label} {chip.value}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {v.address && <p className="mt-1.5 truncate text-[11px] text-slate-400">{v.address}</p>}
-                  <div className="mt-2.5 flex gap-2">
-                    <button type="button" onClick={() => openDetail(i)} data-testid="lens-card-detail"
-                      className="rounded-full bg-slate-100 px-3 py-1 text-[12px] font-medium text-slate-700 transition hover:bg-slate-200">詳細を見る</button>
-                    {views.length > 1 && (
-                      <button type="button" onClick={() => openCompare(i)} data-testid="lens-card-compare"
-                        className="rounded-full bg-purple-50 px-3 py-1 text-[12px] font-medium text-purple-700 transition hover:bg-purple-100">比較に追加</button>
-                    )}
-                  </div>
+                  {v.category && <p className="mt-0.5 text-[12px] text-slate-400">{v.category}</p>}
+                  {v.whyLine && <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">{v.whyLine}</p>}
                 </div>
+              </div>
+
+              <ChipRow view={v} />
+
+              {v.address && (
+                <p className="mt-2 flex items-start gap-1 text-[12px] leading-relaxed text-slate-500">
+                  <span aria-hidden className="mt-px text-[11px]">📍</span>
+                  <span className="min-w-0">{v.address}</span>
+                </p>
+              )}
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => openDetail(i)}
+                  data-testid="lens-card-detail"
+                  className="flex-1 rounded-xl bg-slate-100 py-2 text-[13px] font-medium text-slate-700 transition hover:bg-slate-200 active:scale-[0.99]"
+                >
+                  詳細を見る
+                </button>
+                {views.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => openCompare(i)}
+                    data-testid="lens-card-compare"
+                    className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-medium text-white transition hover:bg-purple-700 active:scale-[0.99]"
+                  >
+                    比較する ⇧
+                  </button>
+                )}
               </div>
             </article>
           ))}
         </div>
+        {views.length > 1 && (
+          <p className="px-0.5 text-center text-[11px] text-slate-400">スクロールして他の候補も見られます</p>
+        )}
       </div>
     );
   }
 
-  // ───────────────────────── ② タップで詳細がひらく（インライン展開） ─────────────────────────
+  // ───────────────────────── ② タップで詳細がひらく（大きくインライン展開） ─────────────────────────
   if (mode === "detail") {
     const v = views[primaryIndex]!;
     return (
-      <div data-testid="lens-detail" className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_8px_30px_rgba(0,0,0,0.06)] ring-1 ring-black/5">
-        <div className="flex items-start gap-3">
-          <PlaceTile category={v.category} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h4 className="text-[16px] font-semibold tracking-tight text-slate-900">{v.name}</h4>
-              {v.affinityBadge && <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">{v.affinityBadge}高め</span>}
+      <div
+        data-testid="lens-detail"
+        className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_36px_rgba(0,0,0,0.08)] ring-1 ring-black/5"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h4 className="text-[17px] font-semibold tracking-tight text-slate-900">{v.name}</h4>
+            <div className="mt-0.5 flex items-center gap-2">
+              {v.category && <span className="text-[12px] text-slate-400">{v.category}</span>}
+              {v.affinityBadge && (
+                <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">{v.affinityBadge}高め</span>
+              )}
             </div>
-            {v.category && <p className="mt-0.5 text-[12px] text-slate-400">{v.category}</p>}
-            {v.address && <p className="mt-1 text-[12px] text-slate-500">{v.address}</p>}
           </div>
+          <button
+            type="button"
+            onClick={() => setMode("list")}
+            data-testid="lens-detail-close"
+            aria-label="詳細を閉じる"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 transition hover:bg-slate-200"
+          >
+            ⌃
+          </button>
         </div>
-        {/* 主役チップ（evidenceType を小さく） */}
-        {v.primaryChips.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {v.primaryChips.map((chip) => (
-              <span key={chip.key} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-[12px] text-slate-700 ring-1 ring-black/5">
-                {chip.label} {chip.value}
-                <span className="text-[9px] text-slate-300">{EVIDENCE_TAG[v.attrs[chip.key].evidenceType]}</span>
-              </span>
-            ))}
-          </div>
+
+        <div className="mt-3">
+          <PlaceMedia category={v.category} size="detail" />
+        </div>
+
+        {v.address && (
+          <p className="mt-3 flex items-start gap-1.5 text-[13px] leading-relaxed text-slate-600">
+            <span aria-hidden className="mt-px">📍</span>
+            <span className="min-w-0">{v.address}</span>
+          </p>
         )}
-        {/* なぜここを選ぶ？ */}
+
+        <ChipRow view={v} withEvidence />
+
+        {/* なぜここをおすすめ？（主役の理由ブロック） */}
         {v.whyLine && (
-          <div className="mt-3 rounded-xl bg-slate-50/80 px-3.5 py-3">
-            <p className="text-[11px] font-medium text-slate-400">なぜここを選ぶ？</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-slate-700">{v.whyLine}</p>
+          <div className="mt-4 rounded-xl bg-purple-50/60 px-4 py-3.5">
+            <p className="text-[12px] font-semibold text-purple-700">なぜここをおすすめ？</p>
+            <p className="mt-1.5 text-[14px] leading-relaxed text-slate-700">{v.whyLine}</p>
           </div>
         )}
-        <div className="mt-3 flex items-center justify-between">
-          <button type="button" onClick={() => setMode("list")} data-testid="lens-detail-close"
-            className="text-[12px] font-medium text-slate-400 transition hover:text-slate-600">‹ 候補一覧</button>
+
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("list")}
+            data-testid="lens-detail-back"
+            className="flex-1 rounded-xl bg-slate-100 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-slate-200"
+          >
+            ‹ 候補一覧
+          </button>
           {views.length > 1 && (
-            <button type="button" onClick={() => openCompare(primaryIndex)} data-testid="lens-detail-compare"
-              className="rounded-full bg-purple-50 px-3.5 py-1.5 text-[12px] font-medium text-purple-700 transition hover:bg-purple-100">比較に追加 ↑</button>
+            <button
+              type="button"
+              onClick={() => openCompare(primaryIndex)}
+              data-testid="lens-detail-compare"
+              className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-medium text-white transition hover:bg-purple-700"
+            >
+              比較する ⇧
+            </button>
           )}
         </div>
       </div>
     );
   }
 
-  // ───────────────────────── ③ 候補を比較する（理解する画面） ─────────────────────────
+  // ───────────────────────── ③ 候補を比較する（全画面 takeover） ─────────────────────────
   const left = views[primaryIndex]!;
   const right = views[compareIndex]!;
   const comp = buildLensComparisonView(lens, left, right);
@@ -188,28 +300,38 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   };
 
   const headerCls = (side: "left" | "right") =>
-    `min-w-0 flex-1 rounded-xl px-3 py-2 text-left transition ring-1 ${
+    `min-w-0 flex-1 rounded-xl p-2.5 text-left transition ring-1 ${
       selectedSide === side ? "bg-purple-50 ring-purple-300" : "bg-white ring-black/5 hover:bg-slate-50"
     }`;
 
   return (
     <div data-testid="lens-compare" className="space-y-3">
+      {/* header: 戻る + 比較中 N 件 */}
       <div className="flex items-center justify-between px-0.5">
-        <button type="button" onClick={() => setMode("list")} data-testid="lens-compare-back"
-          className="text-[12px] font-medium text-slate-400 transition hover:text-slate-600">‹ 候補一覧</button>
-        <span className="text-[11px] font-medium text-slate-400">{PURPOSE_LENS_LABEL[lens]}で比較中</span>
+        <button
+          type="button"
+          onClick={() => setMode("list")}
+          data-testid="lens-compare-back"
+          className="flex items-center gap-1 text-[13px] font-medium text-slate-500 transition hover:text-slate-700"
+        >
+          ‹ 候補一覧
+        </button>
+        <span className="rounded-full bg-purple-50 px-2.5 py-0.5 text-[11px] font-medium text-purple-700">
+          {PURPOSE_LENS_LABEL[lens]}で比較中
+        </span>
       </div>
 
-      {/* 上部: 2 つの場所ヘッダー（タップで選択・再タップで確定） */}
+      {/* 2 候補ヘッダー（メディア＋名前・タップで選択→再タップで確定。右は ▲▼/スワイプで対象変更） */}
       <div className="flex items-stretch gap-2">
         <button type="button" onClick={() => confirmSide("left")} data-testid="lens-compare-left" className={headerCls("left")}>
-          <span className="flex items-center gap-1.5">
-            <span className="truncate text-[13px] font-semibold text-slate-900">{left.name}</span>
-            {left.affinityBadge && <span className="shrink-0 text-[10px] text-purple-600">相性</span>}
+          <PlaceMedia category={left.category} size="mini" />
+          <span className="mt-1.5 block truncate text-[13px] font-semibold text-slate-900">{left.name}</span>
+          <span className="flex items-center gap-1 text-[10px] text-slate-400">
+            {left.category}
+            {left.affinityBadge && <span className="text-purple-600">· 相性</span>}
           </span>
-          {left.category && <span className="mt-0.5 block text-[10px] text-slate-400">{left.category}</span>}
         </button>
-        {/* 右列: ▲▼ で比較対象を変更（スワイプも可） */}
+
         <div
           className="flex min-w-0 flex-1 items-stretch gap-1"
           onTouchStart={(e) => { touchStartY.y = e.touches[0]?.clientY ?? null; }}
@@ -221,64 +343,75 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
           }}
         >
           <button type="button" onClick={() => confirmSide("right")} data-testid="lens-compare-right" className={headerCls("right")}>
-            <span className="flex items-center gap-1.5">
-              <span className="truncate text-[13px] font-semibold text-slate-900">{right.name}</span>
-              {right.affinityBadge && <span className="shrink-0 text-[10px] text-purple-600">相性</span>}
+            <PlaceMedia category={right.category} size="mini" />
+            <span className="mt-1.5 block truncate text-[13px] font-semibold text-slate-900">{right.name}</span>
+            <span className="flex items-center gap-1 text-[10px] text-slate-400">
+              {right.category}
+              {right.affinityBadge && <span className="text-purple-600">· 相性</span>}
             </span>
-            {right.category && <span className="mt-0.5 block text-[10px] text-slate-400">{right.category}</span>}
           </button>
           {otherIndices.length > 1 && (
-            <div className="flex shrink-0 flex-col justify-center gap-0.5">
+            <div className="flex shrink-0 flex-col justify-center gap-1">
               <button type="button" onClick={() => cycleCompare(-1)} aria-label="前の候補" data-testid="lens-compare-prev"
-                className="flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-[10px] text-slate-500 hover:bg-slate-200">▲</button>
+                className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-100 text-[11px] text-slate-500 hover:bg-slate-200">▲</button>
               <button type="button" onClick={() => cycleCompare(1)} aria-label="次の候補" data-testid="lens-compare-next"
-                className="flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-[10px] text-slate-500 hover:bg-slate-200">▼</button>
+                className="flex h-6 w-6 items-center justify-center rounded-lg bg-slate-100 text-[11px] text-slate-500 hover:bg-slate-200">▼</button>
             </div>
           )}
         </div>
       </div>
 
-      {/* 確定（控えめ・選択時のみ） */}
-      {selectedSide && (
-        <button type="button" data-testid="lens-compare-confirm" onClick={() => confirmSide(selectedSide)}
-          className="w-full rounded-xl bg-purple-600 py-2 text-[13px] font-medium text-white transition hover:bg-purple-700">
-          {(selectedSide === "left" ? left.name : right.name)} にする
-        </button>
-      )}
+      <p className="px-0.5 text-[11px] text-slate-400">候補をタップ → もう一度タップで確定</p>
 
-      {/* 比較表（目的レンズで行が変わる・優位は薄紫・未確認は出さない） */}
-      <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.03),0_8px_30px_rgba(0,0,0,0.06)] ring-1 ring-black/5 divide-y divide-black/5">
-        {comp.mainRows.map((row) => (
-          <div key={row.key} data-testid="lens-row" data-key={row.key} className="grid grid-cols-[5.5rem_1fr_1fr] items-center gap-2 px-3 py-2.5">
-            <span className="flex items-center gap-1 text-[12px] text-slate-500">
-              {row.label}
-              <span className="text-[9px] text-slate-300">{EVIDENCE_TAG[row.evidenceType]}</span>
-            </span>
-            <span className={`rounded-md px-2 py-1 text-[12px] ${row.left.isBest ? "bg-purple-50 font-medium text-purple-900" : "text-slate-700"}`}>
-              {row.left.value ?? "—"}{row.left.isBest && " ✓"}
-            </span>
-            <span className={`rounded-md px-2 py-1 text-[12px] ${row.right.isBest ? "bg-purple-50 font-medium text-purple-900" : "text-slate-700"}`}>
-              {row.right.value ?? "—"}{row.right.isBest && " ✓"}
-            </span>
-          </div>
-        ))}
+      {/* 比較表（候補を比較・アイコン付き行・優位は薄紫＋✓・未確認は主表に出さない） */}
+      <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(0,0,0,0.07)] ring-1 ring-black/5">
+        <div className="border-b border-black/5 px-3.5 py-2 text-[12px] font-semibold text-slate-500">候補を比較</div>
+        <div className="divide-y divide-black/5">
+          {comp.mainRows.map((row) => (
+            <div key={row.key} data-testid="lens-row" data-key={row.key} className="grid grid-cols-[4.5rem_1fr_1fr] items-center gap-2 px-3 py-3">
+              <span className="flex items-center gap-1 text-[12px] text-slate-500">
+                <span aria-hidden className="text-[12px]">{ATTR_ICON[row.key]}</span>
+                {row.label}
+              </span>
+              <span className={`rounded-lg px-2 py-1.5 text-[12px] leading-snug ${row.left.isBest ? "bg-purple-50 font-semibold text-purple-900" : "text-slate-700"}`}>
+                {row.left.isBest && <span aria-hidden className="mr-0.5 text-purple-500">✓</span>}{row.left.value ?? "—"}
+              </span>
+              <span className={`rounded-lg px-2 py-1.5 text-[12px] leading-snug ${row.right.isBest ? "bg-purple-50 font-semibold text-purple-900" : "text-slate-700"}`}>
+                {row.right.isBest && <span aria-hidden className="mr-0.5 text-purple-500">✓</span>}{row.right.value ?? "—"}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* 未確認の項目（名前だけ・値は出さない） */}
+      {/* 未確認の項目（名前だけ・値は捏造しない） */}
       {comp.unconfirmedLabels.length > 0 && (
         <p data-testid="lens-unconfirmed" className="px-1 text-[11px] leading-relaxed text-slate-400">
           {comp.unconfirmedLabels.join("・")} は、この目的でも大切ですが、まだ確認できていません。
         </p>
       )}
 
-      {/* 推薦サマリー（控えめ・根拠 trace 由来） */}
+      {/* 推薦バナー（✨ おすすめ・根拠 trace 由来・控えめだが主役級） */}
       {comp.recommendation && (
-        <div data-testid="lens-recommendation" className="rounded-xl bg-purple-50/70 px-3.5 py-2.5">
-          <p className="text-[12px] text-purple-900">
-            <span className="font-medium">{comp.recommendation.side === "left" ? left.name : right.name}</span>
+        <div data-testid="lens-recommendation" className="rounded-2xl bg-gradient-to-br from-purple-50 to-indigo-50 px-4 py-3 ring-1 ring-purple-100">
+          <p className="text-[12px] font-semibold text-purple-700">✨ おすすめ</p>
+          <p className="mt-1 text-[14px] leading-relaxed text-slate-800">
+            <span className="font-semibold">{comp.recommendation.side === "left" ? left.name : right.name}</span>
             {" が、"}{comp.recommendation.basisPhrase}
           </p>
         </div>
+      )}
+
+      {/* 確定ボタン（選択時のみ・主役の決定） */}
+      {selectedSide && (
+        <button
+          type="button"
+          data-testid="lens-compare-confirm"
+          onClick={() => confirmSide(selectedSide)}
+          className="w-full rounded-xl bg-purple-600 py-2.5 text-[14px] font-semibold text-white shadow-sm transition hover:bg-purple-700 active:scale-[0.99]"
+        >
+          {(selectedSide === "left" ? left.name : right.name)} をこの予定の場所にする
+        </button>
       )}
     </div>
   );
