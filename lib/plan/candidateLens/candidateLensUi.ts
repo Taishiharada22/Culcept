@@ -80,6 +80,29 @@ export function splitAddressLines(address: string | null): readonly string[] {
   return [parts[0]!, parts.slice(1).join(" ")];
 }
 
+/** 目的レンズ → ② のチェックリスト先頭に出す目的由来の理由（UI コピー・捏造でない）。 */
+const LENS_WHY_BULLET: Record<PurposeLens, string> = {
+  meeting_prep: "会議前に落ち着いて準備しやすい場所です",
+  focus_work: "集中して作業を進めやすい場所です",
+  conversation: "ゆっくり会話しやすい場所です",
+  errand: "ついでに立ち寄りやすい場所です",
+  generic: "予定に向かいやすい場所です",
+};
+
+/**
+ * ② 「なぜここをおすすめ？」のチェックリスト項目（pure・★honest のみ・捏造しない）。
+ *   理想画像は ✓ 付きリスト形式。値を持つ honest シグナル（徒歩=計算 / 相性=観測 / 目的レンズ=UI コピー）だけを並べる。
+ *   静か/Wi-Fi/電源 等の未確認は**含めない**（捏造回避）。最低 1 項目（目的レンズ）は必ず返す。
+ */
+export function buildWhyBullets(view: LensCandidateView, lens: PurposeLens): readonly string[] {
+  const bullets: string[] = [];
+  bullets.push(LENS_WHY_BULLET[lens]); // 目的由来（常に 1 つ）
+  const walk = view.attrs.walk_estimate.value; // 例: 約5分（目安）
+  if (walk) bullets.push(`徒歩${walk}で移動の負担が少なめです`);
+  if (view.affinityBadge) bullets.push("普段から訪れている傾向があり、迷いにくい場所です");
+  return bullets;
+}
+
 /** 「なぜここを選ぶ？」を実値のみで hedged に組む（pure・捏造しない・無ければ null）。 */
 function whyChooseLine(attrs: Record<AttributeKey, PlaceAttribute>, lens: PurposeLens, hasAffinity: boolean): string | null {
   const walk = attrs.walk_estimate.value; // 例: 約7分（目安）

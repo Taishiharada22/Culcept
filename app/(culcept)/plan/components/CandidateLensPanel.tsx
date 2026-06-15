@@ -18,6 +18,7 @@ import { createPortal } from "react-dom";
 import {
   buildLensCandidateView,
   buildLensComparisonView,
+  buildWhyBullets,
   purposeLensFromSchedule,
   shortAddress,
   splitAddressLines,
@@ -200,10 +201,17 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
 
         <ChipRow view={v} />
 
-        {/* なぜここをおすすめ？（常に表示・whyLine が無い候補は目的レンズ由来の honest 文でフォールバック・捏造しない） */}
+        {/* なぜここをおすすめ？（★理想画像どおり ✓ 付きチェックリスト・honest 項目のみ・捏造しない） */}
         <div className="mt-3 rounded-2xl bg-purple-50/70 px-3.5 py-3">
           <p className="text-[12.5px] font-bold text-purple-700">なぜここをおすすめ？</p>
-          <p className="mt-1 text-[13.5px] leading-relaxed text-slate-700">{v.whyLine ?? `${PURPOSE_LENS_LABEL[lens]}の目的に合いそうな${v.category ?? "場所"}です。`}</p>
+          <ul className="mt-1.5 space-y-1.5">
+            {buildWhyBullets(v, lens).map((b, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[13px] leading-relaxed text-slate-700">
+                <span aria-hidden className="mt-0.5 text-purple-500">✓</span>
+                <span className="min-w-0">{b}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
         <div className="mt-3 flex gap-2">
