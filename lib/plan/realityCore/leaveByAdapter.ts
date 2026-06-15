@@ -208,6 +208,17 @@ export function instantMinusMinutes(instant: string, minutes: number): string | 
   return `${pad4(c.y)}-${pad2(c.m)}-${pad2(c.d)}T${pad2(hh)}:${pad2(mm)}:00+09:00`;
 }
 
+/**
+ * jstMinuteEpoch — canonical minute JST → whole-minute epoch（pure・Date 不使用）。非 calendar-valid は null。
+ * RD2f-assembly staleness skew（2 instant の分差）算出に再利用。
+ */
+export function jstMinuteEpoch(instant: string): number | null {
+  if (!isCalendarValidMinuteJstIso(instant)) return null;
+  const m = CANON_MINUTE_JST.exec(instant);
+  if (m === null) return null;
+  return daysFromCivil(Number(m[1]), Number(m[2]), Number(m[3])) * 1440 + Number(m[4]) * 60 + Number(m[5]);
+}
+
 // ── buffer catalog（固定・動的計算禁止・RD2e-b0A §3） ──────────────────────────────────────────
 
 export function resolveBufferMinutesFromCatalog(bucket: LeaveByBufferBucket): number | null {

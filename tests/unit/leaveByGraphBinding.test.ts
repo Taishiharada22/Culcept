@@ -68,8 +68,10 @@ beforeAll(async () => {
 
 const ERN = { subjectiveDate: "2026-06-12", leaveBy: { value: null, whyUnresolved: ["eta_source_missing"] } } as unknown as EventRealityNodeV0;
 function bindInput(over: Partial<LeaveByGraphBindingInputV0> = {}, computedOver: Partial<LeaveByComputationV0> = {}): LeaveByGraphBindingInputV0 {
-  return { ern: ERN, computed: { ...COMPUTED, ...computedOver }, computedScope: SCOPE, ernScope: SCOPE, ...over };
+  return { ern: ERN, computed: { ...COMPUTED, ...computedOver }, computedScope: SCOPE, ernScope: SCOPE, consumingInstant: FRESH_INSTANT, ...over };
 }
+// computed.evaluatedAt = 2026-06-12T08:00 → 08:05 は skew 5 分（< 15・fresh）
+const FRESH_INSTANT = { nowInstant: "2026-06-12T08:05:00+09:00", timezone: "Asia/Tokyo", wallClockHHMM: "08:05", calendarDate: "2026-06-12", subjectiveDate: "2026-06-12", minuteOfSubjectiveDay: 185 };
 
 // ── #1/#2 attach 基本 ─────────────────────────────────────────────────────────────────────────
 describe("RD2f-bind #1/#2 attach 基本", () => {
@@ -167,5 +169,22 @@ describe("RD2f-bind #17-#20 非接続 / internal-only", () => {
   });
   it("#20 consumer payload / surface / copy / notification / departure line なし", () => {
     for (const bad of ["surface", "Surface", "copy", "notification", "departureLine", "departure_line", "currentLocation", "geolocation", "new Date(", "Date.now", "Math.random", ".insert(", "localStorage"]) expect(code.includes(bad)).toBe(false);
+  });
+});
+
+// ── RD2f-assembly follow: staleness + empty id ───────────────────────────────────────────────
+describe("RD2f-bind staleness + empty id", () => {
+  it("stale computation（consumingInstant が evaluatedAt から 15 分超）→ attach されない", () => {
+    const stale = { nowInstant: "2026-06-12T09:00:00+09:00", timezone: "Asia/Tokyo", wallClockHHMM: "09:00", calendarDate: "2026-06-12", subjectiveDate: "2026-06-12", minuteOfSubjectiveDay: 240 };
+    const r = attachComputedLeaveBy(bindInput({ consumingInstant: stale }));
+    expect(r.attached).toBe(false);
+    expect(r.violations).toContain("computation_stale");
+  });
+  it("非 JST consumingInstant → conservative stale", () => {
+    const nonJst = { nowInstant: "2026-06-12T08:05:00Z", timezone: "UTC", wallClockHHMM: "08:05", calendarDate: "2026-06-12", subjectiveDate: "2026-06-12", minuteOfSubjectiveDay: 185 };
+    expect(attachComputedLeaveBy(bindInput({ consumingInstant: nonJst })).violations).toContain("computation_stale");
+  });
+  it("empty id → attach されない", () => {
+    expect(attachComputedLeaveBy(bindInput({ ernScope: { ...SCOPE, targetNodeId: "" } })).violations).toContain("empty_id");
   });
 });

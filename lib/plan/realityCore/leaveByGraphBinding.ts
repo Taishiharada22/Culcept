@@ -24,8 +24,15 @@ import type { EventRealityNodeV0 } from "./eventRealityNode";
 import type { RouteEtaCapabilityV0 } from "./routeEtaCapability";
 import type { LeaveBySupplyScopeV0 } from "./leaveBySupply";
 import { containsRawLocation } from "./routeEtaSafety";
+import { jstMinuteEpoch } from "./leaveByAdapter";
+import type { RealityInstant } from "./realityInstant";
 
 export const LEAVEBY_GRAPH_BINDING_VERSION = 0;
+
+/** RD2f-assembly staleness: computed.evaluatedAt と consumingInstant の許容 skew（分・v0 conservative） */
+export const MAX_STALENESS_SKEW_MINUTES = 15;
+/** consumingInstant は JST（壁時計を JST として epoch 化するため・他 tz は invalid 扱い） */
+const APP_TIMEZONE = "Asia/Tokyo";
 
 export type LeaveByGraphBindingViolation =
   | "not_computed"
@@ -39,7 +46,9 @@ export type LeaveByGraphBindingViolation =
   | "scope_subjective_date_mismatch"
   | "scope_transport_mode_mismatch"
   | "scope_temporal_scope_ref_mismatch"
-  | "scope_ern_subjective_date_mismatch";
+  | "scope_ern_subjective_date_mismatch"
+  | "empty_id"
+  | "computation_stale";
 
 export interface LeaveByGraphBindingInputV0 {
   readonly ern: EventRealityNodeV0;
@@ -48,6 +57,8 @@ export interface LeaveByGraphBindingInputV0 {
   readonly computedScope: LeaveBySupplyScopeV0;
   /** この ERN の movement に期待される scope（caller 供給） */
   readonly ernScope: LeaveBySupplyScopeV0;
+  /** RD2f-assembly: 消費時点の RealityInstant（staleness skew 判定用・JST） */
+  readonly consumingInstant: RealityInstant;
 }
 
 export interface LeaveByGraphBindingTrace {
@@ -68,6 +79,19 @@ const INTERNAL_DISPLAY_POLICIES: ReadonlyArray<string> = ["internalReference", "
 const PLANNING_GRADE_SOURCES: ReadonlyArray<LeaveByComputationSource> = ["external_route", "scheduled", "user_confirmed", "cached_route"];
 const COMPUTED_ORIGIN_KINDS: ReadonlyArray<LeaveByOriginKind> = ["user_confirmed", "previous_event_end", "home_assumed", "work_assumed"];
 
+/**
+ * computation が consumingInstant に対し stale か（pure・Date 不使用）。
+ * 非 JST consuming / timeContract null / instant invalid は **conservative に stale**（fail-closed）。
+ */
+function isComputationStale(c: LeaveByComputationV0, consuming: RealityInstant): boolean {
+  if (consuming.timezone !== APP_TIMEZONE) return true;
+  if (c.timeContract === null) return true;
+  const evalEpoch = jstMinuteEpoch(c.timeContract.evaluatedAt);
+  const consumeEpoch = jstMinuteEpoch(`${consuming.calendarDate}T${consuming.wallClockHHMM}:00+09:00`);
+  if (evalEpoch === null || consumeEpoch === null) return true;
+  return Math.abs(consumeEpoch - evalEpoch) > MAX_STALENESS_SKEW_MINUTES;
+}
+
 /** attach 前の再検証（空 = attach 可・raw を echo しない） */
 export function leaveByGraphBindingViolations(input: LeaveByGraphBindingInputV0): LeaveByGraphBindingViolation[] {
   let out: LeaveByGraphBindingViolation[] = [];
@@ -87,6 +111,16 @@ export function leaveByGraphBindingViolations(input: LeaveByGraphBindingInputV0)
   // scope 整合（computed が計算された scope ≡ ERN に期待される scope ≡ 実 ERN）
   const cs = input.computedScope;
   const es = input.ernScope;
+  // non-empty id guard（null/空/空白 id の偽一致を排除）
+  add(
+    c.subjectNodeId === null ||
+      c.subjectNodeId.trim().length === 0 ||
+      cs.targetNodeId.trim().length === 0 ||
+      es.targetNodeId.trim().length === 0,
+    "empty_id",
+  );
+  // staleness（evaluatedAt と consumingInstant の skew・非 JST / invalid は conservative に stale）
+  add(isComputationStale(c, input.consumingInstant), "computation_stale");
   add(cs.targetNodeId !== es.targetNodeId || c.subjectNodeId !== cs.targetNodeId, "scope_target_node_mismatch");
   add(
     cs.subjectiveDate !== es.subjectiveDate ||
