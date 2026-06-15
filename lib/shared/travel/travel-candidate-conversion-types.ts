@@ -145,3 +145,26 @@ export interface TravelCandidateConversionRejected {
 export type TravelCandidateConversionResult =
   | TravelCandidateConversionReady
   | TravelCandidateConversionRejected;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C3 — 構築済み結果（helper が core-types TravelCandidate を構築して保持）
+//   ★ 構築するが **insert しない**（insertion adapter は別 slice C4・別 GO）。
+//   ★ result 自体は TravelCandidate でない（候補は `.candidate` に内包）。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 成功 = core-types TravelCandidate を構築済（未挿入・server-only）。 */
+export interface TravelCandidateConverted {
+  outcome: "converted";
+  serverOnly: true;
+  /** ★ 構築済みだが未挿入（insertion は別 adapter+GO） */
+  insertable: false;
+  /** ★ 構築ターゲットが core-types TravelCandidate であることの型マーカー */
+  targetType: TravelCandidateConversionTargetMarker;
+  /** ★ 構築された core-types TravelCandidate（挿入はしない） */
+  candidate: TravelCandidate;
+}
+
+/** C3 helper の結果（構築成功 / 失敗）。 */
+export type TravelCandidateConversionOutcome =
+  | TravelCandidateConverted
+  | TravelCandidateConversionRejected;
