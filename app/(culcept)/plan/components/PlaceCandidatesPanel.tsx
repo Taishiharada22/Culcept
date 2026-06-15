@@ -438,18 +438,59 @@ export function PlaceCandidatesPanel({
 
   if (!isActive) return null;
 
+  // ★Phase 2 REDO-2: flag ON は「規定の枠」を使わず、候補が主役の専用フレームを別 return（既存 <section> は flag OFF で完全不変）。
+  if (isCandidateLensUiEnabled() && !loading && results.length > 0) {
+    const intentLabel =
+      intentType === "intent_with_area"
+        ? `「${debouncedTitle.trim()}」を ${debouncedQuery.trim()} 周辺で`
+        : intentType === "intent_only"
+          ? `「${debouncedTitle.trim()}」の候補`
+          : "場所の候補";
+    return (
+      <section
+        role="complementary"
+        aria-label="場所候補 (任意)"
+        data-testid="plan-place-candidates-panel"
+        className="relative mt-3"
+      >
+        <div className="mb-2 flex items-start justify-between gap-2 px-0.5">
+          <div className="min-w-0">
+            <p className="truncate text-[12px] font-medium text-slate-500" data-testid="plan-place-candidates-intent-label">{intentLabel}</p>
+            <p className="mt-0.5 text-[10px] italic text-slate-400" data-testid="plan-place-candidates-privacy-hint">入力した場所を Google に確認しています（キャンセル可）</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            aria-label="場所候補パネルを閉じる"
+            data-testid="plan-place-candidates-close"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+
+        <CandidateLensPanel
+          candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
+          title={debouncedTitle.trim() || title}
+          affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
+          onSelect={(c) => handleSelect(c as PlaceCandidate)}
+          onSkip={handleSkip}
+        />
+      </section>
+    );
+  }
+
   return (
     <section
       role="complementary"
       aria-label="場所候補 (任意)"
       data-testid="plan-place-candidates-panel"
-      className={
-        isCandidateLensUiEnabled()
-          ? // ★lens ON: 候補が主役の探索エリア。小箱(max-h-60)を脱し、白カードが沈むシート背景・余白広め。
-            "relative mt-2 rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 max-h-[28rem] overflow-y-auto shadow-sm"
-          : // 既存(flag OFF/production)＝完全不変
-            "mt-2 rounded-xl border border-slate-200 bg-white p-3 max-h-60 overflow-y-auto relative shadow-sm"
-      }
+      className="
+        mt-2 rounded-xl border border-slate-200 bg-white p-3
+        max-h-60 overflow-y-auto
+        relative
+        shadow-sm
+      "
     >
       {/* close button (× icon、右上、tap target 28px、C3 polish) */}
       <button
@@ -558,19 +599,9 @@ export function PlaceCandidatesPanel({
         </p>
       )}
 
-      {/* ★Phase 2: Purpose-Adaptive Candidate Lens UI（flag ON/dev のみ）。
-          flag OFF/production では下の既存 <ul> がそのまま（＝既存パネル完全不変）。 */}
-      {!loading && results.length > 0 && isCandidateLensUiEnabled() && (
-        <CandidateLensPanel
-          candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
-          title={debouncedTitle.trim() || title}
-          affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
-          onSelect={(c) => handleSelect(c as PlaceCandidate)}
-        />
-      )}
-
-      {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale) */}
-      {!loading && results.length > 0 && !isCandidateLensUiEnabled() && (
+      {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale)。
+          ★flag ON/dev は上の専用フレームで早期 return 済み＝ここは flag OFF/production の既存挙動のみ。 */}
+      {!loading && results.length > 0 && (
         <ul className="space-y-1.5" data-testid="plan-place-candidates-list">
           {rankedDisplayList.map(({ candidate: c, typeReason, personalReason }) => (
             <li key={c.placeId}>

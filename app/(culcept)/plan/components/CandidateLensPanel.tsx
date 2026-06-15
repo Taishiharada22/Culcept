@@ -33,6 +33,8 @@ export interface CandidateLensPanelProps {
   readonly affinityReasonFor?: (candidate: LensCandidate) => string | null;
   /** 確定 → 場所として設定し ① へ戻る（親が canonical 化 + close）。 */
   readonly onSelect: (candidate: LensCandidate) => void;
+  /** 「場所を選ばずに保存」（非強制・任意）。 */
+  readonly onSkip?: () => void;
 }
 
 /** evidenceType → 小ラベル（A 事実 / B 計算 / C 推定 / D 未確認）。 */
@@ -77,16 +79,18 @@ function tileTone(category: string | null): string {
   }
 }
 
-/** 写真でない抽象メディアタイル（category 頭文字＋場所グリフ）。size で hero/detail を切替。 */
-function PlaceMedia({ category, size = "card" }: { category: string | null; size?: "card" | "detail" | "mini" }) {
-  const dim = size === "detail" ? "h-24 w-full" : size === "mini" ? "h-14 w-full" : "h-16 w-16";
+/** 写真でない抽象メディアタイル（category 頭文字＋場所グリフ）。size で hero/banner/detail を切替。 */
+function PlaceMedia({ category, size = "card" }: { category: string | null; size?: "banner" | "card" | "detail" | "mini" }) {
+  const dim =
+    size === "banner" ? "h-40 w-full" : size === "detail" ? "h-24 w-full" : size === "mini" ? "h-14 w-full" : "h-16 w-16";
+  const glyph = size === "banner" ? "text-[34px]" : "text-[18px]";
   return (
     <div
       aria-hidden
-      className={`relative flex ${dim} shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br ${tileTone(category)} ring-1 ring-black/5`}
+      className={`relative flex ${dim} shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br ${tileTone(category)} ring-1 ring-black/5`}
     >
-      <span className="text-[18px]">📍</span>
-      <span className="absolute bottom-1 left-1.5 text-[10px] font-medium opacity-80">{category ?? "場所"}</span>
+      <span className={glyph}>📍</span>
+      <span className="absolute bottom-1.5 left-2 rounded-full bg-white/55 px-2 py-0.5 text-[11px] font-medium">{category ?? "場所"}</span>
     </div>
   );
 }
@@ -110,7 +114,7 @@ function ChipRow({ view, withEvidence = false }: { view: LensCandidateView; with
   );
 }
 
-export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReasonFor, onSelect }: CandidateLensPanelProps) {
+export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReasonFor, onSelect, onSkip }: CandidateLensPanelProps) {
   const lens = purposeLensFromSchedule(title);
   const views = candidates.map((c) =>
     buildLensCandidateView(c, lens, { gapMinutes, affinityReason: affinityReasonFor?.(c) ?? null }),
@@ -141,53 +145,59 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     setSelectedSide(null);
   };
 
-  // ───────────────────────── ① 候補が出る（候補が主役・1 枚ずつ・下に次がのぞく） ─────────────────────────
+  // ───────────────────────── ① 候補が出る（★常に 1 候補だけ・縦スクロールで次々送るページャー） ─────────────────────────
   if (mode === "list") {
     return (
-      <div data-testid="lens-list" className="space-y-3">
-        <div className="flex items-baseline justify-between px-0.5">
+      <div data-testid="lens-list">
+        <div className="mb-2 flex items-baseline justify-between px-0.5">
           <p className="text-[14px] font-semibold tracking-tight text-slate-900">おすすめの候補</p>
           <span className="text-[11px] font-medium text-purple-600">{PURPOSE_LENS_LABEL[lens]}の目的で</span>
         </div>
 
-        <div className="snap-y snap-mandatory space-y-3">
+        {/* ★1 画面 = 1 候補。snap-mandatory でスクロールすると次の候補がぴたっと収まる。 */}
+        <div className="h-[27rem] snap-y snap-mandatory overflow-y-auto rounded-3xl">
           {views.map((v, i) => (
             <article
               key={v.placeId}
               data-testid="lens-card"
-              className="snap-start rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(0,0,0,0.07)] ring-1 ring-black/5"
+              className="flex h-full snap-start snap-always flex-col rounded-3xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_36px_rgba(0,0,0,0.08)] ring-1 ring-black/5"
             >
-              <div className="flex items-start gap-3.5">
-                <PlaceMedia category={v.category} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="text-[16px] font-semibold leading-snug tracking-tight text-slate-900">{v.name}</h4>
-                    {v.affinityBadge && (
-                      <span className="mt-0.5 shrink-0 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">
-                        {v.affinityBadge}高め
-                      </span>
-                    )}
-                  </div>
-                  {v.category && <p className="mt-0.5 text-[12px] text-slate-400">{v.category}</p>}
-                  {v.whyLine && <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">{v.whyLine}</p>}
-                </div>
+              {/* 大メディア（写真でない抽象タイル）＋ ページ位置 ＋ 相性バッジ */}
+              <div className="relative">
+                <PlaceMedia category={v.category} size="banner" />
+                <span className="absolute right-2 top-2 rounded-full bg-black/40 px-2 py-0.5 text-[11px] font-medium text-white tabular-nums">
+                  {i + 1} / {views.length}
+                </span>
+                {v.affinityBadge && (
+                  <span className="absolute left-2 top-2 rounded-full bg-purple-600 px-2.5 py-0.5 text-[11px] font-medium text-white shadow-sm">
+                    {v.affinityBadge}高め
+                  </span>
+                )}
               </div>
+
+              {/* 名前・種別・理由 */}
+              <h4 className="mt-3 text-[19px] font-semibold leading-snug tracking-tight text-slate-900">{v.name}</h4>
+              {v.category && <p className="mt-0.5 text-[12px] text-slate-400">{v.category}</p>}
+              {v.whyLine && <p className="mt-2 text-[14px] leading-relaxed text-slate-600">{v.whyLine}</p>}
 
               <ChipRow view={v} />
 
               {v.address && (
-                <p className="mt-2 flex items-start gap-1 text-[12px] leading-relaxed text-slate-500">
-                  <span aria-hidden className="mt-px text-[11px]">📍</span>
+                <p className="mt-2.5 flex items-start gap-1 text-[12.5px] leading-relaxed text-slate-500">
+                  <span aria-hidden className="mt-px text-[12px]">📍</span>
                   <span className="min-w-0">{v.address}</span>
                 </p>
               )}
 
-              <div className="mt-3 flex gap-2">
+              {/* 下に押し下げて、ボタンはカード下端に固定（hero らしい構図） */}
+              <div className="flex-1" />
+
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => openDetail(i)}
                   data-testid="lens-card-detail"
-                  className="flex-1 rounded-xl bg-slate-100 py-2 text-[13px] font-medium text-slate-700 transition hover:bg-slate-200 active:scale-[0.99]"
+                  className="flex-1 rounded-xl bg-slate-100 py-2.5 text-[13px] font-medium text-slate-700 transition hover:bg-slate-200 active:scale-[0.99]"
                 >
                   詳細を見る
                 </button>
@@ -196,17 +206,25 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                     type="button"
                     onClick={() => openCompare(i)}
                     data-testid="lens-card-compare"
-                    className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-medium text-white transition hover:bg-purple-700 active:scale-[0.99]"
+                    className="flex-1 rounded-xl bg-purple-600 py-2.5 text-[13px] font-medium text-white transition hover:bg-purple-700 active:scale-[0.99]"
                   >
                     比較する ⇧
                   </button>
                 )}
               </div>
+              {views.length > 1 && i < views.length - 1 && (
+                <p className="mt-2 text-center text-[11px] text-slate-400">↓ スクロールで次の候補（{i + 2} / {views.length}）</p>
+              )}
             </article>
           ))}
         </div>
-        {views.length > 1 && (
-          <p className="px-0.5 text-center text-[11px] text-slate-400">スクロールして他の候補も見られます</p>
+
+        {onSkip && (
+          <div className="mt-2 text-center">
+            <button type="button" onClick={onSkip} data-testid="lens-skip" className="rounded-md px-3 py-1.5 text-[12px] text-slate-400 underline transition hover:text-slate-600">
+              場所を選ばずに保存
+            </button>
+          </div>
         )}
       </div>
     );
