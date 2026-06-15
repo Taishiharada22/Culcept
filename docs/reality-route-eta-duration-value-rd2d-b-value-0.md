@@ -144,6 +144,7 @@ DurationValueFreshnessV0 = {
 - **禁止**: raw coordinates / polyline / encodedPolyline / route response / placeId raw / provider payload / graphViewerKey / waypoints / 座標 encoding（geohash/plus_code 等）。
 - value object を **consumer DTO に出さない**（INV-DURATION-INTERNAL）。**violation message は raw を echo しない**（redact・RD2d-c-A2 と同型）。
 - **`containsRawLocation` 共有方針**: RD2d-c-A2 で wrapper に入れた magnitude-bounded coord-pair + plus-code + geocoding token 検出を、**RD2d-b-B（`lib/plan/realityCore/routeEtaSafety.ts`・実装済）で capability/adapter/wrapper に共有化済**（単一実装・drift 排除）。value の leak scan も**この共有 `containsRawLocation` を使う**。**integer minutes は許容**（COORD_PATTERN を誤発火させないよう integer 強制）。
+- **provider invocation 境界の総関数化（RD2d-b-B2 `<this commit>`・前提条件）**: VALUE channel は duration value path を増やし **例外面を広げる**。これに先立ち adapter の `await provider(input)` を `try/catch`（binding 無し）で総関数化済 — 任意 provider が throw/reject しても adapter は throw せず、raw exception の message/stack/payload を一切 echo せず `routeEtaSafeExceptionReason()`（`dependency_error`）→ `no_route_source` に倒す。**value 生成 path も同じ境界の内側に置く**（value path 固有の throw が leak/chain 破壊にならない）。
 
 ---
 

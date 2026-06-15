@@ -40,7 +40,11 @@ import {
   type RouteEtaEvidenceRef,
   type RouteEtaMissingInput,
 } from "./routeEtaCapability";
-import { containsRawLocation, redactRouteEtaUnsafeValue } from "./routeEtaSafety";
+import {
+  containsRawLocation,
+  redactRouteEtaUnsafeValue,
+  routeEtaSafeExceptionReason,
+} from "./routeEtaSafety";
 
 export const ROUTE_ETA_PROVIDER_ADAPTER_VERSION = 0;
 
@@ -81,7 +85,8 @@ export type RouteEtaProviderFailureReasonV0 =
   | "malformed_enum"
   | "malformed_result"
   | "basis_unknown"
-  | "no_duration_signal";
+  | "no_duration_signal"
+  | "dependency_error"; // provider が throw/reject した時（RD2d-b-B2・raw を一切 echo しない）
 
 export type RouteEtaAdapterStageV0 = "resolved" | "duration_signal_only" | "no_route_source";
 
@@ -256,7 +261,26 @@ export async function resolveRouteEtaCapability(
   const provider = deps.provider;
   if (provider === undefined) return buildNoRouteSource(input, "not_injected");
 
-  const result = await provider(input);
+  // provider invocation 境界を総関数化（RD2d-b-B2）。
+  // 任意 provider が sync throw / async reject しても adapter は throw しない。
+  // catch binding を取らない（raw message / stack / payload に一切触れない）→ shared safe reason のみへ倒す。
+  let raw: unknown;
+  try {
+    raw = await provider(input);
+  } catch {
+    return buildNoRouteSource(input, routeEtaSafeExceptionReason(), [
+      "provider invocation failed — raw exception not exposed",
+    ]);
+  }
+
+  // provider が malformed shape（null / 非 object）を返した場合も総関数で防御（後続の field access throw を遮断）。
+  if (raw === null || typeof raw !== "object") {
+    return buildNoRouteSource(input, "malformed_result", [
+      "provider returned malformed result shape — raw not exposed",
+    ]);
+  }
+  // 形は backstop（routeEtaProviderResultViolations）で検証する。ここでは object であることのみ確定。
+  const result = raw as RouteEtaProviderResultV0;
 
   // provider result 境界 validation（malformed / raw-leak → no_route_source に fail-safe）
   // reason precedence: raw-leak > enum（leak は privacy-contract breach ゆえ独立 loud reason・benign に丸めない）

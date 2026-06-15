@@ -44,6 +44,7 @@ import {
   type RouteEtaProvider,
   type RouteEtaProviderResultV0,
 } from "@/lib/plan/realityCore/routeEtaProviderAdapter";
+import { containsRawLocation } from "@/lib/plan/realityCore/routeEtaSafety";
 
 function baseInput(over: Partial<RouteEtaAdapterInputV0> = {}): RouteEtaAdapterInputV0 {
   return {
@@ -364,5 +365,134 @@ describe("RD2d-b #23 IO source-scan green", () => {
     for (const bad of [".insert(", ".update(", ".delete(", ".upsert(", "service_role", "notification", "push(", "Date.now", "Math.random", "new Date(", "writeFile", "process.env", "fetch(", "supabase", "localStorage"]) {
       expect(code.includes(bad)).toBe(false);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RD2d-b-B2 Adapter Provider Exception Guard — provider invocation 境界を総関数化。
+// 任意 provider が throw/reject しても adapter は throw せず、raw を一切 echo せず safe failure へ倒す。
+// ─────────────────────────────────────────────────────────────────────────────
+const SECRET_COORD = "35.6895,139.7006";
+const syncThrow = (msg: string): RouteEtaProvider =>
+  (() => {
+    throw new Error(msg);
+  }) as unknown as RouteEtaProvider;
+const asyncReject = (msg: string): RouteEtaProvider => async () => {
+  throw new Error(msg);
+};
+const throwString = (s: string): RouteEtaProvider =>
+  (() => {
+    throw s;
+  }) as unknown as RouteEtaProvider;
+const throwObject = (o: unknown): RouteEtaProvider =>
+  (() => {
+    throw o;
+  }) as unknown as RouteEtaProvider;
+const returnsValue = (v: unknown): RouteEtaProvider => (async () => v) as unknown as RouteEtaProvider;
+
+describe("RD2d-b-B2 provider exception guard — adapter は throw せず safe failure へ倒す", () => {
+  it("#1 provider sync throw → adapter は throw しない / no_route_source / dependency_error", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: syncThrow("boom") });
+    expect(o.stage).toBe("no_route_source");
+    expect(o.resolved).toBe(false);
+    expect(o.failureReason).toBe("dependency_error");
+    expect(o.capability?.planning.timeEstimateUsableForPlanning).toBe(false);
+  });
+
+  it("#2 provider async reject → adapter は throw しない / dependency_error", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: asyncReject("async boom") });
+    expect(o.stage).toBe("no_route_source");
+    expect(o.failureReason).toBe("dependency_error");
+  });
+
+  it("#3 thrown Error message に座標 → output に echo されない", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: syncThrow(`route ${SECRET_COORD} polyline:abc`) });
+    const s = JSON.stringify(o);
+    expect(s.includes(SECRET_COORD)).toBe(false);
+    expect(s.toLowerCase().includes("polyline")).toBe(false);
+  });
+
+  it("#4 thrown string payload に座標 → echo されない", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: throwString(SECRET_COORD) });
+    expect(JSON.stringify(o).includes(SECRET_COORD)).toBe(false);
+    expect(o.failureReason).toBe("dependency_error");
+  });
+
+  it("#5 thrown object payload に座標/private → echo されない", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), {
+      provider: throwObject({ latitude: 35.6895, longitude: 139.7006, address: "secret-home", polyline: "abc" }),
+    });
+    const s = JSON.stringify(o).toLowerCase();
+    expect(s.includes("secret-home")).toBe(false);
+    expect(s.includes("35.6895")).toBe(false);
+    expect(s.includes("polyline")).toBe(false);
+  });
+
+  it("#6 stack trace は露出しない", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: syncThrow(`fail ${SECRET_COORD}`) });
+    const s = JSON.stringify(o);
+    expect(s.includes("    at ")).toBe(false); // stack frame マーカー
+    expect(s.includes(".test.ts")).toBe(false);
+    expect(s.includes("routeEtaProviderAdapter.ts")).toBe(false);
+    expect(s.includes("Error:")).toBe(false);
+  });
+
+  it("#7 failureReason は safe constant（dependency_error）", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: asyncReject(`x ${SECRET_COORD}`) });
+    expect(o.failureReason).toBe("dependency_error");
+  });
+
+  it("#8 violation message は safe / redacted（raw を含まない）", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: syncThrow(`leak ${SECRET_COORD}`) });
+    for (const v of o.violations) {
+      expect(containsRawLocation(v.toLowerCase())).toBe(false);
+    }
+    expect(o.violations.some((v) => v.includes("raw exception not exposed"))).toBe(true);
+  });
+
+  it("#9 output 直列化に raw coordinate/private/provider payload なし（containsRawLocation green）", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), {
+      provider: throwObject({ encodedPolyline: "_p~iF", coordinates: [35.6895, 139.7006], placeId: "ChIJxxx" }),
+    });
+    expect(containsRawLocation(JSON.stringify(o).toLowerCase())).toBe(false);
+  });
+
+  it("malformed result shape（null）→ malformed_result / throw しない", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: returnsValue(null) });
+    expect(o.stage).toBe("no_route_source");
+    expect(o.failureReason).toBe("malformed_result");
+  });
+
+  it("malformed result shape（非 object）→ malformed_result / throw しない", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), { provider: returnsValue("just-a-string") });
+    expect(o.failureReason).toBe("malformed_result");
+  });
+
+  it("#10 既存 provider failure/no_route path は不変", async () => {
+    const failed = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ status: "failed" })) });
+    expect(failed.failureReason).toBe("provider_failed");
+    const none = await resolveRouteEtaCapability(baseInput(), { provider: provider(result({ status: "no_route" })) });
+    expect(none.failureReason).toBe("no_route");
+  });
+
+  it("#11 既存 heuristic mapping path は不変（durationSignalPresent のみ立つ）", async () => {
+    const o = await resolveRouteEtaCapability(baseInput(), {
+      provider: provider(
+        result({ providerKind: "heuristic_distance", durationBasis: "heuristic", routeShapePresent: false, conditionModelStatus: "static_assumption", freshnessStatus: "stale", freshnessBasisRef: null }),
+      ),
+    });
+    expect(o.capability?.duration.durationSignalPresent).toBe(true);
+    expect(o.capability?.planning.timeEstimateUsableForPlanning).toBe(false);
+  });
+
+  it("#12 shared safety helper を使い local raw regex を再導入しない（source-scan）", () => {
+    const src = readFileSync(join(process.cwd(), "lib/plan/realityCore/routeEtaProviderAdapter.ts"), "utf8");
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code.includes("routeEtaSafeExceptionReason")).toBe(true);
+    expect(code.includes("} catch {")).toBe(true); // catch binding を取らない（raw に触れない）
+    expect(code.includes(".stack")).toBe(false);
+    expect(/catch\s*\(/.test(code)).toBe(false); // error を bind しない
+    expect(code.includes("const COORD_PATTERN")).toBe(false);
+    expect(code.includes("new RegExp")).toBe(false);
   });
 });
