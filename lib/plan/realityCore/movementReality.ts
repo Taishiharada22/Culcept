@@ -204,7 +204,16 @@ export function movementRealityViolations(m: MovementRealityV0): string[] {
   // 供給前の不変条件（RJ0.2 §8）: route/eta/leaveBy は false・mobilityStatus は unresolved・missingInputs に eta_source_missing
   if (m.routeKnown.value !== false) out.push(`${m.movementRealityId}.routeKnown: v0 は false のみ`);
   if (m.etaKnown.value !== false) out.push(`${m.movementRealityId}.etaKnown: v0 は false のみ`);
-  if (m.leaveByKnown.value !== false) out.push(`${m.movementRealityId}.leaveByKnown: v0 は false のみ`);
+  // RD2f-mv: leaveByKnown を v0 hard-false から **derived-only / coherence / v0 安全ラダー**へ緩和。
+  //   false は常に適合。true は v0 安全ラダー（leaveByKnown⟹etaKnown⟹routeKnown）+ internal-only displayPolicy を満たす時のみ。
+  //   cross-node coherence（true⟹対応 ern.leaveByComputed computed）は movementLeaveByKnownCoherenceViolations が別途検査。
+  //   ※ ladder は v0 安全策であり恒久意味論ではない（route/ETA 供給成熟時に etaKnown/routeKnown 意味論を再監査 — RD2f-SEM-0 補正）。
+  //   ※ 本 slice では etaKnown/routeKnown は依然 false 固定（上記）ゆえ leaveByKnown=true は v0 で事実上不成立=inert。
+  if (m.leaveByKnown.value === true) {
+    if (m.etaKnown.value !== true) out.push(`${m.movementRealityId}.leaveByKnown: v0 安全ラダー違反（etaKnown=false で leaveByKnown=true 不可）`);
+    if (m.routeKnown.value !== true) out.push(`${m.movementRealityId}.leaveByKnown: v0 安全ラダー違反（routeKnown=false で leaveByKnown=true 不可）`);
+    if (m.leaveByKnown.displayPolicy === "visible") out.push(`${m.movementRealityId}.leaveByKnown: displayPolicy が internal-only でない（visible 禁止）`);
+  }
   if (m.mobilityStatus.value !== "unresolved")
     out.push(`${m.movementRealityId}.mobilityStatus: 3-K では unresolved のみ`);
   if (!m.missingInputs.includes("eta_source_missing"))
