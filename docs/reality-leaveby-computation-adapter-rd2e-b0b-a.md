@@ -1,5 +1,7 @@
 # RD2e-b0B-A — LeaveBy Adapter 前提確定（calendar / seconds / bounds / buffer binding / arrival provenance / uncomputed priority / instantMinusMinutes tests）docs-only
 
+> **✅ RD2e-b-A Adapter Hardening（`dd4fa5da`・2026-06-15）**: adversarial workflow（`wf_793224f4`）が発見した D1-D6 defect を修正。D1 origin を scope gate に追加（+ origin 型に transportMode/temporalScopeRef）・D2 originConflict `!== 'none'` fail-closed・D3 origin freshness/asOf 追加・D4 fixed arrival は confirmed provenance 再要求・D5 arrivalTargetInstant 日付 prefix = targetEventDate（**前日 leaveBy は許容**・CEO 補正）・D6 scopeKey に temporalScopeRef + completeness predicate。leaveByAdapter 56/56・RD2 313/313・tsc 55。
+>
 > **✅ RD2e-b 実装完了（`0c8daaea`・2026-06-15）で本書の全契約を実装**: `isCalendarValidMinuteJstIso`（暦妥当性+ss=00）/ whole-minute epoch `instantMinusMinutes` / bounds（MAX_DURATION 1440・MAX_BUFFER 60・MAX_TOTAL 1440・range guard）/ 単一 leaveByScopeKey / arrival provenance gate / uncomputed priority 7 段 / property tests（leap/rollover/monotonicity/composition 等価/no-Date）。本書は実装の正本。
 
 - 日付: 2026-06-15 / 位置づけ: RD2e-b0B（`815f1714`）の 7 ブロッカーを RD2e-b 実装**前**に確定する。GPT 監査 7 点を独立裁定し、見落としを補う。

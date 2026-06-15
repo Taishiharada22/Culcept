@@ -108,9 +108,9 @@ target_event_date_mismatch | cross_day_arrival_unsupported
 
 ---
 
-## 7. 発見した RD2e-b 実コード defect（**要 RD2e-b-A micro-fix GO**・本書では実装しない）
+## 7. 発見した RD2e-b 実コード defect（**✅ RD2e-b-A `dd4fa5da` で全修正済**）
 
-workflow が file:line で確認した、現行 `0c8daaea` の実バグ:
+workflow が file:line で確認した、`0c8daaea` の実バグ。**RD2e-b-A で D1-D6 全修正・56/56 tests・cross-midnight 前日 leaveBy は CEO 補正どおり許容（violation にしない）**:
 | id | defect | 場所 | 修正方針 |
 |---|---|---|---|
 | **D1** | origin が scope-mismatch gate に**含まれない** | `leaveByAdapter.ts:310-313` | origin を gate に追加 + origin 型に transportMode |
