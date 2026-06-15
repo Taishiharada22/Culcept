@@ -65,6 +65,21 @@ export function purposeLensFromSchedule(title: string): PurposeLens {
   return classifyPurposeLens({ activityKey: classifyActivityIconKey(title), title });
 }
 
+/** 住所を 1 行省略表示用に短縮（① card 用・pure）。空白前まで＋長すぎれば maxLen で「…」。全文は ② で出す。 */
+export function shortAddress(address: string | null, maxLen = 18): string | null {
+  if (!address) return null;
+  const head = address.split(/[\s　]/)[0] ?? address; // 全角/半角空白前
+  return head.length > maxLen ? `${head.slice(0, maxLen)}…` : head;
+}
+
+/** 住所を ② 用に最大 2 行へ整理（pure・ベタ長文を避ける）。 */
+export function splitAddressLines(address: string | null): readonly string[] {
+  if (!address) return [];
+  const parts = address.split(/[\s　]+/).filter(Boolean);
+  if (parts.length <= 1) return [address];
+  return [parts[0]!, parts.slice(1).join(" ")];
+}
+
 /** 「なぜここを選ぶ？」を実値のみで hedged に組む（pure・捏造しない・無ければ null）。 */
 function whyChooseLine(attrs: Record<AttributeKey, PlaceAttribute>, lens: PurposeLens, hasAffinity: boolean): string | null {
   const walk = attrs.walk_estimate.value; // 例: 約7分（目安）

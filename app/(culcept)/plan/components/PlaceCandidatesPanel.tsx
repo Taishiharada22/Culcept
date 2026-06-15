@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import {
   formatCanonicalLocationText,
@@ -412,6 +413,25 @@ export function PlaceCandidatesPanel({
     return m;
   }, [rankedDisplayList]);
 
+  // ★REDO-7: Lens Overlay の vertical anchor。flag ON 時、locationText 欄の下端 rect を測り「どこで？直下から出た」位置に portal する。
+  const lensAnchorRef = useRef<HTMLDivElement>(null);
+  const [lensTop, setLensTop] = useState<number | null>(null);
+  const lensOverlayActive = isCandidateLensUiEnabled() && isActive && !loading && results.length > 0;
+  useEffect(() => {
+    if (!lensOverlayActive) return;
+    const measure = () => {
+      const r = lensAnchorRef.current?.getBoundingClientRect();
+      if (r) setLensTop(r.bottom);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [lensOverlayActive, debouncedQuery, debouncedTitle, results.length]);
+
   // ── handlers ──
   const handleSelect = (c: PlaceCandidate) => {
     abortRef.current?.abort();
@@ -438,17 +458,32 @@ export function PlaceCandidatesPanel({
 
   if (!isActive) return null;
 
-  // ★Phase 2 REDO-3: flag ON は「規定の枠」を完全撤廃。intent ラベル/privacy/枠付き close を出さず、
-  //   候補 UI（カード）そのものを再構築した CandidateLensPanel を素のまま描画する（既存 <section> は flag OFF で完全不変）。
-  if (isCandidateLensUiEnabled() && !loading && results.length > 0) {
+  // ★REDO-7: flag ON は「既存の右枠(512px modal)」発想を撤廃。locationText 欄の下端に anchor を置き、
+  //   そこから createPortal(body) で「Lens Overlay」(中央配置・幅 min(700px,100vw-40px))を出す＝
+  //   modal の overflow-hidden(512px) を脱出し中央軸を跨いで左タイムラインに 25-35% 侵入。flag OFF は既存 <section> 不変。
+  if (lensOverlayActive) {
     return (
-      <CandidateLensPanel
-        candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
-        title={debouncedTitle.trim() || title}
-        affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
-        onSelect={(c) => handleSelect(c as PlaceCandidate)}
-        onSkip={handleSkip}
-      />
+      <>
+        {/* どこで？直下の vertical anchor（不可視・高さ 0）。ここを基準に overlay を出す。 */}
+        <div ref={lensAnchorRef} aria-hidden className="h-0 w-full" data-testid="plan-place-candidates-panel" />
+        {typeof document !== "undefined" && lensTop != null &&
+          createPortal(
+            <div
+              className="fixed z-[60]"
+              style={{ top: lensTop + 6, left: "50%", transform: "translateX(-50%)", width: "min(700px, calc(100vw - 40px))" }}
+              data-testid="plan-place-candidates-lens-overlay"
+            >
+              <CandidateLensPanel
+                candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
+                title={debouncedTitle.trim() || title}
+                affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
+                onSelect={(c) => handleSelect(c as PlaceCandidate)}
+                onSkip={handleSkip}
+              />
+            </div>,
+            document.body,
+          )}
+      </>
     );
   }
 
