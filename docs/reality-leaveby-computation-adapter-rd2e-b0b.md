@@ -1,5 +1,7 @@
 # RD2e-b0B — LeaveBy Adapter Final Implementation Design（設計提出のみ・コード禁止）
 
+> **✅ RD2e-b 実装完了（`0c8daaea`・2026-06-15）**: 本設計（+ RD2e-b0B-A 補正）を実コード化。新規 pure `lib/plan/realityCore/leaveByAdapter.ts`（`computeLeaveBy` / `instantMinusMinutes`[Date 不使用 civil 算術] / `isCalendarValidMinuteJstIso` / `resolveBufferMinutesFromCatalog` / gate violations）。二鍵照合（`bindDurationValueToCapability` 再実行 + `durationValueViolations` 再検証）→ precondition 合流 → 1 回減算 → fail-closed → walker green。leaveByAdapter 37/37・RD2 294/294・tsc 55。RC2a/MovementReality/departure line/currentLocation 不接触。最終契約は RD2e-b0B-A。
+
 - 日付: 2026-06-15 / 作成: RD2d-b-VALUE 実装完了（`c99afd46`）を受けた leaveBy adapter 実装直前設計
 - 位置づけ: RD2e-b0（`docs/reality-leaveby-computation-adapter-rd2e-b0.md`）+ RD2e-b0A（同 `-rd2e-b0a.md`）の設計を、**実装済の二鍵 duration value channel**（`lib/plan/realityCore/routeEtaDurationValue.ts`）と**実装済の leaveBy computation 型/walker**（`lib/plan/realityCore/leaveByComputation.ts`・RD2e-a/a-A）の上に**接地**させ、RD2e-b で書くコードの shape を確定する。
 - 規律: **コードを書かない**（docs-only）。leaveBy 実計算・currentLocation・departure line・notification・RC2a・UI・production には進まない。本書は RD2e-b 実装 GO の前提資料。

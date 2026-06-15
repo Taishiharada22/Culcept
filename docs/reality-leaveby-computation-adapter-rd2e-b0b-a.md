@@ -1,5 +1,7 @@
 # RD2e-b0B-A — LeaveBy Adapter 前提確定（calendar / seconds / bounds / buffer binding / arrival provenance / uncomputed priority / instantMinusMinutes tests）docs-only
 
+> **✅ RD2e-b 実装完了（`0c8daaea`・2026-06-15）で本書の全契約を実装**: `isCalendarValidMinuteJstIso`（暦妥当性+ss=00）/ whole-minute epoch `instantMinusMinutes` / bounds（MAX_DURATION 1440・MAX_BUFFER 60・MAX_TOTAL 1440・range guard）/ 単一 leaveByScopeKey / arrival provenance gate / uncomputed priority 7 段 / property tests（leap/rollover/monotonicity/composition 等価/no-Date）。本書は実装の正本。
+
 - 日付: 2026-06-15 / 位置づけ: RD2e-b0B（`815f1714`）の 7 ブロッカーを RD2e-b 実装**前**に確定する。GPT 監査 7 点を独立裁定し、見落としを補う。
 - 規律: **コードを書かない**。`instantMinusMinutes` 実装・leaveBy adapter 実装・RC2a/MovementReality/currentLocation/geolocation/route provider/weather/UI/DB write/Supabase/localStorage/notification/external/production には進まない。
 - 上流確定: RD2d-b-VALUE 実装済（`c99afd46`・`PlanningGradeDurationValueV0` + `bindDurationValueToCapability`）/ RD2e-a・a-A（`LeaveByComputationV0` + `isCanonicalJstIso` + `leaveByAtOrBeforeArrival`）/ buffer catalog small5/medium15/large30（RD2e-b0A §3）。
