@@ -112,7 +112,8 @@
 
 | slice | 内容 | 新規 |
 |---|---|---|
-| **RD2f-bind** | `attachComputedLeaveBy`(seam・再検証/leak-scan/origin/staleness) + `ern.leaveByComputed?` + `deriveLeaveByKnown` + cross-node coherence invariant | `leaveByGraphBinding.ts` + ern/mv 型 additive + tests |
+| **RD2f-bind** | `attachComputedLeaveBy`(seam・再検証/leak-scan/origin/staleness) + `ern.leaveByComputed?` + `deriveLeaveByKnown` + cross-node coherence invariant。**✅ 実装 `da1fff96`**（staleness は RD2f-assembly で追加） | `leaveByGraphBinding.ts` + ern/mv 型 additive + tests |
+| **RD2f-assembly** | enrichment pass `assembleLeaveByBindings`（compile→assemble の間・ern[] 駆動・cardinality/orphan/discard/staleness）。**設計 → `docs/reality-leaveby-assembly-injection-rd2f-assembly-0.md`（RD2f-assembly-0）**。**mv 不変**（leaveByKnown 反映は別 RD2f-mv・invariant 緩和要） | `leaveByAssembly.ts` |
 | **RD2f-feasibility-guard** | `isLeaveByComputed` predicate・feasibility を non-load-bearing 化（over-claim 封鎖） | feasibility 局所 + tests |
 | **RD2f-surface（後段）** | INV-DEP-A 述語で departure surface / clarification question を gate（**表示はまだ HOLD**） | judgmentSurfacePlan 局所 |
 | **departure line（ずっと後段）** | user-facing 表示 | RJ2/Surface/Delivery |
