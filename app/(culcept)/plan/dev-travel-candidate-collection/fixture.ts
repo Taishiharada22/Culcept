@@ -62,11 +62,39 @@ const walkCandidate: TravelCandidate = {
   uncertainty: "high",
 };
 
+/**
+ * 第 3 候補（onsenCandidate に明確に支配される＝dominance note の dominated kind を実証用）。
+ * tradeoff: 全軸で onsen と同等 or 悪い（cost↑ distance↑ fatigue↑ experienceVariety↓）。
+ */
+const expensiveCandidate: TravelCandidate = {
+  candidateId: "candidate:expensive",
+  title: "観光バスで巡る一日",
+  tags: ["sightseeing"],
+  itinerary: {
+    days: [
+      {
+        dayIndex: 0,
+        date: "2026-07-01",
+        nodes: [
+          { nodeId: "n:bus", startMin: 540, endMin: 720, place: { placeRefId: "bus", label: "観光バス" }, activityKind: "sightseeing", budgetBand: yen(7000, 9000), fatigueLoad: 4, nodeConfidence: "anchor" },
+        ],
+        edges: [],
+      },
+    ],
+  },
+  // onsen より全軸悪い: cost 9000>4500, distance 20>12, fatigue 4>3, variety 1<2 → onsen dominates expensive
+  tradeoff: { cost: 9000, distance: 20, fatigue: 4, experienceVariety: 1 },
+  constraints: [],
+  rationale: { shared: "観光地を効率よく回る一日。", forParticipant: { p1: "PRIVATE_本人向けの理由（表示してはいけない）" } },
+  uncertainty: "low",
+};
+
 /** ★ server-only 保管ドラフト（page が projectDisplayCandidateCollection で client-safe 投影する） */
 export const FIXTURE_COLLECTION_DRAFT: CandidateCollectionDraft = {
   outcome: "candidate_collection_draft",
   serverOnly: true,
   authoritative: false,
   ranked: false,
-  candidates: [onsenCandidate, walkCandidate],
+  // onsen + walk は trade-off で互いに frontier、expensive は onsen に支配される dominated 候補
+  candidates: [onsenCandidate, walkCandidate, expensiveCandidate],
 };

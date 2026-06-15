@@ -17,7 +17,10 @@
 
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { projectDisplayCandidateCollection } from "@/lib/shared/travel/candidate-collection-display";
+import { computeCandidateDominance } from "@/lib/shared/travel/candidate-dominance";
+import { projectCandidateComparisonMemo } from "@/lib/shared/travel/candidate-comparison-display";
 import { CandidateCollectionDisplay } from "./CandidateCollectionDisplay";
+import { CandidateComparisonDisplay } from "./CandidateComparisonDisplay";
 import { FIXTURE_COLLECTION_DRAFT } from "./fixture";
 
 export const dynamic = "force-dynamic";
@@ -39,5 +42,14 @@ export default function DevTravelCandidateCollectionPage() {
   }
   // flag ON → fixture draft を client-safe 投影して read-only 表示（runtime は実行しない）。
   const collection = projectDisplayCandidateCollection(FIXTURE_COLLECTION_DRAFT);
-  return <CandidateCollectionDisplay collection={collection} />;
+  // server-only dominance overlay を計算（advisory）→ client-safe comparison memo に投影。
+  // ★ collection を sort/除去しない・ranking を作らない・実 collection は不変。
+  const overlay = computeCandidateDominance(FIXTURE_COLLECTION_DRAFT);
+  const comparison = projectCandidateComparisonMemo(collection, overlay);
+  return (
+    <>
+      <CandidateCollectionDisplay collection={collection} />
+      <CandidateComparisonDisplay comparison={comparison} />
+    </>
+  );
 }
