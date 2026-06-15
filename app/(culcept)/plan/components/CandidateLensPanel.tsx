@@ -200,13 +200,11 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
 
         <ChipRow view={v} />
 
-        {/* なぜここをおすすめ？（理想画像どおり 1 段落のみ） */}
-        {v.whyLine && (
-          <div className="mt-3 rounded-2xl bg-purple-50/70 px-3.5 py-3">
-            <p className="text-[12.5px] font-bold text-purple-700">なぜここをおすすめ？</p>
-            <p className="mt-1 text-[13.5px] leading-relaxed text-slate-700">{v.whyLine}</p>
-          </div>
-        )}
+        {/* なぜここをおすすめ？（常に表示・whyLine が無い候補は目的レンズ由来の honest 文でフォールバック・捏造しない） */}
+        <div className="mt-3 rounded-2xl bg-purple-50/70 px-3.5 py-3">
+          <p className="text-[12.5px] font-bold text-purple-700">なぜここをおすすめ？</p>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-slate-700">{v.whyLine ?? `${PURPOSE_LENS_LABEL[lens]}の目的に合いそうな${v.category ?? "場所"}です。`}</p>
+        </div>
 
         <div className="mt-3 flex gap-2">
           {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-detail-compare" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50">＋ 比較に追加</button>}
@@ -332,56 +330,56 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     );
   }
 
-  // ════════════════════ ① おすすめの候補（薄紫カード1枚・上下スワイプ/▲▼/ドットで捲る） ════════════════════
+  // ════════════════════ ① おすすめの候補（薄紫カード1枚・上下スワイプ/▲▼/ドットで捲る・全体コンパクト） ════════════════════
   return (
-    <div data-testid="lens-list" className="rounded-3xl bg-white p-3.5 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-black/5">
-      <div className="mb-2 px-0.5">
-        <p className="text-[14px] font-bold tracking-tight text-slate-900">おすすめの候補</p>
+    <div data-testid="lens-list" className="rounded-[20px] bg-white p-3 shadow-[0_16px_44px_rgba(15,23,42,0.18)] ring-1 ring-black/5">
+      <div className="mb-1.5 px-0.5">
+        <p className="text-[12.5px] font-bold tracking-tight text-slate-900">おすすめの候補</p>
       </div>
 
-      {/* 薄紫の候補カード（写真→タイル左・名前2行・相性高め・理由2行・チップ・◎住所1行省略・簡易map・2ボタン） */}
+      {/* 薄紫の候補カード（写真→タイル左・名前・相性高め・理由・チップ・◎住所1行省略・簡易map・2ボタン）・小さめ */}
       <article data-testid="lens-card" key={v.placeId}
-        className="rounded-2xl bg-purple-50/50 p-3.5 ring-1 ring-purple-200"
+        className="rounded-2xl bg-purple-50/50 p-3 ring-1 ring-purple-200"
         onTouchStart={(e) => { touch.y = e.touches[0]?.clientY ?? null; }}
         onTouchEnd={(e) => { if (touch.y == null) return; const dy = (e.changedTouches[0]?.clientY ?? touch.y) - touch.y; if (Math.abs(dy) > 30) go(dy < 0 ? 1 : -1); touch.y = null; }}>
-        <div className="flex items-start gap-3">
-          <PlaceTile category={v.category} h="h-14" w="w-14" />
+        <div className="flex items-start gap-2.5">
+          <PlaceTile category={v.category} h="h-12" w="w-12" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <h4 className="text-[15px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h4>
-              {v.affinityBadge && <span className="mt-0.5 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700">{v.affinityBadge}高め</span>}
+              <h4 className="text-[14px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h4>
+              {v.affinityBadge && <span className="mt-0.5 shrink-0 rounded-full bg-purple-100 px-1.5 py-0.5 text-[9.5px] font-medium text-purple-700">{v.affinityBadge}高め</span>}
             </div>
-            {v.whyLine && <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-slate-600">{v.whyLine}</p>}
+            {v.whyLine && <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-relaxed text-slate-600">{v.whyLine}</p>}
           </div>
         </div>
         <ChipRow view={v} />
-        <div className="mt-2.5 flex items-end gap-2">
-          <p className="flex min-w-0 flex-1 items-center gap-1 text-[12px] text-slate-500"><span aria-hidden className="text-slate-400">◎</span><span className="truncate">{shortAddress(v.address) ?? "住所は未取得です"}</span></p>
-          <MapTile h="h-[3.25rem]" w="w-[5rem]" />
+        <div className="mt-2 flex items-end gap-2">
+          <p className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-slate-500"><span aria-hidden className="text-slate-400">◎</span><span className="truncate">{shortAddress(v.address) ?? "住所は未取得です"}</span></p>
+          <MapTile h="h-[2.75rem]" w="w-[4.25rem]" />
         </div>
-        <div className="mt-3 flex gap-2">
-          <button type="button" onClick={() => setView("detail")} data-testid="lens-card-detail" className="flex-1 rounded-xl bg-white py-2.5 text-[13px] font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-[0.99]">詳細を見る</button>
-          {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-card-compare" className="flex-1 rounded-xl bg-white py-2.5 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50 active:scale-[0.99]">＋ 比較に追加</button>}
+        <div className="mt-2.5 flex gap-2">
+          <button type="button" onClick={() => setView("detail")} data-testid="lens-card-detail" className="flex-1 rounded-xl bg-white py-2 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-[0.99]">詳細を見る</button>
+          {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-card-compare" className="flex-1 rounded-xl bg-white py-2 text-[12.5px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50 active:scale-[0.99]">＋ 比較に追加</button>}
         </div>
       </article>
 
       {/* 捲る pager（▲ 前・ドット・▼ 次）。上下スワイプと等価。 */}
       {n > 1 && (
-        <div className="mt-3 flex items-center justify-center gap-3">
-          <button type="button" onClick={() => go(-1)} aria-label="前の候補" data-testid="lens-prev" className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[12px] text-slate-500 ring-1 ring-black/5 transition hover:bg-slate-50">▲</button>
+        <div className="mt-2.5 flex items-center justify-center gap-3">
+          <button type="button" onClick={() => go(-1)} aria-label="前の候補" data-testid="lens-prev" className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[11px] text-slate-500 ring-1 ring-black/5 transition hover:bg-slate-50">▲</button>
           <div className="flex items-center gap-1.5">
             {views.map((vv, i) => (
               <button key={vv.placeId} type="button" aria-label={`候補 ${i + 1}`} onClick={() => setCurrent(i)}
                 className={`h-1.5 rounded-full transition-all ${i === current ? "w-4 bg-purple-500" : "w-1.5 bg-slate-300 hover:bg-slate-400"}`} />
             ))}
           </div>
-          <button type="button" onClick={() => go(1)} aria-label="次の候補" data-testid="lens-next" className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-[12px] text-slate-500 ring-1 ring-black/5 transition hover:bg-slate-50">▼</button>
+          <button type="button" onClick={() => go(1)} aria-label="次の候補" data-testid="lens-next" className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[11px] text-slate-500 ring-1 ring-black/5 transition hover:bg-slate-50">▼</button>
         </div>
       )}
 
       {onSkip && (
-        <div className="mt-2 text-center">
-          <button type="button" onClick={onSkip} data-testid="lens-skip" className="rounded-md px-3 py-1.5 text-[12px] text-slate-400 underline transition hover:text-slate-600">場所を選ばずに保存</button>
+        <div className="mt-1.5 text-center">
+          <button type="button" onClick={onSkip} data-testid="lens-skip" className="rounded-md px-3 py-1 text-[11.5px] text-slate-400 underline transition hover:text-slate-600">場所を選ばずに保存</button>
         </div>
       )}
     </div>
