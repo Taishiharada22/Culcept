@@ -1,5 +1,7 @@
 # RD2f-0 — LeaveBy → RC2a / MovementReality / RealityGraph 接続設計（docs-only）
 
+> **✅ RD2f-bind 実装完了（`da1fff96`・2026-06-15）**: §8 の RD2f-bind を実コード化。`EventRealityNodeV0.leaveByComputed?: LeaveByComputationV0`（別 field・既存 `leaveBy`[display string] 不変）+ 新 pure `lib/plan/realityCore/leaveByGraphBinding.ts`（`attachComputedLeaveBy`[再検証 seam]/`deriveMovementLeaveByKnown`[derived-and-bound]/`leaveByGraphBindingViolations`）。MovementReality/feasibility/risk/permission 非接続・internal-only。20/20 tests・full 21004 + baseline FAIL 2・tsc 55。assembly 接続は **RD2f-assembly（別 GO）**。表現補正反映: CollapseRisk/Intervention は「本 slice の接続対象でない・load-bearing input にしない」（不在でなく既存・RC2b/RC2c）。
+
 - 日付: 2026-06-15 / 位置づけ: RD2e-SUPPLY（`6f707fbc`）で internal に得た `LeaveByComputationV0` を RealityGraph へ**どう接続するか**を実装前に設計する。**まだ実装ではない**。leaveBy は依然 internal-only（MovementReality 正本でも departure line でも user-facing でも notification でも action でもない）。
 - 規律: 本書は**コードを書かない**。MovementReality/assembleRealityGraph/compileMovementReality/RC2a/dogfood preview/departure line/UI/notification/currentLocation/DB write には進まない。
 - 方法（CEO ①②③ + ultracode）: **adversarial workflow（`wf_d6271c97`・6 grounding + 2 synthesize・file:line 根拠）**で実構造を監査。下記は確認事実。
@@ -14,7 +16,7 @@
 | **ern.leaveBy** | `eventRealityNode.ts:105-108`・**`RealityAttribute<string>`（display 寄り・feasibility が `=== null` で読む）・v0 null**。← **`LeaveByComputationV0`(internal object) の置き場ではない**（型も意味も別）。 |
 | **assembleRealityGraph** | `realityGraphSnapshot.ts:185`→`RealityGraphSnapshotV0`(:108-156)（ern[]/mv[]/cs[]/decisionDebt/momentSnapshot・2 層 identity）。 |
 | **missingInputRefs** | **immutable・never cleared**（dedupeKey で carry・`:239-254`）。known-flag が true に**反転**することで解消を表す（ref 削除でない）。codes: event(place_missing/route_missing/eta_source_missing)・supply(arrival_target_unavailable/buffer_unknown/origin_unavailable/duration_value_missing/scope_incomplete)。 |
-| **CollapseRisk / InterventionEligibility** | **存在しない**。Feasibility(`lib/plan/feasibility/`)は**観測専用**（余白/不足・prescriptive でない）。lateness/deadline は `lsat.ts:computeLsat` のみ・**movement/feasibility から切断済**。departure-line/probability/「間に合う」logic は**未配線**。 |
+| **CollapseRisk / InterventionEligibility** | **本 slice の接続対象ではない**（Risk/Permission 層は RC2b/RC2c で別途存在する。RD2f-bind では leaveByComputed をそれらの **load-bearing input にしない**）。Feasibility(`lib/plan/feasibility/`)は**観測専用**（余白/不足・prescriptive でない）。lateness/deadline は `lsat.ts:computeLsat` のみ・**movement/feasibility から切断済**。departure-line/probability/「間に合う」logic は**未配線**。 |
 | **gates** | DISPLAY: `RealityDisplayPolicy`(field: visible/hidden/debugOnly/notActionable) + `SurfaceExposureLevel`(plan: none/internal_only/passive_only/ask_eligible・`surfaceProjection.ts`) + **G4 REDACTION**（L0→L1 irreversible）。NOTIFICATION: Delivery gate。departure surface は `judgmentSurfacePlan.ts:253` で静的 suppress(`departure_suppressed_movement`)。 |
 | **typed attach seam** | **存在しない**。`LeaveByComputationV0`/`computeLeaveBy`/`supplyAndResolveLeaveBy` は**まだ誰も import していない** → 「fail-closed」は今は偶然。明示 seam が要る。 |
 
@@ -81,7 +83,7 @@
 
 ## 5. Feasibility / CollapseRisk 接続（non-load-bearing・over-claim 防止）
 
-- **computed leaveBy があるだけで feasible=true / risk low にしない**（CollapseRisk は存在しないので作らない）。
+- **computed leaveBy があるだけで feasible=true / risk low にしない**（leaveByComputed を Risk/Feasibility の load-bearing input にしない）。
 - **feasibility over-claim 封鎖**（synthesis HIGH・`feasibilityJudgment.ts:324`）: feasibility は `ern.leaveBy.value===null` で resolution を読む。computed leaveBy を `ern.leaveBy` に載せると誤って「resolved」= optimism になる → **§2 で別 field にする**。feasibility は **typed predicate `isLeaveByComputed(ern)`（attach 済 ∧ status computed のみ true）で読む**・かつ leaveBy 解決を **feasibility optimism に対し non-load-bearing** にする（leaveBy は missing 解消材料の一部であって feasible 判定材料ではない）。
 - **deadline / departure line / lateness 判断は別 slice**（lsat は切断維持）。**no probability / no「間に合う」/ no「遅れる」**。
 
