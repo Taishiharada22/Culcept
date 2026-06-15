@@ -1,5 +1,7 @@
 # U1-EventNode propagation-0 — startTimeSource を DayGraph/EventNode へ伝播（proposal・docs-only）
 
+> **✅ U1-EventNode propagation 実装完了（`a1b7746f`・2026-06-15）**: 本提案を実コード化。`EventNode.startTimeSource?: StartTimeSource`(optional additive・`dayGraphTypes.ts`) + `buildEventNodeFromAnchor` で `anchor.startTimeSource ?? "unknown"`(fail-closed) 写像のみ。raw tzid/timestamp/isAllDayPlaceholder は EventNode に**載せない**。migration なし。dayGraphEventNodes 37/37・graph/RD2 536 PASS・full 20963 + baseline FAIL 2・tsc 55。次は RD2e-SUPPLY（honest に組める）。
+
 - 日付: 2026-06-15 / 位置づけ: RD2e-SUPPLY 実装の**前提ブロッカー**。CEO の指示どおり、RD2e-SUPPLY 本体に進む前に「`ExternalAnchor.startTimeSource` が EventNode/DayGraph に伝播しているか」を確認 → **伝播していない**ことを確定したため、RD2e-SUPPLY を止めて本 micro-slice を提案する。
 - 規律: 本書は**コードを書かない**（提案）。実装は CEO GO 後。
 
