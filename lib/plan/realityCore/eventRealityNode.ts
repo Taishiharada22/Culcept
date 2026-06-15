@@ -30,6 +30,7 @@ import type { PlanItemFlexibility, PlanItemOrigin, ProtectionReason } from "@/li
 import type { PermissionLevel } from "@/lib/plan/reality/permission/permission-model";
 import type { DayStateBuildInput } from "@/lib/plan/dayState/dayStateTypes";
 import type { RealityAttribute } from "./realityAttribute";
+import type { LeaveByComputationV0 } from "./leaveByComputation";
 
 /** 既存 dayState 語彙の再利用（"high" | "low"。新 union を作らない） */
 export type InterpersonalLoadValue = NonNullable<DayStateBuildInput["interpersonalLoadHint"]>;
@@ -123,6 +124,15 @@ export interface EventRealityNodeV0 {
   // ── provenance 補助 ──
   /** origin の判定結果（governance 由来の透明性。判定不能は "unknown"） */
   readonly resolvedOrigin: PlanItemOrigin | "unknown";
+
+  /**
+   * RD2f-bind（2026-06-15）: RD2e-b で得た **internal-only** leaveBy computation の保持枠。
+   * - **`leaveBy`（RealityAttribute<string> display 寄り）とは別 field**（feasibility は `leaveBy` を読む・本 field を読まない）。
+   * - `EVENT_REALITY_ATTRIBUTE_KEYS` に**含めない**（reality 属性でない・attribute-key ベースの surface 投影に乗らない）。
+   * - **internal-only**: consumer payload / surface / copy / notification / departure line / preview の exact instant に出さない。
+   * - `attachComputedLeaveBy`（leaveByGraphBinding.ts）の再検証を通った時のみ設定。未 attach は undefined（fail-closed）。
+   */
+  readonly leaveByComputed?: LeaveByComputationV0;
 }
 
 /** EventRealityNodeV0 の 10 reality 属性キー（invariant 機械検証・fixture 走査用） */
