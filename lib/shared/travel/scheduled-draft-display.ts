@@ -14,6 +14,7 @@
  */
 
 import type { AssemblyBridgeResult } from "./solver-assembly-bridge-types";
+import type { TravelItinerary } from "./core-types";
 import type { DisplayDay, DisplayNode, DisplayScheduledItinerary, DisplayTransition } from "./scheduled-draft-display-types";
 
 /** explicit minutes → 決定論 "HH:MM"（捏造でなく表示フォーマット） */
@@ -23,11 +24,13 @@ function hhmm(minute: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-export function projectDisplayScheduledItinerary(bridge: AssemblyBridgeResult): DisplayScheduledItinerary | null {
-  if (bridge.outcome !== "scheduled_draft") return null; // no_draft → 表示なし
-  const draft = bridge.draft;
-
-  const days: DisplayDay[] = draft.itinerary.days.map((day) => ({
+/**
+ * TravelItinerary → client-safe `DisplayDay[]`（read-only copy + 決定論 "HH:MM"）。
+ *   ★ 内部 placeRefId を出さない・externalId は inert carry のみ・solve/reorder/推論しない。
+ *   scheduled-draft / candidate collection の双方が再利用する単一正本。
+ */
+export function projectDisplayDays(itinerary: TravelItinerary): DisplayDay[] {
+  return itinerary.days.map((day) => ({
     dayIndex: day.dayIndex,
     date: day.date,
     nodes: day.nodes.map(
@@ -52,7 +55,11 @@ export function projectDisplayScheduledItinerary(bridge: AssemblyBridgeResult): 
       (e): DisplayTransition => ({ fromNodeId: e.fromNodeId, toNodeId: e.toNodeId, transport: e.transport, durationMin: e.durationMin, cost: e.cost }),
     ),
   }));
+}
 
+export function projectDisplayScheduledItinerary(bridge: AssemblyBridgeResult): DisplayScheduledItinerary | null {
+  if (bridge.outcome !== "scheduled_draft") return null; // no_draft → 表示なし
+  const draft = bridge.draft;
   // ★ serverOnly / provenance(audit) / authoritative / draft 内部 flag を出力に含めない（新規 display payload を構築）
-  return { status: "draft_proposal", candidateId: draft.candidateId, days };
+  return { status: "draft_proposal", candidateId: draft.candidateId, days: projectDisplayDays(draft.itinerary) };
 }
