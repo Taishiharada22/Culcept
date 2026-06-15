@@ -151,6 +151,7 @@ supply 層は未実装ゆえ、全不変条件を **prose でなく walker-check
 - **U1 の方が surface が広い**（9 mapper/adapter + DB migration + 各 path の exactness 判定）。リスク高・app 横断。
 - **U2 は realityCore + originInference 局所**だが asOf の実 source（観測 timestamp）が要る。
 - 推奨: **U1-minimal**（manual + ics-timed の 2 path だけ先に persist = honest に exact を出せる最小集合）→ U2（asOf + cap）→ RD2e-SUPPLY。pdf/image/chat/shift/all-day は system_inferred/assumed_default 固定でよい（fail-closed）。
+- **→ U2 の最小 scope 詳細設計 = `docs/reality-leaveby-u2-minimal-originvalidity-0.md`（U2-minimal-0）**。grounding（`wf_7af7a071`）で **OriginInferenceV0 は pure compute・DB 非永続 → U2 は migration 不要**、**previous_event_end が validity+freshness を今日のデータ（dayGraph snapshot + supportedBoundary + U1 startTimeSource）から honest に導ける唯一の kind**と確定。home/work（asOf 列なし）・user_confirmed（確認 timestamp なし）・currentLocation（HOLD）は defer。
 - **→ U1-minimal の詳細設計（manual + ICS-timed の永続化）= `docs/reality-leaveby-u1-minimal-startsource-0.md`（U1-minimal-0）**。grounding（`wf_68719869`）で choke point=`createSourceWithAnchors`・**二重書込経路（RPC + sequential）**・DB 正規化カラム・ICS が isAllDay/tzid を `icsToAnchorMapper.ts:181` で drop・manual が startTime を prefill を確認。CHECK 制約 + signal 分離 + server 導出で fail-open を封じる。**scope を最小に割るのは詳細プランの精度のため（corner-cut でない）**。
 
 ---
