@@ -413,15 +413,16 @@ export function PlaceCandidatesPanel({
     return m;
   }, [rankedDisplayList]);
 
-  // ★REDO-7: Lens Overlay の vertical anchor。flag ON 時、locationText 欄の下端 rect を測り「どこで？直下から出た」位置に portal する。
+  // ★REDO-10: Lens Overlay は locationText 欄の rect に anchor。位置（左端・上端）は欄＝理想画像のまま、
+  //   横幅だけ右へ少し拡張して中央を跨ぐ（画面中央配置はしない＝位置を動かさない）。
   const lensAnchorRef = useRef<HTMLDivElement>(null);
-  const [lensTop, setLensTop] = useState<number | null>(null);
+  const [lensRect, setLensRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const lensOverlayActive = isCandidateLensUiEnabled() && isActive && !loading && results.length > 0;
   useEffect(() => {
     if (!lensOverlayActive) return;
     const measure = () => {
       const r = lensAnchorRef.current?.getBoundingClientRect();
-      if (r) setLensTop(r.bottom);
+      if (r) setLensRect({ top: r.bottom, left: r.left, width: r.width });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -464,13 +465,18 @@ export function PlaceCandidatesPanel({
   if (lensOverlayActive) {
     return (
       <>
-        {/* どこで？直下の vertical anchor（不可視・高さ 0）。ここを基準に overlay を出す。 */}
+        {/* どこで？直下の anchor（不可視・高さ 0・横幅 = 入力欄幅）。ここの left/bottom/width を基準に overlay を出す。 */}
         <div ref={lensAnchorRef} aria-hidden className="h-0 w-full" data-testid="plan-place-candidates-panel" />
-        {typeof document !== "undefined" && lensTop != null &&
+        {typeof document !== "undefined" && lensRect != null &&
           createPortal(
             <div
               className="fixed z-[60]"
-              style={{ top: lensTop + 6, left: "50%", transform: "translateX(-50%)", width: "min(560px, calc(100vw - 32px))" }}
+              // ★位置（左端・上端）は入力欄＝理想画像のまま。横幅だけ右へ +88px 拡張し中央を少し跨ぐ（画面外に出ない範囲で）。
+              style={{
+                top: lensRect.top + 6,
+                left: lensRect.left,
+                width: Math.min(lensRect.width + 88, (typeof window !== "undefined" ? window.innerWidth : lensRect.width + 88) - lensRect.left - 12),
+              }}
               data-testid="plan-place-candidates-lens-overlay"
             >
               <CandidateLensPanel

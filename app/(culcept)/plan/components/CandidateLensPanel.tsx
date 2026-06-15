@@ -188,8 +188,8 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
 
         {/* メディア 2 分割（写真相当 ＋ 地図相当・高さは控えめに） */}
         <div className="mt-2.5 flex gap-2">
-          <PlaceTile category={v.category} h="h-[6.5rem]" w="w-[58%]" />
-          <MapTile h="h-[6.5rem]" w="flex-1" />
+          <PlaceTile category={v.category} h="h-[5.25rem]" w="w-[58%]" />
+          <MapTile h="h-[5.25rem]" w="flex-1" />
         </div>
 
         {/* 住所（◎ ＋ 2 行整理） */}
@@ -345,10 +345,10 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
         onTouchStart={(e) => { touch.y = e.touches[0]?.clientY ?? null; }}
         onTouchEnd={(e) => { if (touch.y == null) return; const dy = (e.changedTouches[0]?.clientY ?? touch.y) - touch.y; if (Math.abs(dy) > 30) go(dy < 0 ? 1 : -1); touch.y = null; }}>
         <div className="flex items-start gap-3">
-          <PlaceTile category={v.category} />
+          <PlaceTile category={v.category} h="h-14" w="w-14" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <h4 className="text-[16px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h4>
+              <h4 className="text-[15px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h4>
               {v.affinityBadge && <span className="mt-0.5 shrink-0 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700">{v.affinityBadge}高め</span>}
             </div>
             {v.whyLine && <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-slate-600">{v.whyLine}</p>}
