@@ -467,28 +467,36 @@ export function PlaceCandidatesPanel({
       <>
         {/* どこで？直下の anchor（不可視・高さ 0・横幅 = 入力欄幅）。ここの left/bottom/width を基準に overlay を出す。 */}
         <div ref={lensAnchorRef} aria-hidden className="h-0 w-full" data-testid="plan-place-candidates-panel" />
-        {typeof document !== "undefined" && lensRect != null &&
-          createPortal(
-            <div
-              className="fixed z-[60]"
-              // ★位置（左端・上端）は入力欄＝理想画像のまま。横幅だけ右へ +88px 拡張し中央を少し跨ぐ（画面外に出ない範囲で）。
-              style={{
-                top: lensRect.top + 6,
-                left: lensRect.left,
-                width: Math.min(lensRect.width + 88, (typeof window !== "undefined" ? window.innerWidth : lensRect.width + 88) - lensRect.left - 12),
-              }}
-              data-testid="plan-place-candidates-lens-overlay"
-            >
-              <CandidateLensPanel
-                candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
-                title={debouncedTitle.trim() || title}
-                affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
-                onSelect={(c) => handleSelect(c as PlaceCandidate)}
-                onSkip={handleSkip}
-              />
-            </div>,
+        {typeof document !== "undefined" && lensRect != null && (() => {
+          const EXTEND = 88;
+          const vw = typeof window !== "undefined" ? window.innerWidth : lensRect.width + EXTEND * 2;
+          // ★左右ともに +88px 拡張。画面端 12px は守る。
+          const leftRaw = lensRect.left - EXTEND;
+          const left = Math.max(12, leftRaw);
+          const rightEdge = Math.min(vw - 12, lensRect.left + lensRect.width + EXTEND);
+          const width = Math.max(lensRect.width, rightEdge - left);
+          return createPortal(
+            <>
+              {/* ★外側クリックで閉じる（透明 click-catcher・背景は暗転しない＝modal は見えたまま）。 */}
+              <div onClick={handleClose} aria-hidden className="fixed inset-0 z-[55]" />
+              <div
+                className="fixed z-[60]"
+                style={{ top: lensRect.top + 6, left, width }}
+                data-testid="plan-place-candidates-lens-overlay"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <CandidateLensPanel
+                  candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
+                  title={debouncedTitle.trim() || title}
+                  affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
+                  onSelect={(c) => handleSelect(c as PlaceCandidate)}
+                  onSkip={handleSkip}
+                />
+              </div>
+            </>,
             document.body,
-          )}
+          );
+        })()}
       </>
     );
   }
