@@ -163,3 +163,12 @@ CEO GO §5 は `leaveByInternalComputed: true/false` / `leaveByKnownInternal: tr
 - **safe-boolean preview は HOLD**: C2 裁定で departure-semantics boolean を出さない。出すなら `leaveByComputedPresent`(schema-state) 上限だが、今日 always-false ゆえ情報ゼロ・不要。
 - **exact timestamp / departure line / notification は HOLD 継続**（最高リスク・NO GO）。
 - 封鎖すべき hole（coherence・ladder・orphan binding・future reader・型レベル leak）は設計済。**GO は CEO 専管**。本書はコードを含まない。
+
+---
+
+## 9. 実装反映（RD2f-mv+guard）
+
+- **2026-06-15 RD2f-mv+guard 実装**（code `c0237d1aa`・matrix §5 参照）: §1（leaveByKnown 意味論）/§2（invariant 緩和・reconcile seam）/§3（Feasibility guard=static）/§4（Risk/Permission guard） を実装。
+- 実装ファイル: `lib/plan/realityCore/movementReality.ts`（violations 緩和）・`lib/plan/realityCore/movementLeaveByReconcile.ts`（新規 pure・**未配線**・`reconcileMovementLeaveByKnown`/`movementLeaveByKnownCoherenceViolations`/`arrivalErnIdForMovement`）・`tests/unit/movementLeaveByReconcile.test.ts`（35 PASS）。
+- §5（safe preview boundary）は **HOLD 維持**（preview-safe-boolean 未実装）。route ETA provider 接続 + etaKnown 緩和、departure line / exact timestamp / notification は **NO GO 継続**。
+- ladder は CEO 補正どおり **v0 安全策**として実装（恒久意味論でない・route/ETA 供給成熟時に etaKnown/routeKnown 意味論を再監査）。
