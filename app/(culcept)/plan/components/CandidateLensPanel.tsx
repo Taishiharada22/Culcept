@@ -76,11 +76,25 @@ function tileTone(category: string | null): string {
   }
 }
 
+/** category → 写真の代わりの絵（写真でない・abstract）。 */
+function categoryGlyph(category: string | null): string {
+  switch (category) {
+    case "カフェ": case "ベーカリー": return "☕";
+    case "レストラン": case "テイクアウト": return "🍽️";
+    case "バー": return "🍷";
+    case "図書館": case "書店": return "📚";
+    case "公園": return "🌳";
+    case "ジム": return "🏋️";
+    case "商業施設": case "店舗": return "🛍️";
+    default: return "📍";
+  }
+}
+
 /** 写真の代わり＝category 色 abstract タイル（写真でない・category ラベル）。 */
 function PlaceTile({ category, h = "h-[4.5rem]", w = "w-[4.5rem]" }: { category: string | null; h?: string; w?: string }) {
   return (
     <div aria-hidden className={`relative flex ${h} ${w} shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br ${tileTone(category)} ring-1 ring-black/5`}>
-      <span className="text-[20px]">🏠</span>
+      <span className="text-[24px] opacity-80">{categoryGlyph(category)}</span>
       <span className="absolute bottom-1 left-1.5 rounded-full bg-white/55 px-1.5 py-0.5 text-[10px] font-medium">{category ?? "場所"}</span>
     </div>
   );
@@ -186,17 +200,15 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
 
         <ChipRow view={v} />
 
-        {/* なぜここをおすすめ？（縦に伸ばしすぎない＝2 行まで） */}
+        {/* なぜここをおすすめ？（理想画像どおり 1 段落のみ） */}
         {v.whyLine && (
           <div className="mt-3 rounded-2xl bg-purple-50/70 px-3.5 py-3">
             <p className="text-[12.5px] font-bold text-purple-700">なぜここをおすすめ？</p>
             <p className="mt-1 text-[13.5px] leading-relaxed text-slate-700">{v.whyLine}</p>
-            <p className="mt-1 text-[12.5px] leading-snug text-slate-600">{PURPOSE_LENS_LABEL[lens]}の目的に合いやすい候補です。</p>
           </div>
         )}
 
         <div className="mt-3 flex gap-2">
-          <button type="button" onClick={() => setView("browse")} data-testid="lens-detail-back" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50">‹ 候補へ</button>
           {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-detail-compare" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50">＋ 比較に追加</button>}
           <button type="button" onClick={() => onSelect(candidates[current]!)} data-testid="lens-detail-select" className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-semibold text-white transition hover:bg-purple-700">ここにする</button>
         </div>
@@ -323,9 +335,8 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   // ════════════════════ ① おすすめの候補（薄紫カード1枚・上下スワイプ/▲▼/ドットで捲る） ════════════════════
   return (
     <div data-testid="lens-list" className="rounded-3xl bg-white p-3.5 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-black/5">
-      <div className="mb-2 flex items-center justify-between px-0.5">
+      <div className="mb-2 px-0.5">
         <p className="text-[14px] font-bold tracking-tight text-slate-900">おすすめの候補</p>
-        <span className="text-[11px] font-medium text-slate-400 tabular-nums">{current + 1} / {n}</span>
       </div>
 
       {/* 薄紫の候補カード（写真→タイル左・名前2行・相性高め・理由2行・チップ・◎住所1行省略・簡易map・2ボタン） */}
