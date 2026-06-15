@@ -67,7 +67,7 @@ export default async function DevRealitySurfacePage() {
   // ── 代表シナリオ（pure・**DB read なし**・read-only）。reference instant は constant（決定論的）──
   let payload;
   try {
-    payload = buildDogfoodPreviewScenarios(new Date(Date.UTC(2026, 5, 12, 0, 0)));
+    payload = await buildDogfoodPreviewScenarios(new Date(Date.UTC(2026, 5, 12, 0, 0)));
   } catch {
     return <Disabled reason="preview 入力なし（観測しません）。" />;
   }

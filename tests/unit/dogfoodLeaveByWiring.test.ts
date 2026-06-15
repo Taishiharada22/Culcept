@@ -42,24 +42,34 @@ describe("RD2f-wiring-P1 #1 flag default OFF（本番デフォルト）", () => 
   it("PLAN_FLAGS.realityLeaveByEnrichPreview は env 未設定で false", () => {
     expect(PLAN_FLAGS.realityLeaveByEnrichPreview).toBe(false);
   });
-  it("OFF（top import）で dogfood payload は従来通り構築され leak violation ゼロ", () => {
-    const payload = buildDogfoodDefault(REF);
+  it("OFF（top import）で dogfood payload は従来通り構築され leak violation ゼロ・leaveByComputedPresent 全 false", async () => {
+    const payload = await buildDogfoodDefault(REF);
     expect(payload.scenarios.length).toBeGreaterThan(0);
     expect(dogfoodPayloadLeakViolations(payload)).toEqual([]);
+    for (const s of payload.scenarios) expect(s.leaveByComputedPresent).toBe(false);
   });
 });
 
-describe("RD2f-wiring-P1 #2 OFF と ON(empty supply) で payload byte 同一（DOM-diff zero）", () => {
-  it("flag OFF payload === flag ON payload（JSON 完全一致）", async () => {
+// RD3a-P1 で ON は non-empty（synthetic supply で computed 生成）に進化。よって OFF/ON の差分は
+// **leaveByComputedPresent のみ**で、consumer-facing safe surface（consumerView/renderedCopy/delivery）は byte 同一。
+describe("RD2f-wiring-P1 #2 OFF と ON で safe surface は byte 同一（leaveByComputedPresent のみ differ）", () => {
+  const safeSurface = (p: { scenarios: ReadonlyArray<{ scenarioKey: unknown; label: unknown; consumerView: unknown; renderedCopy: unknown; delivery: unknown }> }) =>
+    p.scenarios.map((s) => ({ scenarioKey: s.scenarioKey, label: s.label, consumerView: s.consumerView, renderedCopy: s.renderedCopy, delivery: s.delivery }));
+  it("consumer-facing safe surface は OFF===ON（computed は internal-only ゆえ表面不変）", async () => {
     const off = await buildDogfoodWithFlag(false);
     const on = await buildDogfoodWithFlag(true);
-    expect(JSON.stringify(on)).toBe(JSON.stringify(off));
+    expect(JSON.stringify(safeSurface(on))).toBe(JSON.stringify(safeSurface(off)));
   });
-  it("ON(empty supply) でも leak violation ゼロ・LEAVEBY token 不出現", async () => {
+  it("ON(non-empty) でも leak violation ゼロ・exact-instant content token 不出現", async () => {
     const on = await buildDogfoodWithFlag(true);
     expect(dogfoodPayloadLeakViolations(on)).toEqual([]);
     const json = JSON.stringify(on).toLowerCase();
-    for (const t of LEAVEBY_LEAK_TOKENS) expect(json.includes(t)).toBe(false);
+    // exact instant / object 内部 field は出ない（leaveByComputedPresent[schema-state]の substring は除外）
+    for (const t of ["leavebyinstant", "arrivaltargetinstant", "timecontract", "sourcetimeestimateref", "bufferref"]) {
+      expect(json.includes(t)).toBe(false);
+    }
+    // bare object key "leavebycomputed":{ は出ない（boolean key leavebycomputedpresent のみ）
+    expect(json.includes('leavebycomputed":{')).toBe(false);
   });
 });
 

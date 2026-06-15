@@ -26,6 +26,8 @@ import { deriveDecisionDebt } from "./decisionDebt";
 import { deriveMomentSnapshot } from "./momentSnapshot";
 import { assembleRealityGraph } from "./realityGraphSnapshot";
 import { assembleLeaveByBindings } from "./leaveByAssembly";
+import { buildDogfoodSyntheticSupplyCandidate } from "./dogfoodSyntheticSupply";
+import type { LeaveBySupplyScopeV0 } from "./leaveBySupply";
 import { LEAVEBY_LEAK_TOKENS } from "./leaveByLeakTokens";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { graphViewerKey } from "./graphIdentity";
@@ -61,6 +63,13 @@ export interface DogfoodScenarioV0 {
   readonly consumerView: SurfaceProjectionConsumerViewV0; // RJ2d safe-by-construction
   readonly renderedCopy: RenderedCopyV0; // RJ2e exact catalog
   readonly delivery: DeliverySafeSummaryV0;
+  /**
+   * RD3a-P1: **schema-state boolean のみ**（dogfood fixture preview 専用・dev-only）。
+   * 「この scenario の ERN に internal computed leaveBy object が attach されているか」だけを表す。
+   * **departure-semantics でない**（leaveByKnown でない・exact instant/出発時刻/間に合う/遅れる ではない）。
+   * exact instant / leaveByInstant / arrivalTargetInstant / timeContract / *Ref / durationValue / capability は出さない。
+   */
+  readonly leaveByComputedPresent: boolean;
 }
 
 /** client props 専用 DTO（client へ渡してよい唯一の payload） */
@@ -132,7 +141,7 @@ const SCENARIOS: ReadonlyArray<ScenarioDef> = [
 ];
 
 /** 1 シナリオを RJ2 chain で組み、safe payload にする（unsafe walker 検出時は null で除外） */
-function buildScenario(def: ScenarioDef, referenceInstantUtc: Date): DogfoodScenarioV0 | null {
+async function buildScenario(def: ScenarioDef, referenceInstantUtc: Date): Promise<DogfoodScenarioV0 | null> {
   try {
     const { graph } = buildDayGraph({ anchors: [...def.anchors], date: DATE });
     const ernBase = compileEventRealityNodes({ date: DATE, graph, anchors: [...def.anchors] });
@@ -147,12 +156,27 @@ function buildScenario(def: ScenarioDef, referenceInstantUtc: Date): DogfoodScen
     const ern = ernBase.map((e) => (ernOverrides[e.eventRealityNodeId] ? { ...e, ...ernOverrides[e.eventRealityNodeId] } : e));
     const cs = csBase.map((c) => (csOverrides[c.targetNodeId] ? { ...c, ...csOverrides[c.targetNodeId] } : c));
 
-    // RD2f-wiring-P1: flag-gated leaveBy enrichment seam（empty supply ゆえ no-op = 何も attach されない）。
-    // supplyCandidates: [] 固定・ernScopeByNodeId: {} 固定・RD2e-SUPPLY 非呼び出し。trace は破棄（client 非露出）。
-    // OFF（本番デフォルト）→ 完全 skip・ern そのまま（DOM-diff zero）。consumingInstant は既存 fixture instant を流用。
-    const ernForGraph = PLAN_FLAGS.realityLeaveByEnrichPreview
-      ? assembleLeaveByBindings({ eventRealityNodes: ern, supplyCandidates: [], consumingInstant: instant, ernScopeByNodeId: {} }).eventRealityNodes
-      : ern;
+    // RD3a-P1: flag-gated leaveBy enrichment seam（dogfood fixture 専用 synthetic supply で **non-empty** に通す）。
+    // OFF（本番デフォルト）→ 完全 skip・ern そのまま（DOM-diff zero）。ON → 決定論的 synthetic provider で
+    // RouteEtaCapability → durationValue → RD2e-SUPPLY → computeLeaveBy を通し、computed leaveBy を ERN に attach。
+    // 何も attach されなければ leaveByComputedPresent=false（fail-closed）。trace は破棄（client 非露出）。
+    // consumingInstant は既存 fixture instant を流用。synthetic は external/座標/currentLocation を一切使わない（dev-only）。
+    let ernForGraph: ReadonlyArray<EventRealityNodeV0> = ern;
+    let leaveByComputedPresent = false;
+    if (PLAN_FLAGS.realityLeaveByEnrichPreview) {
+      const evaluatedAtIso = `${instant.calendarDate}T${instant.wallClockHHMM}:00+09:00`; // fresh = consuming instant（skew 0）
+      const built = await Promise.all(
+        ern.map((e) =>
+          buildDogfoodSyntheticSupplyCandidate({ eventRealityNodeId: e.eventRealityNodeId, subjectiveDate: e.subjectiveDate, arrivalHHMM: "14:00", evaluatedAtIso }),
+        ),
+      );
+      const supplyCandidates = built.filter((b): b is NonNullable<typeof b> => b !== null).map((b) => b.candidate);
+      const ernScopeByNodeId: Record<string, LeaveBySupplyScopeV0> = {};
+      for (const b of built) if (b) ernScopeByNodeId[b.candidate.eventRealityNodeId] = b.scope;
+      const enriched = assembleLeaveByBindings({ eventRealityNodes: ern, supplyCandidates, consumingInstant: instant, ernScopeByNodeId }).eventRealityNodes;
+      ernForGraph = enriched;
+      leaveByComputedPresent = enriched.some((e) => e.leaveByComputed !== undefined);
+    }
     const snapshot = assembleRealityGraph({ ern: ernForGraph, mv, cs, momentSnapshot, viewerKey: VIEWER });
 
     const fj = evaluateFeasibility(buildRealityJudgmentInput(snapshot, def.scope));
@@ -178,6 +202,7 @@ function buildScenario(def: ScenarioDef, referenceInstantUtc: Date): DogfoodScen
       consumerView,
       renderedCopy,
       delivery: { eligibility: delivery.eligibility, channelCeiling: delivery.channelCeiling, deliveredNow: delivery.deliveredNow },
+      leaveByComputedPresent, // RD3a-P1: schema-state のみ（exact instant でない）
     };
   } catch {
     return null; // fail-closed: 組めないシナリオは除外
@@ -188,8 +213,9 @@ function buildScenario(def: ScenarioDef, referenceInstantUtc: Date): DogfoodScen
  * dogfood preview の safe payload を組む（pure・DB read なし・決定論的）。
  * referenceInstantUtc は呼び元（page）が constant で渡す（lib は new Date しない＝決定論的）。
  */
-export function buildDogfoodPreviewScenarios(referenceInstantUtc: Date): RealitySurfaceDogfoodPreviewPayloadV0 {
-  const scenarios = SCENARIOS.map((d) => buildScenario(d, referenceInstantUtc)).filter((s): s is DogfoodScenarioV0 => s !== null);
+export async function buildDogfoodPreviewScenarios(referenceInstantUtc: Date): Promise<RealitySurfaceDogfoodPreviewPayloadV0> {
+  const built = await Promise.all(SCENARIOS.map((d) => buildScenario(d, referenceInstantUtc)));
+  const scenarios = built.filter((s): s is DogfoodScenarioV0 => s !== null);
   return { schemaVersion: 0, scenarios };
 }
 
@@ -220,7 +246,11 @@ const LEAK_TOKENS: ReadonlyArray<string> = [
 ];
 
 export function dogfoodPayloadLeakViolations(payload: RealitySurfaceDogfoodPreviewPayloadV0): string[] {
-  const json = JSON.stringify(payload).toLowerCase();
+  // RD3a-P1: `leaveByComputedPresent`（schema-state boolean）は意図的 safe field（exact instant でない）。
+  //   但し token "leavebycomputed" の substring に当たる（"leavebycomputedpresent"）ため、走査前に**この既知 safe key
+  //   文字列のみ除去**する（長い方を先に除去ゆえ、内部 object key "leavebycomputed":{...} が漏れた場合は残り content
+  //   token[leavebyinstant/timecontract/*Ref…] + object key で依然検出される＝防御は維持）。
+  const json = JSON.stringify(payload).toLowerCase().split("leavebycomputedpresent").join("");
   const out: string[] = [];
   for (const t of LEAK_TOKENS) if (json.includes(t)) out.push(`dogfoodPreview: payload に leak token "${t}" が出現`);
   return out;

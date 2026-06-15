@@ -18,27 +18,27 @@ import { copyViolations } from "@/lib/plan/realityCore/copySurface";
 const REF = new Date(Date.UTC(2026, 5, 12, 0, 0)); // JST 09:00（constant・page が渡す形）
 
 describe("RJ2g dogfood #1 safe payload を組む（代表シナリオ・DB read なし）", () => {
-  it("scenarios 非空・各シナリオが safe key のみ", () => {
-    const payload = buildDogfoodPreviewScenarios(REF);
+  it("scenarios 非空・各シナリオが safe key のみ", async () => {
+    const payload = await buildDogfoodPreviewScenarios(REF);
     expect(payload.schemaVersion).toBe(0);
     expect(payload.scenarios.length).toBeGreaterThan(0);
     for (const s of payload.scenarios) {
-      expect(Object.keys(s).sort()).toEqual(["consumerView", "delivery", "label", "renderedCopy", "scenarioKey"]);
+      expect(Object.keys(s).sort()).toEqual(["consumerView", "delivery", "label", "leaveByComputedPresent", "renderedCopy", "scenarioKey"]);
       expect(Object.keys(s.delivery).sort()).toEqual(["channelCeiling", "deliveredNow", "eligibility"]);
     }
   });
 });
 
 describe("RJ2g dogfood #2 deliveredNow=false 維持", () => {
-  it("全シナリオで delivery.deliveredNow false", () => {
-    const payload = buildDogfoodPreviewScenarios(REF);
+  it("全シナリオで delivery.deliveredNow false", async () => {
+    const payload = await buildDogfoodPreviewScenarios(REF);
     for (const s of payload.scenarios) expect(s.delivery.deliveredNow).toBe(false);
   });
 });
 
 describe("RJ2g dogfood #3 internal object/id/trace を含まない", () => {
-  it("payload JSON に internal field が出ない", () => {
-    const json = JSON.stringify(buildDogfoodPreviewScenarios(REF)).toLowerCase();
+  it("payload JSON に internal field が出ない", async () => {
+    const json = JSON.stringify(await buildDogfoodPreviewScenarios(REF)).toLowerCase();
     for (const t of ["trace", "sourcerefs", "suppressedreasons", "carrieddecisionkind", "projectionid", "surfaceplanid", "evidencerefs", "relatedclaimrefs", "gatereasoncode", "assertability", "genericized", "exposurelevel"]) {
       expect(json.includes(t)).toBe(false);
     }
@@ -46,19 +46,19 @@ describe("RJ2g dogfood #3 internal object/id/trace を含まない", () => {
 });
 
 describe("RJ2g dogfood #4 token leak guard", () => {
-  it("正常 payload → leak guard 空", () => {
-    expect(dogfoodPayloadLeakViolations(buildDogfoodPreviewScenarios(REF))).toEqual([]);
+  it("正常 payload → leak guard 空", async () => {
+    expect(dogfoodPayloadLeakViolations(await buildDogfoodPreviewScenarios(REF))).toEqual([]);
   });
-  it("raw id 注入 payload → leak guard 検出（fail-closed）", () => {
-    const payload = buildDogfoodPreviewScenarios(REF);
+  it("raw id 注入 payload → leak guard 検出（fail-closed）", async () => {
+    const payload = await buildDogfoodPreviewScenarios(REF);
     const leaked: RealitySurfaceDogfoodPreviewPayloadV0 = { ...payload, scenarios: [{ ...payload.scenarios[0], label: `予定 ern:2026-06-12:a1` }] };
     expect(dogfoodPayloadLeakViolations(leaked).some((m) => m.includes("ern:"))).toBe(true);
   });
 });
 
 describe("RJ2g dogfood #5 各シナリオが RJ2d/RJ2e walker を通過", () => {
-  it("consumerView/renderedCopy が安全（walker 空）", () => {
-    const payload = buildDogfoodPreviewScenarios(REF);
+  it("consumerView/renderedCopy が安全（walker 空）", async () => {
+    const payload = await buildDogfoodPreviewScenarios(REF);
     for (const s of payload.scenarios) {
       expect(surfaceProjectionConsumerViewViolations(s.consumerView)).toEqual([]);
       expect(copyViolations(s.renderedCopy)).toEqual([]);
@@ -67,14 +67,14 @@ describe("RJ2g dogfood #5 各シナリオが RJ2d/RJ2e walker を通過", () => 
 });
 
 describe("RJ2g dogfood #6 決定論的（同入力→同出力）", () => {
-  it("同じ reference instant → 同じ payload", () => {
-    expect(JSON.stringify(buildDogfoodPreviewScenarios(REF))).toBe(JSON.stringify(buildDogfoodPreviewScenarios(REF)));
+  it("同じ reference instant → 同じ payload", async () => {
+    expect(JSON.stringify(await buildDogfoodPreviewScenarios(REF))).toBe(JSON.stringify(await buildDogfoodPreviewScenarios(REF)));
   });
 });
 
 describe("RJ2g dogfood #7 代表シナリオ（observe/ask/overlap/suppress）が含まれる", () => {
-  it("scenarioKey に observe/ask/overlap/silent が揃う・文面が exact catalog", () => {
-    const payload = buildDogfoodPreviewScenarios(REF);
+  it("scenarioKey に observe/ask/overlap/silent が揃う・文面が exact catalog", async () => {
+    const payload = await buildDogfoodPreviewScenarios(REF);
     const keys = payload.scenarios.map((s) => s.scenarioKey);
     expect(keys).toContain("scenario_observe");
     expect(keys).toContain("scenario_ask");
