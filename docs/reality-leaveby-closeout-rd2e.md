@@ -93,7 +93,7 @@ RD2e の leaveBy を RC2a（実プラン文脈）に繋ぐには、以下が **C
 
 | 候補 | 内容 | 前提 |
 |---|---|---|
-| **RD2e-SUPPLY** | arrivalTarget / bufferPolicy / originValidity の**実供給配線**（pure・event anchor/rigidity/origin inference から組む）。**設計済 → `docs/reality-leaveby-supply-boundary-rd2e-supply-0.md`（RD2e-SUPPLY-0）** | event anchor 構造の確定（監査済） |
+| **RD2e-SUPPLY** | arrivalTarget / bufferPolicy / originValidity の**実供給配線**（pure）。**✅ 実装完了 `6f707fbc`（U1+U2+buffer+二鍵を束ね complete 時のみ computeLeaveBy）**。前提=U1-minimal/U2-minimal/U1-EventNode propagation 全着地 | — |
 | **RD2f（RC2a 接続）** | leaveBy を RC2a に honest に接続（uncomputed 耐性・gate 込み） | RJ2/Permission/Delivery |
 | **departure line** | leaveBy consumer 表示（世界観・コピー） | 非露出解除の CEO 判断 |
 | **currentLocation 解除** | 現在地観測の取り込み | Permission 設計 |
