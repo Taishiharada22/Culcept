@@ -1,5 +1,7 @@
 # U1-minimal-0 — startTimeSource 永続化設計（manual + ICS-timed のみ）docs-only
 
+> **✅ U1-minimal 実装完了（`87b2f07b`・2026-06-15）**: 本設計を実コード化。新規 pure `lib/plan/anchor-start-time-provenance.ts`（deriveStartTimeProvenance/coerceStartTimeSource/startTimeProvenanceRecordedAt）+ 型（StartTimeSource/4 domain field/signal field）+ repository 両書込経路 + form touched signal + ICS isAllDay/tzid thread + SANITIZED_KEYS + migration `20260615100000`（4 列 + 3 CHECK + RPC CREATE OR REPLACE・**apply は CEO 承認**）。**CEO 補正 2 点反映**: template→unknown（manual のみ user_explicit）・列名 `start_time_provenance_recorded_at`（confirmed_at と別・意味コメント固定）。18/18 tests・full suite 20934 passed + baseline FAIL 2・tsc 55。
+
 - 日付: 2026-06-15 / 位置づけ: U1（`docs/reality-leaveby-upstream-provenance-u1-u2-0.md`）の**最小 scope 第 1 片**。RD2e-SUPPLY が honest に fixed arrival を供給するには `startTimeSource` を **creation 時に persist** する必要がある（read-path では all-day 00:00 と実時刻が区別不能）。本書は **manual + ICS-timed の 2 path** に限定し、念密に・漏れなく設計する。
 - scope を最小に割る理由（CEO）: corner-cut でなく**詳細プランの精度を上げるため**。他 7 path（template[=manual 扱い]/google/microsoft/shift_image/pdf/image/chat）は **fail-closed 既定**で本片の対象外（各々別 scoped slice で完全設計）。
 - 規律: 本書は**コードを書かない**。DB migration 実行・production 反映は CEO 承認（Operating Rules）。実装は local。
