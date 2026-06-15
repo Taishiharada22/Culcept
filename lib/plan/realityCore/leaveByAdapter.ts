@@ -50,8 +50,10 @@ export interface ArrivalTargetForLeaveByV0 {
   readonly arrivalTargetInstant: string; // isCalendarValidMinuteJstIso green
   readonly arrivalTargetRef: string;
   readonly targetNodeId: string;
-  readonly targetEventDate: string; // = capability.subjectiveDate 必須
+  readonly targetEventDate: string; // = capability.subjectiveDate 必須 ∧ arrivalTargetInstant の日付 prefix と一致（RD2e-b-A D5）
   readonly transportMode: TransportModeV0;
+  /** RD2e-b-A D6: scopeKey 構成要素（capability が non-null なら一致必須） */
+  readonly temporalScopeRef: string | null;
   readonly sourceRefs: ReadonlyArray<string>;
   readonly evidenceRefs: ReadonlyArray<string>;
   readonly fixedness: "fixed" | "tentative" | "movable";
@@ -70,6 +72,8 @@ export interface BufferPolicyForLeaveByV0 {
   readonly targetNodeId: string;
   readonly subjectiveDate: string;
   readonly transportMode: TransportModeV0;
+  /** RD2e-b-A D6 */
+  readonly temporalScopeRef: string | null;
   readonly sourceRefs: ReadonlyArray<string>;
   readonly evidenceRefs: ReadonlyArray<string>;
   readonly freshness: "valid" | "stale" | "unknown";
@@ -86,6 +90,15 @@ export interface OriginTemporalValidityForLeaveByV0 {
   readonly originEvidenceRef: string;
   readonly targetNodeId: string;
   readonly subjectiveDate: string;
+  /** RD2e-b-A D1: origin を scopeKey に含めるための scope 次元 */
+  readonly transportMode: TransportModeV0;
+  readonly temporalScopeRef: string | null;
+  /**
+   * RD2e-b-A D3: origin observation の鮮度（buffer/duration と対称）。currentLocation の鮮度ではない。
+   * valid 以外は uncomputed。raw timestamp は echo しない（opaque ref のみ）。
+   */
+  readonly originFreshness: "valid" | "stale" | "unknown";
+  readonly originAsOfRef: string;
 }
 
 export interface LeaveByAdapterInputV0 {
@@ -204,10 +217,20 @@ export function resolveBufferMinutesFromCatalog(bucket: LeaveByBufferBucket): nu
   return null;
 }
 
-// ── scope key（単一 key で全燃料束縛・RD2e-b0B-A §4） ─────────────────────────────────────────
+// ── scope key（単一 key で全燃料束縛・RD2e-b0B-A §4 + RD2e-b-A D1/D6） ─────────────────────────
 
-function scopeKey(targetNodeId: string | null, subjectiveDate: string | null, mode: TransportModeV0): string {
-  return `${targetNodeId ?? "∅"}::${subjectiveDate ?? "∅"}::${mode}`;
+/**
+ * core scope（targetNodeId::subjectiveDate::transportMode）。core dim が欠落（null/空）なら **null = incomplete**。
+ * '∅' placeholder 同士の偽一致（scope_incomplete collision）を構造的に排除する（RD2e-b-A D1）。
+ */
+function coreScope(targetNodeId: string | null, subjectiveDate: string | null, mode: TransportModeV0): string | null {
+  if (targetNodeId === null || targetNodeId.length === 0) return null;
+  if (subjectiveDate === null || subjectiveDate.length === 0) return null;
+  return `${targetNodeId}::${subjectiveDate}::${mode}`;
+}
+/** temporalScopeRef 次元（RD2e-b-A D6）。null は '∅' に正規化し全 fuel で厳密一致を要求する。 */
+function temporalScopeKey(temporalScopeRef: string | null): string {
+  return temporalScopeRef ?? "∅";
 }
 
 const COMPUTED_ORIGIN_KINDS: ReadonlyArray<LeaveByOriginKind> = [
@@ -247,9 +270,14 @@ function arrivalTargetViolations(a: ArrivalTargetForLeaveByV0, capability: Route
   add(a.sourceRefs.length === 0, "arrival sourceRefs required");
   add(a.evidenceRefs.length === 0, "arrival evidenceRefs required");
   add(a.fixedness !== "fixed", "arrival fixedness must be fixed");
-  add(a.startTimeProvenance === "default", "arrival default start-time provenance not allowed");
+  // RD2e-b-A D4: supplier 主張の fixedness を信用しない。fixed なら confirmed provenance を adapter で再要求
+  //（inferred/default は不可・fixedStart や rigidity だけで fixed 扱いさせない）。
+  add(a.startTimeProvenance !== "confirmed", "fixed arrival requires confirmed startTimeProvenance (inferred/default not allowed)");
   add(a.confidence === "low", "arrival confidence too low");
   add(a.targetEventDate !== (capability.identity.subjectiveDate ?? ""), "arrival targetEventDate must match capability subjectiveDate");
+  // RD2e-b-A D5: arrivalTargetInstant の日付 prefix は targetEventDate と一致（到着は対象日付上）。
+  // ※ 計算結果 leaveByInstant が前日になることは **許容**（正しい civil 計算・leaveBy ≤ arrival で担保）。
+  add(a.arrivalTargetInstant.slice(0, 10) !== a.targetEventDate, "arrivalTargetInstant date must match targetEventDate (cross-day target unsupported)");
   add(a.displayPolicy !== "hidden", "arrival displayPolicy must be hidden (internal-only)");
   return out;
 }
@@ -280,7 +308,11 @@ function originValidityViolations(o: OriginTemporalValidityForLeaveByV0): string
   add(o.originKind === "current_location_candidate", "current_location_candidate origin must not yield computed leaveBy");
   add(!isComputedOriginKind(o.originKind), "origin kind not computed-grade");
   add(o.validity !== "valid", "origin temporal validity must be valid");
-  add(o.originConflict === "conflict", "origin conflict not allowed");
+  // RD2e-b-A D2: minor_discrepancy も fail-closed（none 以外は reject）。軽微 conflict で leaveBy を計算しない。
+  add(o.originConflict !== "none", "origin conflict not allowed (minor_discrepancy/conflict both fail-closed)");
+  // RD2e-b-A D3: origin freshness valid 必須（stale/unknown は reject）。currentLocation の鮮度ではない。
+  add(o.originFreshness !== "valid", "origin temporal freshness must be valid (stale/unknown not allowed)");
+  add(o.originAsOfRef.length === 0, "origin asOf ref required (freshness evidence)");
   add(o.originEvidenceRef.length === 0, "origin evidence required");
   return out;
 }
@@ -301,17 +333,35 @@ export function computeLeaveBy(input: LeaveByAdapterInputV0): LeaveByComputation
   if (shapeViol.length > 0) return uncomputed("input_shape_invalid", shapeViol[0]);
 
   const { capability, durationValue, arrivalTarget, bufferPolicy, originTemporalValidity } = input;
-  const capScope = scopeKey(capability.identity.targetNodeId, capability.identity.subjectiveDate, capability.identity.transportMode);
+  const id = capability.identity;
 
-  // Gate 2: binding mismatch（duration present だが full basis or scopeKey 不一致）
+  // Gate 2: binding mismatch（duration present だが full basis or scopeKey 不一致）。
+  // RD2e-b-A D1/D6: **全 5 fuel**（capability/duration/arrival/buffer/**origin**）の core scope + temporalScopeRef を照合。
   if (durationValue !== null) {
     const bind = bindDurationValueToCapability(durationValue, capability);
     if (!bind.matched) return uncomputed("binding_mismatch", "duration value full basis does not match capability");
-    const durScope = scopeKey(durationValue.binding.targetNodeId, durationValue.binding.subjectiveDate, durationValue.binding.transportMode);
-    const arrScope = scopeKey(arrivalTarget.targetNodeId, arrivalTarget.targetEventDate, arrivalTarget.transportMode);
-    const bufScope = scopeKey(bufferPolicy.targetNodeId, bufferPolicy.subjectiveDate, bufferPolicy.transportMode);
-    if (capScope !== durScope || capScope !== arrScope || capScope !== bufScope) {
-      return uncomputed("binding_mismatch", "leaveBy scope key mismatch across fuels");
+
+    // core scope（incomplete = null → scope_incomplete として弾く・'∅' 偽一致を許さない）
+    const capCore = coreScope(id.targetNodeId, id.subjectiveDate, id.transportMode);
+    const durCore = coreScope(durationValue.binding.targetNodeId, durationValue.binding.subjectiveDate, durationValue.binding.transportMode);
+    const arrCore = coreScope(arrivalTarget.targetNodeId, arrivalTarget.targetEventDate, arrivalTarget.transportMode);
+    const bufCore = coreScope(bufferPolicy.targetNodeId, bufferPolicy.subjectiveDate, bufferPolicy.transportMode);
+    const oriCore = coreScope(originTemporalValidity.targetNodeId, originTemporalValidity.subjectiveDate, originTemporalValidity.transportMode);
+    if (capCore === null || durCore === null || arrCore === null || bufCore === null || oriCore === null) {
+      return uncomputed("binding_mismatch", "leaveBy scope incomplete (a fuel core scope dim is missing)");
+    }
+    if (capCore !== durCore || capCore !== arrCore || capCore !== bufCore || capCore !== oriCore) {
+      return uncomputed("binding_mismatch", "leaveBy core scope key mismatch across fuels (incl origin)");
+    }
+
+    // temporalScopeRef 次元（capability が non-null なら全 fuel 一致必須・null 同士も厳密一致）
+    const capT = temporalScopeKey(id.temporalScopeRef);
+    const durT = temporalScopeKey(durationValue.binding.temporalScopeRef);
+    const arrT = temporalScopeKey(arrivalTarget.temporalScopeRef);
+    const bufT = temporalScopeKey(bufferPolicy.temporalScopeRef);
+    const oriT = temporalScopeKey(originTemporalValidity.temporalScopeRef);
+    if (capT !== durT || capT !== arrT || capT !== bufT || capT !== oriT) {
+      return uncomputed("binding_mismatch", "leaveBy temporalScopeRef mismatch across fuels");
     }
   }
 

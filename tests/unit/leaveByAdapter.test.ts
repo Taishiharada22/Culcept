@@ -83,6 +83,7 @@ const arrival = (over: Partial<ArrivalTargetForLeaveByV0> = {}): ArrivalTargetFo
   targetNodeId: "ern-1",
   targetEventDate: "2026-06-12",
   transportMode: "car",
+  temporalScopeRef: "t1",
   sourceRefs: ["src-1"],
   evidenceRefs: ["ev-arr-1"],
   fixedness: "fixed",
@@ -99,6 +100,7 @@ const buffer = (over: Partial<BufferPolicyForLeaveByV0> = {}): BufferPolicyForLe
   targetNodeId: "ern-1",
   subjectiveDate: "2026-06-12",
   transportMode: "car",
+  temporalScopeRef: "t1",
   sourceRefs: ["src-b"],
   evidenceRefs: ["ev-buf-1"],
   freshness: "valid",
@@ -114,6 +116,10 @@ const origin = (over: Partial<OriginTemporalValidityForLeaveByV0> = {}): OriginT
   originEvidenceRef: "ev-origin-1",
   targetNodeId: "ern-1",
   subjectiveDate: "2026-06-12",
+  transportMode: "car",
+  temporalScopeRef: "t1",
+  originFreshness: "valid",
+  originAsOfRef: "asof-1",
   ...over,
 });
 function input(over: Partial<LeaveByAdapterInputV0> = {}): LeaveByAdapterInputV0 {
@@ -333,5 +339,103 @@ describe("RD2e-b #29-#34 不変条件 / 出力 / 純度", () => {
     for (const bad of [".insert(", ".update(", ".upsert(", "service_role", "push(", "weatherApi", "getCurrentLocation", "departureLine"]) {
       expect(code.includes(bad)).toBe(false);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RD2e-b-A Adapter Hardening — D1-D6 defect 修正（origin scope / minor_discrepancy /
+// origin freshness / fixedness trust / targetEventDate 整合 / temporalScopeRef）。
+// 前日化する computed leaveBy は **正しい civil 計算ゆえ violation にしない**（CEO 補正）。
+// ─────────────────────────────────────────────────────────────────────────────
+describe("RD2e-b-A D1 origin を scope gate に含める", () => {
+  it("#1 origin targetNodeId mismatch → uncomputed(binding_mismatch)", () => {
+    const c = computeLeaveBy(input({ originTemporalValidity: origin({ targetNodeId: "other-node" }) }));
+    expect(c.status).toBe("uncomputed");
+    expect(c.missingInputs[0].code).toBe("binding_mismatch");
+  });
+  it("#2 origin temporalScopeRef null while capability has one → uncomputed", () => {
+    const c = computeLeaveBy(input({ originTemporalValidity: origin({ temporalScopeRef: null }) }));
+    expect(c.status).toBe("uncomputed");
+    expect(c.missingInputs[0].code).toBe("binding_mismatch");
+  });
+  it("#3 origin transportMode mismatch → uncomputed", () => {
+    const c = computeLeaveBy(input({ originTemporalValidity: origin({ transportMode: "walk" }) }));
+    expect(c.status).toBe("uncomputed");
+    expect(c.missingInputs[0].code).toBe("binding_mismatch");
+  });
+});
+
+describe("RD2e-b-A D2 originConflict fail-closed", () => {
+  it("#4 minor_discrepancy → uncomputed(origin_temporal_invalid)", () => {
+    const c = computeLeaveBy(input({ originTemporalValidity: origin({ originConflict: "minor_discrepancy" }) }));
+    expect(c.status).toBe("uncomputed");
+    expect(c.missingInputs[0].code).toBe("origin_temporal_invalid");
+  });
+  it("#5 conflict → uncomputed", () => {
+    expect(computeLeaveBy(input({ originTemporalValidity: origin({ originConflict: "conflict" }) })).missingInputs[0].code).toBe("origin_temporal_invalid");
+  });
+});
+
+describe("RD2e-b-A D3 origin freshness", () => {
+  it("#6 originFreshness stale → uncomputed", () => {
+    expect(computeLeaveBy(input({ originTemporalValidity: origin({ originFreshness: "stale" }) })).missingInputs[0].code).toBe("origin_temporal_invalid");
+  });
+  it("#7 originFreshness unknown → uncomputed", () => {
+    expect(computeLeaveBy(input({ originTemporalValidity: origin({ originFreshness: "unknown" }) })).missingInputs[0].code).toBe("origin_temporal_invalid");
+  });
+  it("#8 originAsOfRef missing → uncomputed", () => {
+    expect(computeLeaveBy(input({ originTemporalValidity: origin({ originAsOfRef: "" }) })).missingInputs[0].code).toBe("origin_temporal_invalid");
+  });
+});
+
+describe("RD2e-b-A D4 fixedness supplier trust 再検証", () => {
+  it("#9 fixed arrival + startTimeProvenance inferred → uncomputed(arrival_target_invalid)", () => {
+    const c = computeLeaveBy(input({ arrivalTarget: arrival({ startTimeProvenance: "inferred" }) }));
+    expect(c.status).toBe("uncomputed");
+    expect(c.missingInputs[0].code).toBe("arrival_target_invalid");
+  });
+  it("#10 fixed arrival + startTimeProvenance default → uncomputed", () => {
+    expect(computeLeaveBy(input({ arrivalTarget: arrival({ startTimeProvenance: "default" }) })).missingInputs[0].code).toBe("arrival_target_invalid");
+  });
+  it("#11 fixed arrival + confidence low → uncomputed", () => {
+    expect(computeLeaveBy(input({ arrivalTarget: arrival({ confidence: "low" }) })).missingInputs[0].code).toBe("arrival_target_invalid");
+  });
+  it("#12 fixed arrival without evidenceRefs/sourceRefs → uncomputed", () => {
+    expect(computeLeaveBy(input({ arrivalTarget: arrival({ evidenceRefs: [] }) })).missingInputs[0].code).toBe("arrival_target_invalid");
+    expect(computeLeaveBy(input({ arrivalTarget: arrival({ sourceRefs: [] }) })).missingInputs[0].code).toBe("arrival_target_invalid");
+  });
+});
+
+describe("RD2e-b-A D5 targetEventDate / arrivalTargetInstant 整合（前日 leaveBy は許容）", () => {
+  it("#13 targetEventDate ≠ capability subjectiveDate → uncomputed", () => {
+    const c = computeLeaveBy(input({ arrivalTarget: arrival({ targetEventDate: "2026-06-13", arrivalTargetInstant: "2026-06-13T10:00:00+09:00" }) }));
+    expect(c.status).toBe("uncomputed"); // scope gate(binding_mismatch) で倒れる
+  });
+  it("#14 unsupported cross-day target（arrival 日付 ≠ targetEventDate）→ uncomputed(arrival_target_invalid)", () => {
+    const c = computeLeaveBy(input({ arrivalTarget: arrival({ arrivalTargetInstant: "2026-06-13T10:00:00+09:00" }) }));
+    expect(c.status).toBe("uncomputed");
+    expect(c.missingInputs[0].code).toBe("arrival_target_invalid"); // targetEventDate=2026-06-12, arrival 日付=2026-06-13
+  });
+  it("#15 computed leaveBy が前日になっても arrival target が有効なら computed（正しい civil 計算）", () => {
+    const c = computeLeaveBy(input({ arrivalTarget: arrival({ arrivalTargetInstant: "2026-06-12T00:30:00+09:00" }) }));
+    expect(c.status).toBe("computed"); // 00:30 − (25+15)=40min → 前日 23:50
+    expect(c.leaveByInstant?.instant).toBe("2026-06-11T23:50:00+09:00");
+    expect(leaveByComputationViolations(c)).toEqual([]);
+  });
+  it("#16 leaveBy <= arrival は維持", () => {
+    const c = computeLeaveBy(input({ arrivalTarget: arrival({ arrivalTargetInstant: "2026-06-12T00:30:00+09:00" }) }));
+    expect(leaveByAtOrBeforeArrival(c.leaveByInstant!.instant, c.timeContract!.arrivalTargetInstant)).toBe(true);
+  });
+});
+
+describe("RD2e-b-A D6 temporalScopeRef を scopeKey に含める", () => {
+  it("arrival temporalScopeRef mismatch → uncomputed", () => {
+    expect(computeLeaveBy(input({ arrivalTarget: arrival({ temporalScopeRef: "t-other" }) })).missingInputs[0].code).toBe("binding_mismatch");
+  });
+  it("buffer temporalScopeRef mismatch → uncomputed", () => {
+    expect(computeLeaveBy(input({ bufferPolicy: buffer({ temporalScopeRef: "t-other" }) })).missingInputs[0].code).toBe("binding_mismatch");
+  });
+  it("健全（全 fuel temporalScopeRef=t1）→ computed", () => {
+    expect(computeLeaveBy(input()).status).toBe("computed");
   });
 });
