@@ -115,6 +115,22 @@ const STAGE_CERTAINTY: Record<OriginInferenceStage, OriginCertaintyStatus> = {
   user_confirmed_origin: "confirmed",
 };
 
+/** confidence の順序（U2-minimal walker ceiling 比較用） */
+const CONFIDENCE_RANK: Record<OriginInferenceConfidence, number> = { none: 0, low: 1, moderate: 2, high: 3 };
+
+/**
+ * U2-minimal（2026-06-15）: stage ごとの confidence 上限。high は user_confirmed 予約・
+ * home/work_assumed は low 上限（静的仮定）・previous_event_end / current は moderate 上限。
+ */
+const STAGE_MAX_CONFIDENCE: Record<OriginInferenceStage, OriginInferenceConfidence> = {
+  unknown_origin: "none",
+  previous_event_end: "moderate",
+  home_assumed: "low",
+  work_assumed: "low",
+  current_location_candidate: "moderate",
+  user_confirmed_origin: "high",
+};
+
 function isConfirmedOriginSource(source: OriginInferenceSource): boolean {
   return CONFIRMED_ORIGIN_SOURCES.indexOf(source) >= 0;
 }
@@ -310,6 +326,14 @@ export function originInferenceViolations(o: OriginInferenceV0): string[] {
   add(
     o.certaintyStatus === "inferred" && (o.confidence === "high" || o.confidence === "none"),
     `inferred origin confidence must be low|moderate (high reserved for confirmed); got ${o.confidence}`,
+  );
+
+  // U2-minimal（2026-06-15）: stage ごとの confidence 上限を walker で強制（certaintyStatus だけでは
+  // inferred 全 stage に moderate を許す穴があった）。previous_event_end は moderate 上限・home/work は low 上限。
+  const maxC = STAGE_MAX_CONFIDENCE[o.stage];
+  add(
+    maxC !== undefined && CONFIDENCE_RANK[o.confidence] > CONFIDENCE_RANK[maxC],
+    `stage ${o.stage} confidence exceeds max ${String(maxC)} (got ${o.confidence})`,
   );
 
   // confirmed の evidence 必須 + evidence sourceKind も確認 provenance
