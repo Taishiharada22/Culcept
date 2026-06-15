@@ -470,7 +470,7 @@ export function PlaceCandidatesPanel({
           createPortal(
             <div
               className="fixed z-[60]"
-              style={{ top: lensTop + 6, left: "50%", transform: "translateX(-50%)", width: "min(700px, calc(100vw - 40px))" }}
+              style={{ top: lensTop + 6, left: "50%", transform: "translateX(-50%)", width: "min(560px, calc(100vw - 32px))" }}
               data-testid="plan-place-candidates-lens-overlay"
             >
               <CandidateLensPanel

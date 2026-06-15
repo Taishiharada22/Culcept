@@ -156,49 +156,49 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   // ════════════════════ ② 詳細（Overlay 内で大展開・大メディア2分割・なぜここをおすすめ？） ════════════════════
   if (view === "detail") {
     const addrLines = splitAddressLines(v.address);
+    // ★REDO-8: 縦を理想画像②とほぼ同じに圧縮（巨大化禁止）。横だけ広い。メディア小・なぜは2行まで・余白を詰める。
     return (
-      <div data-testid="lens-detail" className="max-h-[82vh] overflow-y-auto rounded-3xl bg-white p-5 shadow-[0_20px_60px_rgba(15,23,42,0.22)] ring-1 ring-purple-200">
+      <div data-testid="lens-detail" className="max-h-[80vh] overflow-y-auto rounded-3xl bg-white p-4 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-purple-200">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="text-[20px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h3>
-            <div className="mt-1 flex items-center gap-2">
-              {v.category && <span className="text-[12px] text-slate-400">{v.category}</span>}
+            <h3 className="text-[17px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h3>
+            <div className="mt-0.5 flex items-center gap-2">
+              {v.category && <span className="text-[11.5px] text-slate-400">{v.category}</span>}
               {v.affinityBadge && <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-700">{v.affinityBadge}高め</span>}
             </div>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">{LENS_SUBTITLE[lens]}</p>
+            <p className="mt-1 text-[12.5px] leading-snug text-slate-500">{LENS_SUBTITLE[lens]}</p>
           </div>
           <button type="button" onClick={() => setView("browse")} data-testid="lens-detail-close" aria-label="閉じる"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[15px] text-slate-500 transition hover:bg-slate-200">⌃</button>
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[14px] text-slate-500 transition hover:bg-slate-200">⌃</button>
         </div>
 
-        {/* 大メディア 2 分割（写真相当 ＋ 地図相当） */}
-        <div className="mt-3 flex gap-2">
-          <PlaceTile category={v.category} h="h-[10rem]" w="w-[58%]" />
-          <MapTile h="h-[10rem]" w="flex-1" />
+        {/* メディア 2 分割（写真相当 ＋ 地図相当・高さは控えめに） */}
+        <div className="mt-2.5 flex gap-2">
+          <PlaceTile category={v.category} h="h-[6.5rem]" w="w-[58%]" />
+          <MapTile h="h-[6.5rem]" w="flex-1" />
         </div>
 
         {/* 住所（◎ ＋ 2 行整理） */}
-        <div className="mt-3 flex items-start gap-1.5 text-[13.5px] leading-relaxed text-slate-700">
+        <div className="mt-2.5 flex items-start gap-1.5 text-[13px] leading-snug text-slate-700">
           <span aria-hidden className="mt-0.5 text-slate-400">◎</span>
           <span className="min-w-0">{addrLines.length ? addrLines.map((l, i) => <span key={i} className="block">{l}</span>) : "住所は未取得です"}</span>
         </div>
 
         <ChipRow view={v} />
 
-        {/* なぜここをおすすめ？（主役・複数行） */}
+        {/* なぜここをおすすめ？（縦に伸ばしすぎない＝2 行まで） */}
         {v.whyLine && (
-          <div className="mt-4 rounded-2xl bg-purple-50/70 px-4 py-4">
-            <p className="text-[13px] font-bold text-purple-700">なぜここをおすすめ？</p>
-            <p className="mt-2 text-[14.5px] leading-relaxed text-slate-700">{v.whyLine}</p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">{PURPOSE_LENS_LABEL[lens]}の目的に照らすと、距離と予定への接続のしやすさからこの候補が向いています。</p>
-            {v.affinityBadge && <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">普段から訪れている傾向があり、迷いにくい場所です。</p>}
+          <div className="mt-3 rounded-2xl bg-purple-50/70 px-3.5 py-3">
+            <p className="text-[12.5px] font-bold text-purple-700">なぜここをおすすめ？</p>
+            <p className="mt-1 text-[13.5px] leading-relaxed text-slate-700">{v.whyLine}</p>
+            <p className="mt-1 text-[12.5px] leading-snug text-slate-600">{PURPOSE_LENS_LABEL[lens]}の目的に合いやすい候補です。</p>
           </div>
         )}
 
-        <div className="mt-4 flex gap-2">
-          <button type="button" onClick={() => setView("browse")} data-testid="lens-detail-back" className="flex-1 rounded-xl bg-white py-2.5 text-[13px] font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50">‹ 候補へ</button>
-          {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-detail-compare" className="flex-1 rounded-xl bg-white py-2.5 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50">＋ 比較に追加</button>}
-          <button type="button" onClick={() => onSelect(candidates[current]!)} data-testid="lens-detail-select" className="flex-1 rounded-xl bg-purple-600 py-2.5 text-[13px] font-semibold text-white transition hover:bg-purple-700">ここにする</button>
+        <div className="mt-3 flex gap-2">
+          <button type="button" onClick={() => setView("browse")} data-testid="lens-detail-back" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50">‹ 候補へ</button>
+          {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-detail-compare" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50">＋ 比較に追加</button>}
+          <button type="button" onClick={() => onSelect(candidates[current]!)} data-testid="lens-detail-select" className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-semibold text-white transition hover:bg-purple-700">ここにする</button>
         </div>
       </div>
     );
@@ -219,7 +219,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
       <Portal>
         <div className="fixed inset-0 z-[100] flex items-end justify-center" data-testid="lens-compare">
           <div className="absolute inset-0 bg-black/45" onClick={() => setView("browse")} aria-hidden />
-          <div className="relative flex max-h-[88vh] w-full max-w-[700px] flex-col overflow-hidden rounded-t-[1.75rem] bg-slate-50 shadow-[0_-10px_44px_rgba(0,0,0,0.22)]">
+          <div className="relative flex max-h-[88vh] w-full max-w-[600px] flex-col overflow-hidden rounded-t-[1.75rem] bg-slate-50 shadow-[0_-10px_44px_rgba(0,0,0,0.22)]">
             {/* ヘッダー: 戻る / 予定名 / 比較中 N 件 / 目的説明 */}
             <div className="shrink-0 bg-white px-4 pb-2.5 pt-3">
               <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-slate-200" aria-hidden />
@@ -309,7 +309,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
             {selectedSide && (
               <div className="shrink-0 border-t border-black/5 bg-white px-4 py-3">
                 <button type="button" data-testid="lens-compare-confirm" onClick={() => confirmSide(selectedSide)}
-                  className="mx-auto block w-full max-w-[700px] rounded-xl bg-purple-600 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:bg-purple-700 active:scale-[0.99]">
+                  className="mx-auto block w-full max-w-[600px] rounded-xl bg-purple-600 py-3 text-[15px] font-semibold text-white shadow-sm transition hover:bg-purple-700 active:scale-[0.99]">
                   {(selectedSide === "left" ? left.name : right.name)} をこの予定の場所にする
                 </button>
               </div>
@@ -322,7 +322,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
 
   // ════════════════════ ① おすすめの候補（薄紫カード1枚・上下スワイプ/▲▼/ドットで捲る） ════════════════════
   return (
-    <div data-testid="lens-list" className="rounded-3xl bg-white p-4 shadow-[0_20px_60px_rgba(15,23,42,0.22)] ring-1 ring-black/5">
+    <div data-testid="lens-list" className="rounded-3xl bg-white p-3.5 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-black/5">
       <div className="mb-2 flex items-center justify-between px-0.5">
         <p className="text-[14px] font-bold tracking-tight text-slate-900">おすすめの候補</p>
         <span className="text-[11px] font-medium text-slate-400 tabular-nums">{current + 1} / {n}</span>
