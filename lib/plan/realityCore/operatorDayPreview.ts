@@ -29,6 +29,11 @@ import { deriveMomentSnapshot } from "./momentSnapshot";
 import { assembleRealityGraph, type RealityGraphSnapshotV0 } from "./realityGraphSnapshot";
 import { assembleLeaveByBindings } from "./leaveByAssembly";
 import { LEAVEBY_LEAK_TOKENS } from "./leaveByLeakTokens";
+import {
+  buildOperatorRealityReadiness,
+  OPERATOR_REALITY_READINESS_INITIAL,
+  type OperatorRealityReadinessSummaryV0,
+} from "./operatorRealityReadiness";
 import { graphViewerKey } from "./graphIdentity";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { makeRealityInstantJst } from "./realityInstant";
@@ -76,6 +81,12 @@ export interface RealDaySurfacePayloadV0 {
   readonly consumerView: SurfaceProjectionConsumerViewV0 | null;
   readonly renderedCopy: RenderedCopyV0 | null;
   readonly delivery: DeliverySafeSummaryV0 | null;
+  /**
+   * RD3b-P1: operator real-data supply readiness 集計（safe・client へ渡してよい）。
+   * v0 は provider 未注入ゆえ routeEtaCapability/durationValue/supply/computedPresent 系は常に 0。
+   * raw anchor（title/locationText/sourceId/externalUid/companions/exact instant）を**一切含まない**。
+   */
+  readonly readiness: OperatorRealityReadinessSummaryV0;
 }
 
 /** 当日 anchor 分離（pure・one-off 当日 + recurring 全件・recurring 展開は resolveTodayRecurring が担当） */
@@ -107,8 +118,8 @@ export function buildOperatorDaySnapshot(dayAnchors: ReadonlyArray<ExternalAncho
   return assembleRealityGraph({ ern: ernForGraph, mv, cs, momentSnapshot, viewerKey: graphViewerKey(operatorUserId) });
 }
 
-function unavailable(reasonCode: string, summary: RealDaySurfaceSummaryV0): RealDaySurfacePayloadV0 {
-  return { schemaVersion: 0, mode: "real", available: false, reasonCode, summary, consumerView: null, renderedCopy: null, delivery: null };
+function unavailable(reasonCode: string, summary: RealDaySurfaceSummaryV0, readiness: OperatorRealityReadinessSummaryV0 = OPERATOR_REALITY_READINESS_INITIAL): RealDaySurfacePayloadV0 {
+  return { schemaVersion: 0, mode: "real", available: false, reasonCode, summary, consumerView: null, renderedCopy: null, delivery: null, readiness };
 }
 
 /**
@@ -136,9 +147,11 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
     recurringExcludedCount: rec.excludedCount,
     recurringInvalidCount: rec.invalidCount,
   };
+  // RD3b-P1: dayAnchors に到達した時点で readiness を集計（pure・raw 値を抽出しない・safe count + safe generic blocker code のみ）。
+  const readiness = buildOperatorRealityReadiness({ allAnchorCount: anchors.length, dayAnchors });
 
-  if (anchors.length === 0) return unavailable("no_anchor", summary);
-  if (dayAnchors.length === 0) return unavailable("no_today_event", summary); // **fixture へ fallback しない**
+  if (anchors.length === 0) return unavailable("no_anchor", summary, readiness);
+  if (dayAnchors.length === 0) return unavailable("no_today_event", summary, readiness); // **fixture へ fallback しない**
 
   try {
     const snapshot = buildOperatorDaySnapshot(dayAnchors, subjectiveDate, input.referenceInstantUtc, input.operatorUserId);
@@ -157,8 +170,8 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
     const dgate = evaluateDeliveryEligibility({ interventionDecision: dec, userInAppSurfaceOptIn: true, recentSurfaceCount: 0, surfaceBudgetRemaining: 5 });
 
     // defense: unsafe なら出さない（fixture へ fallback しない・unavailable）
-    if (surfaceProjectionConsumerViewViolations(consumerView).length > 0) return unavailable("walker_blocked", summary);
-    if (copyViolations(renderedCopy).length > 0) return unavailable("walker_blocked", summary);
+    if (surfaceProjectionConsumerViewViolations(consumerView).length > 0) return unavailable("walker_blocked", summary, readiness);
+    if (copyViolations(renderedCopy).length > 0) return unavailable("walker_blocked", summary, readiness);
 
     const payload: RealDaySurfacePayloadV0 = {
       schemaVersion: 0,
@@ -169,11 +182,12 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
       consumerView,
       renderedCopy,
       delivery: { eligibility: dgate.eligibility, channelCeiling: dgate.channelCeiling, deliveredNow: dgate.deliveredNow },
+      readiness,
     };
-    if (realDayPayloadLeakViolations(payload).length > 0) return unavailable("leak_blocked", summary);
+    if (realDayPayloadLeakViolations(payload).length > 0) return unavailable("leak_blocked", summary, readiness);
     return payload;
   } catch {
-    return unavailable("assemble_failed", summary);
+    return unavailable("assemble_failed", summary, readiness);
   }
 }
 
@@ -210,6 +224,9 @@ const REAL_LEAK_TOKENS: ReadonlyArray<string> = [
 ];
 
 export function realDayPayloadLeakViolations(payload: RealDaySurfacePayloadV0): string[] {
-  const json = JSON.stringify(payload).toLowerCase();
+  // RD3b-P1: `leaveByComputedPresentCount`（schema-state count・readiness 内）は意図的 safe field（exact instant でない）。
+  //   但し token "leavebycomputed" の substring を含むため、走査前に**この既知 safe key 文字列のみ除去**する。
+  //   内部 object `leaveByComputed: {leaveByInstant,timeContract,…}` が漏れた場合は依然 content token で検出される。
+  const json = JSON.stringify(payload).toLowerCase().split("leavebycomputedpresentcount").join("");
   return REAL_LEAK_TOKENS.filter((t) => json.includes(t)).map((t) => `operatorDayPreview: payload に leak token "${t}" が出現`);
 }
