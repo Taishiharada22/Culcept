@@ -46,6 +46,8 @@ import { scorePlaceCandidates } from "@/lib/plan/compose/placeAffinityCombiner";
 import { loadAllObservations, normalizeLocationText, toTimeband, toWeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import { buildShadowRanking, shadowInputsFromDisplayOrder } from "@/lib/plan/compose/placeAffinityShadowRanking";
 import { recordPlaceAffinitySafetyEntry, summarizePlaceAffinityShadow } from "@/lib/plan/compose/placeAffinitySafetyJournal";
+import { isCandidateLensUiEnabled, type LensCandidate } from "@/lib/plan/candidateLens/candidateLensUi";
+import { CandidateLensPanel } from "./CandidateLensPanel";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -401,6 +403,15 @@ export function PlaceCandidatesPanel({
       .map(({ d }) => d);
   }, [displayListWithReason, placeAffinitySignals]);
 
+  // ── Phase 2: Purpose-Adaptive Candidate Lens UI（flag default OFF・dev-only）への入力 ──
+  //   既存 personalReason（観測由来・捏造なし）を placeId→reason に索引化して lens の affinity に供給。
+  //   flag OFF/production では下の分岐に到達せず既存 <ul> 不変。
+  const lensReasonMap = useMemo(() => {
+    const m = new Map<string, string | null>();
+    rankedDisplayList.forEach((d) => m.set(d.candidate.placeId, d.personalReason));
+    return m;
+  }, [rankedDisplayList]);
+
   // ── handlers ──
   const handleSelect = (c: PlaceCandidate) => {
     abortRef.current?.abort();
@@ -546,8 +557,19 @@ export function PlaceCandidatesPanel({
         </p>
       )}
 
+      {/* ★Phase 2: Purpose-Adaptive Candidate Lens UI（flag ON/dev のみ）。
+          flag OFF/production では下の既存 <ul> がそのまま（＝既存パネル完全不変）。 */}
+      {!loading && results.length > 0 && isCandidateLensUiEnabled() && (
+        <CandidateLensPanel
+          candidates={rankedDisplayList.map((d) => d.candidate as LensCandidate)}
+          title={debouncedTitle.trim() || title}
+          affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
+          onSelect={(c) => handleSelect(c as PlaceCandidate)}
+        />
+      )}
+
       {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale) */}
-      {!loading && results.length > 0 && (
+      {!loading && results.length > 0 && !isCandidateLensUiEnabled() && (
         <ul className="space-y-1.5" data-testid="plan-place-candidates-list">
           {rankedDisplayList.map(({ candidate: c, typeReason, personalReason }) => (
             <li key={c.placeId}>
