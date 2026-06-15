@@ -45,6 +45,12 @@ import {
   redactRouteEtaUnsafeValue,
   routeEtaSafeExceptionReason,
 } from "./routeEtaSafety";
+import {
+  deriveDurationValueFromProviderResult,
+  durationValueViolations,
+  bindDurationValueToCapability,
+  type PlanningGradeDurationValueV0,
+} from "./routeEtaDurationValue";
 
 export const ROUTE_ETA_PROVIDER_ADAPTER_VERSION = 0;
 
@@ -75,6 +81,12 @@ export interface RouteEtaProviderResultV0 {
   readonly freshnessStatus: RouteEtaFreshnessStatusV0;
   /** freshness の根拠 opaque ref（fetchedAt/validUntil 相当）。fresh は basis 無しでは planning に上げない（RD2d-b-A self-claim 防御） */
   readonly freshnessBasisRef: string | null;
+  /**
+   * RD2d-b-VALUE: leaveBy 計算燃料の生分（fractional 可・未 ceil）。adapter が ceil → safe upper bound 化して捨てる。
+   * raw seconds / raw payload は載せない（minutes のみ）。未供給 = null = value channel なし。
+   */
+  readonly durationMinutesRaw?: number | null;
+  readonly durationLowerMinutesRaw?: number | null;
 }
 
 export type RouteEtaProviderFailureReasonV0 =
@@ -121,6 +133,12 @@ export interface RouteEtaAdapterDepsV0 {
 
 export interface RouteEtaAdapterOutputV0 {
   readonly capability: RouteEtaCapabilityV0 | null;
+  /**
+   * RD2d-b-VALUE: leaveBy 計算用の internal-only duration value（**sibling return**・capability に nest しない）。
+   * server-only・consumer 非露出。null = value channel なし（heuristic/exception/numeric 欠如）。
+   * 数値があっても usableForLeaveByComputation=false なら leaveBy 不可（二鍵）。
+   */
+  readonly durationValue: PlanningGradeDurationValueV0 | null;
   readonly stage: RouteEtaAdapterStageV0;
   readonly resolved: boolean;
   readonly failureReason: RouteEtaProviderFailureReasonV0 | null;
@@ -243,6 +261,7 @@ function buildNoRouteSource(
   const finalCap = withMissingInputs(cap);
   return {
     capability: finalCap,
+    durationValue: null, // no_route_source は計算燃料を持たない（provider failure/exception/malformed/未注入）
     stage: "no_route_source",
     resolved: false,
     failureReason: reason,
@@ -346,11 +365,17 @@ export async function resolveRouteEtaCapability(
   // walker fail-loud（provider overclaim / raw-leak が built に残れば検出 → 漏れる capability を emit しない）
   const violations = routeEtaCapabilityViolations(cap);
   if (violations.length > 0) {
-    return { capability: null, stage: "no_route_source", resolved: false, failureReason: "malformed_result", violations };
+    return { capability: null, durationValue: null, stage: "no_route_source", resolved: false, failureReason: "malformed_result", violations };
   }
 
+  // RD2d-b-VALUE: capability green の上で duration value（計算燃料）を sibling 生成。
+  // raw payload は捨て numeric だけを validated value に昇格。value 自己整合を walker（fail-loud）。
+  // value が leak/形不整合なら value を drop（capability は honest に維持・leaveBy は使えないだけ）。
+  const dv = deriveDurationValueFromProviderResult(result, cap);
+  const durationValue: PlanningGradeDurationValueV0 | null = dv !== null && durationValueViolations(dv).length === 0 ? dv : null;
+
   const stage: RouteEtaAdapterStageV0 = cap.planning.arrivalProjectionKnown ? "resolved" : "duration_signal_only";
-  return { capability: cap, stage, resolved: cap.planning.arrivalProjectionKnown, failureReason: null, violations: [] };
+  return { capability: cap, durationValue, stage, resolved: cap.planning.arrivalProjectionKnown, failureReason: null, violations: [] };
 }
 
 /** routeEtaAdapterOutputViolations — adapter 出力の整合（capability は walker green・stage/resolved 整合） */
@@ -381,6 +406,22 @@ export function routeEtaAdapterOutputViolations(o: RouteEtaAdapterOutputV0): str
   }
   add(o.capability === null && o.resolved, "null capability must not be resolved");
   add(o.resolved && o.failureReason !== null, "resolved output must not carry a failureReason");
+
+  // RD2d-b-VALUE sibling 不変条件（二鍵）
+  if (o.durationValue !== null) {
+    out = out.concat(durationValueViolations(o.durationValue)); // value 自己整合（leak/形/basis）
+    add(o.capability === null, "durationValue must not accompany a null capability"); // value 単独で capability を主張しない
+    if (o.durationValue.usableForLeaveByComputation) {
+      // 二鍵: usable value は bind 先 capability.timeEstimateUsableForPlanning と full basis 一致が必須
+      add(
+        o.capability === null || !o.capability.planning.timeEstimateUsableForPlanning,
+        "usable durationValue requires bound capability timeEstimateUsableForPlanning",
+      );
+      if (o.capability !== null) {
+        add(!bindDurationValueToCapability(o.durationValue, o.capability).matched, "usable durationValue must match capability full binding basis");
+      }
+    }
+  }
   // contract violation を benign に丸めない: malformed/raw failureReason は violation を伴う（INV-SURVIVE）
   add(
     (o.failureReason === "raw_route_data_detected" || o.failureReason === "malformed_enum" || o.failureReason === "malformed_result") &&
