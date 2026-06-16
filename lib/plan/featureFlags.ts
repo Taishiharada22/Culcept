@@ -278,6 +278,27 @@ export const PLAN_FLAGS = {
   })() as readonly string[],
 
   /**
+   * RD3c-P3a-wire-C: operator duration seed write（dogfood/staging 用 seed を operator が書く）を有効化するか。
+   *   true  : operator gate（`evaluateOperatorDurationSeedGate`）が flag ON として評価（**operator allowlist + 非 production が別途必須**）。
+   *   false : **本番デフォルト**・gate が必ず deny（seed write 不能）。
+   * env: REALITY_OPERATOR_SEED_WRITE_ENABLED=true で有効化（**server-side のみ評価・非 NEXT_PUBLIC・production OFF**）。
+   * 制約: flag ON でも production nodeEnv / production ref / allowlist 空 / 非 allowlist user は deny（triple fail-closed）。
+   */
+  realityOperatorSeedWriteEnabled: process.env.REALITY_OPERATOR_SEED_WRITE_ENABLED === "true",
+
+  /**
+   * RD3c-P3a-wire-C: operator duration seed を書ける operator の **auth UUID allowlist**（空=誰も不可＝fail-closed）。
+   * env: REALITY_OPERATOR_SEED_USER_IDS=uuid1,uuid2（**server-side のみ**・auth UUID・email でない・client から受けない）。
+   */
+  realityOperatorSeedUserIds: (() => {
+    const raw = process.env.REALITY_OPERATOR_SEED_USER_IDS ?? "";
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  })() as readonly string[],
+
+  /**
    * A1-6-7: Consumed seed → MorningPlan reflection（accept 済み候補を live `MorningPlan` の `PlanItem[]` に additive merge）を有効化するか。
    *   true  : morning route が **status='consumed' の seed を read-only consumption** し、`reflectConsumedSeedsIntoMorningPlan` で
    *           `MorningPlan.items` に additive 追加（同日・id 重複 skip・consumed seed だけが item 化）。
