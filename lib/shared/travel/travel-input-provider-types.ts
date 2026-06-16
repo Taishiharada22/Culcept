@@ -27,8 +27,12 @@ export const TRAVEL_INPUT_SOURCE_KINDS = [
   "dev_fixture", //                  決定論 fixture（dev-only）
   "session_slots", //                session 由来 slots
   "user_intake", //                  user intake 由来
-  "m2_personalization", //           M2 由来 fit/preference
-  "route_weather_place_enriched", // route/weather/place 付与
+  // ★ T11-B(production preflight): 追加 source（additive・既存と後方互換）。
+  "selected_plan_date", //           /plan 選択日/window 由来（date を hard-confirm し得る session_context 系）
+  "explicit_travel_mode", //         明示の travel mode/session 意図
+  "manual_entity_evidence", //       ★ entity/object 側 evidence。hard session 前提（dest/date/participants）を満たさない
+  "m2_personalization", //           M2 由来 fit/preference（runtime HOLD）
+  "route_weather_place_enriched", // route/weather/place 付与（HOLD）
 ] as const;
 export type TravelInputSourceKind = (typeof TRAVEL_INPUT_SOURCE_KINDS)[number];
 
