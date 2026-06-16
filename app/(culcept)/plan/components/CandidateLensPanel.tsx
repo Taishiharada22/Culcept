@@ -28,6 +28,7 @@ import {
 } from "@/lib/plan/candidateLens/candidateLensUi";
 import { PURPOSE_LENS_LABEL, type PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
 import { ATTRIBUTE_LABEL, type AttributeKey } from "@/lib/plan/candidateLens/placeAttributeModel";
+import type { UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePreference";
 // ★P3-b: shadow 記録（記録のみ・resolver 未供給・flag default OFF・production hard block）。UI/順位/行順は一切変えない。
 import { buildPreferenceObservation } from "@/lib/plan/candidateLens/candidateLensPreferenceObs";
 import { isCandidateLensPrefObsEnabled, recordPreferenceObservation, opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
@@ -39,6 +40,8 @@ export interface CandidateLensPanelProps {
   readonly affinityReasonFor?: (candidate: LensCandidate) => string | null;
   readonly onSelect: (candidate: LensCandidate) => void;
   readonly onSkip?: () => void;
+  /** ★P3-c: ユーザー嗜好（gate 済・apply flag ON 時のみ親が渡す）。**③ 比較表の表示行順だけ**に使う（推薦/順位/①②は不変）。 */
+  readonly preference?: UserPlacePreference;
 }
 
 const ATTR_ICON: Record<AttributeKey, string> = {
@@ -144,7 +147,7 @@ function Portal({ children }: { children: React.ReactNode }) {
   return createPortal(children, document.body);
 }
 
-export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReasonFor, onSelect, onSkip }: CandidateLensPanelProps) {
+export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReasonFor, onSelect, onSkip, preference }: CandidateLensPanelProps) {
   const lens = purposeLensFromSchedule(title);
   const views = candidates.map((c) => buildLensCandidateView(c, lens, { gapMinutes, affinityReason: affinityReasonFor?.(c) ?? null }));
 
@@ -257,7 +260,9 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   if (view === "compare") {
     const left = v;
     const right = views[compareIndex]!;
-    const comp = buildLensComparisonView(lens, left, right);
+    // ★P3-c: preference は ③ 比較表の**表示行順だけ**に反映（apply flag ON＋gate 済の時のみ親が渡す）。
+    //   recommendation/winner/highlight は buildLensComparisonView 内で canonical 固定＝preference 不依存（順位/推薦は不変）。
+    const comp = buildLensComparisonView(lens, left, right, preference);
     const confirmSide = (side: "left" | "right") => {
       if (selectedSide === side) {
         observeSelect(side === "left" ? left : right, "compare", { comparison: comp, selectedSide: side, otherView: side === "left" ? right : left });

@@ -49,6 +49,9 @@ import { buildShadowRanking, shadowInputsFromDisplayOrder } from "@/lib/plan/com
 import { recordPlaceAffinitySafetyEntry, summarizePlaceAffinityShadow } from "@/lib/plan/compose/placeAffinitySafetyJournal";
 import { isCandidateLensUiEnabled, type LensCandidate } from "@/lib/plan/candidateLens/candidateLensUi";
 import { CandidateLensPanel } from "./CandidateLensPanel";
+// ★P3-c: preference 供給（apply flag ON＋gate 済の時だけ ③ 行順に使う。client-only・production hard block・記録は P3-b）。
+import { accumulatePreference } from "@/lib/plan/candidateLens/candidateLensPreferenceObs";
+import { isCandidateLensPrefApplyEnabled, loadPreferenceObservations } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -413,6 +416,21 @@ export function PlaceCandidatesPanel({
     return m;
   }, [rankedDisplayList]);
 
+  // ★P3-c: ③ 比較表の表示行順用 preference を derive（apply flag ON＋production 非該当の時のみ。OFF/insufficient → undefined＝canonical）。
+  //   client-only(localStorage)・記録(P3-b)とは独立 flag・gate(lens5/global8/axis support3/EPS) は accumulatePreference 内。
+  const lensPreference = useMemo(() => {
+    if (!isCandidateLensPrefApplyEnabled()) return undefined;
+    return accumulatePreference(loadPreferenceObservations(), {
+      now: Date.now(),
+      minLensObservations: 5,
+      minGlobalObservations: 8,
+      minAxisSupport: 3,
+      minScore: 0.05,
+    });
+    // results 変化時に再 derive（過剰再計算を避ける）。Date.now は decay 基準のみ。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results.length, debouncedQuery]);
+
   // ★REDO-10: Lens Overlay は locationText 欄の rect に anchor。位置（左端・上端）は欄＝理想画像のまま、
   //   横幅だけ右へ少し拡張して中央を跨ぐ（画面中央配置はしない＝位置を動かさない）。
   const lensAnchorRef = useRef<HTMLDivElement>(null);
@@ -491,6 +509,7 @@ export function PlaceCandidatesPanel({
                   affinityReasonFor={(c) => lensReasonMap.get(c.placeId) ?? null}
                   onSelect={(c) => handleSelect(c as PlaceCandidate)}
                   onSkip={handleSkip}
+                  preference={lensPreference}
                 />
               </div>
             </>,

@@ -21,7 +21,7 @@ import {
   recommendationBasisPhrase,
   type ComparisonRow,
 } from "@/lib/plan/candidateLens/candidateLensResolver";
-import type { UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePreference";
+import { applyPreferenceToAxes, type UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePreference";
 
 /** ★候補レンズ UI flag（default OFF・dev-only・production hard block）。既存候補パネルは flag OFF で不変。 */
 export const PLACE_CANDIDATE_LENS_UI_ENABLED = false;
@@ -155,24 +155,39 @@ export interface LensComparisonView {
   readonly recommendation: { readonly side: "left" | "right"; readonly basisPhrase: string } | null;
 }
 
-/** 左右 view → 比較 view（pure・未確認は主表から除外し名前だけ拾う・捏造しない）。 */
+/**
+ * 左右 view → 比較 view（pure・未確認は主表から除外し名前だけ拾う・捏造しない）。
+ *
+ * ★P3-c: **推薦/winner/highlight と「表示行順」を分離**する。
+ *   - recommendation・各行の isBest（優位ハイライトの意味）は **canonical 軸順（preference なし）で固定**＝
+ *     preference をいくら持っていても判定は誰でも同じ（ranking/推薦を裏で変えない）。
+ *   - `preference`（gate 済を受け取る前提）は **表示する mainRows の並び順だけ** に反映する
+ *     （行の追加/削除・値・isBest・recommendation は一切変えない）。preference なし → canonical 表示順。
+ */
 export function buildLensComparisonView(
   lens: PurposeLens,
   left: LensCandidateView,
   right: LensCandidateView,
   preference?: UserPlacePreference,
 ): LensComparisonView {
-  // showUnconfirmed=true で全軸を取り、表示用に main(値あり) と unconfirmed(値なし) に振り分ける。
-  const full = buildLensComparison({ lens, leftAttrs: left.attrs, rightAttrs: right.attrs, preference, showUnconfirmed: true });
-  const mainRows = full.rows.filter((r) => !r.unconfirmed);
-  // ★補助注記は「本当に未確認(C弱推定/D未確認)」のみ。文脈不足で未計算の B(computed・例: gap 無しの予定接続/余白)は
-  //   「確認できていない」ではなく「今は計算する文脈がない」ので静かに drop（誤解を招く注記を出さない）。
-  const unconfirmedLabels = full.rows.filter((r) => r.unconfirmed && r.evidenceType !== "computed").map((r) => r.label);
-  const phrase = recommendationBasisPhrase(full);
+  // ★canonical（preference を渡さない）で全軸・推薦を計算。recommendation/isBest はここに固定（preference 不依存）。
+  const canonical = buildLensComparison({ lens, leftAttrs: left.attrs, rightAttrs: right.attrs, showUnconfirmed: true });
+  const canonicalMain = canonical.rows.filter((r) => !r.unconfirmed);
+  // ★preference は「表示行順だけ」反映: 既定軸にある軸を前方へ寄せ、行をその順で並べ替える（isBest/値/推薦は不変）。
+  const mainRows = preference
+    ? (() => {
+        const ordered = applyPreferenceToAxes(canonicalMain.map((r) => r.key), lens, preference);
+        const byKey = new Map(canonicalMain.map((r) => [r.key, r] as const));
+        return ordered.map((k) => byKey.get(k)).filter((r): r is ComparisonRow => r != null);
+      })()
+    : canonicalMain;
+  // ★補助注記は「本当に未確認(C弱推定/D未確認)」のみ。文脈不足で未計算の B(computed・例: gap 無しの予定接続/余白)は静かに drop。
+  const unconfirmedLabels = canonical.rows.filter((r) => r.unconfirmed && r.evidenceType !== "computed").map((r) => r.label);
+  const phrase = recommendationBasisPhrase(canonical);
   return {
     lens,
     mainRows,
     unconfirmedLabels,
-    recommendation: full.recommendation && phrase ? { side: full.recommendation.side, basisPhrase: phrase } : null,
+    recommendation: canonical.recommendation && phrase ? { side: canonical.recommendation.side, basisPhrase: phrase } : null,
   };
 }

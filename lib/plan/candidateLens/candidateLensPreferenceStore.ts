@@ -12,10 +12,19 @@
 import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
 import type { PreferenceObservation } from "@/lib/plan/candidateLens/candidateLensPreferenceObs";
 
-/** ★shadow 記録 flag（default OFF・dev-only・production hard block）。default は false。 */
+/** ★shadow 記録 flag（P3-b・default OFF・dev-only・production hard block）。default は false。 */
 export const PLACE_CANDIDATE_LENS_PREF_OBS_ENABLED = false;
 export function isCandidateLensPrefObsEnabled(): boolean {
   return PLACE_CANDIDATE_LENS_PREF_OBS_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+}
+
+/**
+ * ★preference 供給(apply) flag（P3-c・obs flag と**独立**・default OFF・production hard block）。
+ *   obs ON / apply OFF（shadow のまま）も、obs OFF / apply OFF も可能。apply OFF / production / insufficient は canonical 表示。
+ */
+export const PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED = false;
+export function isCandidateLensPrefApplyEnabled(): boolean {
+  return PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
 }
 
 const PREF_OBS_KEY = "aneurasync.candidateLens.prefObs.v1";

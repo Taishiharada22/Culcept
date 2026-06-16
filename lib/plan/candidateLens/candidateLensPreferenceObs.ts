@@ -96,8 +96,16 @@ export function buildPreferenceObservation(input: BuildObservationInput): Prefer
 export interface AccumulateOptions {
   /** 集計時刻（decay 基準・呼び側が stamp）。 */
   readonly now: number;
-  /** この件数未満の lens / 全体は preference を出さない（少数の偏りで断定しない）。既定 5。 */
+  /** lens 別/全体の既定しきい値（後方互換・minLens/minGlobal 未指定時の fallback）。既定 5。 */
   readonly minObservations?: number;
+  /** lens 別 preference を出す最小件数（既定 = minObservations）。 */
+  readonly minLensObservations?: number;
+  /** 全体 prioritizedAttributes を出す最小件数（既定 = minObservations）。 */
+  readonly minGlobalObservations?: number;
+  /** ★軸別 最小支持（その軸が decisiveAxes に何回出れば並び替え対象にするか）。既定 1（支持ゲートなし）。 */
+  readonly minAxisSupport?: number;
+  /** ★decay 後スコアの最小値（これ未満の軸は「古いだけ＝失効」として除外）。既定 0（EPS なし）。 */
+  readonly minScore?: number;
   /** decay 半減期 ms（既定 30 日）。新しい観測ほど重い。 */
   readonly halfLifeMs?: number;
 }
@@ -105,60 +113,77 @@ export interface AccumulateOptions {
 const DEFAULT_MIN_OBS = 5;
 const DEFAULT_HALF_LIFE = 30 * 24 * 60 * 60 * 1000; // 30 日
 
-/** 軸スコア（decay 加重）を降順に並べた key 配列（score>0 のみ）。 */
-function rankAxes(scores: Map<AttributeKey, number>): AttributeKey[] {
+/**
+ * 軸を「decay 加重スコア降順」に並べた key 配列。
+ *   ★gate: score >= minScore（EPS・古いだけの軸を除外）AND rawCount >= minAxisSupport（最低支持・単発で動かさない）。
+ */
+function rankAxes(
+  scores: Map<AttributeKey, number>,
+  counts: Map<AttributeKey, number>,
+  minScore: number,
+  minAxisSupport: number,
+): AttributeKey[] {
   return [...scores.entries()]
-    .filter(([, s]) => s > 0)
+    .filter(([k, s]) => s >= minScore && s > 0 && (counts.get(k) ?? 0) >= minAxisSupport)
     .sort((a, b) => b[1] - a[1])
     .map(([k]) => k);
 }
 
 /**
- * observations → UserPlacePreference（pure・decay + lens 別 + sufficient-gate）。
- *   - 各観測の decisiveAxes に decay 加重スコアを与え、全体 / lens 別に集計。
- *   - **sufficient-gate**: 件数 < minObservations の全体 / lens は preference を出さない（中立＝既定軸順のまま）。
- *   - 出力は Phase 1 の `UserPlacePreference`（`applyPreferenceToAxes` が消費）。★ここでは適用しない（P3-c 別 GO）。
+ * observations → UserPlacePreference（pure・decay + lens 別 + 二段 sufficient-gate + 軸別最低支持）。
+ *   - 各観測の decisiveAxes に decay 加重スコア（新しいほど重い）と raw count を与え、全体 / lens 別に集計。
+ *   - **sufficient-gate**: 全体 < minGlobalObservations / lens < minLensObservations は preference を出さない（中立＝既定軸順）。
+ *   - **軸別 最低支持**: その軸が decisiveAxes に minAxisSupport 回未満なら並び替え対象外（単発の選択で並びを動かさない）。
+ *   - **EPS**: decay 後 score が minScore 未満の軸は失効として除外。
+ *   - 出力は Phase 1 の `UserPlacePreference`。★ここでは適用しない（適用は P3-c 配線で行順だけに使う）。
  */
 export function accumulatePreference(
   observations: readonly PreferenceObservation[],
   opts: AccumulateOptions,
 ): UserPlacePreference {
   const minObs = opts.minObservations ?? DEFAULT_MIN_OBS;
+  const minLens = opts.minLensObservations ?? minObs;
+  const minGlobal = opts.minGlobalObservations ?? minObs;
+  const minAxisSupport = opts.minAxisSupport ?? 1;
+  const minScore = opts.minScore ?? 0;
   const halfLife = opts.halfLifeMs ?? DEFAULT_HALF_LIFE;
 
-  const global = new Map<AttributeKey, number>();
-  const perLensScores = new Map<PurposeLens, Map<AttributeKey, number>>();
-  const perLensCount = new Map<PurposeLens, number>();
+  const globalScore = new Map<AttributeKey, number>();
+  const globalCount = new Map<AttributeKey, number>();
+  const perLensScore = new Map<PurposeLens, Map<AttributeKey, number>>();
+  const perLensAxisCount = new Map<PurposeLens, Map<AttributeKey, number>>();
+  const perLensObsCount = new Map<PurposeLens, number>();
   let total = 0;
 
   for (const obs of observations) {
     const ageMs = Math.max(0, opts.now - obs.at);
     const weight = Math.pow(0.5, ageMs / halfLife); // decay: 新しいほど 1 に近い
     total += 1;
-    perLensCount.set(obs.lens, (perLensCount.get(obs.lens) ?? 0) + 1);
-    let lensMap = perLensScores.get(obs.lens);
-    if (!lensMap) {
-      lensMap = new Map();
-      perLensScores.set(obs.lens, lensMap);
-    }
+    perLensObsCount.set(obs.lens, (perLensObsCount.get(obs.lens) ?? 0) + 1);
+    let lensScore = perLensScore.get(obs.lens);
+    let lensAxisCount = perLensAxisCount.get(obs.lens);
+    if (!lensScore) { lensScore = new Map(); perLensScore.set(obs.lens, lensScore); }
+    if (!lensAxisCount) { lensAxisCount = new Map(); perLensAxisCount.set(obs.lens, lensAxisCount); }
     for (const axis of obs.decisiveAxes) {
-      global.set(axis, (global.get(axis) ?? 0) + weight);
-      lensMap.set(axis, (lensMap.get(axis) ?? 0) + weight);
+      globalScore.set(axis, (globalScore.get(axis) ?? 0) + weight);
+      globalCount.set(axis, (globalCount.get(axis) ?? 0) + 1);
+      lensScore.set(axis, (lensScore.get(axis) ?? 0) + weight);
+      lensAxisCount.set(axis, (lensAxisCount.get(axis) ?? 0) + 1);
     }
   }
 
   const result: { prioritizedAttributes?: readonly AttributeKey[]; perLens?: Partial<Record<PurposeLens, readonly AttributeKey[]>> } = {};
 
-  if (total >= minObs) {
-    const ranked = rankAxes(global);
+  if (total >= minGlobal) {
+    const ranked = rankAxes(globalScore, globalCount, minScore, minAxisSupport);
     if (ranked.length > 0) result.prioritizedAttributes = ranked;
   }
 
   const perLens: Partial<Record<PurposeLens, readonly AttributeKey[]>> = {};
   let anyPerLens = false;
-  for (const [lens, count] of perLensCount.entries()) {
-    if (count < minObs) continue; // gate: lens 別も件数を満たした時のみ
-    const ranked = rankAxes(perLensScores.get(lens)!);
+  for (const [lens, count] of perLensObsCount.entries()) {
+    if (count < minLens) continue; // gate: lens 別も件数を満たした時のみ
+    const ranked = rankAxes(perLensScore.get(lens)!, perLensAxisCount.get(lens)!, minScore, minAxisSupport);
     if (ranked.length > 0) {
       perLens[lens] = ranked;
       anyPerLens = true;
