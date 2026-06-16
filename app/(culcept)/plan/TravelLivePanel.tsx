@@ -16,6 +16,16 @@
 import { useActionState } from "react";
 import { submitTravelLiveIntakeAction } from "./_actions/travel-live";
 import { TRAVEL_LIVE_INITIAL_STATE, type TravelLiveActionState } from "@/lib/plan/travel/travel-live-action-state";
+import type { CoAlterProjectionCue } from "@/lib/shared/travel/coalter-projection-consume-types";
+
+/** ★ cue.action → 中立 copy（raw cue.ref は UI に出さない・category/summary のみ）。 */
+const CUE_ACTION_LABEL: Record<CoAlterProjectionCue["action"], string> = {
+  ask_question: "追加で確認したいこと",
+  ask_confirmation: "この点を確認してください",
+  note_risk: "この案の注意点",
+  show_fallback: "代替案があります",
+  explain_plan: "補足",
+};
 
 /** richer read-only render（display-safe projection/cues のみ・中立 copy・action authority なし）。 */
 export function TravelLiveReadyView({ state }: { state: Extract<TravelLiveActionState, { status: "ready" }> }) {
@@ -44,7 +54,19 @@ export function TravelLiveReadyView({ state }: { state: Extract<TravelLiveAction
       {p.readinessWarning.hasOpenConfirmations && (
         <p className="text-[11px] text-gray-500">確認が必要な項目があります。</p>
       )}
-      {cueCount > 0 && <p className="text-[10px] text-gray-400">補足 {cueCount} 件</p>}
+      {cueCount > 0 && (
+        <div className="space-y-0.5" data-testid="travel-live-cues">
+          <p className="text-[11px] font-bold text-gray-500">確認しておきたいこと</p>
+          <ul className="space-y-0.5 text-[11px] text-gray-600">
+            {/* ★ cue.action → 中立 copy のみ（raw cue.ref / id は出さない）。action 単位で dedupe。 */}
+            {[...new Set(state.display.cues.map((c) => c.action))].map((action) => (
+              <li key={action} data-testid="travel-live-cue">
+                {CUE_ACTION_LABEL[action]}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="text-[11px] text-gray-400">これは予約・確定ではありません。</p>
     </div>
   );

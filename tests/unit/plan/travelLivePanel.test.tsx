@@ -74,6 +74,51 @@ describe("2b. richer ReadyView render（display-safe projection・中立・no fo
   });
 });
 
+describe("2c. read-only CoAlter cue display（G・neutral copy・raw ref 非表示）", () => {
+  const READY: SessionSurfaceEvent[] = [
+    { kind: "destination_input", areaText: "京都", surface: "form_input" },
+    { kind: "selected_plan_window", window: { kind: "single_day", date: "2026-07-01" } },
+  ];
+  const readyWithCues = () => {
+    const base = toTravelLiveActionState(buildTravelPlanDisplayResult({ events: READY, participantIds: ["P1"], viewerId: "P1" }, { fixtureAllowed: false }));
+    if (base.status !== "ready") throw new Error("expected ready");
+    // 全 5 action の cue を注入（raw ref は表示されないことの検証用に固有値）
+    return {
+      ...base,
+      display: {
+        ...base.display,
+        cues: [
+          { action: "ask_question", source: "questionsToAsk", ref: "REF_intent_x" },
+          { action: "ask_confirmation", source: "needsConfirmation", ref: "REF_reason_y" },
+          { action: "note_risk", source: "readinessWarning", ref: "REF_state_z" },
+          { action: "show_fallback", source: "fallbackNote", ref: "REF_trigger_w" },
+          { action: "explain_plan", source: "fitAdvisory", ref: "REF_candidate_v" },
+        ] as const,
+      },
+    } as Extract<ReturnType<typeof toTravelLiveActionState>, { status: "ready" }>;
+  };
+  it("cues がある時 cue section + 5 action の中立 copy を render", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues()} />);
+    expect(h).toContain("travel-live-cues");
+    expect(h).toContain("確認しておきたいこと");
+    for (const label of ["追加で確認したいこと", "この点を確認してください", "この案の注意点", "代替案があります", "補足"]) {
+      expect(h).toContain(label);
+    }
+  });
+  it("★ raw cue.ref を render しない", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues()} />);
+    for (const ref of ["REF_intent_x", "REF_reason_y", "REF_state_z", "REF_trigger_w", "REF_candidate_v"]) {
+      expect(h).not.toContain(ref);
+    }
+  });
+  it("forbidden copy / action UI を render しない", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues()} />);
+    for (const f of ["実行します", "予約します", "確定します", "送信します", "既読にします", "自動で進めます", "この案に決定", "Alterに送る", "<input", "href"]) {
+      expect(h).not.toContain(f);
+    }
+  });
+});
+
 describe("3. source-contract（client 純度）", () => {
   it("\"use client\" + useActionState + server action のみ（engine/adapter を直接 import しない）", () => {
     expect(SRC).toMatch(/^"use client";/);
