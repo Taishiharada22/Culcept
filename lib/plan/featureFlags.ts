@@ -385,6 +385,16 @@ export const PLAN_FLAGS = {
   travelProjectionPreview: process.env.PLAN_TRAVEL_PROJECTION_PREVIEW === "true",
 
   /**
+   * B2-disp A: production `/plan` travel live gate flag（**server-only・default OFF・NEXT_PUBLIC なし**）。
+   *   設計: docs/t11-production-plan-travel-live-gate-design.md §4。
+   *   制約: 単独では何も有効化しない。live gate 合成は `isPlanTravelLiveAllowed`
+   *     （travelLive ∧ planRouteLive ∧ staging ∧ !production・production は flag ON でも常に deny＝別 CEO gate）。
+   *   ★ `travelProjectionPreview`（dev preview）とは**別**。本 flag は preview を有効化しない／preview は本 gate を有効化しない。
+   *   read-only display chain のみを将来有効化（booking/calendar/send/realtime/read receipt を**有効化しない**）。
+   */
+  travelLive: process.env.PLAN_TRAVEL_LIVE === "true",
+
+  /**
    * A-4-c7: Life Ops 実データ read-only の flag 群（**dormant・default OFF・consumer なし**＝設計/contract のみ）。
    *   将来 wiring: master ∧ per-source の AND + staging triple-guard + production hard block。
    *   有効化条件: 5層cap 配線の実データ量検証 + staging 観測 ≥2 週間 + CEO 承認（docs/life-ops-realdata-readiness-a4-c7-mini-design.md）。
