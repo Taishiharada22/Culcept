@@ -319,18 +319,23 @@ function evaluateEvent(ern: EventRealityNodeV0, ctx: EvalCtx): EventBuckets {
     // 移動が要るかすら不明 = critical（mv 不在を「移動不要」と読まない）
     b.unresolved.push(reason("movement_requirement_unknown", ernId, [`${ernId}#movementRequired`, ...mr.evidenceRefs]));
   } else if (mr.value === true) {
-    const etaUnknown = !mv || mv.etaKnown.value !== true;
-    const routeUnknown = !mv || mv.routeKnown.value !== true;
+    // RD3e-P1: RD3d-P1 の意味論を load-bearing に反映。
+    //   etaKnown = **arrival projection / time estimate known**（出発材料の核）・routeKnown = **route shape known**（display 用途・出発判断に不要）。
+    //   → **route shape unknown だけで feasibility を止めない**（inferred blocker に入れない）。time estimate（etaKnown）/ display leaveBy は引き続き重要。
+    const etaUnknown = !mv || mv.etaKnown.value !== true; // arrival projection / time estimate missing
+    const routeShapeUnknown = !mv || mv.routeKnown.value !== true; // route shape missing（出発判断には load-bearing でない）
     const leaveByUnresolved = ern.leaveBy.value === null;
     if (mv) uf(mv.movementRealityId, "etaKnown");
     uf(ernId, "leaveBy");
-    // fixed start + 移動必要 + 出発材料欠落 = 崩れる兆候（候補ブロッカー・断定しない）
-    if (isFixedStart && (etaUnknown || routeUnknown || leaveByUnresolved)) {
+    // fixed start + 移動必要 + **time basis(etaKnown) or display leaveBy 欠落** = 崩れる兆候（候補ブロッカー・断定しない）。
+    //   route shape unknown は含めない（RD3e-P1: shape 不明だけで infeasible/blocker にしない・etaKnown=true ∧ routeKnown=false の将来を塞がない）。
+    if (isFixedStart && (etaUnknown || leaveByUnresolved)) {
       b.inferred.push(reason("movement_feasibility_unverified", ernId, [`${ernId}#movementRequired`, cs ? `${cs.commitmentSignalId}#fixedStart` : "fixed_start"]));
     }
     const mvRef = mv ? [`${mv.movementRealityId}#mobilityStatus`] : [];
-    if (etaUnknown) b.unresolved.push(reason("eta_source_missing", ernId, [...mvRef, ...(mv?.mobilityStatus.evidenceRefs ?? [])]));
-    if (routeUnknown) b.unresolved.push(reason("route_unresolved", ernId, [...mvRef, ...(mv?.mobilityStatus.evidenceRefs ?? [])]));
+    if (etaUnknown) b.unresolved.push(reason("eta_source_missing", ernId, [...mvRef, ...(mv?.mobilityStatus.evidenceRefs ?? [])])); // time estimate / arrival projection missing
+    // route shape missing は **unresolved に残す（missing は missing として追跡）が blocker/confirmed にしない**（RD3e-P1）。
+    if (routeShapeUnknown) b.unresolved.push(reason("route_shape_missing", ernId, [...mvRef, ...(mv?.mobilityStatus.evidenceRefs ?? [])]));
     if (leaveByUnresolved) b.unresolved.push(reason("leave_by_unresolved", ernId, [`${ernId}#leaveBy`, ...ern.leaveBy.evidenceRefs]));
   }
 
