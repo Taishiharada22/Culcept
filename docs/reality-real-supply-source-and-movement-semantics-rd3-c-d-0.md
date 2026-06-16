@@ -253,3 +253,13 @@ RD3e-P1 は **(a) reconcile 拡張 + (b) feasibility routeUnknown 削除** を**
 - **MovementReality**: 新 field 追加なし・既存 field の意味再定義のみ・reconcile が 4 field の唯一 writer・direct flip 禁止。`mobilityStatus` 遷移 coherence を追加。
 - **HOLD 継続**: scheduled-transit / cached / external API / currentLocation / departure line / exact timestamp / notification / product UI（個別 CEO gate）。
 - 本書はコードを含まない。GO は CEO 専管。
+
+---
+
+## 10. 実装反映
+
+- **2026-06-16 RD3d-P1 実装**（code `<this commit>`・matrix §5 参照）: §3（意味論確定）・§5.1（既存 field 意味再定義）・ladder trim を実装。
+  - 実装ファイル: `lib/plan/realityCore/movementReality.ts`（evidence 改名 `route_shape_source_missing_v0` / `arrival_projection_source_missing_v0`・movementRealityViolations の leaveByKnown ladder を etaKnown のみに trim）・`lib/plan/realityCore/movementLeaveByReconcile.ts`（reconcile + coherence の ladder を etaKnown のみに）・tests（reconcile RD3d-P1 block + compile evidence semantic）。
+  - **CEO 補正反映**: operator manual seed は user_confirmed と完全同一視しない（provenance `operator_seed` / `dogfood_only` / `not_general_user_confirmed` を残す・一般 user 学習に流さない・別 GO=RD3c-P1/P2）。
+  - **本 slice 範囲外（実装せず）**: §4.1 Feasibility routeUnknown blocker 撤去（load-bearing・**RD3e-P1**）・§5.2 reconcile の etaKnown/routeKnown/mobilityStatus への拡張（real true 化・**RD3e-P1**）・§7 user_confirmed schema（**RD3c-P1**）・operator seed write（**RD3c-P2**）。
+  - etaKnown/routeKnown は依然 hard-false invariant（real true 化なし）ゆえ **今日 inert**（leaveByKnown も derive false）。
