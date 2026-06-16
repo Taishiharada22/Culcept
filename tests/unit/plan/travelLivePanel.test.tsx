@@ -28,6 +28,14 @@ describe("1. gate（visible prop・server 計算）", () => {
     expect(h).toContain('name="date"');
     expect(h).toContain("下書きを見る");
   });
+  it("★ B: hidden participantId(P1) を除去・participant は「あなた」のみ・raw userId 非表示", () => {
+    const h = renderToStaticMarkup(<TravelLivePanel visible={true} />);
+    expect(h).toContain("参加者: あなた");
+    expect(h).not.toContain('name="participantId"');
+    expect(h).not.toContain("P1");
+    expect(h).not.toContain("userId");
+    expect(h).not.toContain("user_id");
+  });
 });
 
 describe("2. 禁止 copy / booking・execute button なし", () => {
@@ -79,7 +87,7 @@ describe("3. source-contract（client 純度）", () => {
     expect(SRC).not.toContain("process.env");
     expect(SRC).not.toContain("PLAN_FLAGS");
     expect(SRC).not.toContain("isPlanTravelLiveAllowed");
-    for (const f of ['name="status"', "TravelPlanEngineInput", 'name="user_id"', 'name="userId"']) expect(SRC).not.toContain(f);
+    for (const f of ['name="status"', "TravelPlanEngineInput", 'name="user_id"', 'name="userId"', 'name="participantId"']) expect(SRC).not.toContain(f);
   });
   it("booking/calendar/execute/send・useCoAlter/talk/realtime なし", () => {
     expect(SRC).not.toMatch(/booking|calendar/i);

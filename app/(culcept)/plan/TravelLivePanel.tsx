@@ -62,9 +62,11 @@ export function TravelLivePanel({ visible }: { visible: boolean }) {
         <p className="text-[11px] text-gray-400">これは予約・確定ではありません。</p>
       </header>
 
-      {/* permissioned field のみ（status/TravelPlanEngineInput を送らない・status は server が surface から derive） */}
+      {/* ★ B: participant identity は server auth から（client は送らない）。参加者は「あなた」のみ表示（raw userId 非表示）。 */}
+      <p className="text-[11px] text-gray-500" data-testid="travel-live-participant">参加者: あなた</p>
+
+      {/* permissioned event field のみ（status/participantId/user_id/TravelPlanEngineInput を送らない・status は server が surface から derive） */}
       <form action={formAction} className="space-y-2" data-testid="travel-live-form">
-        <input type="hidden" name="participantId" value="P1" />
         <input name="destination" placeholder="行き先（例: 京都）" className="w-full rounded border border-gray-200 px-2 py-1 text-[13px]" />
         <input name="date" type="date" className="w-full rounded border border-gray-200 px-2 py-1 text-[13px]" />
         <button type="submit" className="rounded bg-gray-800 px-3 py-1 text-[12px] text-white" data-testid="travel-live-submit">

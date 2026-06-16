@@ -4,18 +4,19 @@
  * 設計正本: docs/t11-production-plan-travel-live-gate-design.md（§5/§6）
  *
  * 役割: server action が受けた FormData から **許可された構造化 field のみ**を読み、
- *   `TravelSessionBindingInput`（events + participantIds）を組む。**status は読まない**（binding が surface から derive）。
+ *   `SessionSurfaceEvent[]` を組む。**status は読まない**（binding が surface から derive）。
+ *   ★ B（current-user binding）: **participantId / user_id を一切読まない**（identity は server auth context のみ）。
  *
  * 厳守（static lock）:
- *   - 読むのは destination / date / participantId / budget / pace / mobility / red_line / soft_preference のみ。
- *   - ★ **読まない**: slot status / raw TravelPlanEngineInput / raw output / AuthoritativePacketForServer /
- *     user_id / diagnostics / booking/calendar/action field。
+ *   - 読むのは destination / date / budget / pace / mobility / red_line / soft_preference のみ（**events のみ**）。
+ *   - ★ **読まない**: participantId / participantIds / user_id / auth・session id / slot status /
+ *     raw TravelPlanEngineInput / raw output / AuthoritativePacketForServer / diagnostics / booking/calendar/action field。
  *   - surface は **form_input 固定**（明示操作）・date は **session_context（選択日/window）**。
  *   - 不正/空 field は無視（捏造しない）。env/DB/fetch なし。
  */
 
 import type { Pace } from "@/lib/shared/travel/core-types";
-import type { SessionSurfaceEvent, TravelSessionBindingInput } from "@/lib/shared/travel/travel-session-binding-types";
+import type { SessionSurfaceEvent } from "@/lib/shared/travel/travel-session-binding-types";
 
 const str = (v: FormDataEntryValue | null): string | undefined => (typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined);
 const num = (v: FormDataEntryValue | null): number | undefined => {
@@ -25,8 +26,8 @@ const num = (v: FormDataEntryValue | null): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-/** FormData → TravelSessionBindingInput（許可 field のみ・status は読まない）。 */
-export function buildTravelSessionEventsFromFormData(formData: FormData): TravelSessionBindingInput {
+/** FormData → SessionSurfaceEvent[]（許可 field のみ・status/participantId/user_id は読まない）。 */
+export function buildTravelSessionEventsFromFormData(formData: FormData): SessionSurfaceEvent[] {
   const events: SessionSurfaceEvent[] = [];
 
   // destination（明示 form input → confirmed）
@@ -76,11 +77,6 @@ export function buildTravelSessionEventsFromFormData(formData: FormData): Travel
     events.push({ kind: "descriptor_input", slotKey: "soft_preference", value: { descriptorKey: "prefer", descriptorValue: softPreference }, surface: "form_input" });
   }
 
-  // participantIds（permissioned・slot でなく別供給・★ user_id は読まない）
-  const participantIds = formData
-    .getAll("participantId")
-    .map((v) => (typeof v === "string" ? v.trim() : ""))
-    .filter((v) => v.length > 0);
-
-  return { events, participantIds };
+  // ★ B: participantId / user_id を **読まない**（identity は server auth context のみ）。events のみ返す。
+  return events;
 }

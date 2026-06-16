@@ -1,7 +1,7 @@
 /**
- * B2-disp C — Travel FormData Intake tests（permissioned 読み取りのみ・status/user_id を読まない）
+ * B2-disp C / B — Travel FormData Intake tests（events-only・participantId/user_id を読まない）
  *
- * 設計正本: docs/t11-production-plan-travel-live-gate-design.md（§5/§6/§14）
+ * 設計正本: docs/t11-b-current-user-participant-binding-design.md（§5）
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -15,60 +15,46 @@ const fd = (entries: [string, string][]) => {
   return f;
 };
 
-describe("1. permissioned field → events", () => {
-  it("destination/date/participant/budget/pace → events + participantIds", () => {
-    const input = buildTravelSessionEventsFromFormData(
-      fd([
-        ["destination", "京都"],
-        ["date", "2026-07-01"],
-        ["participantId", "P1"],
-        ["budgetLo", "0"],
-        ["budgetHi", "30000"],
-        ["pace", "slow"],
-      ]),
+describe("1. permissioned event field → SessionSurfaceEvent[]", () => {
+  it("destination/date/budget/pace → events（participantId は読まない）", () => {
+    const events = buildTravelSessionEventsFromFormData(
+      fd([["destination", "京都"], ["date", "2026-07-01"], ["budgetLo", "0"], ["budgetHi", "30000"], ["pace", "slow"], ["participantId", "HACK"]]),
     );
-    const kinds = input.events.map((e) => e.kind);
+    const kinds = events.map((e) => e.kind);
     expect(kinds).toContain("destination_input");
     expect(kinds).toContain("selected_plan_date");
     expect(kinds).toContain("budget_input");
     expect(kinds).toContain("pace_input");
-    expect(input.participantIds).toEqual(["P1"]);
+    // ★ participantId は events に一切反映されない（identity は server auth context のみ）
+    expect(JSON.stringify(events)).not.toContain("HACK");
   });
   it("date+dateEnd+nights → selected_plan_window(range)", () => {
-    const input = buildTravelSessionEventsFromFormData(fd([["date", "2026-07-01"], ["dateEnd", "2026-07-02"], ["nights", "1"]]));
-    const w = input.events.find((e) => e.kind === "selected_plan_window");
+    const w = buildTravelSessionEventsFromFormData(fd([["date", "2026-07-01"], ["dateEnd", "2026-07-02"], ["nights", "1"]])).find((e) => e.kind === "selected_plan_window");
     expect(w).toBeDefined();
     if (w && w.kind === "selected_plan_window") expect(w.window).toEqual({ kind: "range", startDate: "2026-07-01", endDate: "2026-07-02", nights: 1 });
   });
-  it("複数 participantId を別供給で集約", () => {
-    expect(buildTravelSessionEventsFromFormData(fd([["participantId", "P1"], ["participantId", "P2"]])).participantIds).toEqual(["P1", "P2"]);
-  });
-  it("空/不正 field は無視（捏造しない）", () => {
-    const input = buildTravelSessionEventsFromFormData(fd([["destination", "   "], ["pace", "turbo"], ["budgetLo", "x"]]));
-    expect(input.events).toEqual([]);
+  it("空/不正 field は無視（捏造しない・events 空）", () => {
+    expect(buildTravelSessionEventsFromFormData(fd([["destination", "   "], ["pace", "turbo"], ["budgetLo", "x"]]))).toEqual([]);
   });
 });
 
-describe("2. status / user_id を読まない・event は status を持たない", () => {
-  it("FormData の status/user_id を無視（events に反映されない）", () => {
-    const input = buildTravelSessionEventsFromFormData(
-      fd([["destination", "京都"], ["status", "confirmed"], ["user_id", "u-secret"], ["userId", "u-secret"]]),
-    );
-    // event は status フィールドを持たない（型・runtime）
-    for (const e of input.events) expect(e).not.toHaveProperty("status");
-    // user_id は participantIds に混入しない
-    expect(input.participantIds).not.toContain("u-secret");
+describe("2. status / user_id / participantId を読まない・event は status を持たない", () => {
+  it("FormData の status/user_id/participantId を無視（events に反映されない）", () => {
+    const events = buildTravelSessionEventsFromFormData(fd([["destination", "京都"], ["status", "confirmed"], ["user_id", "u-secret"], ["userId", "u-secret"], ["participantId", "u-secret"]]));
+    for (const e of events) expect(e).not.toHaveProperty("status");
+    const json = JSON.stringify(events);
+    expect(json).not.toContain("u-secret");
     // bind 後の slot status は surface 由来（form_input→confirmed）＝client の status 主張は無視
-    const slot = bindTravelSessionIntake(input).slots.find((s) => s.key === "destination_area");
+    const slot = bindTravelSessionIntake({ events, participantIds: ["P1"] }).slots.find((s) => s.key === "destination_area");
     expect(slot?.status).toBe("confirmed");
   });
 });
 
-describe("3. source-contract（intake helper の permissioned lock）", () => {
+describe("3. source-contract（events-only・identity lock）", () => {
   const strip = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
   const SRC = strip(readFileSync(resolve(process.cwd(), "lib/plan/travel/travel-formdata-intake.ts"), "utf8"));
-  it("status / user_id / raw input を formData.get で読まない", () => {
-    for (const f of ['formData.get("status")', 'formData.get("user_id")', 'formData.get("userId")', 'formData.get("slotStatus")', "TravelPlanEngineInput", "AuthoritativePacketForServer"]) {
+  it("participantId / user_id / status / raw input を formData から読まない", () => {
+    for (const f of ['formData.get("participantId")', 'formData.getAll("participantId")', 'formData.get("status")', 'formData.get("user_id")', 'formData.get("userId")', "TravelPlanEngineInput", "AuthoritativePacketForServer"]) {
       expect(SRC).not.toContain(f);
     }
   });

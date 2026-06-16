@@ -1,7 +1,8 @@
 /**
- * B2-disp C — Travel Live server action source-contract test（useActionState 返却・no redirect・no persistence）。
+ * B2-disp C / B — Travel Live server action source-contract test。
+ *   useActionState 返却・gate first・auth から participant 注入・FormData identity 不信任・no redirect/persistence/write。
  *
- * 設計正本: docs/t11-rich-display-transport-boundary-design.md（§5/§10 + CEO 補正）
+ * 設計正本: docs/t11-b-current-user-participant-binding-design.md（§4/§6/§9）
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -10,8 +11,8 @@ import { resolve } from "node:path";
 const strip = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 const SRC = strip(readFileSync(resolve(process.cwd(), "app/(culcept)/plan/_actions/travel-live.ts"), "utf8"));
 
-describe("1. server action 範型（use server + gate + permissioned + useActionState 返却）", () => {
-  it('"use server" + gate + permissioned intake + adapter + toTravelLiveActionState を返す', () => {
+describe("1. gate first + events + adapter + useActionState 返却", () => {
+  it('"use server" + gate(isPlanTravelLiveAllowed) + events intake + adapter + toTravelLiveActionState', () => {
     expect(SRC).toMatch(/^"use server";/);
     expect(SRC).toContain("isPlanTravelLiveAllowed");
     expect(SRC).toContain("buildTravelSessionEventsFromFormData");
@@ -19,38 +20,47 @@ describe("1. server action 範型（use server + gate + permissioned + useAction
     expect(SRC).toContain("toTravelLiveActionState");
     expect(SRC).toMatch(/Promise<TravelLiveActionState>/);
   });
-  it("gate は PLAN_FLAGS（server-only）+ supabaseUrl(env)・production deny は helper 側", () => {
+  it("gate は PLAN_FLAGS（server-only）+ supabaseUrl(env)", () => {
     expect(SRC).toContain("PLAN_FLAGS.travelLive");
     expect(SRC).toContain("PLAN_FLAGS.planRouteLive");
     expect(SRC).toMatch(/process\.env\.NEXT_PUBLIC_SUPABASE_URL\s*\?\?\s*process\.env\.SUPABASE_URL/);
   });
 });
 
-describe("2. redirect/URL/persistence なし・display-safe 返却", () => {
-  it("redirect しない・rich を URL query に置かない", () => {
-    for (const f of ["redirect", "travelStatus", "next/navigation"]) expect(SRC).not.toContain(f);
+describe("2. B: participant identity は server auth context のみ", () => {
+  it("supabaseServer().auth.getUser() で auth read・未認証/anonymous → unavailable", () => {
+    expect(SRC).toContain("supabaseServer");
+    expect(SRC).toContain("auth.getUser()");
+    expect(SRC).toContain("is_anonymous");
+    expect(SRC).toMatch(/!auth\?\.user\s*\|\|\s*auth\.user\.is_anonymous/);
   });
-  it("AuthoritativePacketForServer / raw engine output / toServerAuthoritativePacket を返さない", () => {
-    for (const f of ["AuthoritativePacketForServer", "toServerAuthoritativePacket", "output.authoritative", "provided.input"]) {
-      expect(SRC).not.toContain(f);
-    }
+  it("participantIds=[authUserId] / viewerId=authUserId を注入（client 不信任）", () => {
+    expect(SRC).toMatch(/const authUserId = auth\.user\.id/);
+    expect(SRC).toMatch(/participantIds:\s*\[authUserId\]/);
+    expect(SRC).toMatch(/viewerId:\s*authUserId/);
   });
-  it("DB/persistence/Supabase write・booking/calendar なし", () => {
-    for (const f of [".insert(", ".update(", ".delete(", ".upsert(", "supabaseServer", "revalidatePath", "booking", "calendar"]) {
+  it("FormData から identity（user_id/participantId/participantIds）を読まない", () => {
+    for (const f of ['formData.get("user_id")', 'formData.get("userId")', 'formData.get("participantId")', 'formData.getAll("participantId")', "participantIds: formData"]) {
       expect(SRC).not.toContain(f);
     }
   });
 });
 
-describe("3. permissioned / no diagnostics / no side effect", () => {
-  it("status / user_id を FormData から読まない（intake helper 経由のみ）", () => {
-    for (const f of ['formData.get("status")', 'formData.get("user_id")', 'formData.get("userId")', "TravelPlanEngineInput"]) {
+describe("3. no redirect / persistence / write / raw・display-safe 返却", () => {
+  it("redirect しない・URL query に rich を置かない", () => {
+    for (const f of ["redirect", "travelStatus", "next/navigation"]) expect(SRC).not.toContain(f);
+  });
+  it("Supabase write / service_role / admin path / DB なし（auth read のみ）", () => {
+    for (const f of [".insert(", ".update(", ".delete(", ".upsert(", "from(", "service_role", "serviceRole", "admin", "revalidatePath"]) {
       expect(SRC).not.toContain(f);
     }
   });
-  it("diagnostics/provenance を返さない・送信/realtime/CoAlter/talk/Maps/M2/route-weather-place なし", () => {
-    expect(SRC).not.toContain("diagnostics");
-    expect(SRC).not.toContain("provenance");
+  it("AuthoritativePacketForServer / raw output / diagnostics / booking/calendar を返さない", () => {
+    for (const f of ["AuthoritativePacketForServer", "toServerAuthoritativePacket", "output.authoritative", "provided.input", "diagnostics", "provenance", "booking", "calendar"]) {
+      expect(SRC).not.toContain(f);
+    }
+  });
+  it("送信/realtime/CoAlter/talk/Maps/M2/route-weather-place なし", () => {
     expect(SRC).not.toMatch(/realtime|read_receipt|useCoAlter|\/talk/i);
     expect(SRC).not.toMatch(/googleapis|maps|weather|safe.?link/i);
     expect(SRC).not.toMatch(/m2|personalization/i);
