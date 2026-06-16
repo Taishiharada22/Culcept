@@ -15,6 +15,7 @@ import "server-only";
  *   - **raw DB error / SQL / UUID を出さない**: 全 failure を safe code に正規化。write は fail-closed。
  *   - Date.now なし（nowIso は呼び元 server が注入）。barrel 非 export・未配線。
  */
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { evaluateOperatorDurationSeedGate, type OperatorDurationSeedGateInput } from "../operator-duration-seed-gate";
 import {
   createSupabaseOperatorDurationSeedRepository,
@@ -37,6 +38,21 @@ export interface OperatorDurationSeedServerDepsV0 {
   readonly client: DurationConfirmationWriteClient;
   /** server clock（pure・Date.now 不使用）。 */
   readonly nowIso: string;
+}
+
+/**
+ * resolveOperatorDurationSeedGateInputFromEnv — **dev-only / flag-gated entry の gate input を server で組む**。
+ *   PLAN_FLAGS（server-only・default OFF・空 allowlist）+ process.env から resolve。**client から受けない**。
+ *   flag OFF / allowlist 空 のとき gate は必ず deny（呼び元が write に進めない）。
+ */
+export function resolveOperatorDurationSeedGateInputFromEnv(requestedUserId: string | null): OperatorDurationSeedGateInput {
+  return {
+    flagEnabled: PLAN_FLAGS.realityOperatorSeedWriteEnabled, // default OFF
+    nodeEnv: process.env.NODE_ENV,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+    operatorAllowlist: PLAN_FLAGS.realityOperatorSeedUserIds, // 空 = fail-closed
+    requestedUserId, // server が auth.getUser() で確定（client から受けない）
+  };
 }
 
 /**

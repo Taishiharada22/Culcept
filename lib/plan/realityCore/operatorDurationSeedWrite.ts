@@ -110,17 +110,21 @@ export async function createOperatorDurationSeed(
   const violations = durationConfirmationViolations(asRow);
   if (violations.length > 0) return { ok: false, rejectedReason: "validation_failed", violations };
 
-  // ⑤ supersede 同一 scope の既存 active（物理 delete しない・audit chain）
+  // ⑤ supersede 同一 scope の既存 active（物理 delete しない・audit chain）。
+  //   RD3c-P3-local-activation で実 DB smoke が捕捉した bug 修正: partial unique index（active=superseded_by IS NULL）下では
+  //   **insert 前に active slot を空けねばならない**。superseded_by=null は slot を空けない（still active）→ insert が unique 違反。
+  //   → 新 id 確定前に **superseded_by を非 null（自己参照）で立てて slot を空け**、insert 後に正しい新 id へ patch する（2 段）。
+  //   （staging 多操作者の原子化は RPC upgrade=wire-0 §1。v0 sequential の partial failure は次回 findActive が self-heal）。
   const existing = await deps.repository.findActiveByScope(request.userId, request.scope);
   const supersededIds: string[] = [];
   for (const e of existing) {
-    await deps.repository.markSuperseded(e.id, null);
+    await deps.repository.markSuperseded(e.id, e.id); // 非 null 自己参照で active slot を空ける（transient）
     supersededIds.push(e.id);
   }
 
   // ⑥ insert（実 DB write は注入 repository・本 module は Supabase を import しない）
   const inserted = await deps.repository.insert(insertRow);
-  // supersede chain を新 id に結ぶ（audit）
+  // supersede chain を新 id に結ぶ（audit・自己参照を正しい新 id へ patch）
   for (const id of supersededIds) await deps.repository.markSuperseded(id, inserted.id);
 
   return { ok: true, insertedId: inserted.id, supersededIds };

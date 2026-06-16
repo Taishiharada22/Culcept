@@ -15,6 +15,7 @@ import {
 import { CAPTURE_STAGING_REF_ALLOWLIST, CAPTURE_PROD_REF_DENYLIST } from "@/lib/plan/reality/capture-gate";
 import {
   createOperatorDurationSeedServer,
+  resolveOperatorDurationSeedGateInputFromEnv,
   type OperatorDurationSeedServerDepsV0,
 } from "@/lib/plan/reality/integration/operator-duration-seed-glue";
 import type { DurationConfirmationWriteClient } from "@/lib/plan/reality/integration/duration-confirmation-source";
@@ -167,5 +168,25 @@ describe("RD3c-P3a-wire-C #17-#19 no API/server action/UI・no createClient/serv
     expect(glueCode.includes(".from(")).toBe(false);
     // production を環境として書かない（gate が production を allow しない）
     expect(glueCode.includes('"production"')).toBe(false);
+  });
+  it("#20/#21 product /plan / Alter / notification / external を import しない", () => {
+    for (const code of [gateCode, glueCode]) {
+      for (const t of ["/plan/page", "alttab", "buildalterscreen", "notification", "fetch(", "webhook", "email"]) {
+        expect(code.includes(t)).toBe(false);
+      }
+    }
+  });
+});
+
+describe("RD3c-P3-local-activation #18/#19 dev-only entry は flag-gated（default OFF → gate deny）", () => {
+  it("env 既定（flag OFF・allowlist 空）→ gateInput.flagEnabled=false・allowlist=[] → gate は FLAG_OFF deny", () => {
+    const gi = resolveOperatorDurationSeedGateInputFromEnv(OP);
+    expect(gi.flagEnabled).toBe(false); // PLAN_FLAGS default OFF
+    expect(gi.operatorAllowlist).toEqual([]); // 空=fail-closed
+    expect(evaluateOperatorDurationSeedGate(gi)).toEqual({ allow: false, reason: "FLAG_OFF" });
+  });
+  it("requestedUserId は引数（server 確定）から入る（client から受けない）", () => {
+    expect(resolveOperatorDurationSeedGateInputFromEnv("server-uid").requestedUserId).toBe("server-uid");
+    expect(resolveOperatorDurationSeedGateInputFromEnv(null).requestedUserId).toBeNull();
   });
 });
