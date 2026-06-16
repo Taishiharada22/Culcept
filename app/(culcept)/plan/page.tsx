@@ -35,6 +35,8 @@ import { listLifeOpsDeadlineInputCategories, listLifeOpsCadenceInputOptions } fr
 import type { LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
 import type { LifeOpsSourceInputResultToken, LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 
+import { isPlanTravelLiveAllowed } from "@/lib/plan/travel/plan-travel-live-gate";
+import { TravelLivePanel } from "./TravelLivePanel";
 import PlanClient from "./PlanClient";
 
 export const dynamic = "force-dynamic";
@@ -118,22 +120,33 @@ export default async function PlanPage({
     }
   }
 
+  // B2-disp C: travel live gate（**server-only flag が source of truth**・default OFF・staging first・production deny）。
+  //   OFF → TravelLivePanel は visible=false で何も render しない（/plan 従来挙動）。client は env/flag を判定しない。
+  const travelLiveAllowed = isPlanTravelLiveAllowed({
+    travelLive: PLAN_FLAGS.travelLive,
+    planRouteLive: PLAN_FLAGS.planRouteLive,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+  });
+
   // 3. Hand-off to client
   //    A-4b: compose flag は server-only（PLAN_FLAGS）。ここで読み取り prop で client に渡す
   //    （homeSwipeEnabled と同方式。client 直読みは不可）。
   return (
-    <PlanClient
-      composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
-      lifeOpsCard={lifeOpsCard}
-      lifeOpsAction={lifeOpsCard ? submitLifeOpsMainlineFeedbackAction : undefined}
-      lifeOpsActionResult={lifeOpsActionResult}
-      lifeOpsPendingDone={lifeOpsPendingDone}
-      lifeOpsInputCategories={lifeOpsInputCategories}
-      lifeOpsCadenceOptions={lifeOpsCadenceOptions}
-      lifeOpsInputAction={lifeOpsInputCategories ? submitLifeOpsStructuredSourceAction : undefined}
-      lifeOpsInputResult={lifeOpsInputResult}
-      lifeOpsInputResultType={lifeOpsInputResultType}
-      lifeOpsMoment={lifeOpsMoment}
-    />
+    <>
+      <PlanClient
+        composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
+        lifeOpsCard={lifeOpsCard}
+        lifeOpsAction={lifeOpsCard ? submitLifeOpsMainlineFeedbackAction : undefined}
+        lifeOpsActionResult={lifeOpsActionResult}
+        lifeOpsPendingDone={lifeOpsPendingDone}
+        lifeOpsInputCategories={lifeOpsInputCategories}
+        lifeOpsCadenceOptions={lifeOpsCadenceOptions}
+        lifeOpsInputAction={lifeOpsInputCategories ? submitLifeOpsStructuredSourceAction : undefined}
+        lifeOpsInputResult={lifeOpsInputResult}
+        lifeOpsInputResultType={lifeOpsInputResultType}
+        lifeOpsMoment={lifeOpsMoment}
+      />
+      <TravelLivePanel visible={travelLiveAllowed} />
+    </>
   );
 }
