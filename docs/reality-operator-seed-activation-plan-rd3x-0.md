@@ -180,7 +180,7 @@
 
 ## 12. 実装反映（RD3x-P2）
 
-- **2026-06-16 RD3x-P2 実装**（code `<this commit>`・matrix §5 参照）: §3 候補 P2（operator preview safe boolean）を実装。RD3x-P1 の consume loop を **operator real-data preview path** に配線し、computed leaveBy の有無を **schema-state boolean `leaveByComputedPresent` だけ**で safe DTO に出す。
+- **2026-06-16 RD3x-P2 実装**（code `cc60438aa`・matrix §5 参照）: §3 候補 P2（operator preview safe boolean）を実装。RD3x-P1 の consume loop を **operator real-data preview path** に配線し、computed leaveBy の有無を **schema-state boolean `leaveByComputedPresent` だけ**で safe DTO に出す。
   - 実装ファイル: `lib/plan/realityCore/operatorPreviewLeaveByPresence.ts`（pure helper・real anchor 由来 honest supply → consume → boolean）・`lib/plan/realityCore/operatorDayPreview.ts`（flag-gated 配線 + safe DTO field `leaveByComputedPresent` + leak guard 強化）・`lib/plan/featureFlags.ts`（`realityOperatorPreviewLeaveBy`・default OFF）・`tests/unit/operatorPreviewLeaveByPresence.test.ts`（17 PASS）。
   - chain: duration_confirmation row（read-only 注入 dep）→ durationValue → RD2e-SUPPLY（honest anchor 由来 arrival/buffer/origin）→ computeLeaveBy → `assembleLeaveByBindings` → **boolean 抽出のみ**。exact instant / 内部 ref / durationValue / capability / supply bundle / trace / reason は payload に出さない。
   - **flag-gated（default OFF・production OFF）**: ON ∧ `listDurationConfirmations` 注入時のみ consume。OFF/未注入/read 失敗 → false。**page の実 Supabase read dep は未注入** = production の boolean は false（実 read 配線は table が reachable になる **RD3x-P4 staging apply** 後）。
