@@ -111,3 +111,26 @@ product `/plan` 接続 ／ Alter tab 接続 ／ exact timestamp 表示 ／ depar
 3. activation が staging で確認できたら、初めて次を判断: **Alter dev-only preview（safe boolean/status のみ）／ departure line boundary docs ／ product `/plan` 接続（後段）**。
 
 - 本書はコードを含まない（real read adapter / activation smoke は実装済・本書は GO package）。staging apply / page 注入 / 上記次段は **CEO 専管**。
+
+---
+
+## 9. RD3x-ACTIVATE-1 実行記録（staging apply 完了・2026-06-16・code `<this commit>`）
+
+**CEO RD3x-ACTIVATE-1 GO**（linked ref を staging[hjcr] へ切替済を CEO 確認）。staging に apply を実行し、operator preview の `leaveByComputedPresent=true` が **staging real data** で成立することを実証。
+
+| 項目 | 結果 |
+|---|---|
+| linked ref 確認 | `supabase/.temp/project-ref` = **`hjcrvndumgiovyfdacwc`**（staging）。`supabase projects list` の ● = `culcept-staging`。production(aljav) 非接触。push 直前に再確認。 |
+| auth | `supabase` CLI authenticated（`projects list` 成功）。**service_role 不使用**。 |
+| migration diff（dry-run） | `db push --dry-run` → 2 pending: `20260615100000_external_anchors_start_time_provenance`（**未記載・additive**: external_anchors nullable 4列 ADD + 3 CHECK + RPC CREATE OR REPLACE）+ `20260616100000_duration_confirmations`。**想定外検知→CEO に AskUserQuestion→「両方 apply」承認**。 |
+| apply 結果 | `supabase db push` → 両 migration apply 成功（staging のみ・`Finished supabase db push`）。 |
+| rollback | `DROP TABLE duration_confirmations CASCADE;`（staging のみ・external_anchors の 4列は別途 DROP COLUMN）。 |
+| staging real smoke | `tests/unit/operatorSeedStagingActivation.test.ts` **8/8 PASS**（実 staging DB・anon key + STAGING_USER_A real auth・service_role 不使用）。 |
+| operator seed write/read | #2 real glue write → environment=staging・#3 real reader read → operator_seed/learningEligible=false/upper=20 取得。 |
+| owner read 漏洩なし | #4 構造的事実（seed=operator_seed×staging＝applied owner_select[general×production]が排除する class）。**第二ユーザー実測は STAGING_USER_B 認証不可で staging 未実測**（ephemeral RD3x-ACTIVATE-0 #5 で real RLS 実証済・staging は同一 policy を apply）。 |
+| supersede chain | #5 同一 scope 再 seed → active 1（最新 upper=25・履歴保持）。 |
+| gate reject | #6 non-operator → `gate_user_not_operator`・#7 production url → `gate_production_project_ref`。 |
+| leaveByComputedPresent real-data | **#8 flag ON + 実 reader 注入 → `leaveByComputedPresent=true`（staging real data）**・leak 0・exact ISO/raw anchor(locationText/title/sourceId)/uid 非露出・leavebyinstant/timecontract/departureline/notification 不在。 |
+| page real reader injection | `app/(culcept)/plan/dev-reality-surface/page.tsx`: **flag-gated（`realityOperatorPreviewLeaveBy`・default OFF）**・operator preview path のみ・user-session client（`supabaseServer()`・**service_role/createClient なし**）で `createSupabaseOperatorDurationSeedReader` 注入。OFF→注入せず false（read なし）。**user-facing copy 追加なし**（payload field のみ・client 表示は別 GO）。 |
+| 不変 | product `/plan`/Alter 非接続・departure line/exact timestamp/notification なし・external API/currentLocation なし・**production apply/deploy なし**・raw anchor/DB error 非露出。 |
+| 残注記 | (1) STAGING_USER_B 認証不可（staging の 2nd-user 非漏洩は未実測・ephemeral 実証済）。(2) page client が boolean を**表示**するのは別 GO（本 slice は data 層注入まで）。(3) `supabase/.temp/*`（project-ref=hjcr 等 CLI cache）は env 状態ゆえ本コミットに含めない。 |
