@@ -168,3 +168,12 @@
 - **departure line は実装 NO GO**（exact timestamp 最高リスク）。**safe boolean まで**（RD3x-P2）・**boundary docs（RD3g-0）を先に**。
 - **HOLD 継続**: persistent/staging/production apply・product UI・departure line 実装・external/currentLocation。
 - 本書はコードを含まない。GO は CEO 専管。
+
+---
+
+## 11. 実装反映（RD3x-P1）
+
+- **2026-06-16 RD3x-P1 実装**（code `<this commit>`・matrix §5 参照）: §3 候補 A（consume loop ephemeral hardening）を実装。**F1（write-only・consumer 不在）を解消** — 書いた seed が computed leaveBy を生み ERN へ attach されることを ephemeral 実 DB + pure helper で end-to-end 証明。
+  - 実装ファイル: `lib/plan/realityCore/operatorSeedConsume.ts`（pure consume helper）・`tests/unit/operatorSeedConsume.test.ts`（pure 10 PASS）・`tests/unit/operatorSeedConsumeDbSmoke.test.ts`（ephemeral pg・実 DB readback → consume 3 PASS）。
+  - loop: confirmation row → durationValue（confirmation 源）+ honest event supply（arrival/buffer/origin）→ RD2e-SUPPLY → computed leaveBy → `assembleLeaveByBindings` attach。provenance は value に流さない。
+  - **本 slice 範囲外（後続）**: operator preview runtime 配線（**RD3x-P2**・persistent/staging 必要）・dev panel（**RD3x-P3**）・staging apply（**RD3x-P4**・高 CEO gate）・departure line（**RD3g-0** docs → 実装 NO GO）。consume loop の closure はこれで達成（残るは「real DB 上で runtime に preview へ出す」配線で、DB 可用性が前提）。
