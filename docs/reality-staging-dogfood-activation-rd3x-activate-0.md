@@ -114,7 +114,7 @@ product `/plan` 接続 ／ Alter tab 接続 ／ exact timestamp 表示 ／ depar
 
 ---
 
-## 9. RD3x-ACTIVATE-1 実行記録（staging apply 完了・2026-06-16・code `<this commit>`）
+## 9. RD3x-ACTIVATE-1 実行記録（staging apply 完了・2026-06-16・code `d5aa8de6f`）
 
 **CEO RD3x-ACTIVATE-1 GO**（linked ref を staging[hjcr] へ切替済を CEO 確認）。staging に apply を実行し、operator preview の `leaveByComputedPresent=true` が **staging real data** で成立することを実証。
 
