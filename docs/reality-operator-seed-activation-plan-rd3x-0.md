@@ -177,3 +177,12 @@
   - 実装ファイル: `lib/plan/realityCore/operatorSeedConsume.ts`（pure consume helper）・`tests/unit/operatorSeedConsume.test.ts`（pure 10 PASS）・`tests/unit/operatorSeedConsumeDbSmoke.test.ts`（ephemeral pg・実 DB readback → consume 3 PASS）。
   - loop: confirmation row → durationValue（confirmation 源）+ honest event supply（arrival/buffer/origin）→ RD2e-SUPPLY → computed leaveBy → `assembleLeaveByBindings` attach。provenance は value に流さない。
   - **本 slice 範囲外（後続）**: operator preview runtime 配線（**RD3x-P2**・persistent/staging 必要）・dev panel（**RD3x-P3**）・staging apply（**RD3x-P4**・高 CEO gate）・departure line（**RD3g-0** docs → 実装 NO GO）。consume loop の closure はこれで達成（残るは「real DB 上で runtime に preview へ出す」配線で、DB 可用性が前提）。
+
+## 12. 実装反映（RD3x-P2）
+
+- **2026-06-16 RD3x-P2 実装**（code `<this commit>`・matrix §5 参照）: §3 候補 P2（operator preview safe boolean）を実装。RD3x-P1 の consume loop を **operator real-data preview path** に配線し、computed leaveBy の有無を **schema-state boolean `leaveByComputedPresent` だけ**で safe DTO に出す。
+  - 実装ファイル: `lib/plan/realityCore/operatorPreviewLeaveByPresence.ts`（pure helper・real anchor 由来 honest supply → consume → boolean）・`lib/plan/realityCore/operatorDayPreview.ts`（flag-gated 配線 + safe DTO field `leaveByComputedPresent` + leak guard 強化）・`lib/plan/featureFlags.ts`（`realityOperatorPreviewLeaveBy`・default OFF）・`tests/unit/operatorPreviewLeaveByPresence.test.ts`（17 PASS）。
+  - chain: duration_confirmation row（read-only 注入 dep）→ durationValue → RD2e-SUPPLY（honest anchor 由来 arrival/buffer/origin）→ computeLeaveBy → `assembleLeaveByBindings` → **boolean 抽出のみ**。exact instant / 内部 ref / durationValue / capability / supply bundle / trace / reason は payload に出さない。
+  - **flag-gated（default OFF・production OFF）**: ON ∧ `listDurationConfirmations` 注入時のみ consume。OFF/未注入/read 失敗 → false。**page の実 Supabase read dep は未注入** = production の boolean は false（実 read 配線は table が reachable になる **RD3x-P4 staging apply** 後）。
+  - **不変**: MovementReality/leaveByKnown/routeKnown/etaKnown/Feasibility/CollapseRisk/Permission 不変・existing `ern.leaveBy` 不変・DB write/API/localStorage/external/currentLocation/notification なし・product /plan/Alter 非接続・user-facing copy 不増（UI 表示なし・payload field のみ）。
+  - **本 slice 範囲外（後続）**: dev panel（**RD3x-P3**）・staging apply + 実 read 配線（**RD3x-P4**・高 CEO gate）・departure line（**RD3g-0** docs → 実装 NO GO）。
