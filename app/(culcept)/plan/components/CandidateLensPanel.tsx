@@ -24,9 +24,13 @@ import {
   splitAddressLines,
   type LensCandidate,
   type LensCandidateView,
+  type LensComparisonView,
 } from "@/lib/plan/candidateLens/candidateLensUi";
 import { PURPOSE_LENS_LABEL, type PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
 import { ATTRIBUTE_LABEL, type AttributeKey } from "@/lib/plan/candidateLens/placeAttributeModel";
+// ★P3-b: shadow 記録（記録のみ・resolver 未供給・flag default OFF・production hard block）。UI/順位/行順は一切変えない。
+import { buildPreferenceObservation } from "@/lib/plan/candidateLens/candidateLensPreferenceObs";
+import { isCandidateLensPrefObsEnabled, recordPreferenceObservation, opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
 
 export interface CandidateLensPanelProps {
   readonly candidates: readonly LensCandidate[];
@@ -168,6 +172,33 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   };
   const v = views[current]!;
 
+  /**
+   * ★P3-b: 候補確定の **shadow 記録**（記録だけ・fire-and-forget・flag/production gate・try/catch）。
+   *   resolver には渡さない＝候補順位・比較表・行順・表示は一切変えない。onSelect の直前に薄く相乗りするだけ。
+   */
+  const observeSelect = (
+    selectedView: LensCandidateView,
+    choiceContext: "browse" | "detail" | "compare",
+    extra?: { comparison?: LensComparisonView | null; selectedSide?: "left" | "right"; otherView?: LensCandidateView | null },
+  ): void => {
+    if (!isCandidateLensPrefObsEnabled()) return;
+    try {
+      const obs = buildPreferenceObservation({
+        lens,
+        selectedKey: opaquePlaceKey(`${selectedView.name} ${selectedView.address ?? ""}`) ?? "p_unknown",
+        selectedView,
+        choiceContext,
+        at: Date.now(),
+        comparison: extra?.comparison ?? null,
+        selectedSide: extra?.selectedSide,
+        comparedAgainstKey: extra?.otherView ? opaquePlaceKey(`${extra.otherView.name} ${extra.otherView.address ?? ""}`) : null,
+      });
+      recordPreferenceObservation(obs);
+    } catch {
+      /* fire-and-forget: 記録失敗は本人 UX に影響させない */
+    }
+  };
+
   // ════════════════════ ② 詳細（Overlay 内で大展開・大メディア2分割・なぜここをおすすめ？） ════════════════════
   if (view === "detail") {
     const addrLines = splitAddressLines(v.address);
@@ -216,7 +247,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
 
         <div className="mt-3 flex gap-2">
           {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-detail-compare" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50">＋ 比較に追加</button>}
-          <button type="button" onClick={() => onSelect(candidates[current]!)} data-testid="lens-detail-select" className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-semibold text-white transition hover:bg-purple-700">ここにする</button>
+          <button type="button" onClick={() => { observeSelect(v, "detail"); onSelect(candidates[current]!); }} data-testid="lens-detail-select" className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-semibold text-white transition hover:bg-purple-700">ここにする</button>
         </div>
       </div>
     );
@@ -228,7 +259,11 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     const right = views[compareIndex]!;
     const comp = buildLensComparisonView(lens, left, right);
     const confirmSide = (side: "left" | "right") => {
-      if (selectedSide === side) { onSelect(candidates[side === "left" ? current : compareIndex]!); return; }
+      if (selectedSide === side) {
+        observeSelect(side === "left" ? left : right, "compare", { comparison: comp, selectedSide: side, otherView: side === "left" ? right : left });
+        onSelect(candidates[side === "left" ? current : compareIndex]!);
+        return;
+      }
       setSelectedSide(side);
     };
     const headCls = (side: "left" | "right") =>
