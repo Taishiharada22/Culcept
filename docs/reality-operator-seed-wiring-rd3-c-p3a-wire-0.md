@@ -204,7 +204,7 @@ CREATE POLICY duration_confirmations_seed_owner_update ON duration_confirmations
 
 ## 14. 実装反映（RD3c-P3-local-activation）
 
-- **2026-06-16 RD3c-P3-local-activation 実装**（code `<this commit>`・matrix §5 参照・wire-d/P3b/smoke を束ね）: §5 local smoke・§6 server-only entry を実装。
+- **2026-06-16 RD3c-P3-local-activation 実装**（code `c72b15a28`・matrix §5 参照・wire-d/P3b/smoke を束ね）: §5 local smoke・§6 server-only entry を実装。
   - **honest preflight**: **Docker 停止 → local persistent Supabase stack 不可**・node-postgres 未導入。→ **ephemeral Postgres + psql-backed adapter で実 glue を実 DB に通す real smoke**（remote/staging/production 不接触・service_role 不使用）。route/UI（dev panel）は local Supabase 不稼働ゆえ **P3b へ deferred**。
   - **real smoke が supersede bug を捕捉**（mock では露見せず）: `markSuperseded(e.id, null)` が partial unique index の active slot を空けず insert が unique 違反 → **自己参照(非 null)で slot を空け→insert→新 id へ patch** の 2 段に修正（`operatorDurationSeedWrite.ts`）。staging 多操作者の原子化は §1 の RPC upgrade。
   - 実装ファイル: `lib/plan/realityCore/operatorDurationSeedWrite.ts`（supersede fix）・`lib/plan/reality/integration/operator-duration-seed-glue.ts`（`resolveOperatorDurationSeedGateInputFromEnv` flag-gated entry）・`tests/unit/operatorDurationSeedLocalActivation.test.ts`（real glue smoke 8 PASS）・`tests/unit/operatorDurationSeedGlue.test.ts`（entry test 追加 19 PASS）。
