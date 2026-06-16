@@ -17,11 +17,34 @@ import { useActionState } from "react";
 import { submitTravelLiveIntakeAction } from "./_actions/travel-live";
 import { TRAVEL_LIVE_INITIAL_STATE, type TravelLiveActionState } from "@/lib/plan/travel/travel-live-action-state";
 
-function ReadyView({ state }: { state: Extract<TravelLiveActionState, { status: "ready" }> }) {
+/** richer read-only render（display-safe projection/cues のみ・中立 copy・action authority なし）。 */
+export function TravelLiveReadyView({ state }: { state: Extract<TravelLiveActionState, { status: "ready" }> }) {
+  const p = state.display.projection;
+  const cueCount = state.display.cues.length;
   return (
-    <div className="mt-3 space-y-1 rounded-lg border border-gray-200 bg-white/60 p-3" data-testid="travel-live-ready">
+    <div className="mt-3 space-y-1.5 rounded-lg border border-gray-200 bg-white/60 p-3" data-testid="travel-live-ready">
       <p className="text-[12px] font-bold text-gray-900">旅行プランの下書き</p>
-      <p className="text-[12px] text-gray-700">{state.display.projection.whyThisPlan}</p>
+      {p.answer.text && <p className="text-[12px] text-gray-800" data-testid="travel-live-answer">{p.answer.text}</p>}
+      {p.whyThisPlan && p.whyThisPlan !== p.answer.text && (
+        <p className="text-[12px] text-gray-700" data-testid="travel-live-why">理由: {p.whyThisPlan}</p>
+      )}
+      {p.viewerNote && (
+        <p className="text-[12px] text-gray-700" data-testid="travel-live-viewer-note">あなた向け: {p.viewerNote}</p>
+      )}
+      {p.whatCouldFail.length > 0 && (
+        <ul className="space-y-0.5 text-[11px] text-gray-500" data-testid="travel-live-risks">
+          {p.whatCouldFail.map((f, i) => (
+            <li key={i}>気をつける点: {f.note}</li>
+          ))}
+        </ul>
+      )}
+      {p.questionsToAsk.length > 0 && (
+        <p className="text-[11px] text-gray-500" data-testid="travel-live-questions">追加で確認したいことがあります。</p>
+      )}
+      {p.readinessWarning.hasOpenConfirmations && (
+        <p className="text-[11px] text-gray-500">確認が必要な項目があります。</p>
+      )}
+      {cueCount > 0 && <p className="text-[10px] text-gray-400">補足 {cueCount} 件</p>}
       <p className="text-[11px] text-gray-400">これは予約・確定ではありません。</p>
     </div>
   );
@@ -61,7 +84,7 @@ export function TravelLivePanel({ visible }: { visible: boolean }) {
       {state.status === "unavailable" && (
         <p className="text-[11px] text-gray-400" data-testid="travel-live-unavailable">いまは表示できません。</p>
       )}
-      {state.status === "ready" && <ReadyView state={state} />}
+      {state.status === "ready" && <TravelLiveReadyView state={state} />}
     </section>
   );
 }

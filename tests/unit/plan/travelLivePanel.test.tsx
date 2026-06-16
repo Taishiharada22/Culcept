@@ -6,7 +6,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TravelLivePanel } from "@/app/(culcept)/plan/TravelLivePanel";
+import { TravelLivePanel, TravelLiveReadyView } from "@/app/(culcept)/plan/TravelLivePanel";
+import { toTravelLiveActionState } from "@/lib/plan/travel/travel-live-action-state";
+import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
+import type { SessionSurfaceEvent } from "@/lib/shared/travel/travel-session-binding-types";
 
 const strip = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 const SRC = strip(readFileSync(resolve(process.cwd(), "app/(culcept)/plan/TravelLivePanel.tsx"), "utf8"));
@@ -36,6 +39,30 @@ describe("2. 禁止 copy / booking・execute button なし", () => {
     const h = renderToStaticMarkup(<TravelLivePanel visible={true} />);
     for (const f of ["<a ", "href", "http", "予約ボタン"]) expect(h).not.toContain(f);
     expect(h).not.toMatch(/maps/i);
+  });
+});
+
+describe("2b. richer ReadyView render（display-safe projection・中立・no forbidden）", () => {
+  const READY: SessionSurfaceEvent[] = [
+    { kind: "destination_input", areaText: "京都", surface: "form_input" },
+    { kind: "selected_plan_window", window: { kind: "single_day", date: "2026-07-01" } },
+  ];
+  const readyState = () => {
+    const s = toTravelLiveActionState(buildTravelPlanDisplayResult({ events: READY, participantIds: ["P1"], viewerId: "P1" }, { fixtureAllowed: false }));
+    if (s.status !== "ready") throw new Error("expected ready");
+    return s;
+  };
+  it("ready 投影（answer/why/viewer）+ disclaimer を render・rich/中立", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyState()} />);
+    expect(h).toContain("travel-live-ready");
+    expect(h).toContain("旅行プランの下書き");
+    expect(h).toContain("これは予約・確定ではありません");
+  });
+  it("禁止 copy / booking / 外部 link / 内部 flag を render しない", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyState()} />);
+    for (const f of ["予約する", "確定する", "実行する", "この案にする", "スケジュールに追加", "<button", "<a ", "href", "http"]) expect(h).not.toContain(f);
+    // display-safe payload のみ＝authoritative/raw/diagnostics を render しない
+    for (const f of ["executionAuthority", "provenance", "diagnostics", "authoritative"]) expect(h).not.toContain(f);
   });
 });
 
