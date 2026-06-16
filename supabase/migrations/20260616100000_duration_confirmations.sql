@@ -120,6 +120,12 @@ CREATE INDEX IF NOT EXISTS idx_duration_confirmations_valid_until
   ON duration_confirmations (user_id, valid_until)
   WHERE valid_until IS NOT NULL;
 
+-- RD3c-P3a-wire-AB: 同一 scope の **active 行を 1 行に DB 強制**（race/duplicate-active を構造防止）。
+--   active = superseded_by IS NULL AND revoked_at IS NULL。supersede / revoke 済は除外ゆえ複数履歴は許容。
+CREATE UNIQUE INDEX IF NOT EXISTS duration_confirmations_active_scope_uniq
+  ON duration_confirmations (user_id, target_node_id, subjective_date, transport_mode, temporal_scope_ref)
+  WHERE superseded_by IS NULL AND revoked_at IS NULL;
+
 -- ── updated_at trigger ──
 CREATE OR REPLACE FUNCTION public.duration_confirmations_set_updated_at()
 RETURNS TRIGGER AS $$
@@ -157,20 +163,31 @@ CREATE POLICY duration_confirmations_owner_insert ON duration_confirmations
     AND learning_eligible = true
   );
 
--- operator policy（draft・predicate は RD3c-P3a で確定）: reality_operator claim を持つ session のみ
---   operator/dogfood/staging seed を read/write。claim 不在 = false = default deny（service_role 非使用）。
---   ⚠ 'reality_operator' JWT claim の発行は RD3c-P3a で設計（本 draft は default-deny 安全側）。
-CREATE POLICY duration_confirmations_operator_select ON duration_confirmations
+-- RD3c-P3a-wire-AB: operator seed policy を **claim-based → user-RLS** へ revise（既存 capture-gate パターン整合・
+--   custom JWT claim 発行 infra 不要）。**operator は自分の seed を own**（operator_seed.user_id = operator の auth.uid()）。
+--   service_role 非使用。operator 判定（誰が operator か）は **server-side allowlist gate（RD3c-P3a-wire-c）** が担い、
+--   ここは「seed owner 自身が dogfood/staging seed を read/write/supersede できる」だけを RLS で保証する。
+--   一般 user の owner_select（general × production）は seed を構造排除ゆえ、operator_seed は user-facing read に漏れない。
+CREATE POLICY duration_confirmations_seed_owner_select ON duration_confirmations
   FOR SELECT USING (
-    COALESCE((auth.jwt() ->> 'reality_operator')::boolean, false) = true
+    auth.uid() = user_id
     AND provenance_kind IN ('operator_seed', 'dogfood_seed', 'staging_seed')
     AND environment IN ('dogfood', 'staging')
   );
 
-CREATE POLICY duration_confirmations_operator_insert ON duration_confirmations
+CREATE POLICY duration_confirmations_seed_owner_insert ON duration_confirmations
   FOR INSERT WITH CHECK (
-    COALESCE((auth.jwt() ->> 'reality_operator')::boolean, false) = true
+    auth.uid() = user_id
     AND provenance_kind IN ('operator_seed', 'dogfood_seed', 'staging_seed')
     AND environment IN ('dogfood', 'staging')
     AND learning_eligible = false
+  );
+
+-- supersede（superseded_by / revoked_at 更新）用。自分の seed 行のみ。
+CREATE POLICY duration_confirmations_seed_owner_update ON duration_confirmations
+  FOR UPDATE USING (
+    auth.uid() = user_id
+    AND provenance_kind IN ('operator_seed', 'dogfood_seed', 'staging_seed')
+  ) WITH CHECK (
+    auth.uid() = user_id
   );
