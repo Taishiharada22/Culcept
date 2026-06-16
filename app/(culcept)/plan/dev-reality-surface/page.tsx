@@ -26,6 +26,8 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { createSupabaseExternalAnchorRepository } from "@/lib/plan/external-anchor-repository-supabase";
 import { buildDogfoodPreviewScenarios, dogfoodPayloadLeakViolations } from "@/lib/plan/realityCore/dogfoodPreview";
 import { buildOperatorDayRealPayload, realDayPayloadLeakViolations, type RealDaySurfacePayloadV0 } from "@/lib/plan/realityCore/operatorDayPreview";
+import { makeRealityInstantJst } from "@/lib/plan/realityCore/realityInstant";
+import { createSupabaseOperatorDurationSeedReader, type DurationConfirmationReadClient } from "@/lib/plan/reality/integration/duration-confirmation-source";
 import { RealitySurfaceDogfoodClient } from "./RealitySurfaceDogfoodClient";
 
 export const dynamic = "force-dynamic";
@@ -80,9 +82,21 @@ export default async function DevRealitySurfacePage() {
   // ── RD1a: operator 当日 one-off の real-data section（read-only・listAnchors select のみ・recurring 除外・fallback なし）──
   // listAnchors は注入（owner-RLS・service_role 不使用）。referenceInstant は server now（JST v0）。
   const anchorRepo = createSupabaseExternalAnchorRepository(supabase);
+  // RD3x-ACTIVATE-1: operator preview real read 注入（**flag-gated・operator preview path のみ・owner-RLS の user-session
+  //   client・service_role 不使用**）。OFF（本番デフォルト）→ 注入せず leaveByComputedPresent=false（read もしない）。
+  //   reader は raw row/durationValue/exact timestamp を client に出さない（buildOperatorDayRealPayload が safe boolean に潰す）。
+  const refUtc = new Date();
+  const subjectiveDate = makeRealityInstantJst(refUtc).subjectiveDate;
+  // supabase client（user-session・RLS）を structural read client として渡す（深い型展開[TS2589]回避の cast・service_role でない）。
+  const seedReader = createSupabaseOperatorDurationSeedReader(supabase as unknown as DurationConfirmationReadClient);
   let realPayload: RealDaySurfacePayloadV0 | null = await buildOperatorDayRealPayload(
-    { operatorUserId: user.id, referenceInstantUtc: new Date() },
-    { listAnchors: (uid) => anchorRepo.listAnchors(uid) },
+    { operatorUserId: user.id, referenceInstantUtc: refUtc },
+    PLAN_FLAGS.realityOperatorPreviewLeaveBy
+      ? {
+          listAnchors: (uid) => anchorRepo.listAnchors(uid),
+          listDurationConfirmations: (uid) => seedReader.listActiveByOwnerForDate(uid, subjectiveDate),
+        }
+      : { listAnchors: (uid) => anchorRepo.listAnchors(uid) },
   );
   // page 側でも leak guard（fail-closed・defense in depth）。leak 検出時は real section を出さない（fixture へ fallback しない）。
   if (realDayPayloadLeakViolations(realPayload).length > 0) {
