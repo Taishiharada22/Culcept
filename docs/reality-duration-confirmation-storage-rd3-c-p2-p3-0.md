@@ -218,3 +218,13 @@ duration_confirmations 行（read・scope filter）
   - **adapter は既存 RD2d-b/RD2e pipeline 再利用**（confirmation row → user_manual provider result → resolveRouteEtaCapability → durationValue）。value は provenance-blind（operator_seed の learningEligible=false は storage 層に留まり value に混入しない・test #23 で実証）。
   - **本 slice 範囲外（実装せず）**: DB apply（migration 未適用）・operator seed write（**RD3c-P3a**）・user confirmation write/UI（**RD3c-P4**）・MovementReality 反映（**RD3e-P1**）。
   - migration の **operator policy predicate `reality_operator` JWT claim は draft**（発行設計は RD3c-P3a・本 draft は claim 不在=default-deny の安全側）。
+
+### 12.1 RD3c-P2a-DB local apply smoke（2026-06-16・ephemeral Postgres）
+
+- **環境**: ephemeral Postgres（postgresql@16・`initdb --locale=C`・unix socket only・no TCP・/tmp）。**remote/staging/production apply なし**（Docker 不在ゆえ local Supabase stack 不使用・**linked remote ref `aljavfujeqcwnqryjmhl` 不接触**・`supabase db push` 未実行）。**service_role 不使用**（auth.uid()/auth.jwt() stub のみ）。
+- **APPLY**: migration draft が rc=0 で apply（table 1 / CHECK 12 / RLS policy 4 / index 4）。**external_anchors 不変**（migration が触らない）。
+- **CHECK smoke（全 PASS）**: valid general_user_confirmed×production×user → insert 可 / operator_seed・dogfood_seed・staging_seed + learning_eligible=true → reject / operator_seed + production → reject / heuristic basis → reject / upper%5≠0 → reject / lower>upper → reject / valid operator_seed×staging(eligible=false) → insert 可。
+- **RLS smoke（全 PASS）**: owner（authenticated + auth.uid()）は general_user_confirmed×production のみ read・**operator_seed 行は owner read に漏れない**（構造遮断）・operator gate(claim) なしでは operator_seed 不可視（default deny）・`reality_operator` claim ありで operator_seed read 可。
+- **row shape**: 32 列が `DurationConfirmationRowV0`（scope/governance/lifecycle）と整合・source_refs/evidence_refs は ARRAY 格納・revoked_at/superseded_by 存在。
+- **rollback**: `DROP TABLE duration_confirmations CASCADE` で clean（table 消滅・anchor 不変）。
+- ephemeral teardown 済・repo 変更ゼロ（migration は read-only で参照）。**DB apply 済 schema ではない**（local ephemeral 検証のみ）。
