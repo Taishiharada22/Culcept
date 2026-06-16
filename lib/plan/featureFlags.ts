@@ -355,6 +355,20 @@ export const PLAN_FLAGS = {
   realityLeaveByEnrichPreview: process.env.REALITY_LEAVEBY_ENRICH_PREVIEW === "true",
 
   /**
+   * RD3x-P2: operator real-data preview で duration_confirmation → consume loop（RD3x-P1）を走らせ、
+   *   **safe boolean `leaveByComputedPresent`** だけを payload に出すかのフラグ。
+   *   true  : `buildOperatorDayRealPayload` が listDurationConfirmations（read-only・注入）を読み、real anchor 由来の
+   *           honest supply で consume → computed leaveBy が attach されたかを boolean 抽出。exact instant / *Ref /
+   *           durationValue / capability / supply bundle / trace / reason は**一切出さない**（leak guard 強化で検出）。
+   *   false : consume を走らせない・`leaveByComputedPresent=false` 固定（**本番デフォルト**・既存挙動不変・payload 差分は false のみ）。
+   * env: REALITY_OPERATOR_PREVIEW_LEAVEBY=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし・production OFF**）。
+   * 設計: docs/reality-operator-seed-activation-plan-rd3x-0.md（RD3x-P2）
+   * 制約: **default OFF**。operator preview のみ（product /plan / Alter tab NO GO）。exact timestamp / departure line /
+   *   notification は出さない。DB write なし。MovementReality/leaveByKnown/routeKnown/etaKnown/Feasibility/Risk/Permission 不変。
+   */
+  realityOperatorPreviewLeaveBy: process.env.REALITY_OPERATOR_PREVIEW_LEAVEBY === "true",
+
+  /**
    * A1-7-33: operator が proposal を review し decision を **M2/M3 に書く** route（POST /api/reality/review-decision）の有効化。
    *   true  : flag ON で route が server 再導出 proposal を review→M2 insert→approve なら M3 entry insert（review_decision_id FK）。
    *   false : route は no-op（**本番デフォルト**・M2/M3 write 0・既存挙動不変）。

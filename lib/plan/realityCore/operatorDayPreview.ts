@@ -35,6 +35,8 @@ import {
   type OperatorRealityReadinessSummaryV0,
 } from "./operatorRealityReadiness";
 import { graphViewerKey } from "./graphIdentity";
+import { deriveOperatorPreviewLeaveByComputedPresent } from "./operatorPreviewLeaveByPresence";
+import type { DurationConfirmationRowV0 } from "./durationConfirmation";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { makeRealityInstantJst } from "./realityInstant";
 import { buildRealityJudgmentInput } from "./realityJudgmentInput";
@@ -61,6 +63,11 @@ export interface OperatorDayRealityPreviewInputV0 {
 /** read 依存（注入・テスト可能化）。listAnchors は owner-RLS・select のみ */
 export interface OperatorDayPreviewDeps {
   readonly listAnchors: (userId: string) => Promise<ExternalAnchor[]>;
+  /**
+   * RD3x-P2: operator 本人の active duration_confirmations を read-only で供給（owner-RLS・select のみ・**任意**）。
+   * flag OFF / 未注入 → consume を走らせず `leaveByComputedPresent=false`（fail-closed）。DB write しない。
+   */
+  readonly listDurationConfirmations?: (userId: string) => Promise<DurationConfirmationRowV0[]>;
 }
 
 /** safe summary（client へ渡してよい・raw anchor/internal を含まない・count のみ）。RD1b: recurring 内訳 4 種 */
@@ -87,6 +94,14 @@ export interface RealDaySurfacePayloadV0 {
    * raw anchor（title/locationText/sourceId/externalUid/companions/exact instant）を**一切含まない**。
    */
   readonly readiness: OperatorRealityReadinessSummaryV0;
+  /**
+   * RD3x-P2: **schema-state boolean のみ**（operator real-data preview 専用・safe）。
+   * 「当日のどれかの event に internal computed leaveBy が attach されたか」だけを表す。
+   * **departure-semantics でない**（leaveByKnown でない・exact instant / 出発時刻 / 間に合う / 遅れる ではない）。
+   * exact instant / leaveByInstant / arrivalTargetInstant / timeContract / *Ref / durationValue / capability は出さない。
+   * flag OFF / dep 未注入 / 当日 row 0 / computed 0 → false（fail-closed・本番デフォルト）。
+   */
+  readonly leaveByComputedPresent: boolean;
 }
 
 /** 当日 anchor 分離（pure・one-off 当日 + recurring 全件・recurring 展開は resolveTodayRecurring が担当） */
@@ -119,7 +134,8 @@ export function buildOperatorDaySnapshot(dayAnchors: ReadonlyArray<ExternalAncho
 }
 
 function unavailable(reasonCode: string, summary: RealDaySurfaceSummaryV0, readiness: OperatorRealityReadinessSummaryV0 = OPERATOR_REALITY_READINESS_INITIAL): RealDaySurfacePayloadV0 {
-  return { schemaVersion: 0, mode: "real", available: false, reasonCode, summary, consumerView: null, renderedCopy: null, delivery: null, readiness };
+  // RD3x-P2: unavailable は常に leaveByComputedPresent=false（consume へ進まない・fail-closed）。
+  return { schemaVersion: 0, mode: "real", available: false, reasonCode, summary, consumerView: null, renderedCopy: null, delivery: null, readiness, leaveByComputedPresent: false };
 }
 
 /**
@@ -173,6 +189,26 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
     if (surfaceProjectionConsumerViewViolations(consumerView).length > 0) return unavailable("walker_blocked", summary, readiness);
     if (copyViolations(renderedCopy).length > 0) return unavailable("walker_blocked", summary, readiness);
 
+    // RD3x-P2: flag-gated・read-only consume → safe boolean のみ抽出（exact instant / 内部 ref を payload に出さない）。
+    // OFF / dep 未注入 → false 固定（consume 非実行）。read 失敗 → false（fail-closed・preview は unavailable にしない）。
+    let leaveByComputedPresent = false;
+    if (PLAN_FLAGS.realityOperatorPreviewLeaveBy && deps.listDurationConfirmations) {
+      try {
+        const rows = await deps.listDurationConfirmations(input.operatorUserId); // read-only select（owner-RLS）
+        const evaluatedAtIso = `${instant.calendarDate}T${instant.wallClockHHMM}:00+09:00`; // skew 0 = consuming instant
+        leaveByComputedPresent = await deriveOperatorPreviewLeaveByComputedPresent({
+          dayAnchors,
+          durationConfirmationRows: rows,
+          subjectiveDate,
+          evaluatedAtIso,
+          consumingInstant: instant,
+          nowIso: evaluatedAtIso,
+        });
+      } catch {
+        leaveByComputedPresent = false; // read/consume 失敗は false（preview 自体は継続）
+      }
+    }
+
     const payload: RealDaySurfacePayloadV0 = {
       schemaVersion: 0,
       mode: "real",
@@ -183,6 +219,7 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
       renderedCopy,
       delivery: { eligibility: dgate.eligibility, channelCeiling: dgate.channelCeiling, deliveredNow: dgate.deliveredNow },
       readiness,
+      leaveByComputedPresent,
     };
     if (realDayPayloadLeakViolations(payload).length > 0) return unavailable("leak_blocked", summary, readiness);
     return payload;
@@ -219,14 +256,22 @@ const REAL_LEAK_TOKENS: ReadonlyArray<string> = [
   "sourceid",
   "companions",
   "title",
-  // RD2f-wiring-P1: leaveBy internal field token（defense-in-depth・operator real-data path は本 slice で未配線）
+  // RD2f-wiring-P1: leaveBy internal field token（defense-in-depth）
   ...LEAVEBY_LEAK_TOKENS,
+  // RD3x-P2: consume loop の internal object（durationValue / capability / originValidity / supply bundle）が
+  //   万一 payload に serialize された場合に検出する distinctive 内部キー token（safe 集計 field と衝突しない・
+  //   bare "capability"/"durationvalue" は readiness の *ReadyCount を誤検出するため使わない）。
+  "usableforleavebycomputation", // PlanningGradeDurationValueV0 内部
+  "arrivalprojectionknown", // RouteEtaCapabilityV0 内部
+  "origintemporalvalidity", // supply bundle 内部
+  "durationupperbound", // durationValue 内部
 ];
 
 export function realDayPayloadLeakViolations(payload: RealDaySurfacePayloadV0): string[] {
-  // RD3b-P1: `leaveByComputedPresentCount`（schema-state count・readiness 内）は意図的 safe field（exact instant でない）。
-  //   但し token "leavebycomputed" の substring を含むため、走査前に**この既知 safe key 文字列のみ除去**する。
+  // RD3b-P1/RD3x-P2: `leaveByComputedPresentCount`（readiness 内 count）と `leaveByComputedPresent`（RD3x-P2 safe boolean）は
+  //   意図的 safe field（exact instant でない）。但し token "leavebycomputed" の substring を含むため、走査前に**この既知
+  //   safe key 文字列のみ除去**する（"leavebycomputedpresent" を除去すれば count キーの prefix も同時に消える）。
   //   内部 object `leaveByComputed: {leaveByInstant,timeContract,…}` が漏れた場合は依然 content token で検出される。
-  const json = JSON.stringify(payload).toLowerCase().split("leavebycomputedpresentcount").join("");
+  const json = JSON.stringify(payload).toLowerCase().split("leavebycomputedpresent").join("");
   return REAL_LEAK_TOKENS.filter((t) => json.includes(t)).map((t) => `operatorDayPreview: payload に leak token "${t}" が出現`);
 }
