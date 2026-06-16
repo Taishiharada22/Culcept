@@ -197,7 +197,7 @@ CREATE POLICY duration_confirmations_seed_owner_update ON duration_confirmations
 
 ## 13. 実装反映（RD3c-P3a-wire-C）
 
-- **2026-06-16 RD3c-P3a-wire-C 実装**（code `<this commit>`・matrix §5 参照）: §2 operator gate・§3 environment gate・§6 server-only glue を実装。
+- **2026-06-16 RD3c-P3a-wire-C 実装**（code `f41ca017a`・matrix §5 参照）: §2 operator gate・§3 environment gate・§6 server-only glue を実装。
   - 実装ファイル: `lib/plan/featureFlags.ts`（`realityOperatorSeedWriteEnabled` + `realityOperatorSeedUserIds`）・`lib/plan/reality/operator-duration-seed-gate.ts`（pure gate・capture-gate 同型・JWT claim 不使用）・`lib/plan/reality/integration/operator-duration-seed-glue.ts`（server-only glue）・`tests/unit/operatorDurationSeedGlue.test.ts`（16 PASS）。
   - **server が user/environment/provenance を固定**: gate（flag/nodeEnv/ref/allowlist/user）→ environment server-resolve（staging/dogfood・production deny）→ glue が userId/confirmedBy=auth.uid() 固定 → orchestration が provenance/learningEligible 固定。client から isOperator/environment/provenance を受けない。
   - **本 slice 範囲外（後続 gate）**: staging 実 apply + 実 write smoke（**wire-d**・別 CEO gate）・operator dev panel（**P3b**）・API route/server action（呼び出し面・必要時 別 slice）。glue は未配線（barrel 非 export）。
