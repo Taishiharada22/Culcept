@@ -190,7 +190,7 @@ CREATE POLICY duration_confirmations_seed_owner_update ON duration_confirmations
 
 ## 12. 実装反映（RD3c-P3a-wire-AB）
 
-- **2026-06-16 RD3c-P3a-wire-AB 実装**（code `<this commit>`・matrix §5 参照・CEO 方針で wire-a+wire-b を束ね）: §1 repository（direct sequential）・§4 RLS revise（claim→user-RLS）・§7 partial unique index を実装。
+- **2026-06-16 RD3c-P3a-wire-AB 実装**（code `fc6cd124c`・matrix §5 参照・CEO 方針で wire-a+wire-b を束ね）: §1 repository（direct sequential）・§4 RLS revise（claim→user-RLS）・§7 partial unique index を実装。
   - 実装ファイル: `supabase/migrations/20260616100000_duration_confirmations.sql`（revise・**未 apply**: seed_owner 3 policy + partial unique index・reality_operator claim 廃止）・`lib/plan/reality/integration/duration-confirmation-source.ts`（server-only repository・指定 source）・`tests/unit/durationConfirmationSource.test.ts`（11 PASS）。
   - **ephemeral DB smoke 全 PASS**: revised RLS apply・seed_owner insert・general read 遮断・**duplicate active reject(partial unique index)**・supersede→insert・rollback clean（remote/production 不接触・service_role 不使用）。
   - **本 slice 範囲外（後続 gate）**: operator gate + server-only glue（**wire-c**）・staging 実 apply + 実 write smoke（**wire-d**・別 CEO gate）・dev panel（**P3b**）。RPC upgrade（staging 多操作者）は §1 の将来 option。
