@@ -212,7 +212,7 @@ duration_confirmations 行（read・scope filter）
 
 ## 12. 実装反映（RD3c-P2a/P2b）
 
-- **2026-06-16 RD3c-P2a/P2b 実装**（code `<this commit>`・matrix §5 参照）: §5 案 B（独立 `duration_confirmations` table）・§1-§4 語彙/provenance/scope/semantics・§7 adapter connection・§8 learning 汚染防止を実装。
+- **2026-06-16 RD3c-P2a/P2b 実装**（code `d11237ea5`・matrix §5 参照）: §5 案 B（独立 `duration_confirmations` table）・§1-§4 語彙/provenance/scope/semantics・§7 adapter connection・§8 learning 汚染防止を実装。
   - 実装ファイル: `supabase/migrations/20260616100000_duration_confirmations.sql`（draft・未 apply）・`lib/plan/realityCore/durationConfirmation.ts`（型 + validation）・`lib/plan/realityCore/durationConfirmationAdapter.ts`（read adapter・pure）・`tests/unit/durationConfirmation.test.ts`（33 PASS）。
   - **2 次元分離を型で固定**: `durationBasis`(compute・既存流用) × `durationProvenanceKind`(governance・新規)。learning_eligible は DB CHECK + TS `durationConfirmationLearningEligibleViolations` の二重。
   - **adapter は既存 RD2d-b/RD2e pipeline 再利用**（confirmation row → user_manual provider result → resolveRouteEtaCapability → durationValue）。value は provenance-blind（operator_seed の learningEligible=false は storage 層に留まり value に混入しない・test #23 で実証）。
