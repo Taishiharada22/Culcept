@@ -228,3 +228,10 @@ duration_confirmations 行（read・scope filter）
 - **row shape**: 32 列が `DurationConfirmationRowV0`（scope/governance/lifecycle）と整合・source_refs/evidence_refs は ARRAY 格納・revoked_at/superseded_by 存在。
 - **rollback**: `DROP TABLE duration_confirmations CASCADE` で clean（table 消滅・anchor 不変）。
 - ephemeral teardown 済・repo 変更ゼロ（migration は read-only で参照）。**DB apply 済 schema ではない**（local ephemeral 検証のみ）。
+
+### 12.2 RD3c-P3a 実装（operator seed write path・2026-06-16）
+
+- code `<this commit>`（matrix §5 参照）: §6 write gate / §9 RD3c-P3a を実装。`lib/plan/realityCore/operatorDurationSeedWrite.ts`（pure orchestration + 注入 repository・PRM learning-event-insert 同パターン・Supabase 非 import）+ `tests/unit/operatorDurationSeedWrite.test.ts`（17 PASS）。
+- **server が provenance を固定**（client 信用しない）: operator gate → environment gate（production reject）→ governance 固定（operator_seed/operator/learningEligible=false/productionEligible=false）→ validation（bypass 不可）→ supersede（物理 delete しない）→ insert（注入 repository）。
+- **本 slice 範囲外（後続 gate）**: 実 Supabase repository 実装 + operator gate 配線（**RD3c-P3a-wire**・staging apply gate）・user confirmation write/UI（**RD3c-P4**）・MovementReality 反映（**RD3e-P1**）。
+- DB acceptance は §12.1 P2a-DB smoke（operator_seed×staging×eligible=false → insert 可）で transitive に証明済。
