@@ -207,3 +207,14 @@ duration_confirmations 行（read・scope filter）
 - **adapter**: 既存 RD2d-b/RD2e pipeline を再利用（confirmation row → user_manual provider result → capability → durationValue → leaveBy）。value は provenance-blind。
 - **RD3c-P2a 実装 GO 可否 自己判定**: **GO 可（schema/type/RLS migration draft only・DB apply なし・write なし・UI なし）**。最小・additive・clean rollback・既存 precedent 同形。**但し GO は CEO 専管**。本 slice はコードを含まない。
 - **HOLD 継続**: DB write / migration apply / operator seed write / user UI / API route / remote Supabase / external / currentLocation / departure line / exact timestamp / notification（各 CEO gate）。
+
+---
+
+## 12. 実装反映（RD3c-P2a/P2b）
+
+- **2026-06-16 RD3c-P2a/P2b 実装**（code `<this commit>`・matrix §5 参照）: §5 案 B（独立 `duration_confirmations` table）・§1-§4 語彙/provenance/scope/semantics・§7 adapter connection・§8 learning 汚染防止を実装。
+  - 実装ファイル: `supabase/migrations/20260616100000_duration_confirmations.sql`（draft・未 apply）・`lib/plan/realityCore/durationConfirmation.ts`（型 + validation）・`lib/plan/realityCore/durationConfirmationAdapter.ts`（read adapter・pure）・`tests/unit/durationConfirmation.test.ts`（33 PASS）。
+  - **2 次元分離を型で固定**: `durationBasis`(compute・既存流用) × `durationProvenanceKind`(governance・新規)。learning_eligible は DB CHECK + TS `durationConfirmationLearningEligibleViolations` の二重。
+  - **adapter は既存 RD2d-b/RD2e pipeline 再利用**（confirmation row → user_manual provider result → resolveRouteEtaCapability → durationValue）。value は provenance-blind（operator_seed の learningEligible=false は storage 層に留まり value に混入しない・test #23 で実証）。
+  - **本 slice 範囲外（実装せず）**: DB apply（migration 未適用）・operator seed write（**RD3c-P3a**）・user confirmation write/UI（**RD3c-P4**）・MovementReality 反映（**RD3e-P1**）。
+  - migration の **operator policy predicate `reality_operator` JWT claim は draft**（発行設計は RD3c-P3a・本 draft は claim 不在=default-deny の安全側）。
