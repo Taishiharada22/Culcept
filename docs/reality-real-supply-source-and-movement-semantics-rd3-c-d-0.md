@@ -258,7 +258,7 @@ RD3e-P1 は **(a) reconcile 拡張 + (b) feasibility routeUnknown 削除** を**
 
 ## 11. 実装反映（RD3e-P1・Feasibility 反映）
 
-- **2026-06-16 RD3e-P1 実装**（code `<this commit>`・matrix §5 参照）: §4.1 Feasibility migration を実装。
+- **2026-06-16 RD3e-P1 実装**（code `d6a5c7ab9`・matrix §5 参照）: §4.1 Feasibility migration を実装。
   - `feasibilityJudgment.ts`: inferred blocker 条件から `routeUnknown` 除去（`(etaUnknown || leaveByUnresolved)`）・`route_unresolved`→`route_shape_missing`（unresolved に残すが blocker にしない）。
   - **route shape unknown だけで feasibility を止めない**（etaKnown=true ∧ routeKnown=false の将来を塞がない）。time estimate（etaKnown）/ display leaveBy は引き続き重要。computed leaveBy は非参照。
   - §4.2 decisionDebt = 無変更（etaKnown のみ読む・無回帰）。§5 MovementReality reconcile = RD3d-P1 で既済ゆえ無変更。
