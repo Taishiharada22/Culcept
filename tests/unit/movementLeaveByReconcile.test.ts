@@ -215,3 +215,50 @@ describe("RD2f-mv #20 reconcile helper は UI / preview / notification / IO を 
     }
   });
 });
+
+// ── RD3d-P1: ladder 恒久版 trim（leaveByKnown ⟹ etaKnown のみ・routeKnown を外す）──
+describe("RD3d-P1 ladder trim: leaveByKnown ⟹ etaKnown（routeKnown 非依存）", () => {
+  it("#3 leaveByKnown=true requires etaKnown=true（時間 basis 必須）", () => {
+    // etaKnown=false（routeKnown=true でも）→ false
+    const r = reconcileMovementLeaveByKnown(mkMv({ etaKnown: boolAttr(false), routeKnown: boolAttr(true) }), COMPUTED, CAP);
+    expect(r.leaveByKnown.value).toBe(false);
+  });
+  it("#4/#6 routeKnown=false + etaKnown=true + computed → ladder で落ちず leaveByKnown=true（route shape 非依存）", () => {
+    const r = reconcileMovementLeaveByKnown(mkMv({ etaKnown: boolAttr(true), routeKnown: boolAttr(false) }), COMPUTED, CAP);
+    expect(r.leaveByKnown.value).toBe(true); // RD3d-P1: routeKnown=false でも etaKnown=true なら計算可
+  });
+  it("#5 etaKnown=false → leaveByKnown=false（routeKnown=false でも・route で代替不可）", () => {
+    const r = reconcileMovementLeaveByKnown(mkMv({ etaKnown: boolAttr(false), routeKnown: boolAttr(false) }), COMPUTED, CAP);
+    expect(r.leaveByKnown.value).toBe(false);
+  });
+  it("coherence: routeKnown=false + etaKnown=true + leaveByKnown=true + computed present → 違反なし（ladder_broken でない）", () => {
+    const mv = mkMv({ leaveByKnown: boolAttr(true), etaKnown: boolAttr(true), routeKnown: boolAttr(false) });
+    const ern = mkErn({ leaveByComputed: { ...COMPUTED, subjectNodeId: ARRIVAL_ERN_ID } as LeaveByComputationV0 });
+    const v = movementLeaveByKnownCoherenceViolations({ movementRealityNodes: [mv], eventRealityNodes: [ern] });
+    expect(v).toEqual([]);
+    expect(v.some((m) => m.includes("ladder_broken"))).toBe(false);
+  });
+  it("coherence: etaKnown=false + leaveByKnown=true → ladder_broken（route で代替されない）", () => {
+    const mv = mkMv({ leaveByKnown: boolAttr(true), etaKnown: boolAttr(false), routeKnown: boolAttr(true) });
+    const ern = mkErn({ leaveByComputed: { ...COMPUTED, subjectNodeId: ARRIVAL_ERN_ID } as LeaveByComputationV0 });
+    const v = movementLeaveByKnownCoherenceViolations({ movementRealityNodes: [mv], eventRealityNodes: [ern] });
+    expect(v.some((m) => m.includes("leaveByKnown_ladder_broken"))).toBe(true);
+  });
+});
+
+describe("RD3d-P1 movementRealityViolations: leaveByKnown=true は etaKnown のみ要求（routeKnown 非依存）", () => {
+  // movementRealityViolations は etaKnown/routeKnown の hard-false invariant も持つ（real true 化なし）。
+  // ここでは leaveByKnown ladder 部分のみを検査するため、その違反メッセージの有無を見る。
+  const hasLadderViolation = (m: MovementRealityV0) =>
+    movementRealityViolations(m).some((s) => s.includes("leaveByKnown: ladder 違反"));
+  it("#4 leaveByKnown=true + etaKnown=true + routeKnown=false → leaveByKnown ladder 違反なし", () => {
+    expect(hasLadderViolation(mkMv({ leaveByKnown: boolAttr(true), etaKnown: boolAttr(true), routeKnown: boolAttr(false) }))).toBe(false);
+  });
+  it("#5 leaveByKnown=true + etaKnown=false → leaveByKnown ladder 違反あり", () => {
+    expect(hasLadderViolation(mkMv({ leaveByKnown: boolAttr(true), etaKnown: boolAttr(false), routeKnown: boolAttr(true) }))).toBe(true);
+  });
+  it("routeKnown=false 単独では leaveByKnown ladder 違反を出さない（routeKnown は ladder 外）", () => {
+    const msgs = movementRealityViolations(mkMv({ leaveByKnown: boolAttr(true), etaKnown: boolAttr(true), routeKnown: boolAttr(false) }));
+    expect(msgs.some((s) => s.includes("routeKnown=false で leaveByKnown=true 不可"))).toBe(false);
+  });
+});

@@ -120,12 +120,16 @@ function compileOne(
     ? inferredAttribute(true, 0.6, ["both_location_text_present"], { source: "derived", displayPolicy: "debugOnly" })
     : unknownAttribute<boolean>({ evidenceRefs: eitherHidden ? ["location_hidden_or_missing"] : [], displayPolicy: "hidden" });
 
-  // route/eta/leaveBy: 供給が無いことを「判っている」= inferred false（捏造でなく欠測の明示）
+  // RD3d-P1: route/eta/leaveBy の意味論を capability 層の既存分離（routeShapeKnown / arrivalProjectionKnown）に整合。
+  //   routeKnown = **route shape known**（polyline/形状・display 用途）→ evidence は route_shape_source_*。
+  //   etaKnown   = **arrival projection / planning time basis known**（capability.arrivalProjectionKnown 相当）→ arrival_projection_source_*。
+  //   leaveByKnown は etaKnown（time basis）に依存する derived field（route shape には依存しない）。
+  //   供給が無いことを「判っている」= inferred false（捏造でなく欠測の明示）。time basis と route shape の evidence を混ぜない。
   const knownFalse = (evidence: string): RealityAttribute<boolean> =>
     inferredAttribute(false, 0.9, [evidence], { source: "derived", displayPolicy: "debugOnly" });
-  const routeKnown = knownFalse("route_source_missing_v0");
-  const etaKnown = knownFalse("eta_source_missing_v0");
-  const leaveByKnown = knownFalse("eta_source_missing_v0");
+  const routeKnown = knownFalse("route_shape_source_missing_v0"); // route shape semantic
+  const etaKnown = knownFalse("arrival_projection_source_missing_v0"); // arrival projection / time basis semantic
+  const leaveByKnown = knownFalse("arrival_projection_source_missing_v0"); // leaveBy は time basis 依存（shape 非依存）
 
   const mobilityStatus = inferredAttribute<"unresolved" | "resolved">(
     "unresolved",
@@ -204,14 +208,15 @@ export function movementRealityViolations(m: MovementRealityV0): string[] {
   // 供給前の不変条件（RJ0.2 §8）: route/eta/leaveBy は false・mobilityStatus は unresolved・missingInputs に eta_source_missing
   if (m.routeKnown.value !== false) out.push(`${m.movementRealityId}.routeKnown: v0 は false のみ`);
   if (m.etaKnown.value !== false) out.push(`${m.movementRealityId}.etaKnown: v0 は false のみ`);
-  // RD2f-mv: leaveByKnown を v0 hard-false から **derived-only / coherence / v0 安全ラダー**へ緩和。
-  //   false は常に適合。true は v0 安全ラダー（leaveByKnown⟹etaKnown⟹routeKnown）+ internal-only displayPolicy を満たす時のみ。
+  // RD2f-mv: leaveByKnown を v0 hard-false から **derived-only / coherence / ladder**へ緩和。
+  // RD3d-P1: ladder を恒久版へ trim — **leaveByKnown ⟹ etaKnown のみ**（routeKnown を ladder から外す）。
+  //   出発時刻計算には arrival projection（time basis）が必須だが route shape は不要ゆえ、routeKnown=false でも
+  //   etaKnown=true なら leaveByKnown=true は許容される（user_confirmed/scheduled で shape なしに計算する道を開く）。
+  //   false は常に適合。true は etaKnown=true + internal-only displayPolicy を満たす時のみ。
   //   cross-node coherence（true⟹対応 ern.leaveByComputed computed）は movementLeaveByKnownCoherenceViolations が別途検査。
-  //   ※ ladder は v0 安全策であり恒久意味論ではない（route/ETA 供給成熟時に etaKnown/routeKnown 意味論を再監査 — RD2f-SEM-0 補正）。
-  //   ※ 本 slice では etaKnown/routeKnown は依然 false 固定（上記）ゆえ leaveByKnown=true は v0 で事実上不成立=inert。
+  //   ※ 本 slice では etaKnown は依然 false 固定（上記・real route/ETA 供給なし）ゆえ leaveByKnown=true は v0 で事実上不成立=inert。
   if (m.leaveByKnown.value === true) {
-    if (m.etaKnown.value !== true) out.push(`${m.movementRealityId}.leaveByKnown: v0 安全ラダー違反（etaKnown=false で leaveByKnown=true 不可）`);
-    if (m.routeKnown.value !== true) out.push(`${m.movementRealityId}.leaveByKnown: v0 安全ラダー違反（routeKnown=false で leaveByKnown=true 不可）`);
+    if (m.etaKnown.value !== true) out.push(`${m.movementRealityId}.leaveByKnown: ladder 違反（etaKnown=false で leaveByKnown=true 不可・leaveByKnown⟹etaKnown）`);
     if (m.leaveByKnown.displayPolicy === "visible") out.push(`${m.movementRealityId}.leaveByKnown: displayPolicy が internal-only でない（visible 禁止）`);
   }
   if (m.mobilityStatus.value !== "unresolved")
