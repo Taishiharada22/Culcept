@@ -201,3 +201,11 @@ CREATE POLICY duration_confirmations_seed_owner_update ON duration_confirmations
   - 実装ファイル: `lib/plan/featureFlags.ts`（`realityOperatorSeedWriteEnabled` + `realityOperatorSeedUserIds`）・`lib/plan/reality/operator-duration-seed-gate.ts`（pure gate・capture-gate 同型・JWT claim 不使用）・`lib/plan/reality/integration/operator-duration-seed-glue.ts`（server-only glue）・`tests/unit/operatorDurationSeedGlue.test.ts`（16 PASS）。
   - **server が user/environment/provenance を固定**: gate（flag/nodeEnv/ref/allowlist/user）→ environment server-resolve（staging/dogfood・production deny）→ glue が userId/confirmedBy=auth.uid() 固定 → orchestration が provenance/learningEligible 固定。client から isOperator/environment/provenance を受けない。
   - **本 slice 範囲外（後続 gate）**: staging 実 apply + 実 write smoke（**wire-d**・別 CEO gate）・operator dev panel（**P3b**）・API route/server action（呼び出し面・必要時 別 slice）。glue は未配線（barrel 非 export）。
+
+## 14. 実装反映（RD3c-P3-local-activation）
+
+- **2026-06-16 RD3c-P3-local-activation 実装**（code `<this commit>`・matrix §5 参照・wire-d/P3b/smoke を束ね）: §5 local smoke・§6 server-only entry を実装。
+  - **honest preflight**: **Docker 停止 → local persistent Supabase stack 不可**・node-postgres 未導入。→ **ephemeral Postgres + psql-backed adapter で実 glue を実 DB に通す real smoke**（remote/staging/production 不接触・service_role 不使用）。route/UI（dev panel）は local Supabase 不稼働ゆえ **P3b へ deferred**。
+  - **real smoke が supersede bug を捕捉**（mock では露見せず）: `markSuperseded(e.id, null)` が partial unique index の active slot を空けず insert が unique 違反 → **自己参照(非 null)で slot を空け→insert→新 id へ patch** の 2 段に修正（`operatorDurationSeedWrite.ts`）。staging 多操作者の原子化は §1 の RPC upgrade。
+  - 実装ファイル: `lib/plan/realityCore/operatorDurationSeedWrite.ts`（supersede fix）・`lib/plan/reality/integration/operator-duration-seed-glue.ts`（`resolveOperatorDurationSeedGateInputFromEnv` flag-gated entry）・`tests/unit/operatorDurationSeedLocalActivation.test.ts`（real glue smoke 8 PASS）・`tests/unit/operatorDurationSeedGlue.test.ts`（entry test 追加 19 PASS）。
+  - **後続 gate**: staging 実 apply + 実 write smoke（**wire-d**・Docker/local Supabase 必要・別 CEO gate）・operator dev panel UI（**P3b**・local Supabase 必要）。
