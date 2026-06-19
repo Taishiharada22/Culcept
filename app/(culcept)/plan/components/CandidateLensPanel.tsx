@@ -19,6 +19,8 @@ import {
   buildLensCandidateView,
   buildLensComparisonView,
   buildWhyBullets,
+  buildExplanationCopy,
+  isCandidateLensExplanationEnabled,
   purposeLensFromSchedule,
   shortAddress,
   splitAddressLines,
@@ -185,6 +187,8 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   const [view, setView] = useState<"browse" | "detail" | "compare">("browse");
   const [compareIndex, setCompareIndex] = useState(1);
   const [selectedSide, setSelectedSide] = useState<"left" | "right" | null>(null);
+  // ★E-b: ③ 行順 explanation の「元の並びに戻す」状態（この ③ 表示だけ canonical order・観測/preference は消さない）。
+  const [showCanonical, setShowCanonical] = useState(false);
   const touch = useState<{ y: number | null }>({ y: null })[0];
   // ★P4-d: enrichment 取得 hook（flag OFF で no-op＝完全不変・②③ 開封時のみ ensure・browse では呼ばない）。
   const enrich = usePlaceDetailsEnrichment();
@@ -198,6 +202,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     setCurrent(i);
     setCompareIndex(ci);
     setSelectedSide(null);
+    setShowCanonical(false); // ★③ を開く度に personalized 表示から開始（戻すは ③ 表示限り・1 回）。
     setView("compare");
     // ★③ 入場時だけ比較対象 2 件を fetch（memo dedup・browse 中は呼ばない）。
     enrich.ensure(views[i]?.placeId);
@@ -320,7 +325,10 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     const unconfirmedRows = hoursConfirmedEither ? UNCONFIRMED_ROWS.filter((r) => r.label !== "営業時間") : UNCONFIRMED_ROWS;
     // ★P3-c: preference は ③ 比較表の**表示行順だけ**に反映（apply flag ON＋gate 済の時のみ親が渡す）。
     //   recommendation/winner/highlight は buildLensComparisonView 内で canonical 固定＝preference 不依存（順位/推薦は不変）。
-    const comp = buildLensComparisonView(lens, left, right, preference);
+    // ★E-b: 「元の並びに戻す」(showCanonical) の間は **この ③ 表示だけ** preference を渡さず canonical order に戻す。
+    //   （観測/preference record/localStorage は一切変えない＝次回以降の挙動は不変・その場の表示のみ）。
+    const effectivePreference = showCanonical ? undefined : preference;
+    const comp = buildLensComparisonView(lens, left, right, effectivePreference);
     const confirmSide = (side: "left" | "right") => {
       if (selectedSide === side) {
         observeSelect(side === "left" ? left : right, "compare", { comparison: comp, selectedSide: side, otherView: side === "left" ? right : left });
@@ -377,6 +385,15 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                 <p className="text-[14px] font-bold text-slate-800">候補を比較</p>
                 <span className="text-[11px] text-slate-400">基準について</span>
               </div>
+
+              {/* ★E-b: 行順 explanation note（flag ON かつ行順が canonical と変わった時=explanation 非 null の時だけ・register A 行為説明）。
+                   「元の並びに戻す」= この ③ 表示だけ canonical（観測/preference は消さない）。flag OFF/順序不変では非表示＝現状不変。 */}
+              {isCandidateLensExplanationEnabled() && comp.explanation && (
+                <div data-testid="lens-explanation" className="mb-1.5 flex items-center justify-between gap-2 rounded-xl bg-purple-50/70 px-3 py-2 ring-1 ring-purple-100">
+                  <p className="min-w-0 flex-1 text-[11.5px] leading-snug text-purple-800">{buildExplanationCopy(comp.explanation.leadAxes)}</p>
+                  <button type="button" data-testid="lens-explanation-reset" onClick={() => setShowCanonical(true)} className="shrink-0 text-[11px] font-medium text-purple-600 underline transition hover:text-purple-800">元の並びに戻す</button>
+                </div>
+              )}
 
               {/* ★比較表（主役・面積支配・7 行死守・優位セル紫塗り✓・未確認は dimmed） */}
               <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_30px_rgba(0,0,0,0.07)] ring-1 ring-black/5">

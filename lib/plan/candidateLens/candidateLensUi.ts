@@ -29,6 +29,12 @@ export function isCandidateLensUiEnabled(): boolean {
   return PLACE_CANDIDATE_LENS_UI_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
 }
 
+/** ★E-b: ③ 行順 explanation note の UI flag（default OFF・dev-only・production hard block）。OFF で ③ は完全不変。 */
+export const PLACE_CANDIDATE_LENS_EXPLANATION_ENABLED = false;
+export function isCandidateLensExplanationEnabled(): boolean {
+  return PLACE_CANDIDATE_LENS_EXPLANATION_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+}
+
 /** 候補（placeId 付き・UI key 用）。 */
 export interface LensCandidate extends CandidateInput {
   readonly placeId: string;
