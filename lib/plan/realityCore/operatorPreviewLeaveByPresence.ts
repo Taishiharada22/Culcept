@@ -24,6 +24,7 @@ import {
 import type { DurationConfirmationRowV0 } from "./durationConfirmation";
 import type { DurationConfirmationRequestScopeV0 } from "./durationConfirmationAdapter";
 import { assembleLeaveByBindings, type LeaveBySupplyCandidateV0 } from "./leaveByAssembly";
+import { leaveByComputationViolations, type LeaveByComputationV0 } from "./leaveByComputation";
 import type { LeaveBySupplyScopeV0 } from "./leaveBySupply";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { EventRealityNodeV0 } from "./eventRealityNode";
@@ -130,13 +131,13 @@ export interface OperatorPreviewLeaveByPresenceInputV0 {
 }
 
 /**
- * deriveOperatorPreviewLeaveByComputedPresent — real anchor + real confirmation rows から consume loop を走らせ、
- *   **「当日のどれかの event に computed leaveBy が attach されたか」だけ**を boolean で返す（pure・async）。
- *   何も attach されなければ false（fail-closed）。boolean 以外は返さない（internal leaveBy は外へ出さない）。
+ * buildAttachedNodes — consume loop を走らせ、computed leaveBy を **attach 済みの ERN 群**を返す（pure・async・internal）。
+ *   RD3x-P2（safe boolean）と RD3g-P1（departure line candidate）の **共有パイプライン**。何も attach されなければ空配列。
+ *   返り値の `leaveByComputed`（internal LeaveByComputationV0）は **本 module 内でのみ検査**し、呼び元には boolean だけ渡す。
  */
-export async function deriveOperatorPreviewLeaveByComputedPresent(
+async function buildAttachedNodes(
   input: OperatorPreviewLeaveByPresenceInputV0,
-): Promise<boolean> {
+): Promise<ReadonlyArray<EventRealityNodeV0>> {
   // 当日 anchor を ERN id で index（row.scope.targetNodeId と照合）
   const anchorByErn = new Map<string, ExternalAnchor>();
   for (const a of input.dayAnchors) anchorByErn.set(ernIdOf(input.subjectiveDate, a.id), a);
@@ -173,14 +174,59 @@ export async function deriveOperatorPreviewLeaveByComputedPresent(
     }
   }
 
-  if (candidates.length === 0) return false;
+  if (candidates.length === 0) return [];
 
-  // attach seam（再検証）を通った時のみ present=true。internal leaveByComputed は外へ出さない（boolean だけ返す）。
+  // attach seam（再検証）を通った時のみ leaveByComputed が attach される。internal object は外へ出さない。
   const out = assembleLeaveByBindings({
     eventRealityNodes: stubErns,
     supplyCandidates: candidates,
     consumingInstant: input.consumingInstant,
     ernScopeByNodeId: scopeByNode,
   });
-  return out.eventRealityNodes.some((e) => e.leaveByComputed !== undefined);
+  return out.eventRealityNodes;
+}
+
+/**
+ * deriveOperatorPreviewLeaveByComputedPresent — RD3x-P2（L1 safe boolean）: 当日のどれかの event に computed leaveBy が
+ *   attach されたかだけを boolean で返す（pure・async）。何も attach されなければ false。boolean 以外は返さない。
+ */
+export async function deriveOperatorPreviewLeaveByComputedPresent(
+  input: OperatorPreviewLeaveByPresenceInputV0,
+): Promise<boolean> {
+  const nodes = await buildAttachedNodes(input);
+  return nodes.some((e) => e.leaveByComputed !== undefined);
+}
+
+/**
+ * gateBSatisfied — internal computed object（LeaveByComputationV0）が **L2 departure line の Gate B 安全条件**を満たすか（pure）。
+ *   RD3g-0 §2-A/§2-C のうち computed object 上で検査可能な不変条件を再確認する（defense-in-depth）。
+ *   ※ §2-B の fuel 条件（arrival fixed+confirmed / origin valid / scope 一致 / 非stale）は adapter が status="computed" を
+ *      emit する前提として既に強制済み（不成立なら uncomputed → ここに到達しない）。
+ *   boolean 以外は返さない（internal object/exact instant を呼び元へ出さない）。
+ */
+export function gateBSatisfied(c: LeaveByComputationV0): boolean {
+  return (
+    c.status === "computed" &&
+    leaveByComputationViolations(c).length === 0 && // walker green（forged/不整合 computed を排除）
+    c.sourceTimeEstimateRef !== null &&
+    c.bufferRef !== null &&
+    c.originEvidencePresent === true &&
+    c.timeEstimateUsableForPlanning === true && // durationValue usable + planning gate
+    c.source !== "none" && // planning-grade time source のみ（heuristic/none 排除）
+    c.originUsabilityKind !== "current_location_candidate" && // currentLocation 由来排除
+    c.originUsabilityKind !== "unknown"
+  );
+}
+
+/**
+ * deriveOperatorPreviewDepartureLinePresence — RD3g-P1（L2 dev-only departure line candidate）: 当日のどれかの event に
+ *   **Gate B 全 AND を満たした computed leaveBy** が存在するかだけを boolean で返す（pure・async・presence-only）。
+ *   exact instant / leaveByInstant / timeContract / *Ref / durationValue は**一切返さない**（boolean だけ）。
+ *   safe boolean（leaveByComputedPresent）より厳しい: computed 存在に加え Gate B 安全 field を再確認する。
+ */
+export async function deriveOperatorPreviewDepartureLinePresence(
+  input: OperatorPreviewLeaveByPresenceInputV0,
+): Promise<boolean> {
+  const nodes = await buildAttachedNodes(input);
+  return nodes.some((e) => e.leaveByComputed !== undefined && gateBSatisfied(e.leaveByComputed));
 }

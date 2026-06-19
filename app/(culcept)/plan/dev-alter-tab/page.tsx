@@ -24,6 +24,7 @@ import { buildOperatorDayRealPayload, realDayPayloadLeakViolations } from "@/lib
 import { makeRealityInstantJst } from "@/lib/plan/realityCore/realityInstant";
 import { createSupabaseOperatorDurationSeedReader, type DurationConfirmationReadClient } from "@/lib/plan/reality/integration/duration-confirmation-source";
 import { AlterDevSafeStatus } from "./AlterDevSafeStatus";
+import { AlterDevDepartureLineStatus } from "./AlterDevDepartureLineStatus";
 import { AlterTabBody } from "../components/alter/AlterTabBody";
 import { buildScreenViewModel, jstNowMinutes } from "../components/alter/screenViewModel";
 import overPng from "../components/alter/assets/over.png";
@@ -72,9 +73,13 @@ export default async function DevAlterTabPage({
   //   OFF（本番デフォルト）→ status band 非 render（既存 mock preview 完全不変・byte 同一）。ON → operator real payload の
   //   **safe DTO（leaveByComputedPresent）だけ**読む。internal object/ref/exact instant は読まない（payload に無い）。
   //   read-only・DB write/localStorage/notification/action なし。MovementReality/Feasibility/Risk/Permission は不変（読むだけ）。
+  // RD3g-P1: L2 departure line candidate も同 payload の safe boolean（departureLineCandidatePresent）で表示する。
+  //   safe boolean（L1）と departure candidate（L2）は **独立 flag**。payload は 1 回だけ構築し、各 band を各 flag で gate。
   let showSafeStatus = false;
   let leaveByComputedPresent = false;
-  if (PLAN_FLAGS.realityOperatorPreviewLeaveBy) {
+  let showDepartureStatus = false;
+  let departureLineCandidatePresent = false;
+  if (PLAN_FLAGS.realityOperatorPreviewLeaveBy || PLAN_FLAGS.realityOperatorDepartureLinePreview) {
     try {
       const supabase = await supabaseServer();
       const {
@@ -94,12 +99,19 @@ export default async function DevAlterTabPage({
         );
         // page 側 leak guard（fail-closed）。leak 検出時は status を出さない（safe boolean のみ取り出す）。
         if (realDayPayloadLeakViolations(rp).length === 0) {
-          showSafeStatus = true;
-          leaveByComputedPresent = rp.leaveByComputedPresent;
+          if (PLAN_FLAGS.realityOperatorPreviewLeaveBy) {
+            showSafeStatus = true;
+            leaveByComputedPresent = rp.leaveByComputedPresent;
+          }
+          if (PLAN_FLAGS.realityOperatorDepartureLinePreview) {
+            showDepartureStatus = true;
+            departureLineCandidatePresent = rp.departureLineCandidatePresent; // presence-only・exact instant は payload に無い
+          }
         }
       }
     } catch {
       showSafeStatus = false; // read/auth 失敗は非表示（mock preview は継続）
+      showDepartureStatus = false;
     }
   }
 
@@ -115,6 +127,8 @@ export default async function DevAlterTabPage({
     <div className="relative min-h-screen bg-gradient-to-b from-indigo-50/60 via-white to-purple-50/40">
       {/* RD3x-P6: Alter dev-only safe boolean status（flag ON ∧ operator ∧ leak 0 のときのみ・schema-state boolean のみ） */}
       {showSafeStatus && <AlterDevSafeStatus present={leaveByComputedPresent} />}
+      {/* RD3g-P1: L2 dev-only departure line candidate（別 flag・Gate B presence・exact instant は出さない・presence-only） */}
+      {showDepartureStatus && <AlterDevDepartureLineStatus present={departureLineCandidatePresent} />}
 
       {/* dev 専用 variant 切替バー（製品 UI ではない） */}
       <div className="border-b border-amber-200 bg-amber-50 px-3 py-2">

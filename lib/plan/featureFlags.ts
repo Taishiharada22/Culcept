@@ -369,6 +369,23 @@ export const PLAN_FLAGS = {
   realityOperatorPreviewLeaveBy: process.env.REALITY_OPERATOR_PREVIEW_LEAVEBY === "true",
 
   /**
+   * RD3g-P1: operator real-data preview で **L2 dev-only departure line candidate**（Gate B 全 AND を満たした computed
+   *   leaveBy が存在するか）の **safe boolean `departureLineCandidatePresent`** だけを payload に出すかのフラグ。
+   *   safe boolean（leaveByComputedPresent）とは **独立 flag**（exact 化を別軸で kill できるようにする）。
+   *   true  : `buildOperatorDayRealPayload` が consume loop の internal computed object を Gate B 再評価（status computed ∧
+   *           walker green ∧ sourceTimeEstimateRef/bufferRef/originEvidencePresent ∧ timeEstimateUsableForPlanning ∧
+   *           planning-grade source〔heuristic 排除〕∧ origin が previous_event_end 系〔currentLocation 排除〕）し、
+   *           **boolean だけ**抽出。exact instant / leaveByInstant / timeContract / *Ref / durationValue は**一切出さない**。
+   *   false : 評価しない・`departureLineCandidatePresent=false` 固定（**本番デフォルト**・既存挙動不変）。
+   * env: REALITY_OPERATOR_DEPARTURE_LINE_PREVIEW=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし・production OFF**）。
+   * 設計: docs/reality-departure-line-boundary-design-rd3g-0.md（RD3g-P1・L2 dev-only）
+   * 制約: **default OFF**。`/plan/dev-alter-tab` の dev-only preview のみ（product /plan / Alter 本線 / notification / action NO GO）。
+   *   **exact timestamp は DOM に出さない**（presence-only・exact 描画は別 GO）。DB write なし。MovementReality/leaveByKnown/
+   *   routeKnown/etaKnown/Feasibility/Risk/Permission 不変。
+   */
+  realityOperatorDepartureLinePreview: process.env.REALITY_OPERATOR_DEPARTURE_LINE_PREVIEW === "true",
+
+  /**
    * A1-7-33: operator が proposal を review し decision を **M2/M3 に書く** route（POST /api/reality/review-decision）の有効化。
    *   true  : flag ON で route が server 再導出 proposal を review→M2 insert→approve なら M3 entry insert（review_decision_id FK）。
    *   false : route は no-op（**本番デフォルト**・M2/M3 write 0・既存挙動不変）。

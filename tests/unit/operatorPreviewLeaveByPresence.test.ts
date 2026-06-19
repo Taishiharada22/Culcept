@@ -98,7 +98,7 @@ describe("RD3x-P2 #3-#10/#20 leak guard — safe boolean は通す・内部 obje
     consumerView: { rows: [] } as unknown as RealDaySurfacePayloadV0["consumerView"],
     renderedCopy: { items: [] } as unknown as RealDaySurfacePayloadV0["renderedCopy"],
     delivery: { eligibility: "deliver", channelCeiling: "in_app", deliveredNow: false } as unknown as RealDaySurfacePayloadV0["delivery"],
-    readiness: READINESS, leaveByComputedPresent: present,
+    readiness: READINESS, leaveByComputedPresent: present, departureLineCandidatePresent: present,
   });
 
   it("#3/#4/#5 safe payload（leaveByComputedPresent=true・readiness count 付）→ leak violation 0", () => {
@@ -125,8 +125,9 @@ describe("RD3x-P2 #3-#10/#20 leak guard — safe boolean は通す・内部 obje
     expect(v.some((m) => m.includes("origintemporalvalidity"))).toBe(true);
     expect(v.some((m) => m.includes("arrivalprojectionknown"))).toBe(true);
   });
-  it("#20 exact ISO instant / departure 文字列が safe payload に無い", () => {
-    const json = JSON.stringify(safePayload(true)).toLowerCase();
+  it("#20 exact ISO instant / departure-line 内部文字列が safe payload に無い（safe boolean key は除外）", () => {
+    // RD3g-P1: `departureLineCandidatePresent` は意図的 safe boolean key → strip してから "departure" 内部 leak を検査。
+    const json = JSON.stringify(safePayload(true)).toLowerCase().split("departurelinecandidatepresent").join("");
     expect(json.includes("t13:25")).toBe(false);
     expect(json.includes("departure")).toBe(false);
     expect(json.includes("notification")).toBe(false);
@@ -141,9 +142,11 @@ describe("RD3x-P2 #11-#19 source-scan — 不変/未接続境界", () => {
       expect(code.includes(t)).toBe(false);
     }
   });
-  it("#17/#18/#19 departure / notification / product /plan / Alter / API / DB を持たない", () => {
+  it("#17/#18/#19 notification / product /plan / Alter / API / DB を持たない", () => {
+    // RD3g-P1: 本 file は L2 departure line presence helper（deriveOperatorPreviewDepartureLinePresence）を**正当に**含むため
+    //   "departure" 文字列の不在は要求しない。但し notification/product/外部 IO/DB の非接続は不変。
     const low = code.toLowerCase();
-    for (const t of ["departure", "notification", "/plan/page", "alttab", "next/server", "react", ".from(", "supabase", "createclient", "fetch(", "new date(", "date.now", "localstorage"]) {
+    for (const t of ["notification", "/plan/page", "alttab", "next/server", "react", ".from(", "supabase", "createclient", "fetch(", "new date(", "date.now", "localstorage"]) {
       expect(low.includes(t)).toBe(false);
     }
   });

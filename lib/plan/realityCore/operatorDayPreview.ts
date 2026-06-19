@@ -35,7 +35,10 @@ import {
   type OperatorRealityReadinessSummaryV0,
 } from "./operatorRealityReadiness";
 import { graphViewerKey } from "./graphIdentity";
-import { deriveOperatorPreviewLeaveByComputedPresent } from "./operatorPreviewLeaveByPresence";
+import {
+  deriveOperatorPreviewLeaveByComputedPresent,
+  deriveOperatorPreviewDepartureLinePresence,
+} from "./operatorPreviewLeaveByPresence";
 import type { DurationConfirmationRowV0 } from "./durationConfirmation";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { makeRealityInstantJst } from "./realityInstant";
@@ -102,6 +105,14 @@ export interface RealDaySurfacePayloadV0 {
    * flag OFF / dep 未注入 / 当日 row 0 / computed 0 → false（fail-closed・本番デフォルト）。
    */
   readonly leaveByComputedPresent: boolean;
+  /**
+   * RD3g-P1: **L2 dev-only departure line candidate の schema-state boolean**（safe・leaveByComputedPresent とは独立）。
+   * 「当日のどれかの event に **Gate B 全 AND を満たした** computed leaveBy が存在するか」だけを表す。
+   * leaveByComputedPresent より厳しい（computed 存在に加え walker green / refs / planning-grade source / 非currentLocation 等を再確認）。
+   * **departure line そのものでない・exact instant でない**（presence-only・出発時刻/間に合う/遅れる ではない）。
+   * flag(realityOperatorDepartureLinePreview) OFF / dep 未注入 / Gate B 不成立 → false（fail-closed・本番デフォルト）。
+   */
+  readonly departureLineCandidatePresent: boolean;
 }
 
 /** 当日 anchor 分離（pure・one-off 当日 + recurring 全件・recurring 展開は resolveTodayRecurring が担当） */
@@ -134,8 +145,8 @@ export function buildOperatorDaySnapshot(dayAnchors: ReadonlyArray<ExternalAncho
 }
 
 function unavailable(reasonCode: string, summary: RealDaySurfaceSummaryV0, readiness: OperatorRealityReadinessSummaryV0 = OPERATOR_REALITY_READINESS_INITIAL): RealDaySurfacePayloadV0 {
-  // RD3x-P2: unavailable は常に leaveByComputedPresent=false（consume へ進まない・fail-closed）。
-  return { schemaVersion: 0, mode: "real", available: false, reasonCode, summary, consumerView: null, renderedCopy: null, delivery: null, readiness, leaveByComputedPresent: false };
+  // RD3x-P2/RD3g-P1: unavailable は常に両 boolean false（consume/Gate B へ進まない・fail-closed）。
+  return { schemaVersion: 0, mode: "real", available: false, reasonCode, summary, consumerView: null, renderedCopy: null, delivery: null, readiness, leaveByComputedPresent: false, departureLineCandidatePresent: false };
 }
 
 /**
@@ -189,23 +200,30 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
     if (surfaceProjectionConsumerViewViolations(consumerView).length > 0) return unavailable("walker_blocked", summary, readiness);
     if (copyViolations(renderedCopy).length > 0) return unavailable("walker_blocked", summary, readiness);
 
-    // RD3x-P2: flag-gated・read-only consume → safe boolean のみ抽出（exact instant / 内部 ref を payload に出さない）。
-    // OFF / dep 未注入 → false 固定（consume 非実行）。read 失敗 → false（fail-closed・preview は unavailable にしない）。
+    // RD3x-P2（L1 safe boolean）+ RD3g-P1（L2 departure line candidate）: flag-gated・read-only consume → boolean のみ抽出
+    // （exact instant / 内部 ref を payload に出さない）。各 boolean は **独立 flag** で gate（exact 化を別軸で kill 可能）。
+    // 両 flag OFF / dep 未注入 → false 固定（consume 非実行）。read/consume 失敗 → false（fail-closed・preview は継続）。
     let leaveByComputedPresent = false;
-    if (PLAN_FLAGS.realityOperatorPreviewLeaveBy && deps.listDurationConfirmations) {
+    let departureLineCandidatePresent = false;
+    const wantLeaveBy = PLAN_FLAGS.realityOperatorPreviewLeaveBy;
+    const wantDeparture = PLAN_FLAGS.realityOperatorDepartureLinePreview;
+    if ((wantLeaveBy || wantDeparture) && deps.listDurationConfirmations) {
       try {
-        const rows = await deps.listDurationConfirmations(input.operatorUserId); // read-only select（owner-RLS）
+        const rows = await deps.listDurationConfirmations(input.operatorUserId); // read-only select（owner-RLS・1 回だけ）
         const evaluatedAtIso = `${instant.calendarDate}T${instant.wallClockHHMM}:00+09:00`; // skew 0 = consuming instant
-        leaveByComputedPresent = await deriveOperatorPreviewLeaveByComputedPresent({
+        const consumeInput = {
           dayAnchors,
           durationConfirmationRows: rows,
           subjectiveDate,
           evaluatedAtIso,
           consumingInstant: instant,
           nowIso: evaluatedAtIso,
-        });
+        };
+        if (wantLeaveBy) leaveByComputedPresent = await deriveOperatorPreviewLeaveByComputedPresent(consumeInput);
+        if (wantDeparture) departureLineCandidatePresent = await deriveOperatorPreviewDepartureLinePresence(consumeInput);
       } catch {
-        leaveByComputedPresent = false; // read/consume 失敗は false（preview 自体は継続）
+        leaveByComputedPresent = false; // read/consume 失敗は両 false（preview 自体は継続）
+        departureLineCandidatePresent = false;
       }
     }
 
@@ -220,6 +238,7 @@ export async function buildOperatorDayRealPayload(input: OperatorDayRealityPrevi
       delivery: { eligibility: dgate.eligibility, channelCeiling: dgate.channelCeiling, deliveredNow: dgate.deliveredNow },
       readiness,
       leaveByComputedPresent,
+      departureLineCandidatePresent,
     };
     if (realDayPayloadLeakViolations(payload).length > 0) return unavailable("leak_blocked", summary, readiness);
     return payload;
@@ -272,6 +291,11 @@ export function realDayPayloadLeakViolations(payload: RealDaySurfacePayloadV0): 
   //   意図的 safe field（exact instant でない）。但し token "leavebycomputed" の substring を含むため、走査前に**この既知
   //   safe key 文字列のみ除去**する（"leavebycomputedpresent" を除去すれば count キーの prefix も同時に消える）。
   //   内部 object `leaveByComputed: {leaveByInstant,timeContract,…}` が漏れた場合は依然 content token で検出される。
-  const json = JSON.stringify(payload).toLowerCase().split("leavebycomputedpresent").join("");
+  // RD3g-P1: `departureLineCandidatePresent`（L2 safe boolean）も意図的 safe field（exact instant でない）。
+  //   将来 LEAVEBY 系 token に "departureline" を足しても誤検出しないよう、既知 safe key 文字列を走査前に除去する。
+  const json = JSON.stringify(payload)
+    .toLowerCase()
+    .split("leavebycomputedpresent").join("")
+    .split("departurelinecandidatepresent").join("");
   return REAL_LEAK_TOKENS.filter((t) => json.includes(t)).map((t) => `operatorDayPreview: payload に leak token "${t}" が出現`);
 }
