@@ -25,6 +25,7 @@ import type { StargazerInfluence } from "../_lib/stargazerInfluence";
 import { getInfluenceLevel } from "../_lib/stargazerInfluence";
 import ABComparisonCard from "./ABComparisonCard";
 import DeepTemporalCard from "./DeepTemporalCard";
+import { Map as TravelMapGlyph, ChevronRight as TravelChevron } from "./travel/concierge/icons";
 
 type DetailTab = "proposal" | "coordinate";
 
@@ -46,6 +47,8 @@ interface DayDetailSheetProps {
   seasonalShift?: string | null;
   axisChips?: AxisChip[];
   stargazerInfluence?: StargazerInfluence | null;
+  /** 旅の1日詳細（Concierge Dashboard）を開く。flag ON 時のみ CalendarPageClient から渡る。 */
+  onOpenTravel?: () => void;
 }
 
 export default function DayDetailSheet({
@@ -66,6 +69,7 @@ export default function DayDetailSheet({
   seasonalShift,
   axisChips,
   stargazerInfluence,
+  onOpenTravel,
 }: DayDetailSheetProps) {
   const [activeTab, setActiveTab] = React.useState<DetailTab>(proposal ? "proposal" : "coordinate");
   const [showDetails, setShowDetails] = React.useState(false);
@@ -121,6 +125,18 @@ export default function DayDetailSheet({
               </div>
             )}
           </div>
+
+          {/* 旅の詳細を見る（Concierge Dashboard 入口・flag ON 時のみ） */}
+          {onOpenTravel && (
+            <button
+              onClick={onOpenTravel}
+              className="w-full mb-5 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-semibold text-white transition active:scale-[0.98]"
+              style={{ background: "linear-gradient(135deg,#a98a55 0%,#8a7038 100%)", boxShadow: "0 6px 20px rgba(138,112,56,0.28)" }}
+            >
+              <TravelMapGlyph size={16} /> 旅の詳細を見る
+              <TravelChevron size={15} />
+            </button>
+          )}
 
           {/* タブ */}
           <div className="flex items-center gap-1.5 mb-5 bg-gray-100/60 rounded-2xl p-1 backdrop-blur-sm">

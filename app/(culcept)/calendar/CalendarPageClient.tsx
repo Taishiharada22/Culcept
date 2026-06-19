@@ -20,6 +20,9 @@ import type { WardrobeItem } from "@/app/my-style/_lib/types";
 import { PREFECTURES, prefectureToOfficeCode } from "@/lib/shared/location";
 import type { CalendarData, DayData, DayProposal, WornRecord, SatisfactionProfile, WeatherDrift } from "./_lib/types";
 import { DAILY_WEATHER_ICONS, WEEKDAYS, SYNC_BAND_COLORS } from "./_lib/constants";
+import TravelDayDetail from "./_components/travel/TravelDayDetail";
+import { getSampleTripDay } from "./_lib/travel/sampleTrip";
+import { isTravelDayDetailEnabled } from "./_lib/travel/flags";
 import { generateDayProposal } from "@/lib/shared/outfitEngine";
 import { getRecentlyWornItemIds, saveWornRecord, getWornRecordForDate, loadWornHistory, isMemoryOnlyMode, wasHistoryTruncated } from "./_lib/rotationTracker";
 import type { CalendarPersonaProfile } from "./_lib/personaBoost";
@@ -102,6 +105,7 @@ export default function CalendarPageClient() {
   const [loading, setLoading] = React.useState(true);
   const [generating, setGenerating] = React.useState(false);
   const [selectedDay, setSelectedDay] = React.useState<DayData | null>(null);
+  const [travelOpen, setTravelOpen] = React.useState(false);
   const [wardrobeItems, setWardrobeItems] = React.useState<WardrobeItem[]>([]);
   const [showWeatherSettings, setShowWeatherSettings] = React.useState(false);
   const [officeCode, setOfficeCode] = React.useState("");
@@ -1542,8 +1546,17 @@ export default function CalendarPageClient() {
               seasonalShift={selSeasonalShift}
               axisChips={selAxisChips}
               stargazerInfluence={selInfluence}
+              onOpenTravel={isTravelDayDetailEnabled() ? () => setTravelOpen(true) : undefined}
             />
           );
+        })()}
+      </AnimatePresence>
+
+      {/* 旅の1日詳細（Concierge Dashboard）overlay — flag ON 時のみ */}
+      <AnimatePresence>
+        {travelOpen && selectedDay && (() => {
+          const { trip, day } = getSampleTripDay(selectedDay.date);
+          return <TravelDayDetail trip={trip} day={day} onClose={() => setTravelOpen(false)} />;
         })()}
       </AnimatePresence>
 

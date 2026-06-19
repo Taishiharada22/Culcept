@@ -43,6 +43,10 @@ export default {
             fontFamily: {
                 sans: ["var(--font-sans)", "Noto Sans JP", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
                 mono: ["var(--font-mono)", "JetBrains Mono", "SF Mono", "monospace"],
+                // Concierge 世界観：和文見出し serif
+                serif: ["var(--font-serif)", "Noto Serif JP", "Hiragino Mincho ProN", "YuMincho", "serif"],
+                // 欧文タイトル（Meal Suggestion / Budget Snapshot 等）
+                "serif-latin": ["var(--font-serif-latin)", "var(--font-serif)", "Georgia", "serif"],
             },
             // ── Spacing & Radius ──
             borderRadius: {
