@@ -12,18 +12,26 @@ import { toTravelLiveActionState } from "@/lib/plan/travel/travel-live-action-st
 import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
 import type { SessionSurfaceEvent } from "@/lib/shared/travel/travel-session-binding-types";
 import type { SafeTravelLinkHrefModel } from "@/lib/shared/travel/safe-link-href-types";
+import type { SafeTravelLinkSource } from "@/lib/shared/travel/safe-link-types";
 
 const strip = (raw: string) => raw.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
 const SRC = strip(readFileSync(resolve(process.cwd(), "app/(culcept)/plan/TravelLivePanel.tsx"), "utf8"));
 
 const URL = "https://example.com/x?a=1";
-const model = (label: string, handoffUrl = URL): SafeTravelLinkHrefModel => ({
+// ★ Tier1-C: source/generated は必須（既定は manual＝user_provided / generated:false）。handoffUrl は positional 維持。
+const model = (
+  label: string,
+  handoffUrl = URL,
+  opts: { source?: SafeTravelLinkSource; generated?: boolean } = {},
+): SafeTravelLinkHrefModel => ({
   kind: "external_handoff",
   handoffUrl,
   label,
   external: true,
   authoritative: false,
   rendered: false,
+  source: opts.source ?? "user_provided",
+  generated: opts.generated ?? false,
 });
 
 describe("1. TravelExternalLinks（pure・href model のみ）", () => {
@@ -135,5 +143,46 @@ describe("3. source-contract（client 純度・UI は model 構築しない）",
     for (const f of ["予約する", "空きあり", "最安", "この場所にする", "スケジュールに追加", "今すぐ行く", "この案で決定"]) {
       expect(SRC).not.toContain(f);
     }
+  });
+});
+
+describe("4. Tier1-C render distinction（generated vs manual・overtrust 防止）", () => {
+  const gen = (label = "地図で検索する") => model(label, URL, { source: "generated_maps_search", generated: true });
+
+  it("generated → 「検索」badge + 検索 disclaimer（予約・確定の否定）", () => {
+    const h = renderToStaticMarkup(<TravelExternalLinks links={[gen()]} />);
+    expect(h).toContain("travel-live-external-badge");
+    expect(h).toContain("検索"); // 中立 badge
+    expect(h).toContain("検索結果です。正確な場所は外部で確認してください。");
+    expect(h).toContain("これは予約・確定ではありません。");
+  });
+  it("generated は exact-place wording を出さない", () => {
+    const h = renderToStaticMarkup(<TravelExternalLinks links={[gen()]} />);
+    for (const f of ["この場所を見る", "ここに行く", "地図で見る"]) expect(h).not.toContain(f);
+  });
+  it("generated は verified/recommended/booking/availability copy を出さない", () => {
+    const h = renderToStaticMarkup(<TravelExternalLinks links={[gen()]} />);
+    for (const f of ["verified", "検証済", "おすすめ", "recommended", "ランキング", "予約する", "空きあり", "最安"]) {
+      expect(h).not.toContain(f);
+    }
+  });
+  it("manual_maps → 地図 wording 可・generated(検索) disclaimer は出さない", () => {
+    const h = renderToStaticMarkup(<TravelExternalLinks links={[model("地図で見る", URL, { source: "manual_maps", generated: false })]} />);
+    expect(h).toContain("地図で見る"); // label
+    expect(h).toContain("外部サイトで確認してください。これは予約ではありません。"); // manual disclaimer
+    expect(h).not.toContain("検索結果です。");
+  });
+  it("「公式」badge は source===manual_official のみ（user_provided で overclaim しない）", () => {
+    const off = renderToStaticMarkup(<TravelExternalLinks links={[model("外部サイトで確認", URL, { source: "manual_official", generated: false })]} />);
+    expect(off).toContain("公式"); // badge
+    const up = renderToStaticMarkup(<TravelExternalLinks links={[model("外部で確認する", URL, { source: "user_provided", generated: false })]} />);
+    expect(up).not.toContain("公式");
+    expect(up).toContain("外部"); // 中立 badge
+  });
+  it("混在（manual + generated）→ strict 側（検索 disclaimer）", () => {
+    const h = renderToStaticMarkup(
+      <TravelExternalLinks links={[model("外部で確認する", "https://a.com/1", { source: "user_provided" }), gen()]} />,
+    );
+    expect(h).toContain("検索結果です。正確な場所は外部で確認してください。");
   });
 });

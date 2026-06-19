@@ -33,5 +33,9 @@ export function buildSafeTravelLinkHrefModel(intent: SafeTravelLinkIntent): Safe
     external: true,
     authoritative: false,
     rendered: false, // ★ まだ UI 描画していない（<a href> は別 GO）
+    // ★ Tier1-C: display-safe 区別 metadata を faithfully carry（source から generated を推論しない・
+    //   矛盾の修復はしない＝preparation 層の責務。manual は generated:false）。
+    source: intent.source,
+    generated: intent.generated === true,
   };
 }

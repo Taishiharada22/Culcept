@@ -29,27 +29,47 @@ const CUE_ACTION_LABEL: Record<CoAlterProjectionCue["action"], string> = {
 };
 
 /**
- * ★ Tier1-B-C — 外部 hand-off link section（**read-only・SafeTravelLinkHrefModel のみ**）。
+ * ★ Tier1-B-C / Tier1-C distinction — 外部 hand-off link section（**read-only・SafeTravelLinkHrefModel のみ**）。
  *   - 入力は **既に display-safe な href model** のみ（intent を受けない・`buildSafeTravelLinkHrefModel` を呼ばない）。
  *   - URL を生成/fetch/prefetch/mutate しない・tracking 付与なし・自動遷移なし（明示クリックのみ）。
  *   - CoAlter cue（`travel-live-cues`）とは**別 section**。booking/calendar/action button・send/realtime なし。
  *   - raw URL の素表示はしない（label のみ。`handoffUrl` は href 属性に入るのみ）。
+ *   - ★ Tier1-C: `m.generated`（faithfully）で generated Maps 検索 hand-off を区別。生成は「検索」badge +
+ *     「検索結果です。正確な場所は外部で確認してください。」disclaimer（exact place/予約/推薦/検証済を含意しない）。
+ *     source から generated を推論せず・矛盾を修復しない（preparation 層の責務）。ranking/recommended/verified badge なし。
  */
 export function TravelExternalLinks({ links }: { links: SafeTravelLinkHrefModel[] }) {
   if (links.length === 0) return null; // eligible 無し → 何も描かない
+  const hasGenerated = links.some((m) => m.generated === true); // ★ generated marker を faithfully 使用
   return (
     <div className="space-y-0.5" data-testid="travel-live-external-links">
       <p className="text-[11px] font-bold text-gray-500">外部で確認</p>
       <ul className="space-y-0.5 text-[11px]">
-        {links.map((m, i) => (
-          <li key={i}>
-            <a href={m.handoffUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" data-testid="travel-live-external-link">
-              {m.label}
-            </a>
-          </li>
-        ))}
+        {links.map((m, i) => {
+          // ★ 中立 badge のみ（generated→検索 / manual_official→公式 / 他→外部）。verified/recommended/ranking なし。
+          const badge = m.generated === true ? "検索" : m.source === "manual_official" ? "公式" : "外部";
+          return (
+            <li key={i} className="flex items-center gap-1">
+              <span className="rounded bg-gray-100 px-1 text-[9px] text-gray-500" data-testid="travel-live-external-badge">
+                {badge}
+              </span>
+              <a href={m.handoffUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" data-testid="travel-live-external-link">
+                {m.label}
+              </a>
+            </li>
+          );
+        })}
       </ul>
-      <p className="text-[11px] text-gray-400">これは予約ではありません。外部サイトで確認してください。</p>
+      {/* ★ disclaimer は generated marker から導出（generated 1 つでもあれば search disclaimer＝strict 側・label 不問の honesty backstop）。 */}
+      {hasGenerated ? (
+        <p className="text-[11px] text-gray-400" data-testid="travel-live-external-disclaimer">
+          検索結果です。正確な場所は外部で確認してください。これは予約・確定ではありません。
+        </p>
+      ) : (
+        <p className="text-[11px] text-gray-400" data-testid="travel-live-external-disclaimer">
+          外部サイトで確認してください。これは予約ではありません。
+        </p>
+      )}
     </div>
   );
 }
