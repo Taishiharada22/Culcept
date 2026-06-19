@@ -32,6 +32,9 @@ import type { UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePref
 // ★P3-b: shadow 記録（記録のみ・resolver 未供給・flag default OFF・production hard block）。UI/順位/行順は一切変えない。
 import { buildPreferenceObservation } from "@/lib/plan/candidateLens/candidateLensPreferenceObs";
 import { isCandidateLensPrefObsEnabled, recordPreferenceObservation, opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
+// ★P4-d: Place Details enrichment（写真/営業時間・flag OFF で完全不変・dev-only・②③ 開封時のみ lazy fetch）。
+import { usePlaceDetailsEnrichment } from "./usePlaceDetailsEnrichment";
+import { isPlaceDetailsUiEnabled, type EnrichmentResolution } from "@/lib/plan/candidateLens/placeDetailsEnrichment";
 
 export interface CandidateLensPanelProps {
   readonly candidates: readonly LensCandidate[];
@@ -140,6 +143,33 @@ function ChipRow({ view }: { view: LensCandidateView }) {
   );
 }
 
+/** ★P4-d: 実写真が出せる時だけ <img>、出せなければ abstract PlaceTile。
+ *   honesty: photoUri が無い／author attribution が無い場合は写真を表示しない（mapper が photoDisplayable=false にする）。 */
+function PhotoOrTile({ category, resolution, h = "h-[4.5rem]", w = "w-[4.5rem]" }: { category: string | null; resolution: EnrichmentResolution; h?: string; w?: string }) {
+  if (isPlaceDetailsUiEnabled() && resolution.photoDisplayable && resolution.photoMediaUrl) {
+    const author = resolution.photoAttributions.find((a) => (a.displayName ?? "").trim().length > 0)?.displayName ?? null;
+    return (
+      <div data-testid="lens-photo" className={`relative flex ${h} ${w} shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-black/5`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- 外部 Place Photo(lh3)・dev-only flag 下のみ・next/image domain 設定を避ける */}
+        <img src={resolution.photoMediaUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+        {author && <span data-testid="lens-photo-attribution" className="absolute inset-x-0 bottom-0 truncate bg-black/45 px-1.5 py-0.5 text-[9px] font-medium text-white/90">📷 {author}</span>}
+      </div>
+    );
+  }
+  return <PlaceTile category={category} h={h} w={w} />;
+}
+
+/** 営業状態の honest ラベル（confirmed でなければ「未確認」・openNow null は「確認済」）。 */
+function openStateLabel(resolution: EnrichmentResolution): string {
+  if (!resolution.hoursConfirmed) return "未確認";
+  return resolution.openState === "open" ? "営業中" : resolution.openState === "closed" ? "閉店中" : "確認済";
+}
+
+/** ★Google 由来情報（写真/営業時間）を表示する時の必須 attribution（規約）。 */
+function PoweredByGoogle() {
+  return <p data-testid="lens-powered-by-google" className="mt-2 text-right text-[9.5px] text-slate-400">Powered by Google</p>;
+}
+
 function Portal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -156,22 +186,31 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   const [compareIndex, setCompareIndex] = useState(1);
   const [selectedSide, setSelectedSide] = useState<"left" | "right" | null>(null);
   const touch = useState<{ y: number | null }>({ y: null })[0];
+  // ★P4-d: enrichment 取得 hook（flag OFF で no-op＝完全不変・②③ 開封時のみ ensure・browse では呼ばない）。
+  const enrich = usePlaceDetailsEnrichment();
 
   if (views.length === 0) return null;
   const n = views.length;
   const go = (dir: 1 | -1) => setCurrent((c) => (c + dir + n) % n);
   const openCompare = (i: number) => {
+    const other = views.findIndex((_, j) => j !== i);
+    const ci = other >= 0 ? other : i;
     setCurrent(i);
-    setCompareIndex(views.findIndex((_, j) => j !== i) >= 0 ? views.findIndex((_, j) => j !== i) : i);
+    setCompareIndex(ci);
     setSelectedSide(null);
     setView("compare");
+    // ★③ 入場時だけ比較対象 2 件を fetch（memo dedup・browse 中は呼ばない）。
+    enrich.ensure(views[i]?.placeId);
+    enrich.ensure(views[ci]?.placeId);
   };
   const otherIndices = views.map((_, j) => j).filter((j) => j !== current);
   const cycleCompare = (dir: 1 | -1) => {
     if (otherIndices.length === 0) return;
     const pos = otherIndices.indexOf(compareIndex);
-    setCompareIndex(otherIndices[(pos + dir + otherIndices.length) % otherIndices.length]);
+    const next = otherIndices[(pos + dir + otherIndices.length) % otherIndices.length]!;
+    setCompareIndex(next);
     setSelectedSide(null);
+    enrich.ensure(views[next]?.placeId); // 比較相手を切替えた時だけ追加 fetch（memo dedup）
   };
   const v = views[current]!;
 
@@ -205,6 +244,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   // ════════════════════ ② 詳細（Overlay 内で大展開・大メディア2分割・なぜここをおすすめ？） ════════════════════
   if (view === "detail") {
     const addrLines = splitAddressLines(v.address);
+    const detailRes = enrich.resolutionFor(v.placeId); // ★flag OFF/未取得なら全 fallback（abstract/未確認）
     // ★REDO-8: 縦を理想画像②とほぼ同じに圧縮（巨大化禁止）。横だけ広い。メディア小・なぜは2行まで・余白を詰める。
     return (
       <div data-testid="lens-detail" className="max-h-[80vh] overflow-y-auto rounded-3xl bg-white p-4 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-purple-200">
@@ -221,9 +261,9 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[14px] text-slate-500 transition hover:bg-slate-200">⌃</button>
         </div>
 
-        {/* メディア 2 分割（写真相当 ＋ 地図相当・高さは控えめに） */}
+        {/* メディア 2 分割（実写真 or abstract タイル ＋ 地図相当・高さは控えめに） */}
         <div className="mt-2.5 flex gap-2">
-          <PlaceTile category={v.category} h="h-[5.25rem]" w="w-[58%]" />
+          <PhotoOrTile category={v.category} resolution={detailRes} h="h-[5.25rem]" w="w-[58%]" />
           <MapTile h="h-[5.25rem]" w="flex-1" />
         </div>
 
@@ -232,6 +272,14 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
           <span aria-hidden className="mt-0.5 text-slate-400">◎</span>
           <span className="min-w-0">{addrLines.length ? addrLines.map((l, i) => <span key={i} className="block">{l}</span>) : "住所は未取得です"}</span>
         </div>
+
+        {/* ★営業時間（取得できた時だけ確認済み表示・取れなければ非表示=未確認のまま） */}
+        {isPlaceDetailsUiEnabled() && detailRes.hoursConfirmed && (
+          <div data-testid="lens-detail-hours" className="mt-2 flex items-center gap-1.5 text-[12.5px] text-slate-700">
+            <span aria-hidden>🕐</span><span className="font-medium">営業時間: {openStateLabel(detailRes)}</span>
+            {detailRes.hoursLines[0] && <span className="truncate text-slate-400">· {detailRes.hoursLines[0]}</span>}
+          </div>
+        )}
 
         <ChipRow view={v} />
 
@@ -248,6 +296,9 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
           </ul>
         </div>
 
+        {/* ★Google 由来情報（写真/営業時間）を出している時だけ Powered by Google（規約） */}
+        {isPlaceDetailsUiEnabled() && detailRes.showGoogleAttribution && <PoweredByGoogle />}
+
         <div className="mt-3 flex gap-2">
           {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-detail-compare" className="flex-1 rounded-xl bg-white py-2 text-[13px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50">＋ 比較に追加</button>}
           <button type="button" onClick={() => { observeSelect(v, "detail"); onSelect(candidates[current]!); }} data-testid="lens-detail-select" className="flex-1 rounded-xl bg-purple-600 py-2 text-[13px] font-semibold text-white transition hover:bg-purple-700">ここにする</button>
@@ -260,6 +311,13 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
   if (view === "compare") {
     const left = v;
     const right = views[compareIndex]!;
+    // ★P4-d: 比較 2 候補の enrichment（flag OFF/未取得は全 fallback）。営業時間が片側でも取れたら確認済み行を出す。
+    const leftRes = enrich.resolutionFor(left.placeId);
+    const rightRes = enrich.resolutionFor(right.placeId);
+    const hoursConfirmedEither = isPlaceDetailsUiEnabled() && (leftRes.hoursConfirmed || rightRes.hoursConfirmed);
+    const showGoogle = isPlaceDetailsUiEnabled() && (leftRes.showGoogleAttribution || rightRes.showGoogleAttribution);
+    // 営業時間が確認済みなら未確認群から外し、確認済み行へ昇格（雰囲気/Wi-Fi/電源/静かは未確認のまま）。
+    const unconfirmedRows = hoursConfirmedEither ? UNCONFIRMED_ROWS.filter((r) => r.label !== "営業時間") : UNCONFIRMED_ROWS;
     // ★P3-c: preference は ③ 比較表の**表示行順だけ**に反映（apply flag ON＋gate 済の時のみ親が渡す）。
     //   recommendation/winner/highlight は buildLensComparisonView 内で canonical 固定＝preference 不依存（順位/推薦は不変）。
     const comp = buildLensComparisonView(lens, left, right, preference);
@@ -293,7 +351,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
               {/* 上部 2 候補カード（写真相当 ＋ 地図相当 2 分割・しっかり高さ） */}
               <div className="flex items-stretch gap-2">
                 <button type="button" onClick={() => confirmSide("left")} data-testid="lens-compare-left" className={headCls("left")}>
-                  <div className="flex gap-1.5"><PlaceTile category={left.category} h="h-14" w="w-[56%]" /><MapTile h="h-14" w="flex-1" /></div>
+                  <div className="flex gap-1.5"><PhotoOrTile category={left.category} resolution={leftRes} h="h-14" w="w-[56%]" /><MapTile h="h-14" w="flex-1" /></div>
                   <span className="mt-2 block truncate text-[14px] font-bold text-slate-900">{left.name}</span>
                   <span className="text-[10.5px] text-slate-400">{left.category}{left.affinityBadge && " · 相性高め"}</span>
                 </button>
@@ -301,7 +359,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                   onTouchStart={(e) => { touch.y = e.touches[0]?.clientY ?? null; }}
                   onTouchEnd={(e) => { if (touch.y == null) return; const dy = (e.changedTouches[0]?.clientY ?? touch.y) - touch.y; if (Math.abs(dy) > 30) cycleCompare(dy < 0 ? 1 : -1); touch.y = null; }}>
                   <button type="button" onClick={() => confirmSide("right")} data-testid="lens-compare-right" className={headCls("right")}>
-                    <div className="flex gap-1.5"><PlaceTile category={right.category} h="h-14" w="w-[56%]" /><MapTile h="h-14" w="flex-1" /></div>
+                    <div className="flex gap-1.5"><PhotoOrTile category={right.category} resolution={rightRes} h="h-14" w="w-[56%]" /><MapTile h="h-14" w="flex-1" /></div>
                     <span className="mt-2 block truncate text-[14px] font-bold text-slate-900">{right.name}</span>
                     <span className="text-[10.5px] text-slate-400">{right.category}{right.affinityBadge && " · 相性高め"}</span>
                   </button>
@@ -338,7 +396,15 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                       <span className="px-2.5 py-2 text-[12px] leading-snug text-slate-600">{right.whyLine ?? "—"}</span>
                     </div>
                   )}
-                  {UNCONFIRMED_ROWS.map((r) => (
+                  {/* ★営業時間: 取得できた時だけ確認済み行へ昇格（片側未取得は「未確認」表記） */}
+                  {hoursConfirmedEither && (
+                    <div data-testid="lens-row-hours" data-key="hours" className="grid min-h-[40px] grid-cols-[4.5rem_1fr_1fr] items-stretch">
+                      <span className="flex items-center gap-1 bg-slate-50/60 px-3 py-1.5 text-[11.5px] text-slate-500"><span aria-hidden className="text-[13px]">🕐</span>営業時間</span>
+                      <span className="flex items-center px-2.5 py-1.5 text-[11.5px] text-slate-600">{openStateLabel(leftRes)}</span>
+                      <span className="flex items-center px-2.5 py-1.5 text-[11.5px] text-slate-600">{openStateLabel(rightRes)}</span>
+                    </div>
+                  )}
+                  {unconfirmedRows.map((r) => (
                     <div key={r.label} data-testid="lens-row-unconfirmed" className="grid min-h-[40px] grid-cols-[4.5rem_1fr_1fr] items-stretch bg-slate-50/30">
                       <span className="flex items-center gap-1 bg-slate-50/60 px-3 py-1.5 text-[11.5px] text-slate-400"><span aria-hidden className="text-[13px]">{r.icon}</span>{r.label}</span>
                       <span className="flex items-center px-2.5 py-1.5 text-[11.5px] text-slate-300">未確認</span>
@@ -348,6 +414,8 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                 </div>
               </div>
               <p data-testid="lens-unconfirmed" className="mt-1.5 px-1 text-[10.5px] leading-relaxed text-slate-400">「未確認」はまだデータを持っていない項目です（捏造はしません）。</p>
+              {/* ★Google 由来情報（写真/営業時間）を出している時だけ Powered by Google（規約） */}
+              {showGoogle && <PoweredByGoogle />}
 
               {/* おすすめサマリー */}
               {comp.recommendation ? (
@@ -406,7 +474,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
           <MapTile h="h-[2.75rem]" w="w-[4.25rem]" />
         </div>
         <div className="mt-2.5 flex gap-2">
-          <button type="button" onClick={() => setView("detail")} data-testid="lens-card-detail" className="flex-1 rounded-xl bg-white py-2 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-[0.99]">詳細を見る</button>
+          <button type="button" onClick={() => { enrich.ensure(v.placeId); setView("detail"); }} data-testid="lens-card-detail" className="flex-1 rounded-xl bg-white py-2 text-[12.5px] font-medium text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50 active:scale-[0.99]">詳細を見る</button>
           {n > 1 && <button type="button" onClick={() => openCompare(current)} data-testid="lens-card-compare" className="flex-1 rounded-xl bg-white py-2 text-[12.5px] font-medium text-purple-700 ring-1 ring-purple-300 transition hover:bg-purple-50 active:scale-[0.99]">＋ 比較に追加</button>}
         </div>
       </article>

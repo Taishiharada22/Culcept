@@ -32,14 +32,16 @@ export interface PhotoAuthorAttribution {
   readonly photoUri: string | null; // 撮影者アイコン
 }
 
-/** 写真メタ（★メタのみ。media URL/バイトは本型に持たない＝P4-c で構築・P4-a 範囲外）。 */
+/** 写真メタ。★P4-c: `photoUri` を additive 追加（server が skipHttpRedirect で解決した lh3 clean URL・無ければ null）。 */
 export interface EnrichedPhoto {
-  /** 形式: places/{PLACE_ID}/photos/{REF}（media エンドポイントに渡す resource name）。 */
+  /** 形式: places/{PLACE_ID}/photos/{REF}（media エンドポイントに渡す resource name・★永続化しない）。 */
   readonly name: string;
   readonly widthPx: number | null;
   readonly heightPx: number | null;
   /** 空配列可。非空なら表示必須。 */
   readonly authorAttributions: readonly PhotoAuthorAttribution[];
+  /** ★P4-c: server 側 skipHttpRedirect 解決済みの photoUri（lh3・キー非埋め込み）。media 失敗/未解決は null。★永続化しない。 */
+  readonly photoUri: string | null;
 }
 
 /** 営業状態（honesty: 不明は推測せず unknown）。 */
@@ -78,6 +80,8 @@ export interface PlaceDetailsEnrichment {
 export interface EnrichmentResolution {
   /** false → PlaceTile(abstract) を使う。 */
   readonly photoDisplayable: boolean;
+  /** ★P4-c: 実写真として `<img src>` に渡す URL（displayable な時だけ非 null）。 */
+  readonly photoMediaUrl: string | null;
   /** 表示必須（空配列可）。photoDisplayable=true の時のみ非空になりうる。 */
   readonly photoAttributions: readonly PhotoAuthorAttribution[];
   /** true → 確認済み行 / false → UNCONFIRMED_ROWS（🕐営業時間）のまま。 */
@@ -113,6 +117,7 @@ export function buildEnrichedHours(input: {
 /** 全 fallback（enrichment なし/未 ok 時＝P4 前と同一の表示意図）。 */
 const FALLBACK_RESOLUTION: EnrichmentResolution = Object.freeze({
   photoDisplayable: false,
+  photoMediaUrl: null,
   photoAttributions: [],
   hoursConfirmed: false,
   openState: "unknown",
@@ -120,10 +125,16 @@ const FALLBACK_RESOLUTION: EnrichmentResolution = Object.freeze({
   showGoogleAttribution: false,
 });
 
+/** 写真に「表示可能な author attribution」があるか（displayName 非空が 1 件以上）。 */
+function hasUsableAttribution(photo: EnrichedPhoto | null): boolean {
+  return photo != null && photo.authorAttributions.some((a) => (a.displayName ?? "").trim().length > 0);
+}
+
 /**
  * ★enrichment → 表示意図（pure・honesty 核）。
  *   - enrichment=null / fetchStatus≠"ok" → 全 fallback（現状と同一）。
- *   - 写真あり(name 非空) → photoDisplayable=true・attributions 運搬。写真なし → abstract fallback。
+ *   - 写真は **photoUri(実 URL) があり、かつ author attribution が出せる時だけ** displayable。
+ *     （★CEO: attribution が出せない/URL が無い場合は写真を表示しない＝abstract fallback）。
  *   - 営業時間あり → confirmed（openState=open/closed/unknown）。なし → unconfirmed 据置。
  *   - ★Wi-Fi/電源/静か/雰囲気 は触らない（enrichment に項目が無い＝実値化不能）。
  */
@@ -131,7 +142,9 @@ export function resolveEnrichment(enrichment: PlaceDetailsEnrichment | null): En
   if (enrichment == null || enrichment.fetchStatus !== "ok") return FALLBACK_RESOLUTION;
 
   const photo = enrichment.photo;
-  const photoDisplayable = photo != null && photo.name.trim().length > 0;
+  const mediaUrl = photo?.photoUri ?? null;
+  // ★photoUri があり、かつ表示可能な attribution があって初めて「実写真表示可」。どちらか欠ければ abstract。
+  const photoDisplayable = mediaUrl != null && mediaUrl.trim().length > 0 && hasUsableAttribution(photo);
   const photoAttributions = photoDisplayable ? photo!.authorAttributions : [];
 
   const hours = enrichment.hours;
@@ -141,12 +154,42 @@ export function resolveEnrichment(enrichment: PlaceDetailsEnrichment | null): En
 
   return {
     photoDisplayable,
+    photoMediaUrl: photoDisplayable ? mediaUrl : null,
     photoAttributions,
     hoursConfirmed,
     openState,
     hoursLines,
     showGoogleAttribution: photoDisplayable || hoursConfirmed,
   };
+}
+
+// ───────────────────────── enrichment builders（fail-open/状態・pure・client+server 兼用） ─────────────────────────
+
+function baseEnrichment(placeId: string): Omit<PlaceDetailsEnrichment, "fetchStatus" | "error"> {
+  return { placeId, provenance: "google_places", photo: null, hours: null, fetchedAtMs: null };
+}
+
+/** flag OFF / API 不在 / budget 超過 時の skipped enrichment（→ 全 fallback）。 */
+export function skippedEnrichment(placeId: string): PlaceDetailsEnrichment {
+  return { ...baseEnrichment(placeId), fetchStatus: "skipped", error: null };
+}
+
+/** in-flight 中の loading enrichment（memo 占有・→ 全 fallback）。 */
+export function loadingEnrichment(placeId: string): PlaceDetailsEnrichment {
+  return { ...baseEnrichment(placeId), fetchStatus: "loading", error: null };
+}
+
+/** fail-open の error enrichment（→ 全 fallback・abstract/未確認）。 */
+export function errorEnrichment(placeId: string, kind: EnrichmentError["kind"], message: string): PlaceDetailsEnrichment {
+  return { ...baseEnrichment(placeId), fetchStatus: "error", error: { kind, message } };
+}
+
+/**
+ * ★fetch すべきか（pure・client hook が使う）。active(=UI&fetch flag) かつ placeId あり かつ memo 未保持 の時だけ true。
+ *   → browse 中や memo hit では false（無駄 fetch/重複課金を構造的に防止）。
+ */
+export function shouldFetchEnrichment(placeId: string | null | undefined, alreadyKnown: boolean, active: boolean): boolean {
+  return active && typeof placeId === "string" && placeId.length > 0 && !alreadyKnown;
 }
 
 // ───────────────────────── 3. field mask 固定 ─────────────────────────
@@ -201,6 +244,9 @@ export const ENRICHMENT_FETCH_POLICY = Object.freeze({
   /** ★no persistent cache: session 内 memo のみ。localStorage/DB/Supabase へ書かない。 */
   persist: false as const,
 });
+
+/** ★Photo media の maxWidthPx 上限（1〜4800・タイル相当に抑える＝過大取得/帯域抑制）。先頭 1 枚のみ取得。 */
+export const PHOTO_MAX_WIDTH_PX = 400;
 
 /** ★session 内重複排除 memo の型（in-memory のみ・永続化しない）。 */
 export type EnrichmentSessionMemo = Map<string, PlaceDetailsEnrichment>;

@@ -40,18 +40,31 @@ function makeEnrichment(over: Partial<PlaceDetailsEnrichment> & { placeId: strin
   };
 }
 
+// ★displayable な写真: photoUri(lh3 clean URL) ＋ author attribution の両方を持つ。
 const SAMPLE_PHOTO: EnrichedPhoto = {
   name: "places/FAKE_PLACE/photos/FAKE_REF",
   widthPx: 1600,
   heightPx: 1200,
-  authorAttributions: [{ displayName: "Taro Y.", uri: "https://example.test/u/taro", photoUri: "https://example.test/u/taro.png" }],
+  authorAttributions: [{ displayName: "Taro Y.", uri: "https://maps.google.com/u/taro", photoUri: "https://lh3.googleusercontent.com/u/taro" }],
+  photoUri: "https://lh3.googleusercontent.com/p/FAKE-photo=s400",
 };
 
+// ★photoUri はあるが attribution が空 → CEO ルールで NON-displayable（abstract へ）。
 const PHOTO_NO_ATTRIB: EnrichedPhoto = {
   name: "places/FAKE_PLACE2/photos/FAKE_REF2",
   widthPx: 800,
   heightPx: 600,
-  authorAttributions: [], // 空配列（policy 上 表示義務なし・displayable は可）
+  authorAttributions: [],
+  photoUri: "https://lh3.googleusercontent.com/p/FAKE2-photo=s400",
+};
+
+// ★attribution はあるが media 解決失敗で photoUri=null → NON-displayable（abstract へ）。
+const PHOTO_MEDIA_FAILED: EnrichedPhoto = {
+  name: "places/FAKE_PLACE3/photos/FAKE_REF3",
+  widthPx: 1200,
+  heightPx: 900,
+  authorAttributions: [{ displayName: "Hanako S.", uri: "https://maps.google.com/u/hanako", photoUri: null }],
+  photoUri: null,
 };
 
 const HOURS_OPEN: EnrichedHours = buildEnrichedHours({ openNow: true, weekdayDescriptions: ["月曜日: 9時00分～18時00分", "火曜日: 9時00分～18時00分"] });
@@ -59,11 +72,13 @@ const HOURS_CLOSED: EnrichedHours = buildEnrichedHours({ openNow: false, weekday
 const HOURS_UNKNOWN: EnrichedHours = buildEnrichedHours({ openNow: null, weekdayDescriptions: ["営業時間: 店舗にお問い合わせください"] });
 
 /**
- * ★Fake fixtures（test 用 6 ケース・placeId キー）。network なし。
+ * ★Fake fixtures（test 用 8 ケース・placeId キー）。network なし。
  */
 export const FAKE_ENRICHMENTS: Readonly<Record<string, PlaceDetailsEnrichment>> = Object.freeze({
   fake_withPhotoAndHours: makeEnrichment({ placeId: "fake_withPhotoAndHours", photo: SAMPLE_PHOTO, hours: HOURS_OPEN }),
-  fake_photoOnly: makeEnrichment({ placeId: "fake_photoOnly", photo: PHOTO_NO_ATTRIB, hours: null }),
+  fake_photoOnly: makeEnrichment({ placeId: "fake_photoOnly", photo: SAMPLE_PHOTO, hours: null }),
+  fake_photoNoAttribution: makeEnrichment({ placeId: "fake_photoNoAttribution", photo: PHOTO_NO_ATTRIB, hours: null }),
+  fake_photoMediaFailed: makeEnrichment({ placeId: "fake_photoMediaFailed", photo: PHOTO_MEDIA_FAILED, hours: null }),
   fake_hoursOnly: makeEnrichment({ placeId: "fake_hoursOnly", photo: null, hours: HOURS_CLOSED }),
   fake_hoursOpenNowNull: makeEnrichment({ placeId: "fake_hoursOpenNowNull", photo: null, hours: HOURS_UNKNOWN }),
   fake_empty: makeEnrichment({ placeId: "fake_empty", photo: null, hours: null }),

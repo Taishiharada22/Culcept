@@ -52,17 +52,31 @@ describe("P4-a field mask 固定", () => {
 
 // ───────────────────────── 2. honesty mapping ─────────────────────────
 describe("P4-a honesty mapping — resolveEnrichment", () => {
-  it("★写真あり → photoDisplayable=true・attribution 運搬", () => {
+  it("★写真あり(photoUri+attribution) → photoDisplayable=true・photoMediaUrl・attribution 運搬", () => {
     const r = resolveEnrichment(FAKE_ENRICHMENTS.fake_withPhotoAndHours);
     expect(r.photoDisplayable).toBe(true);
+    expect(r.photoMediaUrl).toMatch(/^https:\/\/lh3\.googleusercontent\.com\//);
     expect(r.photoAttributions.length).toBeGreaterThan(0);
     expect(r.photoAttributions[0]!.displayName).toBe("Taro Y.");
   });
 
-  it("★写真なし → abstract tile fallback（photoDisplayable=false・attributions 空）", () => {
+  it("★写真なし → abstract tile fallback（photoDisplayable=false・URL/attributions 空）", () => {
     const r = resolveEnrichment(FAKE_ENRICHMENTS.fake_hoursOnly);
     expect(r.photoDisplayable).toBe(false);
+    expect(r.photoMediaUrl).toBeNull();
     expect(r.photoAttributions).toEqual([]);
+  });
+
+  it("★photoUri ありでも attribution が無い → photo 非表示（CEO ルール・abstract）", () => {
+    const r = resolveEnrichment(FAKE_ENRICHMENTS.fake_photoNoAttribution);
+    expect(r.photoDisplayable).toBe(false);
+    expect(r.photoMediaUrl).toBeNull();
+  });
+
+  it("★attribution ありでも media 失敗(photoUri=null) → photo 非表示（abstract fallback）", () => {
+    const r = resolveEnrichment(FAKE_ENRICHMENTS.fake_photoMediaFailed);
+    expect(r.photoDisplayable).toBe(false);
+    expect(r.photoMediaUrl).toBeNull();
   });
 
   it("★営業時間あり → confirmed（open）", () => {
@@ -133,7 +147,7 @@ describe("P4-a fail-open", () => {
 
   it("★enrichment=null → 全 fallback（P4 前と同一の表示意図）", () => {
     const r = resolveEnrichment(null);
-    expect(r).toEqual({ photoDisplayable: false, photoAttributions: [], hoursConfirmed: false, openState: "unknown", hoursLines: [], showGoogleAttribution: false });
+    expect(r).toEqual({ photoDisplayable: false, photoMediaUrl: null, photoAttributions: [], hoursConfirmed: false, openState: "unknown", hoursLines: [], showGoogleAttribution: false });
   });
 
   it("★Fake adapter は reject しない（既知/未知 placeId とも resolve）", async () => {
@@ -171,7 +185,7 @@ describe("P4-a honesty: Wi-Fi/電源/静か/雰囲気 を実値化しない", ()
   });
 
   it("★resolution 出力にも wifi/power/quiet/雰囲気 相当のキーが現れない", () => {
-    const allowed = ["photoDisplayable", "photoAttributions", "hoursConfirmed", "openState", "hoursLines", "showGoogleAttribution"];
+    const allowed = ["photoDisplayable", "photoMediaUrl", "photoAttributions", "hoursConfirmed", "openState", "hoursLines", "showGoogleAttribution"];
     for (const e of Object.values(FAKE_ENRICHMENTS)) {
       const r = resolveEnrichment(e);
       expect(Object.keys(r).sort()).toEqual([...allowed].sort());
