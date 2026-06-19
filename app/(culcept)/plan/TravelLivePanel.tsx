@@ -17,6 +17,7 @@ import { useActionState } from "react";
 import { submitTravelLiveIntakeAction } from "./_actions/travel-live";
 import { TRAVEL_LIVE_INITIAL_STATE, type TravelLiveActionState } from "@/lib/plan/travel/travel-live-action-state";
 import type { CoAlterProjectionCue } from "@/lib/shared/travel/coalter-projection-consume-types";
+import type { SafeTravelLinkHrefModel } from "@/lib/shared/travel/safe-link-href-types";
 
 /** ★ cue.action → 中立 copy（raw cue.ref は UI に出さない・category/summary のみ）。 */
 const CUE_ACTION_LABEL: Record<CoAlterProjectionCue["action"], string> = {
@@ -27,8 +28,41 @@ const CUE_ACTION_LABEL: Record<CoAlterProjectionCue["action"], string> = {
   explain_plan: "補足",
 };
 
+/**
+ * ★ Tier1-B-C — 外部 hand-off link section（**read-only・SafeTravelLinkHrefModel のみ**）。
+ *   - 入力は **既に display-safe な href model** のみ（intent を受けない・`buildSafeTravelLinkHrefModel` を呼ばない）。
+ *   - URL を生成/fetch/prefetch/mutate しない・tracking 付与なし・自動遷移なし（明示クリックのみ）。
+ *   - CoAlter cue（`travel-live-cues`）とは**別 section**。booking/calendar/action button・send/realtime なし。
+ *   - raw URL の素表示はしない（label のみ。`handoffUrl` は href 属性に入るのみ）。
+ */
+export function TravelExternalLinks({ links }: { links: SafeTravelLinkHrefModel[] }) {
+  if (links.length === 0) return null; // eligible 無し → 何も描かない
+  return (
+    <div className="space-y-0.5" data-testid="travel-live-external-links">
+      <p className="text-[11px] font-bold text-gray-500">外部で確認</p>
+      <ul className="space-y-0.5 text-[11px]">
+        {links.map((m, i) => (
+          <li key={i}>
+            <a href={m.handoffUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" data-testid="travel-live-external-link">
+              {m.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[11px] text-gray-400">これは予約ではありません。外部サイトで確認してください。</p>
+    </div>
+  );
+}
+
 /** richer read-only render（display-safe projection/cues のみ・中立 copy・action authority なし）。 */
-export function TravelLiveReadyView({ state }: { state: Extract<TravelLiveActionState, { status: "ready" }> }) {
+export function TravelLiveReadyView({
+  state,
+  links = [],
+}: {
+  state: Extract<TravelLiveActionState, { status: "ready" }>;
+  /** ★ 外部 hand-off link（既に display-safe な model のみ・未配線時は空＝何も描かない）。 */
+  links?: SafeTravelLinkHrefModel[];
+}) {
   const p = state.display.projection;
   const cueCount = state.display.cues.length;
   return (
@@ -67,6 +101,8 @@ export function TravelLiveReadyView({ state }: { state: Extract<TravelLiveAction
           </ul>
         </div>
       )}
+      {/* ★ Tier1-B-C — 外部 hand-off link は cue section の外・disclaimer 付近の独立 section（cue に混ぜない）。 */}
+      <TravelExternalLinks links={links} />
       <p className="text-[11px] text-gray-400">これは予約・確定ではありません。</p>
     </div>
   );
