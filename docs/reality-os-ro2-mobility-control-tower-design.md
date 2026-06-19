@@ -1,7 +1,8 @@
 # RO-2 — Mobility 管制塔骨 設計（docs-only・実装は RO-2 GO 後）
 
-- **status**: 設計 v0.1（docs-only・**14-agent リサーチ + 敵対的検証反映済み**）。**code 変更ゼロ・write 0・migration 0・DB/production 不接触**
+- **status**: 設計 v0.2（docs-only・**14-agent リサーチ + 敵対的検証 + CEO 裁定反映済み**）。**code 変更ゼロ・write 0・migration 0・DB/production 不接触**
 - **CEO GO**: RO-2 設計着手（2026-06-20・RO-1 完了に続けて）
+- **v0.2 CEO 裁定反映（2026-06-20）**: ①**矛盾修正**=movement steps（dormant 時未生成）と clarification step（ask・dormant の例外として生成）を分離 ②契約改訂 2 件**追認**（buffer-bucket 二段 / triggerCondition 構造化）③`buffer_floor=5 分`確定（0 は hard が危険側）④`LadderInterventionDecision` additive 別名分離 確定 ⑤昇格閾値 placeholder 維持 確定 ⑥ETA/RC4 接続・ALTER 表示・guarantee lint は RO-2 範囲外（但し `guarantee_language_forbidden` reasonCode は出す）
 - **lineage**: RO-0（scope reset）→ RJ0 §4/§5/§6（PrepTime / leaveBy 二段 / Ladder）→ RJ0.1 §4/§5/§7（silent 復権 / InterventionStep / 順序不変条件）→ 本書
 - **方法**: premise を実コードで検証（Ground 6並列）→ 3 設計 spine 提案 → 統合 → 敵対的検証 4 次元（honesty / reminder-app / boundary / RO-1非破壊）。検証 15 mustFix（全 CONCERN・FAIL 0）を §6 で反映。
 - **設計の粒度**: 大枠（RO-2）の中で D1〜D6 に小さく割る。**実装は RO-2 単位**（micro-phase に割らない）。
@@ -41,7 +42,9 @@
 ```
 recommended = arrival − (durMin + buffer_large)   … 安全側（早い）≈ 既存 departureLineTimestampHHMM 線
 hard        = arrival − (durMin + buffer_floor)    … 最終ライン（遅い）= floor buffer の新線
+                                                     buffer_floor = 5 分（CEO v0.2 確定・0 は hard が危険側に寄りすぎ）
 bandGapMin  = hard.departByMin − recommended.departByMin  … 使っている余白（分）
+              catastrophic / missing / unresolved → bandGapMin = null または 0（band 縮退）
 順序保証     buffer_large ≥ buffer_floor ⇒ recommended.time ≤ hard.time（RJ0.1 §7 不変条件・rj01.md:99 を単調性で数理保証）
 ```
 **二重正本の解消（敵対的検証 N3/H1）**: 既存 `departureLineTimestampHHMM` ＝ **LeaveByLines.recommended 段**（同一 buffer-bucket エンジンゆえ矛盾しない）。hard / wakeAt / prepareAt / ladder が RO-2 の新規追加。`leaveByComputed`(LeaveByComputationV0) を LeaveByLines の**入力**にする（第三のエンジンを作らない）。
@@ -95,12 +98,18 @@ prepareAt = recommended.value≠null ∧ prep残量確定 のときのみ派生
 ```
 不変条件: **recommended が null（=現状 ETA 未供給）なら prepTime が heuristic で来ても wakeAt/prepareAt は機械的に null**（prep 単独からの出発線生成を型組成順で禁止・rj0.md:88）。confidence は `min(recommended, prepTime)` を継ぎ heuristic（≤0.35）。
 
-### D4 — Intervention Ladder（pure 生成・配信なし・**ladderDeliveryCeiling**）
+### D4 — Intervention Ladder（pure 生成・配信なし・**ladderDeliveryCeiling**・**movement / clarification 二系統**）
+
+**CEO v0.2 矛盾修正（最重要）**: ladder の step を **2 系統**に分ける。dormant 規律は **movement 系のみ**に適用し、**clarification（ask）は dormant の例外**として生成可能にする。理由: 偽 deadline を作らない代わりに「分からないことを聞ける」必要があり、ask を dormant で殺すと「分からないから聞く」が死ぬ。
 
 ```ts
 planInterventionLadder(ern, leaveByLines, prepTime, momentState) → InterventionStepV0[]   // pure・配信しない
+// 返り値は 2 系統が混在し得る:
+//   movement steps:      "wake" | "prepare" | "final_decision" | "fallback"  … 出発線が要る（recommended≠null 必須）
+//   clarification steps: "ask"                                                … 出発線が組めない時の確認導線（recommended=null で生成）
 InterventionStepV0 = {                       // 正本 = RJ0.1 §5(rj01.md:71-80)
-  at: string,
+  at: string | null,                         // clarification は時刻非依存ゆえ null 可
+  stepClass: "movement" | "clarification",   // ★CEO v0.2: dormant 規律の適用区分
   interventionKind: "wake"|"prepare"|"final_decision"|"fallback"|"ask"|"three_options",
   messageType: …,                            // kind 従属・必ず行動導線（no-action step 禁止 INV-1）
   ladderDeliveryCeiling: DeliveryMode,        // ★敵対的検証 B1: 名前衝突回避（rename）。5 値（receptivity-gate.ts:25）
@@ -113,8 +122,8 @@ InterventionStepV0 = {                       // 正本 = RJ0.1 §5(rj01.md:71-80
 不変条件:
 1. **`ladderDeliveryCeiling` は `receptivity-gate.ts:25` の 5 値 DeliveryMode**（silent/on_open/push/urgent_push/permission_prompt）。**`interventionDecision.ts:48` の 3 値 `DeliveryModeCeiling`（none/passive_surface/active_prompt）を ladder から import 禁止**（敵対的検証 B1: 同名異義の衝突を rename で回避）
 2. ceiling は配信上限であって介入意味でない・**実配信しない**（receptivity-gate を呼ばない・B2/R6 gate 未解禁）
-3. **dormant 規律**: `leaveByLines.recommended.value===null` の間 ladder は**未生成**（空配列でなく・rj0.md:105）・reasonCodes に `eta_source_missing`
-4. plan-level「黙る判断」は step を生成せず別 enum `LadderInterventionDecision`（silent/observe）で記録（RJ0.1 §4・既存 DecisionKind と additive 分離・§10）
+3. **dormant 規律（CEO v0.2 訂正）**: `leaveByLines.recommended.value===null` の間、**movement 系**（wake/prepare/final_decision/fallback）は**未生成**（空配列でなく・rj0.md:105）。**clarification 系（ask）は例外として生成可能** — ask は出発線（deadline/leave-line）ではなく、偽生成を避けるための「分からないから聞く」確認導線。movement と ask は trigger 上**排他**: movement は recommended≠null を要し、ask は recommended=null（eta_source_missing / place 欠落）でこそ発火
+4. plan-level「黙る判断」は step を生成せず別 enum `LadderInterventionDecision`（silent/observe）で記録（RJ0.1 §4・既存 DecisionKind を壊さず additive 別名分離・**CEO v0.2 確定**）
 
 ### D5 — Structured TriggerCondition（spine・partial-eval lattice・**window_state 追加**）
 
@@ -154,15 +163,15 @@ TriggerPredicate =                                  // 閉じた discriminated u
 
 ## 4. Ladder steps（段階介入計画）
 
-| kind | trigger（状態条件） | ladderDeliveryCeiling | 意味 |
-|---|---|---|---|
-| **wake** | `time_at_or_after(wakeAt) ∧ window_state(open)` | on_open | 余白あるうち（窓 open）に「動き出す」 |
-| **prepare** | `time_at_or_after(prepareAt) ∧ window_state(open|narrowing)` | on_open | recommended 出発へ「準備開始」 |
-| **final_decision** | `time_at_or_after(hard) ∧ window_state(closing)` | push（上限のみ・実配信せず） | hard=最終ライン（保証でない・`guarantee_language_forbidden`） |
-| **fallback** | `time_at_or_after(hard) ∧ window_state(closed)` | on_open | hard 超過後の縮退案内（行動導線必須） |
-| **ask** | `state_unmet(eta_source_missing) ∨ place 欠落` | on_open | 出発線が組めない時、偽 deadline でなく**本人に確認**（捏造でなく「分からないから聞く」を第一級判断に） |
+| stepClass | kind | trigger（状態条件） | ladderDeliveryCeiling | 意味 |
+|---|---|---|---|---|
+| movement | **wake** | `time_at_or_after(wakeAt) ∧ window_state(open)` | on_open | 余白あるうち（窓 open）に「動き出す」 |
+| movement | **prepare** | `time_at_or_after(prepareAt) ∧ window_state(open|narrowing)` | on_open | recommended 出発へ「準備開始」 |
+| movement | **final_decision** | `time_at_or_after(hard) ∧ window_state(closing)` | push（上限のみ・実配信せず） | hard=最終ライン（保証でない・`guarantee_language_forbidden`） |
+| movement | **fallback** | `time_at_or_after(hard) ∧ window_state(closed)` | on_open | hard 超過後の縮退案内（行動導線必須） |
+| **clarification** | **ask** | `state_unmet(eta_source_missing) ∨ place 欠落`（= recommended=null） | on_open | 出発線が組めない時、偽 deadline でなく**本人に確認**。「分からないから聞く」を第一級判断に |
 
-dormant: recommended=null の間は全 step 未生成。
+**dormant 規律（CEO v0.2）**: recommended=null の間、**movement 4 系は未生成**。**clarification（ask）は例外として生成**（dormant の声＝聞く）。recommended≠null になると movement が生成され ask は不要（trigger 排他）。
 
 ---
 
@@ -202,7 +211,7 @@ dormant: recommended=null の間は全 step 未生成。
 
 ## 7. 境界（停止条件）
 
-- ETA 入力未供給の間は全段 null・ladder 未生成（dormant）・偽 deadline 禁止
+- ETA 入力未供給の間は全段 null・**movement ladder 未生成**（dormant）・偽 deadline 禁止。**clarification（ask）は例外として生成可**（聞くことは捏造でない）
 - prepTime は heuristic・hard line/強い文言/recommended 生成に**流さない**
 - wakeAt/prepareAt は recommended ∧ prepTime 双解決時のみ・prep 単独生成禁止
 - hard は保証でない（notActionable + guarantee_language_forbidden）
@@ -222,6 +231,7 @@ dormant: recommended=null の間は全 step 未生成。
 - [ ] prepTime が heuristic/≤0.35/debugOnly・recommended/hard 生成関数の引数型に prepTime が**現れない**（コンパイル確認）
 - [ ] recommended=null のとき wakeAt/prepareAt が必ず null（prepTime 非 null でも）
 - [ ] InterventionStep の `ladderDeliveryCeiling` が 5 値 DeliveryMode（3 値 import なし）・各 step に行動導線 messageType
+- [ ] **stepClass 分離（CEO v0.2）**: recommended=null fixture で movement 4 系は未生成・**ask（clarification）は生成**される。recommended≠null fixture で movement 生成・ask 不生成（trigger 排他）を機械検証
 - [ ] **window_state predicate が MomentState.interventionWindow で evaluable_now 判定**・wakeAt=null で unknown(cannot-fire)・state_unmet/location_* は deferredByGate のみ
 - [ ] **回帰テスト（reminder-app trap）**: 時刻 true ∧ prep/risk unknown の step が `deferredByGate` 非空を示し、full 条件成立を偽装しない
 - [ ] RO-1 型差分ゼロ（git diff）・TaskPlacementRiskFactor 拡張の consumer exhaustiveness 不破壊（tsc PASS）・blockDepartureFeasibility read-only
@@ -239,23 +249,28 @@ dormant: recommended=null の間は全 step 未生成。
 
 ---
 
-## 10. openDecisions（CEO 裁定・契約改訂 2 件含む）
+## 10. openDecisions
 
-1. **【契約改訂】** 二段化を **buffer-bucket** で導く（rj0.md:79「LSAT percentile 2 点読み」を改訂）。LSAT 分布版は `TravelTimeStats`(sd) 供給者構築後の deferred 上位互換 — **CEO 追認要**
-2. **【契約改訂】** `triggerCondition` を string（RJ0.1 §5）→ **構造化 TriggerConditionV0** に改訂 — **CEO 追認要**
-3. **p_hard / buffer_floor の初期値**（floor=0 か 5 か・critical-fractile）— ETA 供給時に band 幅が恣意的にならないよう CEO 確定
-4. **LadderInterventionDecision enum**（silent/observe）を既存 DecisionKind（`interventionDecision.ts:44`）と additive 別名分離する方針の追認
-5. **prepTime/wakeAt の actionable 昇格閾値**（補正≥3・confidence≥0.6・14 日安定）placeholder の確定
-6. **ETA(RC4) 接続タイミング** — 現状 dormant ゆえ価値検証のため CEO が接続順を握る
-7. **ALTER タブに ladder を表示するかの UI gate**（pure 生成は壊さない・catastrophic band 幅 0 の見せ方含む・設計外）
-8. **guarantee_language lint**（下流が無視し得るため別 lint/gate 要否・本 RO 停止条件外）
+### CEO 裁定済み（v0.2・2026-06-20）
+1. **【契約改訂・追認】** 二段化を **buffer-bucket** で導く（rj0.md:79「LSAT percentile 2 点読み」を改訂）。LSAT 分布版は `TravelTimeStats`(sd) 供給者構築後の deferred 上位互換
+2. **【契約改訂・追認】** `triggerCondition` を string（RJ0.1 §5）→ **構造化 TriggerConditionV0** に改訂（string DSL 廃止）
+3. **buffer_floor = 5 分**（0 は hard が危険側）。hard は保証でないが Safety Floor として最低 5 分。catastrophic/missing/unresolved は bandGapMin=null または 0
+4. **LadderInterventionDecision** は additive 別名分離（既存 DecisionKind を壊さない）
+5. **prepTime/wakeAt 昇格閾値**は placeholder 維持（v0 は heuristic/≤0.35/debugOnly|notActionable）
+6. **stepClass 分離**（movement dormant / ask 例外生成）— §D4/§4 で確定
+7. **ETA(RC4) 接続・ALTER 表示・guarantee_language lint は RO-2 範囲外**（但し `guarantee_language_forbidden` reasonCode は出す）
+
+### 残（ETA 供給フェーズで再訪・RO-2 実装の阻害ではない）
+- p_hard の distribution-aware 版（critical-fractile Cu·Co）— LSAT 分布版導入時に確定（現 v0 は buffer_floor=5 分で足りる）
+- ETA(RC4) 接続タイミングの順序（価値検証）— dormant ゆえ実装は阻害されない
 
 ---
 
 ## 11. 決定
 
-- RO-2 を D1〜D6 の**設計 v0.1** として確定（docs-only・敵対的検証 15 反映済み）。
-- mechanism = **buffer-bucket 二段**（LSAT 分布版 deferred・dual-source 解消）。
-- 核心訂正 = **leaveByLines は sibling additive**（leaveBy 不変）/ **window_state で reminder-app 回避** / **ladderDeliveryCeiling rename**。
-- 実装は RO-2 単位。実装 GO は CEO 判断 + §10 の契約改訂 2 件（1・2）の追認。
+- RO-2 を D1〜D6 の**設計 v0.2** として確定（docs-only・敵対的検証 15 + CEO 裁定反映済み）。
+- mechanism = **buffer-bucket 二段**（`buffer_floor=5 分`・LSAT 分布版 deferred・dual-source 解消）。
+- 核心訂正 = **leaveByLines は sibling additive**（leaveBy 不変）/ **window_state で reminder-app 回避** / **ladderDeliveryCeiling rename** / **movement·clarification 分離**（ask は dormant 例外）。
+- **契約改訂 2 件 CEO 追認済み**（buffer-bucket 二段・triggerCondition 構造化）。openDecisions 1-7 裁定済み。
+- 実装は RO-2 単位。実装 GO は CEO 判断（残 openDecisions は ETA 供給フェーズで再訪・実装阻害なし）。
 - コード 0・write 0・migration 0。
