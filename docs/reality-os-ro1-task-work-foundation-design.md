@@ -1,7 +1,8 @@
 # RO-1 — Task & Work 基盤 設計（docs-only・実装は RO-1 GO 後）
 
-- **status**: 設計（docs-only）。**code 変更ゼロ・DB write なし・migration なし・production gate 未通過**
+- **status**: 設計 v0.1（docs-only）。**code 変更ゼロ・DB write なし・migration なし・production gate 未通過**
 - **CEO GO**: RO-1 設計着手（2026-06-20・RO-0 完了に続けて）
+- **v0.1 レビュー反映（CEO 2026-06-20）**: ①永続化境界を確定（RO-1=pure+injected のみ・永続は別 gate）②D3 に `emotionalReserve` 追加 ③`completionStatus`/`TaskOutcomeKind` に `blocked` 追加 ④`riskFactors` を閉じた union 化
 - **lineage**: RJ0 §2（TaskRealityNode placeholder）→ **RJ0.1 §1（master/block 分離の自己訂正）** → RO-0（scope reset）→ 本書（実装可能化 + CEO 強化定義）
 - **継承の要点**: 「task が時刻枠を確定したら anchor 化して一本化」（RJ0 §2）は **RJ0.1 §1 で訂正済み**。本書は訂正後を正本とする = **TaskRealityNode は消えない master / ScheduledWorkBlock が配置（anchor/ern 化可）/ 1 task : N blocks**。
 - **CEO 強化定義（2026-06-20）**: RO-1 は「単なる Task 型追加」では弱い。下記 5 構成を完了条件に含め、**Plan / Energy / Risk / Memory を繋ぐ基盤**にする。
@@ -60,7 +61,9 @@ TaskRealityNodeV0 = {
   permissionLevel: RealityAttribute<PermissionLevel>,          // 同上・v0 max 2
 }
 
-TaskCompletionStatus = "not_started" | "in_progress" | "partially_done" | "done" | "dropped"
+// CEO v0.1: blocked を追加。「できなかった」を分ける — dropped(本人がやらなかった) と
+//   blocked(他人待ち/情報不足/外部条件/予定衝突で止まった) は別物。Risk/Memory/Proposal の学習精度が上がる。
+TaskCompletionStatus = "not_started" | "in_progress" | "partially_done" | "done" | "blocked" | "dropped"
 ```
 
 不変条件:
@@ -105,8 +108,9 @@ TaskPlacementFeasibilityInputV0 = {
   task: TaskRealityNodeV0,
   candidateWindow: { startHHMM: string, endHHMM: string, timeBucket: TimeBucket },
   energy: {                               // ← DayStateEstimates から注入（dayStateTypes.ts:79）
-    energyLevel: ConfidentValue<EnergyLevelValue>,
-    focusReserve: ConfidentValue<ReserveLevel>,
+    energyLevel: ConfidentValue<EnergyLevelValue>,    // 体バッテリー
+    focusReserve: ConfidentValue<ReserveLevel>,       // 脳バッテリー
+    emotionalReserve: ConfidentValue<ReserveLevel>,   // ← CEO v0.1: 心バッテリー。人と会う/連絡/交渉/返信の余力
     recoveryNeed: ConfidentValue<RecoveryNeedLevel>,
   },
   momentState: MomentStateV0,             // timePressure / eveningSlackRemainingMin 等（既存 ③）
@@ -116,17 +120,32 @@ TaskPlacementFeasibilityInputV0 = {
 TaskPlacementFeasibilityV0 = {
   energyFit: RealityAttribute<FitLevel>,        // 体/脳の余力 × cognitiveLoad
   cognitiveLoadFit: RealityAttribute<FitLevel>, // 時間帯 × 認知負荷（夜の高負荷は fit 低）
+  emotionalFit: RealityAttribute<FitLevel>,     // ← CEO v0.1: 心の余力 × 対人/連絡負荷（「体力はあるが人と話す余力がない」を判断可能に）
   deadlineFit: RealityAttribute<FitLevel>,      // window が deadline に間に合うか
   splitFit: RealityAttribute<FitLevel>,         // canSplit × window 長 × 最小前進
-  riskFactors: ReadonlyArray<string>,           // 閉じた語彙（evening_high_load / low_focus_reserve / deadline_tight 等）
+  riskFactors: ReadonlyArray<TaskPlacementRiskFactor>, // ← CEO v0.1: 閉じた union（下記・string 禁止）
 }
 FitLevel = "low" | "medium" | "high" | "unknown"
+
+// CEO v0.1: string でなく最初から閉じた union（実装時の自由文混入を型で防ぐ・leak guard 整合）
+TaskPlacementRiskFactor =
+  | "evening_high_load"
+  | "low_focus_reserve"
+  | "low_emotional_reserve"   // ← emotionalReserve 追加に伴い
+  | "deadline_tight"
+  | "window_too_short"
+  | "cannot_split"
+  | "high_cognitive_load"
+  | "recovery_need_high"
+  | "missing_duration"
+  | "missing_deadline"
 ```
 
 設計判断:
 - v0 は **seam + heuristic 評価器**（推定値を読み FitLevel を導出・confidence は入力 confidence の下限以下）。学術的最適化はしない（過剰実装回避）
 - **新規 energy 観測はしない**（既存 estimates を消費）。Energy 推定層は既に ③ なので、RO-1 は「判断の入口」だけ足す
-- riskFactors は閉じた union（自由文禁止・leak guard 整合）
+- **emotionalReserve を入れる理由（CEO v0.1）**: 対人作業（連絡/交渉/返信）は体力でなく心の余力が効く。これ無しに Communication/Context 系の成立性が判断できない
+- riskFactors は**型レベルで閉じた union**（自由文禁止・leak guard 整合）
 
 ### D4 — TaskOutcome seam（→ RJ6 / RO-3）
 
@@ -140,7 +159,8 @@ TaskOutcomeV0 = {
   observedAt: string,                     // 注入（pure・now は caller）
   evidenceRefs: ReadonlyArray<string>,
 }
-TaskOutcomeKind = "completed" | "partial" | "skipped" | "carried_over" | "progressed"
+// CEO v0.1: blocked を追加。「skip(本人がやらなかった)」と「blocked(外部要因で止まった)」を混ぜない。
+TaskOutcomeKind = "completed" | "partial" | "skipped" | "carried_over" | "progressed" | "blocked"
 
 // seam: outcome → completionStatus 更新（単一写像）+ 下流口
 applyTaskOutcome(task, outcome) → { task: TaskRealityNodeV0, carryOverSignal?: …, ledgerSignal?: … }
@@ -169,11 +189,14 @@ Reality Graph は現在 **typed edge を持たない（L0 ①）**。RO-1 は ed
 
 ---
 
-## 3. 供給源・永続化（seam・CEO gated）
+## 3. 供給源・永続化（境界確定・CEO v0.1）
 
-- **v0 = pure kernel + 注入**: task 行は caller が供給（duration_confirmation reader と同パターン・`createSupabaseOperatorDurationSeedReader` 類型）。pure kernel は IO/RNG/now を持たない
-- **永続化バックエンドは未決定・CEO gate**: localStorage（client）か Supabase table（migration＝CEO 承認案件）かは **RO-1 実装 GO 時に CEO 裁定**。設計は seam（interface）まで・どちらにも差せる形にする
-- **本 RO は write 0・migration 0**（pure + fixture/injected で完結。実 write は別 gate）
+**CEO 裁定（2026-06-20）**: 「RO 単位で完璧に実装」方針のため、RO-1 実装中に永続化議論を挟むと再びズレる。境界を明確に固定する。
+
+- **RO-1 実装 = pure kernel + injected fixtures まで**。task 行は caller が供給（duration_confirmation reader と同パターン・`createSupabaseOperatorDurationSeedReader` 類型）。pure kernel は IO/RNG/now を持たない
+- **RO-1 では localStorage / Supabase / migration / DB write を一切やらない**（実装中盤の裁定も**しない**）
+- **永続化は RO-1 完了後の別 gate で裁定**（localStorage か Supabase table か。後者は migration＝CEO 承認案件）。設計は seam（interface）まで・どちらにも差せる形を保持
+- これにより RO-1 は**安全に完了できる**（write 0・migration 0・production 不接触）
 
 ---
 
@@ -190,10 +213,10 @@ Reality Graph は現在 **typed edge を持たない（L0 ①）**。RO-1 は ed
 ## 5. 受け入れ基準 / 監査計画（/goal → /loop）
 
 **受け入れ基準（RO-1 完了 = 全 PASS）**:
-- [ ] TaskRealityNodeV0 7 属性 + completionStatus が型・invariant・test で成立（D1）
+- [ ] TaskRealityNodeV0 7 属性 + completionStatus（**blocked 含む 6 値**）が型・invariant・test で成立（D1）
 - [ ] 1 task : N ScheduledWorkBlock が join で表現でき、block が deadline を正本化しない（D2）
-- [ ] TaskPlacementFeasibility seam が DayStateEstimates を読み FitLevel を返す（D3）
-- [ ] TaskOutcome seam が completionStatus を単一写像で更新し carryOver/Ledger 口を持つ（D4）
+- [ ] TaskPlacementFeasibility seam が **4 energy 入力（emotionalReserve 含む）** を読み energyFit/cognitiveLoadFit/**emotionalFit**/deadlineFit/splitFit + **閉じた union riskFactors** を返す（D3）
+- [ ] TaskOutcome seam が completionStatus を単一写像で更新し（**blocked 含む 6 outcome**）carryOver/Ledger 口を持つ（D4）
 - [ ] 5 edge kind の join 鍵が各ノードに存在（D5）
 - [ ] write 0 / migration 0 / tsc footprint 0 / 既存 test 不破壊
 
@@ -216,17 +239,24 @@ Reality Graph は現在 **typed edge を持たない（L0 ①）**。RO-1 は ed
 
 ---
 
-## 7. 未決定（CEO 確認事項・実装 GO 前に裁定）
+## 7. CEO 裁定済み / 残未決定
 
-1. **永続化バックエンド**: task の保存は localStorage（client・即着手可）か Supabase table（migration＝CEO 承認）か。v0 は pure+injected で進められるが、dogfood で実 task を持つには永続が要る。→ **推奨: v0 は pure+injected で実装し、永続は seam のまま RO-1 実装中盤で CEO 裁定**
-2. **taskId 採番**: 既存 anchor から派生（anchorId 基底）か独立採番か。→ **推奨: 独立採番（deadline 駆動で日に縛られないため）。seam で注入**
-3. **completionStatus と driftSelections の統合度**: 別ノード別事実として並存（推奨）か、将来統合か。→ **推奨: 並存（task outcome は anchor drift より広い）**
+**v0.1 で裁定済み（CEO 2026-06-20）**:
+- **永続化**: RO-1=pure+injected のみ・永続は RO-1 完了後の別 gate（§3 確定）
+- **emotionalReserve**: D3 入力・出力・riskFactor に追加（§D3 確定）
+- **blocked**: completionStatus / TaskOutcomeKind 双方に追加（§D1/§D4 確定）
+- **riskFactors**: 閉じた union `TaskPlacementRiskFactor`（§D3 確定）
+
+**残未決定（実装 GO 前・軽微・私の推奨で進めて可）**:
+1. **taskId 採番**: 独立採番（deadline 駆動で日に縛られない）を推奨。seam で注入（乱数を pure kernel に入れない）
+2. **completionStatus と driftSelections の統合度**: 別ノード別事実として並存を推奨（task outcome は anchor drift より広い・二重正本回避）
 
 ---
 
 ## 8. 決定
 
-- RO-1 を上記 D1〜D5 の**設計**として確定（docs-only）。
+- RO-1 を上記 D1〜D5 の**設計 v0.1** として確定（docs-only・CEO レビュー 5 点反映済み）。
 - 継承: RJ0.1 §1（master/block 分離）を正本・RJ0 §2 の「一本化」は訂正後に従う。
-- **実装は RO-1 単位**（D1〜D5 を 1 RO として・micro-phase に割らない）。実装 GO は CEO 判断 + §7 の 1（永続化）裁定。
+- **永続化境界確定**: RO-1=pure+injected のみ・write/migration/localStorage/Supabase は RO-1 でやらない・永続は別 gate。
+- **実装は RO-1 単位**（D1〜D5 を 1 RO として・micro-phase に割らない）。実装 GO は CEO 判断。
 - コード 0・write 0・migration 0。
