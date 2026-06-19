@@ -133,6 +133,14 @@ export interface EventRealityNodeV0 {
    * - `attachComputedLeaveBy`（leaveByGraphBinding.ts）の再検証を通った時のみ設定。未 attach は undefined（fail-closed）。
    */
   readonly leaveByComputed?: LeaveByComputationV0;
+
+  /**
+   * RO-2 D1（2026-06-20）: 二段出発線（recommended/hard/wakeAt/prepareAt）の **optional sibling**。
+   * - **`leaveBy`（単一 RealityAttribute<string>）とは別 field**・`leaveBy` は不変（既存 consumer 無傷）。
+   * - `EVENT_REALITY_ATTRIBUTE_KEYS` に**含めない**（per-attribute walk に乗らない・専用 `leaveByLinesViolations` で検証）。
+   * - ETA 分布未供給の間は未設定（undefined）または全段 null（dormant・honest）。
+   */
+  readonly leaveByLines?: import("./leaveByLines").LeaveByLinesV0;
 }
 
 /** EventRealityNodeV0 の 10 reality 属性キー（invariant 機械検証・fixture 走査用） */

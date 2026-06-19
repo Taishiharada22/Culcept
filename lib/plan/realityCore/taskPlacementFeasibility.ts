@@ -44,7 +44,8 @@ export type TaskPlacementRiskFactor =
   | "high_cognitive_load"
   | "recovery_need_high"
   | "missing_duration"
-  | "missing_deadline";
+  | "missing_deadline"
+  | "needs_departure_before_window"; // RO-2 D6 additive: anchored block の前に出発線が来る（既存値不変・後方互換）
 
 export interface TaskPlacementFeasibilityInputV0 {
   readonly task: TaskRealityNodeV0;
