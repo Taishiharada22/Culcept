@@ -17,6 +17,13 @@
 
 import { notFound } from "next/navigation";
 import { isCandidateActionsPreviewHostAllowed } from "@/lib/plan/reality/candidateActionsPreviewHost";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import { supabaseServer } from "@/lib/supabase/server";
+import { createSupabaseExternalAnchorRepository } from "@/lib/plan/external-anchor-repository-supabase";
+import { buildOperatorDayRealPayload, realDayPayloadLeakViolations } from "@/lib/plan/realityCore/operatorDayPreview";
+import { makeRealityInstantJst } from "@/lib/plan/realityCore/realityInstant";
+import { createSupabaseOperatorDurationSeedReader, type DurationConfirmationReadClient } from "@/lib/plan/reality/integration/duration-confirmation-source";
+import { AlterDevSafeStatus } from "./AlterDevSafeStatus";
 import { AlterTabBody } from "../components/alter/AlterTabBody";
 import { buildScreenViewModel, jstNowMinutes } from "../components/alter/screenViewModel";
 import overPng from "../components/alter/assets/over.png";
@@ -61,6 +68,41 @@ export default async function DevAlterTabPage({
     notFound();
   }
 
+  // RD3x-P6: Alter dev-only safe boolean status（**flag-gated・operator-only・default OFF・production OFF**）。
+  //   OFF（本番デフォルト）→ status band 非 render（既存 mock preview 完全不変・byte 同一）。ON → operator real payload の
+  //   **safe DTO（leaveByComputedPresent）だけ**読む。internal object/ref/exact instant は読まない（payload に無い）。
+  //   read-only・DB write/localStorage/notification/action なし。MovementReality/Feasibility/Risk/Permission は不変（読むだけ）。
+  let showSafeStatus = false;
+  let leaveByComputedPresent = false;
+  if (PLAN_FLAGS.realityOperatorPreviewLeaveBy) {
+    try {
+      const supabase = await supabaseServer();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        const anchorRepo = createSupabaseExternalAnchorRepository(supabase);
+        const refUtc = new Date();
+        const subjectiveDate = makeRealityInstantJst(refUtc).subjectiveDate;
+        const seedReader = createSupabaseOperatorDurationSeedReader(supabase as unknown as DurationConfirmationReadClient);
+        const rp = await buildOperatorDayRealPayload(
+          { operatorUserId: user.id, referenceInstantUtc: refUtc },
+          {
+            listAnchors: (uid) => anchorRepo.listAnchors(uid),
+            listDurationConfirmations: (uid) => seedReader.listActiveByOwnerForDate(uid, subjectiveDate),
+          },
+        );
+        // page 側 leak guard（fail-closed）。leak 検出時は status を出さない（safe boolean のみ取り出す）。
+        if (realDayPayloadLeakViolations(rp).length === 0) {
+          showSafeStatus = true;
+          leaveByComputedPresent = rp.leaveByComputedPresent;
+        }
+      }
+    } catch {
+      showSafeStatus = false; // read/auth 失敗は非表示（mock preview は継続）
+    }
+  }
+
   const sp = await searchParams;
   const requested = typeof sp.v === "string" ? sp.v : "morning";
   const variantKey: VariantKey = requested in VARIANTS ? (requested as VariantKey) : "morning";
@@ -71,6 +113,9 @@ export default async function DevAlterTabPage({
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-indigo-50/60 via-white to-purple-50/40">
+      {/* RD3x-P6: Alter dev-only safe boolean status（flag ON ∧ operator ∧ leak 0 のときのみ・schema-state boolean のみ） */}
+      {showSafeStatus && <AlterDevSafeStatus present={leaveByComputedPresent} />}
+
       {/* dev 専用 variant 切替バー（製品 UI ではない） */}
       <div className="border-b border-amber-200 bg-amber-50 px-3 py-2">
         <p className="text-[10px] font-medium text-amber-700">
