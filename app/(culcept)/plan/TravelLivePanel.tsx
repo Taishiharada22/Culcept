@@ -55,16 +55,12 @@ export function TravelExternalLinks({ links }: { links: SafeTravelLinkHrefModel[
 }
 
 /** richer read-only render（display-safe projection/cues のみ・中立 copy・action authority なし）。 */
-export function TravelLiveReadyView({
-  state,
-  links = [],
-}: {
-  state: Extract<TravelLiveActionState, { status: "ready" }>;
-  /** ★ 外部 hand-off link（既に display-safe な model のみ・未配線時は空＝何も描かない）。 */
-  links?: SafeTravelLinkHrefModel[];
-}) {
+export function TravelLiveReadyView({ state }: { state: Extract<TravelLiveActionState, { status: "ready" }> }) {
   const p = state.display.projection;
   const cueCount = state.display.cues.length;
+  // ★ D: 外部 hand-off link の単一 source of truth = state.display.externalLinks（placeholder prop 廃止）。
+  //   helper を呼ばず・raw intent を受けず・render のみ。producer(option OFF) 時は undefined → 何も描かない。
+  const externalLinks = state.display.externalLinks ?? [];
   return (
     <div className="mt-3 space-y-1.5 rounded-lg border border-gray-200 bg-white/60 p-3" data-testid="travel-live-ready">
       <p className="text-[12px] font-bold text-gray-900">旅行プランの下書き</p>
@@ -102,7 +98,7 @@ export function TravelLiveReadyView({
         </div>
       )}
       {/* ★ Tier1-B-C — 外部 hand-off link は cue section の外・disclaimer 付近の独立 section（cue に混ぜない）。 */}
-      <TravelExternalLinks links={links} />
+      <TravelExternalLinks links={externalLinks} />
       <p className="text-[11px] text-gray-400">これは予約・確定ではありません。</p>
     </div>
   );

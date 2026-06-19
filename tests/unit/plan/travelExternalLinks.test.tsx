@@ -64,12 +64,13 @@ describe("1. TravelExternalLinks（pure・href model のみ）", () => {
   });
 });
 
-describe("2. TravelLiveReadyView placement（cue と別 section）", () => {
+describe("2. TravelLiveReadyView placement（D: state.display.externalLinks 単一 source・cue と別 section）", () => {
   const READY: SessionSurfaceEvent[] = [
     { kind: "destination_input", areaText: "京都", surface: "form_input" },
     { kind: "selected_plan_window", window: { kind: "single_day", date: "2026-07-01" } },
   ];
-  const readyWithCues = () => {
+  // ★ D: links は state.display.externalLinks 経由で注入（placeholder prop は廃止）。
+  const readyWithCues = (externalLinks?: SafeTravelLinkHrefModel[]) => {
     const base = toTravelLiveActionState(buildTravelPlanDisplayResult({ events: READY, participantIds: ["P1"], viewerId: "P1" }, { fixtureAllowed: false }));
     if (base.status !== "ready") throw new Error("expected ready");
     return {
@@ -77,12 +78,13 @@ describe("2. TravelLiveReadyView placement（cue と別 section）", () => {
       display: {
         ...base.display,
         cues: [{ action: "ask_question", source: "questionsToAsk", ref: "REF_x" }] as const,
+        ...(externalLinks ? { externalLinks } : {}),
       },
     } as Extract<ReturnType<typeof toTravelLiveActionState>, { status: "ready" }>;
   };
 
-  it("links 渡し → external link section が cue section の外・後に出る", () => {
-    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues()} links={[model("外部で確認する")]} />);
+  it("state.display.externalLinks 注入 → external link section が cue section の外・後に出る", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues([model("外部で確認する")])} />);
     const idxCues = h.indexOf("travel-live-cues");
     const idxExt = h.indexOf("travel-live-external-links");
     expect(idxCues).toBeGreaterThan(-1);
@@ -92,18 +94,30 @@ describe("2. TravelLiveReadyView placement（cue と別 section）", () => {
     // 「確認しておきたいこと」の中に link を入れない
     expect(h).toContain("確認しておきたいこと");
   });
-  it("links 未配線（default []）→ external link section を出さない", () => {
+  it("href model は unchanged で TravelExternalLinks に渡る", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues([model("外部で確認する", "https://kept.example.com/x")])} />);
+    expect(h).toContain('href="https://kept.example.com/x"');
+  });
+  it("externalLinks 不在 → external link section を出さない", () => {
     const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues()} />);
     expect(h).not.toContain("travel-live-external-links");
     expect(h).not.toContain("<a ");
     expect(h).not.toContain("href");
   });
+  it("externalLinks 空配列 → external link section を出さない", () => {
+    const h = renderToStaticMarkup(<TravelLiveReadyView state={readyWithCues([])} />);
+    expect(h).not.toContain("travel-live-external-links");
+    expect(h).not.toContain("<a ");
+  });
 });
 
 describe("3. source-contract（client 純度・UI は model 構築しない）", () => {
-  it("UI は SafeTravelLinkIntent を受けない・buildSafeTravelLinkHrefModel を呼ばない", () => {
+  it("UI は SafeTravelLinkIntent を受けず helper を呼ばない（生成/分類なし・state 駆動）", () => {
     expect(SRC).not.toContain("SafeTravelLinkIntent");
-    expect(SRC).not.toContain("buildSafeTravelLinkHrefModel");
+    for (const f of ["buildSafeTravelLinkHrefModel", "prepareSafeTravelLinkHrefModels", "prepareTravelExternalLinkHrefModels", "buildGeneratedMapsSearchIntent"]) {
+      expect(SRC).not.toContain(f);
+    }
+    expect(SRC).toContain("state.display.externalLinks"); // ★ D: 単一 source of truth
   });
   it("URL 生成 / fetch / prefetch / Maps 生成なし", () => {
     for (const f of ["encodeURIComponent", "new URL(", "fetch(", "XMLHttpRequest", "prefetch", "preload", "maps.google", "googleapis", "PlacesService", "scrape"]) {
