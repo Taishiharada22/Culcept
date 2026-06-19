@@ -31,7 +31,18 @@ import type { RealityInstant } from "./realityInstant";
 
 export const OPERATOR_PREVIEW_LEAVEBY_PRESENCE_VERSION = 0;
 
-const HHMM = /^\d{2}:\d{2}$/;
+/**
+ * toHHMM — DB 由来の時刻文字列を canonical `HH:MM` に正規化（fail-closed）。
+ *   実 anchor の `start_time`/`end_time` は Postgres `time` 型で `"16:00:00"`（HH:MM:SS）として返るため、
+ *   `HH:MM`（手書き fixture）と `HH:MM:SS`（実 DB）の両形を受理し先頭 5 文字に切り詰める。
+ *   非文字列 / ISO / 形式不一致は **null**（materialize しない・捏造しない）。
+ *   注: RD3x-P2 初版は `/^\d{2}:\d{2}$/` のみで実 DB の HH:MM:SS を弾いていた（staging smoke が HH:MM fixture で隠蔽）。
+ */
+function toHHMM(s: unknown): string | null {
+  if (typeof s !== "string") return null;
+  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(s)) return null;
+  return s.slice(0, 5);
+}
 
 /** day anchor の ERN id（compileEventRealityNodes:191 と同形・`ern:${subjectiveDate}:${anchorId}`）。 */
 function ernIdOf(subjectiveDate: string, anchorId: string): string {
@@ -49,25 +60,28 @@ function deriveSupplyContext(
   subjectiveDate: string,
   evaluatedAtIso: string,
 ): OperatorSeedSupplyContextV0 | null {
-  if (!HHMM.test(anchor.startTime)) return null; // ISO/非 HH:MM は materialize しない（fail-closed）
-  const arrivalTargetInstant = `${subjectiveDate}T${anchor.startTime}:00+09:00`;
+  const anchorStart = toHHMM(anchor.startTime); // 実 DB は HH:MM:SS・手書き fixture は HH:MM（両受理・null=不正）
+  if (anchorStart === null) return null; // ISO/非 HH:MM(:SS) は materialize しない（fail-closed）
+  const arrivalTargetInstant = `${subjectiveDate}T${anchorStart}:00+09:00`;
 
   // 同日 earlier sibling（endTime あり・最も遅く終わるもの）を previous_event_end origin として採用
   let prev: OperatorSeedSupplyContextV0["origin"] = null;
   let prevEnd = "";
   for (const s of dayAnchors) {
     if (s === anchor) continue;
-    if (typeof s.endTime !== "string" || !HHMM.test(s.endTime)) continue;
-    if (!HHMM.test(s.startTime) || !(s.startTime < anchor.startTime)) continue;
-    if (prev !== null && !(s.endTime > prevEnd)) continue;
-    prevEnd = s.endTime;
+    const sStart = toHHMM(s.startTime);
+    const sEnd = toHHMM(s.endTime);
+    if (sStart === null || sEnd === null) continue; // start/end どちらか欠落・不正 → sibling 不採用
+    if (!(sStart < anchorStart)) continue; // 正規化済 HH:MM 同士で比較（mixed format でも安定）
+    if (prev !== null && !(sEnd > prevEnd)) continue;
+    prevEnd = sEnd;
     prev = {
       originInferenceStage: "previous_event_end",
       dayGraphDate: subjectiveDate,
       dayGraphSnapshotId: `daygraph:${subjectiveDate}`,
       previousEvent: {
         nodeId: ernIdOf(subjectiveDate, s.id),
-        endTimeHHMM: s.endTime,
+        endTimeHHMM: sEnd,
         durationSource: "explicit",
         boundaryClipped: false,
         // honest: origin の location tri-state（present/redacted_sensitive/absent）を sibling の実データで導出。

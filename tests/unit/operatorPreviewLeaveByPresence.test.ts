@@ -54,6 +54,16 @@ describe("RD3x-P2 #1/#2 helper — computed 有無 → boolean", () => {
     const present = await deriveOperatorPreviewLeaveByComputedPresent(baseInput([row()], [PREV, TARGET]));
     expect(present).toBe(true);
   });
+  it("#1b 実 DB format（HH:MM:SS）の anchor でも computed → present=true（format bug 回帰固定）", async () => {
+    // 実 Postgres `time` 型は "14:00:00" を返す。手書き fixture と等価に正規化されること（壁 B 修正）。
+    const targetSec = oneOff({ id: "tgt", startTime: "14:00:00", endTime: "15:00:00", startTimeSource: "user_explicit" });
+    const prevSec = oneOff({ id: "prv", startTime: "09:00:00", endTime: "10:00:00", startTimeSource: "user_explicit", locationText: "渋谷" });
+    expect(await deriveOperatorPreviewLeaveByComputedPresent(baseInput([row()], [prevSec, targetSec]))).toBe(true);
+  });
+  it("#1c 非時刻 startTime（ISO/空/不正）→ materialize しない → false（fail-closed 維持）", async () => {
+    const targetIso = oneOff({ id: "tgt", startTime: "2026-06-12T14:00:00+09:00", endTime: "15:00", startTimeSource: "user_explicit" });
+    expect(await deriveOperatorPreviewLeaveByComputedPresent(baseInput([row()], [PREV, targetIso]))).toBe(false);
+  });
   it("#2 confirmation row なし → false（fixture へ fallback しない）", async () => {
     expect(await deriveOperatorPreviewLeaveByComputedPresent(baseInput([], [PREV, TARGET]))).toBe(false);
   });
