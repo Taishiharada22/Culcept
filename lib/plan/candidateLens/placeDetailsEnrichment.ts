@@ -275,15 +275,22 @@ export function envGateOpen(): boolean {
   return process.env.NODE_ENV !== "production" || isProdEnrichAllowed();
 }
 
-/** ★fetch flag: 実 network 発火を許可するか（P4-b の実 adapter が参照）。default OFF。 */
-export const PLACE_DETAILS_ENRICH_FETCH_ENABLED = false;
+/**
+ * ★fetch flag: 実 network 発火を許可するか（P4-b の実 adapter が参照）。
+ *   ★2026-06-19 CEO「UI+fetch 同時 canary GO」で **true（canary arm）**。
+ *   dev（NODE_ENV≠production）は ON。**production は依然 env gate で OFF**（`PLACE_DETAILS_ENRICH_PROD_ALLOWED=1` 投入まで二重スイッチが閉）。
+ */
+export const PLACE_DETAILS_ENRICH_FETCH_ENABLED = true;
 export function isPlaceDetailsFetchEnabled(): boolean {
   // ★二重スイッチ: const flag=true かつ env gate open（dev or 本番 env 明示）の両方が必要。
   return PLACE_DETAILS_ENRICH_FETCH_ENABLED && envGateOpen();
 }
 
-/** ★UI flag: ②③ で enrichment を描画するか（P4-d が参照）。fetch と独立。default OFF。 */
-export const PLACE_DETAILS_ENRICH_UI_ENABLED = false;
+/**
+ * ★UI flag: ②③ で enrichment を描画するか（P4-d が参照）。fetch と独立。
+ *   ★2026-06-19 CEO「UI+fetch 同時 canary GO」で **true（canary arm）**。production は env gate で OFF（同上）。
+ */
+export const PLACE_DETAILS_ENRICH_UI_ENABLED = true;
 export function isPlaceDetailsUiEnabled(): boolean {
   // ★二重スイッチ: const flag=true かつ env gate open の両方が必要。
   return PLACE_DETAILS_ENRICH_UI_ENABLED && envGateOpen();
