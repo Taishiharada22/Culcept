@@ -59,6 +59,14 @@ export function RealitySurfaceDogfoodClient({ payload, realPayload }: { payload:
             one-off {realPayload.summary.oneOffIncludedCount} 件 / recurring 当日 {realPayload.summary.recurringIncludedCount} 件
             （除外 {realPayload.summary.recurringExcludedCount} / 不正 {realPayload.summary.recurringInvalidCount}）
           </p>
+          {/*
+            RD3x-P5: safe boolean dev preview（**dev-only・operator-only**）。schema-state boolean だけを出す。
+            **exact timestamp / 出発時刻 / 間に合う / 遅れる / departure line は出さない**（payload に exact instant は無い）。
+            「内部計算オブジェクトが attach されているか」だけの dev 観測。
+          */}
+          <p className="mt-0.5 text-[11px] text-emerald-700/60" data-testid="real-day-leaveby-computed-present">
+            内部計算オブジェクト: {realPayload.leaveByComputedPresent ? "あり" : "なし"}（dev観測のみ）
+          </p>
           {!realPayload.available || !realPayload.consumerView || !realPayload.renderedCopy || !realPayload.delivery ? (
             <p className="mt-2 text-[12px] text-emerald-700/60" data-testid="real-day-unavailable">表示できません（{realPayload.reasonCode ?? "unavailable"}）</p>
           ) : (
