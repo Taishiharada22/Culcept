@@ -23,8 +23,12 @@ import {
 } from "@/lib/plan/candidateLens/candidateLensResolver";
 import { applyPreferenceToAxes, type UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePreference";
 
-/** ★候補レンズ UI flag（default OFF・dev-only・production hard block）。既存候補パネルは flag OFF で不変。 */
-export const PLACE_CANDIDATE_LENS_UI_ENABLED = false;
+/**
+ * ★候補レンズ UI flag（lens ①②③ 全体のマスター）。
+ *   ★2026-06-19 CEO「まず lens 単体を dogfood 確認」で **true（dev/dogfood ON）**。
+ *   production は `NODE_ENV !== "production"` で **hard block 維持**（本番公開は別 GO）。flag OFF 時のみ既存 `<ul>` に戻る。
+ */
+export const PLACE_CANDIDATE_LENS_UI_ENABLED = true;
 export function isCandidateLensUiEnabled(): boolean {
   return PLACE_CANDIDATE_LENS_UI_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
 }

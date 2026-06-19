@@ -27,19 +27,17 @@ function cand(over: Partial<LensCandidate> = {}): LensCandidate {
 
 afterEach(() => vi.unstubAllEnvs());
 
-describe("isCandidateLensUiEnabled — flag default OFF / production hard block", () => {
-  it("★定数は default OFF（着地時 production 影響ゼロ）", () => {
-    expect(PLACE_CANDIDATE_LENS_UI_ENABLED).toBe(false);
+describe("isCandidateLensUiEnabled — dogfood ON（dev）/ production hard block", () => {
+  it("★定数は dogfood ON（2026-06-19・dev/dogfood で lens 表示）", () => {
+    expect(PLACE_CANDIDATE_LENS_UI_ENABLED).toBe(true);
   });
-  it("★flag OFF なら dev でも false（既存パネル不変）", () => {
+  it("★dev では有効（dogfood で lens ①②③ 表示）", () => {
     vi.stubEnv("NODE_ENV", "development");
-    expect(isCandidateLensUiEnabled()).toBe(false); // 定数 false ゆえ
+    expect(isCandidateLensUiEnabled()).toBe(true);
   });
-  it("★production では常に false（flag を仮に true でも hard block）", () => {
-    // 定数が true だった場合の不変条件を式で検証（production 排他）。
+  it("★production では常に false（const true でも NODE_ENV hard block・本番公開は別 GO）", () => {
     vi.stubEnv("NODE_ENV", "production");
-    const wouldBe = true && process.env.NODE_ENV !== "production";
-    expect(wouldBe).toBe(false);
+    expect(isCandidateLensUiEnabled()).toBe(false); // ★実関数で本番排他を検証
   });
 });
 
