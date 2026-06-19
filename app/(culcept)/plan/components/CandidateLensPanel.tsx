@@ -47,6 +47,12 @@ export interface CandidateLensPanelProps {
   readonly onSkip?: () => void;
   /** ★P3-c: ユーザー嗜好（gate 済・apply flag ON 時のみ親が渡す）。**③ 比較表の表示行順だけ**に使う（推薦/順位/①②は不変）。 */
   readonly preference?: UserPlacePreference;
+  /**
+   * ★REDO-14: Overlay が viewport top から始まる px（= 親が createPortal する fixed 要素の top）。
+   *   ② 詳細カードの max-height を「overlay の top を起点に viewport 内へ収まる」よう動的算出するために使う
+   *   （input 欄が画面下方にあると 80vh 固定では card 下部が見切れるため）。未指定なら従来の 80vh 固定。①③ には影響しない。
+   */
+  readonly overlayTopOffset?: number;
 }
 
 const ATTR_ICON: Record<AttributeKey, string> = {
@@ -179,7 +185,7 @@ function Portal({ children }: { children: React.ReactNode }) {
   return createPortal(children, document.body);
 }
 
-export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReasonFor, onSelect, onSkip, preference }: CandidateLensPanelProps) {
+export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReasonFor, onSelect, onSkip, preference, overlayTopOffset }: CandidateLensPanelProps) {
   const lens = purposeLensFromSchedule(title);
   const views = candidates.map((c) => buildLensCandidateView(c, lens, { gapMinutes, affinityReason: affinityReasonFor?.(c) ?? null }));
 
@@ -251,8 +257,12 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
     const addrLines = splitAddressLines(v.address);
     const detailRes = enrich.resolutionFor(v.placeId); // ★flag OFF/未取得なら全 fallback（abstract/未確認）
     // ★REDO-8: 縦を理想画像②とほぼ同じに圧縮（巨大化禁止）。横だけ広い。メディア小・なぜは2行まで・余白を詰める。
+    // ★REDO-14: max-height を overlay の top 起点で「viewport 内に収まる」よう動的化（下部 CTA 見切れ防止・内部スクロール）。
+    //   overlayTopOffset 未指定（standalone）は従来の 80vh 固定。`min(80vh, …)` で高い viewport でも巨大化させない。
     return (
-      <div data-testid="lens-detail" className="max-h-[80vh] overflow-y-auto rounded-3xl bg-white p-4 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-purple-200">
+      <div data-testid="lens-detail"
+        style={overlayTopOffset != null ? { maxHeight: `min(80vh, calc(100vh - ${Math.round(overlayTopOffset) + 12}px))` } : undefined}
+        className="max-h-[80vh] overflow-y-auto rounded-3xl bg-white p-4 shadow-[0_18px_50px_rgba(15,23,42,0.20)] ring-1 ring-purple-200">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="text-[17px] font-bold leading-snug tracking-tight text-slate-900">{v.name}</h3>

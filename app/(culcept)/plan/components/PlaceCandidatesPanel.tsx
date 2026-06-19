@@ -510,6 +510,7 @@ export function PlaceCandidatesPanel({
                   onSelect={(c) => handleSelect(c as PlaceCandidate)}
                   onSkip={handleSkip}
                   preference={lensPreference}
+                  overlayTopOffset={lensRect.top + 6}
                 />
               </div>
             </>,
