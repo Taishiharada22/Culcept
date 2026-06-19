@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import {
   deriveOperatorPreviewDepartureLinePresence,
+  deriveOperatorPreviewDepartureLineResult,
   deriveOperatorPreviewLeaveByComputedPresent,
   gateBSatisfied,
   type OperatorPreviewLeaveByPresenceInputV0,
@@ -95,6 +96,59 @@ describe("RD3g-P1 #2 safe boolean(L1) と departure(L2) の関係", () => {
     const input = baseInput([row()], [PREV, tgtDefault]);
     expect(await deriveOperatorPreviewLeaveByComputedPresent(input)).toBe(false);
     expect(await deriveOperatorPreviewDepartureLinePresence(input)).toBe(false);
+  });
+});
+
+describe("RD3g-P2 #4 deriveOperatorPreviewDepartureLineResult（combined presence + HH:MM）", () => {
+  it("#4-a valid → present=true ∧ timestampHHMM='HH:MM' 形式", async () => {
+    const r = await deriveOperatorPreviewDepartureLineResult(baseInput([row()], [PREV, TARGET]));
+    expect(r.present).toBe(true);
+    expect(r.timestampHHMM).not.toBeNull();
+    // HH:MM 形式（2桁:2桁・日付/秒/TZ なし）
+    expect(/^\d{2}:\d{2}$/.test(r.timestampHHMM!)).toBe(true);
+    // full ISO instant / 日付 / seconds / offset を含まない
+    expect(r.timestampHHMM!.includes("T")).toBe(false);
+    expect(r.timestampHHMM!.includes("+")).toBe(false);
+    expect(r.timestampHHMM!.includes("2026")).toBe(false);
+  });
+  it("#4-b 実 DB format（HH:MM:SS）でも timestampHHMM は HH:MM のみ", async () => {
+    const tgtSec = oneOff({ id: "tgt", startTime: "14:00:00", endTime: "15:00:00", startTimeSource: "user_explicit" });
+    const prvSec = oneOff({ id: "prv", startTime: "09:00:00", endTime: "10:00:00", startTimeSource: "user_explicit", locationText: "渋谷" });
+    const r = await deriveOperatorPreviewDepartureLineResult(baseInput([row()], [prvSec, tgtSec]));
+    expect(r.present).toBe(true);
+    expect(r.timestampHHMM).not.toBeNull();
+    expect(/^\d{2}:\d{2}$/.test(r.timestampHHMM!)).toBe(true);
+  });
+  it("#4-c row なし → present=false ∧ timestampHHMM=null", async () => {
+    const r = await deriveOperatorPreviewDepartureLineResult(baseInput([], [PREV, TARGET]));
+    expect(r.present).toBe(false);
+    expect(r.timestampHHMM).toBeNull();
+  });
+  it("#4-d assumed_default → present=false ∧ timestampHHMM=null（honest 拒否）", async () => {
+    const tgtDefault = oneOff({ id: "tgt", startTime: "14:00", endTime: "15:00", startTimeSource: "assumed_default" });
+    const r = await deriveOperatorPreviewDepartureLineResult(baseInput([row()], [PREV, tgtDefault]));
+    expect(r.present).toBe(false);
+    expect(r.timestampHHMM).toBeNull();
+  });
+  it("#4-e present と timestampHHMM は同時性（one-pass・Gates B 一致）", async () => {
+    // valid → 両 non-null/true
+    const rValid = await deriveOperatorPreviewDepartureLineResult(baseInput([row()], [PREV, TARGET]));
+    expect(rValid.present).toBe(true);
+    expect(rValid.timestampHHMM).not.toBeNull();
+    // invalid → 両 false/null
+    const rInvalid = await deriveOperatorPreviewDepartureLineResult(baseInput([], [PREV, TARGET]));
+    expect(rInvalid.present).toBe(false);
+    expect(rInvalid.timestampHHMM).toBeNull();
+  });
+  it("#4-f 返り値は string|null のみ（LeaveByComputationV0 / exact ISO / *Ref を含まない）", async () => {
+    const r = await deriveOperatorPreviewDepartureLineResult(baseInput([row()], [PREV, TARGET]));
+    // timestampHHMM は string | null のみ
+    expect(["string", "null"].includes(typeof r.timestampHHMM ?? "null")).toBe(true);
+    if (r.timestampHHMM !== null) {
+      // full ISO instant token が含まれないことを確認
+      expect(r.timestampHHMM.toLowerCase().includes("leavebyinstant")).toBe(false);
+      expect(r.timestampHHMM.toLowerCase().includes("timecontract")).toBe(false);
+    }
   });
 });
 

@@ -224,7 +224,8 @@ describe("RD3x-ACTIVATE-0 end-to-end: 実 read → operator preview safe boolean
     expect(p.leaveByComputedPresent).toBe(true); // ★ 実 DB seed → durationValue → supply → computed → boolean true
     expect(mod.realDayPayloadLeakViolations(p)).toEqual([]); // safe DTO
     // RD3g-P1: `departureLineCandidatePresent`（L2 safe boolean）は "departureline" substring を含むため strip してから検査。
-    const json = JSON.stringify(p).toLowerCase().split("departurelinecandidatepresent").join("");
+    // RD3g-P2: `departureLineTimestampHHMM`（HH:MM value）も strip（"departure" token false positive 防止）。
+    const json = JSON.stringify(p).toLowerCase().split("departurelinecandidatepresent").join("").split("departurelinetimestamphhmm").join("");
     expect(/t\d{2}:\d{2}:\d{2}\+09:00/.test(JSON.stringify(p))).toBe(false); // exact instant 非露出
     for (const raw of ["オフィス渋谷", "自宅", "src-real", "予定"]) expect(JSON.stringify(p)).not.toContain(raw); // raw anchor 非露出
     // departure LINE（exact 出発時刻行）/ notification は出さない（departureStatus[unresolved schema-state]は safe ゆえ除外）。

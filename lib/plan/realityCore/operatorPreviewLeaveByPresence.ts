@@ -230,3 +230,43 @@ export async function deriveOperatorPreviewDepartureLinePresence(
   const nodes = await buildAttachedNodes(input);
   return nodes.some((e) => e.leaveByComputed !== undefined && gateBSatisfied(e.leaveByComputed));
 }
+
+/**
+ * DepartureLineResultV0 — RD3g-P2 が `buildAttachedNodes` を1回で共有するための複合返却型（module-internal）。
+ *   boolean `present` は P1 と同一。`timestampHHMM` は Gate B 満足ノードの leaveByInstant から **HH:MM のみ**抽出した文字列
+ *   （full ISO instant / date / seconds / timezone offset は含まない）。Gate B 未満 → null（presence-only に退避）。
+ */
+export interface DepartureLineResultV0 {
+  readonly present: boolean;
+  readonly timestampHHMM: string | null;
+}
+
+/**
+ * deriveOperatorPreviewDepartureLineResult — RD3g-P2（L2 combined）: `buildAttachedNodes` を1回だけ呼び、
+ *   `present`（Gate B boolean）と `timestampHHMM`（HH:MM のみ・dev-only exact）を同時に返す（pure・async）。
+ *   `wantDeparture || wantTimestamp` のときに `operatorDayPreview` が rows 1 回読みで両方を取得するために使う。
+ *
+ *   **exact instant は一切返さない**: leaveByInstant.instant（canonical JST ISO "YYYY-MM-DDTHH:MM:SS+09:00"）から
+ *   先頭 16 文字中の `HH:MM`（chars 11-15）のみを取り出す。日付・秒・TZ offset は含まない。
+ *   Gate B 未満 / leaveByInstant が null / 形式不正 → timestampHHMM=null（fail-closed）。
+ */
+export async function deriveOperatorPreviewDepartureLineResult(
+  input: OperatorPreviewLeaveByPresenceInputV0,
+): Promise<DepartureLineResultV0> {
+  const nodes = await buildAttachedNodes(input);
+  let present = false;
+  let timestampHHMM: string | null = null;
+  for (const e of nodes) {
+    if (e.leaveByComputed === undefined || !gateBSatisfied(e.leaveByComputed)) continue;
+    present = true;
+    if (timestampHHMM === null) {
+      const inst = e.leaveByComputed.leaveByInstant?.instant;
+      // canonical JST ISO "YYYY-MM-DDTHH:MM:SS+09:00"（len≥16）→ chars 11-15 = "HH:MM"
+      // full ISO / date / seconds / timezone offset は一切返さない（HH:MM のみ）。
+      if (typeof inst === "string" && inst.length >= 16) {
+        timestampHHMM = inst.slice(11, 16);
+      }
+    }
+  }
+  return { present, timestampHHMM };
+}

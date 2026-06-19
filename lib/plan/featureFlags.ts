@@ -386,6 +386,21 @@ export const PLAN_FLAGS = {
   realityOperatorDepartureLinePreview: process.env.REALITY_OPERATOR_DEPARTURE_LINE_PREVIEW === "true",
 
   /**
+   * RD3g-P2: operator real-data preview で **L2 dev-only departure line の HH:MM タイムスタンプ**を dev 観測バンドに出すかのフラグ。
+   *   Gate B 全 AND を満たした computed leaveBy の leaveByInstant から **HH:MM のみ**（日付・秒・TZ offset なし）を抽出し
+   *   `departureLineTimestampHHMM` として payload に含め、dev-only status バンドに表示する。
+   *   full ISO instant（YYYY-MM-DDTHH:MM:SS+09:00）/ `leaveByInstant` / `timeContract` / `*Ref` / `durationValue` は**一切出さない**。
+   *   `realityOperatorDepartureLinePreview`（L2 presence boolean）とは**独立 flag**（exact を別軸で制御可能）。
+   *   true  : `buildOperatorDayRealPayload` が Gate B ノードの leaveByInstant.instant → HH:MM を `departureLineTimestampHHMM` に設定。
+   *   false : 計算しない・`departureLineTimestampHHMM=null` 固定（**本番デフォルト**）。
+   * env: REALITY_OPERATOR_DEPARTURE_LINE_TIMESTAMP_DEV=true で有効化（**server-side のみ・NEXT_PUBLIC_ なし・production OFF**）。
+   * 設計: docs/reality-departure-line-boundary-design-rd3g-0.md（RD3g-P2・L2 dev-only exact HH:MM）
+   * 制約: **default OFF**。`/plan/dev-alter-tab` dev-only preview のみ。「出発時刻」「間に合う」「遅れる」等の確定 copy 禁止。
+   *   DB write なし。MovementReality/leaveByKnown/routeKnown/etaKnown/Feasibility/Risk/Permission 不変。
+   */
+  realityOperatorDepartureLineTimestampDev: process.env.REALITY_OPERATOR_DEPARTURE_LINE_TIMESTAMP_DEV === "true",
+
+  /**
    * A1-7-33: operator が proposal を review し decision を **M2/M3 に書く** route（POST /api/reality/review-decision）の有効化。
    *   true  : flag ON で route が server 再導出 proposal を review→M2 insert→approve なら M3 entry insert（review_decision_id FK）。
    *   false : route は no-op（**本番デフォルト**・M2/M3 write 0・既存挙動不変）。

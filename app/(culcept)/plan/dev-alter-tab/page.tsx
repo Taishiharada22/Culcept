@@ -25,6 +25,7 @@ import { makeRealityInstantJst } from "@/lib/plan/realityCore/realityInstant";
 import { createSupabaseOperatorDurationSeedReader, type DurationConfirmationReadClient } from "@/lib/plan/reality/integration/duration-confirmation-source";
 import { AlterDevSafeStatus } from "./AlterDevSafeStatus";
 import { AlterDevDepartureLineStatus } from "./AlterDevDepartureLineStatus";
+import { AlterDevDepartureLineTimestamp } from "./AlterDevDepartureLineTimestamp";
 import { AlterTabBody } from "../components/alter/AlterTabBody";
 import { buildScreenViewModel, jstNowMinutes } from "../components/alter/screenViewModel";
 import overPng from "../components/alter/assets/over.png";
@@ -75,11 +76,15 @@ export default async function DevAlterTabPage({
   //   read-only・DB write/localStorage/notification/action なし。MovementReality/Feasibility/Risk/Permission は不変（読むだけ）。
   // RD3g-P1: L2 departure line candidate も同 payload の safe boolean（departureLineCandidatePresent）で表示する。
   //   safe boolean（L1）と departure candidate（L2）は **独立 flag**。payload は 1 回だけ構築し、各 band を各 flag で gate。
+  // RD3g-P2: L2 dev-only departure HH:MM timestamp（departureLineTimestampHHMM）。departure 候補 flag とは独立 flag。
+  //   HH:MM のみ（full ISO instant / 日付 / 秒 / TZ offset なし）。dev 観測バンドに表示（product /plan・Alter 本線 NO GO）。
   let showSafeStatus = false;
   let leaveByComputedPresent = false;
   let showDepartureStatus = false;
   let departureLineCandidatePresent = false;
-  if (PLAN_FLAGS.realityOperatorPreviewLeaveBy || PLAN_FLAGS.realityOperatorDepartureLinePreview) {
+  let showTimestampStatus = false;
+  let departureLineTimestampHHMM: string | null = null;
+  if (PLAN_FLAGS.realityOperatorPreviewLeaveBy || PLAN_FLAGS.realityOperatorDepartureLinePreview || PLAN_FLAGS.realityOperatorDepartureLineTimestampDev) {
     try {
       const supabase = await supabaseServer();
       const {
@@ -107,11 +112,16 @@ export default async function DevAlterTabPage({
             showDepartureStatus = true;
             departureLineCandidatePresent = rp.departureLineCandidatePresent; // presence-only・exact instant は payload に無い
           }
+          if (PLAN_FLAGS.realityOperatorDepartureLineTimestampDev) {
+            showTimestampStatus = true;
+            departureLineTimestampHHMM = rp.departureLineTimestampHHMM; // HH:MM のみ（日付/秒/TZ なし）
+          }
         }
       }
     } catch {
       showSafeStatus = false; // read/auth 失敗は非表示（mock preview は継続）
       showDepartureStatus = false;
+      showTimestampStatus = false;
     }
   }
 
@@ -129,6 +139,8 @@ export default async function DevAlterTabPage({
       {showSafeStatus && <AlterDevSafeStatus present={leaveByComputedPresent} />}
       {/* RD3g-P1: L2 dev-only departure line candidate（別 flag・Gate B presence・exact instant は出さない・presence-only） */}
       {showDepartureStatus && <AlterDevDepartureLineStatus present={departureLineCandidatePresent} />}
+      {/* RD3g-P2: L2 dev-only departure HH:MM timestamp（別 flag・Gate B HH:MM・full ISO instant は出さない・HH:MM のみ） */}
+      {showTimestampStatus && <AlterDevDepartureLineTimestamp timestamp={departureLineTimestampHHMM} />}
 
       {/* dev 専用 variant 切替バー（製品 UI ではない） */}
       <div className="border-b border-amber-200 bg-amber-50 px-3 py-2">

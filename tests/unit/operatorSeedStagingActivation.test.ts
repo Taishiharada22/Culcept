@@ -188,8 +188,9 @@ d("RD3x-ACTIVATE-1 staging real smoke（実 staging DB・anon+user auth・servic
     expect(/t\d{2}:\d{2}:\d{2}\+09:00/.test(JSON.stringify(p))).toBe(false); // exact instant 非露出
     for (const raw of ["オフィス渋谷", "自宅", "src-real", "予定", uidA]) expect(JSON.stringify(p)).not.toContain(raw); // raw anchor/uid 非露出
     // RD3g-P1: `departureLineCandidatePresent` は意図的 safe boolean key（"departureline" substring を含む）→ 走査前に除去。
+    // RD3g-P2: `departureLineTimestampHHMM`（HH:MM value）も strip（"departure" token false positive 防止）。
     //   この flag は本 smoke では未 stub（OFF）だが、payload に常時存在する required field なので key 文字列を取り除いてから token 検査する。
-    const low = JSON.stringify(p).toLowerCase().split("departurelinecandidatepresent").join("");
+    const low = JSON.stringify(p).toLowerCase().split("departurelinecandidatepresent").join("").split("departurelinetimestamphhmm").join("");
     for (const t of ["leavebyinstant", "arrivaltargetinstant", "timecontract", "sourcetimeestimateref", "bufferref", "departureline", "notification"]) expect(low.includes(t)).toBe(false);
     vi.unstubAllEnvs();
     vi.resetModules();

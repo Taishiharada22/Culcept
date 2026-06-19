@@ -27,6 +27,7 @@ const realPayload = (present: boolean): RealDaySurfacePayloadV0 => ({
   readiness: OPERATOR_REALITY_READINESS_INITIAL,
   leaveByComputedPresent: present,
   departureLineCandidatePresent: false, // RD3g-P1: 本 client（dev-reality-surface）は departure を表示しない・型整合のみ
+  departureLineTimestampHHMM: null, // RD3g-P2: 同上・型整合のみ
 });
 const render = (present: boolean) =>
   renderToStaticMarkup(
