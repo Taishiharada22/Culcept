@@ -20,7 +20,7 @@
 
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { supabaseServer } from "@/lib/supabase/server";
-import { isPlanTravelLiveAllowed } from "@/lib/plan/travel/plan-travel-live-gate";
+import { isPlanTravelLiveAllowed, isPlanTravelExternalLinksAllowed } from "@/lib/plan/travel/plan-travel-live-gate";
 import { buildTravelSessionEventsFromFormData } from "@/lib/plan/travel/travel-formdata-intake";
 import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
 import { toTravelLiveActionState, type TravelLiveActionState } from "@/lib/plan/travel/travel-live-action-state";
@@ -46,9 +46,19 @@ export async function submitTravelLiveIntakeAction(
 
   // ③ 許可 event field のみ（participantId/user_id は読まない）。participant は auth から注入（client 不信任）。
   const events = buildTravelSessionEventsFromFormData(formData);
+  // ★ external links は **live gate に従属**（server が gate から計算・FormData/client から読まない）。
+  //   travelExternalLinks 単独では不可（live gate を AND）・production は flag 全 ON でも常に deny。
+  //   step ① で live gate 不許可は既に unavailable return 済ゆえ、ここでは travelExternalLinks の有無で決まる。
+  const includeExternalLinks = isPlanTravelExternalLinksAllowed({
+    travelLive: PLAN_FLAGS.travelLive,
+    planRouteLive: PLAN_FLAGS.planRouteLive,
+    supabaseUrl,
+    travelExternalLinks: PLAN_FLAGS.travelExternalLinks,
+  });
   const result = buildTravelPlanDisplayResult(
     { events, participantIds: [authUserId], viewerId: authUserId },
     { fixtureAllowed: false },
+    { includeExternalLinks },
   );
 
   // ④ display-safe な action state を RETURN（型で AuthoritativePacket/raw/diagnostics を拘束・redirect/persistence なし）。

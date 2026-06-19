@@ -395,6 +395,17 @@ export const PLAN_FLAGS = {
   travelLive: process.env.PLAN_TRAVEL_LIVE === "true",
 
   /**
+   * external-links: production `/plan` travel **external link** gate flag（**server-only・default OFF・NEXT_PUBLIC なし**）。
+   *   設計: docs/t11-server-action-externallinks-option-passing-design.md。
+   *   ★ **live gate に従属（subordinate）**: 単独では何も有効化しない。合成は `isPlanTravelExternalLinksAllowed`
+   *     = `isPlanTravelLiveAllowed`（travelLive ∧ planRouteLive ∧ staging ∧ !production）∧ travelExternalLinks。
+   *   ★ **production は本 flag ON でも常に deny**（live gate 継承・解除は別 CEO gate）。
+   *   ★ preview flag（`travelProjectionPreview`）は本 link を有効化しない（別軸）。
+   *   有効化するのは generated Maps 検索 hand-off link の表示のみ（booking/calendar/send/realtime/外部 retrieval は有効化しない）。
+   */
+  travelExternalLinks: process.env.PLAN_TRAVEL_EXTERNAL_LINKS === "true",
+
+  /**
    * A-4-c7: Life Ops 実データ read-only の flag 群（**dormant・default OFF・consumer なし**＝設計/contract のみ）。
    *   将来 wiring: master ∧ per-source の AND + staging triple-guard + production hard block。
    *   有効化条件: 5層cap 配線の実データ量検証 + staging 観測 ≥2 週間 + CEO 承認（docs/life-ops-realdata-readiness-a4-c7-mini-design.md）。

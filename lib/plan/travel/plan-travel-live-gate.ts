@@ -37,3 +37,17 @@ export function isPlanTravelLiveAllowed(env: PlanTravelLiveEnv): boolean {
     !url.includes(PRODUCTION_PROJECT_REF)
   );
 }
+
+/**
+ * external link gate（**live gate に従属 = subordinate**）。
+ *   = `isPlanTravelLiveAllowed(env)` ∧ `env.travelExternalLinks === true`。
+ *   ★ `travelExternalLinks` 単独では false（live gate を必ず AND）。
+ *   ★ **production は flag が全て ON でも常に false**（`isPlanTravelLiveAllowed` の production deny を継承）。
+ *   ★ staging allowlist / planRouteLive / travelLive は live gate から継承。preview flag は考慮しない。
+ *   pure・throw しない・env/IO を読まない（caller が env を渡す）。
+ */
+export function isPlanTravelExternalLinksAllowed(
+  env: PlanTravelLiveEnv & { readonly travelExternalLinks: boolean },
+): boolean {
+  return isPlanTravelLiveAllowed(env) && env.travelExternalLinks === true;
+}

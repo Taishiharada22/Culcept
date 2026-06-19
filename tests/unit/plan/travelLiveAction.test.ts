@@ -66,3 +66,26 @@ describe("3. no redirect / persistence / write / raw・display-safe 返却", () 
     expect(SRC).not.toMatch(/m2|personalization/i);
   });
 });
+
+describe("4. external links option passing（live gate に従属・FormData/client 不信任）", () => {
+  it("includeExternalLinks を isPlanTravelExternalLinksAllowed から計算し adapter に渡す", () => {
+    expect(SRC).toContain("isPlanTravelExternalLinksAllowed");
+    expect(SRC).toMatch(/const includeExternalLinks = isPlanTravelExternalLinksAllowed\(/);
+    expect(SRC).toContain("PLAN_FLAGS.travelExternalLinks");
+    expect(SRC).toMatch(/\{ includeExternalLinks \}/); // adapter 第3引数で渡す
+  });
+  it("includeExternalLinks/externalLinksEnabled/travelExternalLinks を FormData から読まない", () => {
+    for (const f of [
+      'formData.get("includeExternalLinks")',
+      'formData.get("externalLinksEnabled")',
+      'formData.get("travelExternalLinks")',
+      "includeExternalLinks: formData",
+      "travelExternalLinks: formData",
+    ]) {
+      expect(SRC).not.toContain(f);
+    }
+  });
+  it("NEXT_PUBLIC link flag を参照しない（server-only flag のみ）", () => {
+    expect(SRC).not.toContain("NEXT_PUBLIC_PLAN_TRAVEL_EXTERNAL_LINKS");
+  });
+});
