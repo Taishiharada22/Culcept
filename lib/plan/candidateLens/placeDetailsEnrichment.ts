@@ -258,14 +258,33 @@ export function createEnrichmentMemo(): EnrichmentSessionMemo {
 
 // ───────────────────────── 5. flags（UI と fetch を分離・default OFF・production hard block） ─────────────────────────
 
-/** ★fetch flag: 実 network 発火を許可するか（P4-b の実 adapter が参照。P4-a は未使用）。default OFF。 */
+/**
+ * ★production env gate（P4-e）: production で有効化を許す**唯一の明示スイッチ**。
+ *   本番 env に `PLACE_DETAILS_ENRICH_PROD_ALLOWED=1` を投入した時だけ true。default（未設定）は false。
+ *   ※ env を投入しても **const flag が true でなければ有効化されない**（§envGateOpen と AND 条件＝二重スイッチ）。
+ */
+export function isProdEnrichAllowed(): boolean {
+  return process.env.PLACE_DETAILS_ENRICH_PROD_ALLOWED === "1";
+}
+
+/**
+ * ★env gate: dev（NODE_ENV≠production）は従来通り常に通過 / production は **env 明示許可時のみ**通過。
+ *   `NODE_ENV !== "production"` を直接外さず、専用 env で明示許可した時だけ production 排他を解除する（誤有効化防止）。
+ */
+export function envGateOpen(): boolean {
+  return process.env.NODE_ENV !== "production" || isProdEnrichAllowed();
+}
+
+/** ★fetch flag: 実 network 発火を許可するか（P4-b の実 adapter が参照）。default OFF。 */
 export const PLACE_DETAILS_ENRICH_FETCH_ENABLED = false;
 export function isPlaceDetailsFetchEnabled(): boolean {
-  return PLACE_DETAILS_ENRICH_FETCH_ENABLED && process.env.NODE_ENV !== "production"; // production hard block
+  // ★二重スイッチ: const flag=true かつ env gate open（dev or 本番 env 明示）の両方が必要。
+  return PLACE_DETAILS_ENRICH_FETCH_ENABLED && envGateOpen();
 }
 
 /** ★UI flag: ②③ で enrichment を描画するか（P4-d が参照）。fetch と独立。default OFF。 */
 export const PLACE_DETAILS_ENRICH_UI_ENABLED = false;
 export function isPlaceDetailsUiEnabled(): boolean {
-  return PLACE_DETAILS_ENRICH_UI_ENABLED && process.env.NODE_ENV !== "production"; // production hard block
+  // ★二重スイッチ: const flag=true かつ env gate open の両方が必要。
+  return PLACE_DETAILS_ENRICH_UI_ENABLED && envGateOpen();
 }

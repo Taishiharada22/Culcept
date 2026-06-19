@@ -13,6 +13,8 @@ import {
   PLACE_DETAILS_ENRICH_UI_ENABLED,
   isPlaceDetailsFetchEnabled,
   isPlaceDetailsUiEnabled,
+  isProdEnrichAllowed,
+  envGateOpen,
   type PlaceDetailsEnrichment,
 } from "@/lib/plan/candidateLens/placeDetailsEnrichment";
 import { FakePlaceDetailsAdapter, FAKE_ENRICHMENTS } from "@/lib/plan/candidateLens/placeDetailsAdapter";
@@ -236,5 +238,73 @@ describe("P4-a flags（UI/fetch 分離・default OFF・production hard block）"
     expect(isPlaceDetailsFetchEnabled()).toBe(false);
     expect(isPlaceDetailsUiEnabled()).toBe(false);
     expect(true && process.env.NODE_ENV !== "production").toBe(false);
+  });
+});
+
+// ═══════════════ P4-e: production env gate（NODE_ENV 排他を直接外さず env で明示許可・二重スイッチ） ═══════════════
+describe("P4-e production env gate（isProdEnrichAllowed / envGateOpen / 二重スイッチ）", () => {
+  // 公開関数は const && envGateOpen() の AND。現状 const は両方 false。
+  it("★(7) default 状態（const 全 OFF・env 未設定）→ 全 OFF", () => {
+    expect(PLACE_DETAILS_ENRICH_FETCH_ENABLED).toBe(false);
+    expect(PLACE_DETAILS_ENRICH_UI_ENABLED).toBe(false);
+    expect(isProdEnrichAllowed()).toBe(false); // env 未設定
+  });
+
+  it("★(1) dev 環境では既存挙動不変（envGateOpen=true・公開関数は const に従う＝現状 false）", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(envGateOpen()).toBe(true); // dev は env 無関係に通過
+    // 公開関数は const && gate。const false ゆえ false（＝従来 dev 挙動と同一）。
+    expect(isPlaceDetailsFetchEnabled()).toBe(PLACE_DETAILS_ENRICH_FETCH_ENABLED && envGateOpen());
+    expect(isPlaceDetailsUiEnabled()).toBe(PLACE_DETAILS_ENRICH_UI_ENABLED && envGateOpen());
+    expect(isPlaceDetailsFetchEnabled()).toBe(false);
+  });
+
+  it("★(2) production + env 未設定 → gate closed → fetch/ui false", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isProdEnrichAllowed()).toBe(false);
+    expect(envGateOpen()).toBe(false); // 本番 + env 無 → 排他維持
+    expect(isPlaceDetailsFetchEnabled()).toBe(false);
+    expect(isPlaceDetailsUiEnabled()).toBe(false);
+  });
+
+  it("★(5) env=1 だけ（const false）では本番有効化されない", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLACE_DETAILS_ENRICH_PROD_ALLOWED", "1");
+    expect(isProdEnrichAllowed()).toBe(true);
+    expect(envGateOpen()).toBe(true); // gate は開く
+    // が、const flag が false ゆえ公開関数は false（二重スイッチ）。
+    expect(isPlaceDetailsFetchEnabled()).toBe(false);
+    expect(isPlaceDetailsUiEnabled()).toBe(false);
+  });
+
+  it("★(3) production + env=1 + const flag true → true（gate open かつ const true）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLACE_DETAILS_ENRICH_PROD_ALLOWED", "1");
+    // 公開関数 = const && envGateOpen()。const=true を仮定すると true && true = true。
+    expect(envGateOpen()).toBe(true);
+    expect(true && envGateOpen()).toBe(true); // const true 相当 → 有効化される
+  });
+
+  it("★(4) production + env=1 + const flag false → false（const が必要）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PLACE_DETAILS_ENRICH_PROD_ALLOWED", "1");
+    expect(false && envGateOpen()).toBe(false); // const false → 無効
+    expect(isPlaceDetailsFetchEnabled()).toBe(false); // 実 const も false
+  });
+
+  it("★(6) const flag true だけ（env 無・production）では本番有効化されない", () => {
+    vi.stubEnv("NODE_ENV", "production"); // env=PLACE_DETAILS_ENRICH_PROD_ALLOWED 未設定
+    expect(envGateOpen()).toBe(false); // gate closed
+    expect(true && envGateOpen()).toBe(false); // const true 相当でも gate closed → false
+  });
+
+  it("★公開関数は const && envGateOpen() の AND（配線の不変条件・全 env で一致）", () => {
+    for (const [node, prod] of [["development", undefined], ["production", undefined], ["production", "1"], ["test", "1"]] as const) {
+      vi.stubEnv("NODE_ENV", node);
+      if (prod === undefined) vi.stubEnv("PLACE_DETAILS_ENRICH_PROD_ALLOWED", "");
+      else vi.stubEnv("PLACE_DETAILS_ENRICH_PROD_ALLOWED", prod);
+      expect(isPlaceDetailsFetchEnabled()).toBe(PLACE_DETAILS_ENRICH_FETCH_ENABLED && envGateOpen());
+      expect(isPlaceDetailsUiEnabled()).toBe(PLACE_DETAILS_ENRICH_UI_ENABLED && envGateOpen());
+    }
   });
 });
