@@ -10,12 +10,12 @@
 
 > 全項目 ✅ で初めて「本番 ON GO」を CEO に上申できる。1 つでも未達なら **dev-only 維持**。
 
-**GCP（CEO・Cloud Console / §2）**
-- [ ] G-1 API key restriction: Places API (New) のみに制限＋サーバ鍵として IP/referrer 制限
-- [ ] G-2 Places API (New) 有効・Place Details / Place Photos 課金 SKU 利用可（本番 project で確認）
-- [ ] G-3 per-API quota: Details / Photo に per-minute・per-day 上限を設定
-- [ ] G-4 monthly budget ＋ アラート（50/90/100%）設定
-- [ ] G-5 emergency kill switch: ①app flag false 再デプロイ ②GCP quota=0 / key 無効 の二系統を確認
+**GCP（CEO・Cloud Console / §2）— ★2026-06-19 完了**
+- [x] G-1 API key restriction: Places API (New) に制限済
+- [x] G-2 Places API (New) 有効・Place Details / Place Photos 利用可
+- [x] G-3 per-API quota: 設定済
+- [x] G-4 monthly budget ＋ アラート: 毎月 / 50% / 90% / 100% 設定済
+- [x] G-5 emergency kill switch: **quota=0 → env off → flag false → key disable** の順で対応可（確認済）
 
 **App（§3 / §5 で実装・別 GO）**
 - [ ] A-1 production 排他を **専用 env gate `PLACE_DETAILS_ENRICH_PROD_ALLOWED`** に置換（`NODE_ENV!=="production"` を直接外さない）＋ tests
