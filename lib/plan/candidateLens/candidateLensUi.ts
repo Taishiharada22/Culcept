@@ -144,6 +144,19 @@ export function buildLensCandidateView(candidate: LensCandidate, lens: PurposeLe
   };
 }
 
+/**
+ * ③ 行順の説明 payload（E-a・pure）。
+ *   ★preference 適用で **canonical と実表示順が変わった時だけ** 非 null。それ以外（preference なし/insufficient/順序不変）は null。
+ *   ★行順の説明だけ（推薦/winner/highlight は不変・ここでは扱わない）。leadAxes は **applied preference 由来**（捏造でない）。
+ */
+export interface ComparisonExplanation {
+  readonly reordered: true;
+  /** 前方へ寄せた軸（1〜2・表示文言の元）。 */
+  readonly leadAxes: readonly AttributeKey[];
+  /** copy 選択用の主軸識別子（= leadAxes[0]）。UI はこれ/leadAxes から register A の行為説明を組む。 */
+  readonly copyKey: AttributeKey;
+}
+
 /** ③ 比較 view。主表は確認済み(値あり)行のみ・未確認は名前だけ補助に。 */
 export interface LensComparisonView {
   readonly lens: PurposeLens;
@@ -153,6 +166,33 @@ export interface LensComparisonView {
   readonly unconfirmedLabels: readonly string[];
   /** 推薦サマリー（どちら側・根拠句）。甲乙つけがたければ null。 */
   readonly recommendation: { readonly side: "left" | "right"; readonly basisPhrase: string } | null;
+  /** ★E-a: 行順が personalized で canonical と変わった時だけ非 null（説明 note 用）。それ以外は null。 */
+  readonly explanation: ComparisonExplanation | null;
+}
+
+/** 軸 → 行為説明用の名詞（register A・★人格断定/追跡語を含まない）。UI が 1 行 note に使う。 */
+const EXPLANATION_AXIS_NOUN: Partial<Record<AttributeKey, string>> = {
+  walk_estimate: "徒歩の近さ",
+  margin_impact: "予定の余白",
+  schedule_fit: "予定とのつながり",
+  affinity_reason: "なじみのある場所",
+  social_fit: "会話のしやすさ",
+  category: "場所の種類",
+  address: "場所",
+};
+
+/** lead 軸 → 名詞（無ければ ATTRIBUTE_LABEL fallback）。 */
+export function explanationAxisNoun(key: AttributeKey): string {
+  return EXPLANATION_AXIS_NOUN[key] ?? ATTRIBUTE_LABEL[key];
+}
+
+/**
+ * ★E-a copy helper（register A・行為説明のみ・pure）。
+ *   「最近の選び方をもとに、〈軸〉を上に並べています。」— 人格断定（あなたは〜な人）/追跡語（よく見る・履歴）を**含まない**。
+ */
+export function buildExplanationCopy(leadAxes: readonly AttributeKey[]): string {
+  const noun = leadAxes.length > 0 ? explanationAxisNoun(leadAxes[0]!) : "選びやすさ";
+  return `最近の選び方をもとに、${noun}を上に並べています。`;
 }
 
 /**
@@ -173,14 +213,26 @@ export function buildLensComparisonView(
   // ★canonical（preference を渡さない）で全軸・推薦を計算。recommendation/isBest はここに固定（preference 不依存）。
   const canonical = buildLensComparison({ lens, leftAttrs: left.attrs, rightAttrs: right.attrs, showUnconfirmed: true });
   const canonicalMain = canonical.rows.filter((r) => !r.unconfirmed);
+  const canonicalKeys = canonicalMain.map((r) => r.key);
+
   // ★preference は「表示行順だけ」反映: 既定軸にある軸を前方へ寄せ、行をその順で並べ替える（isBest/値/推薦は不変）。
-  const mainRows = preference
-    ? (() => {
-        const ordered = applyPreferenceToAxes(canonicalMain.map((r) => r.key), lens, preference);
-        const byKey = new Map(canonicalMain.map((r) => [r.key, r] as const));
-        return ordered.map((k) => byKey.get(k)).filter((r): r is ComparisonRow => r != null);
-      })()
-    : canonicalMain;
+  //   さらに E-a: **canonical と順序が変わった時だけ** explanation payload を生成（leadAxes は applied preference 由来）。
+  let mainRows: readonly ComparisonRow[] = canonicalMain;
+  let explanation: ComparisonExplanation | null = null;
+  if (preference) {
+    const ordered = applyPreferenceToAxes(canonicalKeys, lens, preference);
+    if (!sameOrder(canonicalKeys, ordered)) {
+      const byKey = new Map(canonicalMain.map((r) => [r.key, r] as const));
+      mainRows = ordered.map((k) => byKey.get(k)).filter((r): r is ComparisonRow => r != null);
+      // leadAxes = 適用 preference の軸のうち、比較表に実在する軸（前方化した軸）。先頭 1〜2。
+      const prefAxes = preference.perLens?.[lens] ?? preference.prioritizedAttributes ?? [];
+      const leadAxes = prefAxes.filter((k) => canonicalKeys.includes(k)).slice(0, 2);
+      if (leadAxes.length > 0) {
+        explanation = { reordered: true, leadAxes, copyKey: leadAxes[0]! };
+      }
+    }
+  }
+
   // ★補助注記は「本当に未確認(C弱推定/D未確認)」のみ。文脈不足で未計算の B(computed・例: gap 無しの予定接続/余白)は静かに drop。
   const unconfirmedLabels = canonical.rows.filter((r) => r.unconfirmed && r.evidenceType !== "computed").map((r) => r.label);
   const phrase = recommendationBasisPhrase(canonical);
@@ -189,5 +241,13 @@ export function buildLensComparisonView(
     mainRows,
     unconfirmedLabels,
     recommendation: canonical.recommendation && phrase ? { side: canonical.recommendation.side, basisPhrase: phrase } : null,
+    explanation,
   };
+}
+
+/** 行順が同一か（pure・E-a の explanation 発火判定）。 */
+function sameOrder(a: readonly AttributeKey[], b: readonly AttributeKey[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
