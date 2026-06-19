@@ -13,7 +13,13 @@
  *     private user state(red_line/preference) / M2/Stargazer / raw userId。
  */
 
-export type SafeTravelLinkSource = "user_provided" | "manual_official" | "manual_maps";
+export type SafeTravelLinkSource =
+  | "user_provided"
+  | "manual_official"
+  | "manual_maps"
+  // ★ Tier1-C: confirmed shared-safe ラベルから生成した Maps **検索** hand-off（manual と区別）。
+  //   manual 3 種は全て「生成でない」。これだけが `generated:true` を伴う。
+  | "generated_maps_search";
 
 export type SafeTravelLinkEligibility =
   | "eligible" // confirmed destination or confirmed entity・valid url
@@ -48,6 +54,12 @@ export interface SafeTravelLinkIntent {
   actionable: false;
   rendered: false;
   fetched: false;
+  /**
+   * ★ Tier1-C 生成印（additive・任意）。`true` = `generated_maps_search` で**アプリが構築した検索 URL**。
+   *   manual 由来（user_provided / manual_official / manual_maps）は **set しない（absent）**＝生成と手動を構造的に区別。
+   *   注: `value` は依然 inert（href にしない）。別 `generatedUrl` field は作らない（value に inert carry）。
+   */
+  generated?: boolean;
   // 非所持（意図的欠落）: href / generatedUrl / booking / calendar / action /
   //   livePrice / availability / cancellation / redLine / preference / m2 / stargazer / userId
 }
