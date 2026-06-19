@@ -19,6 +19,7 @@ import type { PlanIntelligenceProjection } from "./plan-intelligence-projection-
 import type { CoAlterProjectionCue } from "./coalter-projection-consume-types";
 import type { TravelInputPrerequisite } from "./travel-input-provider-types";
 import type { TravelSessionBindingInput } from "./travel-session-binding-types";
+import type { SafeTravelLinkHrefModel } from "./safe-link-href-types";
 
 /**
  * production-safe な構造化入力 payload。
@@ -33,6 +34,17 @@ export interface TravelPlanDisplayPayload {
   packet: DisplayPacketForClient;
   projection: PlanIntelligenceProjection;
   cues: CoAlterProjectionCue[];
+  /**
+   * ★ D-A 外部 hand-off link transport（**optional・default 不在**）。
+   *   - **display-safe な `SafeTravelLinkHrefModel[]` のみ**（raw `SafeTravelLinkIntent` / diagnostics /
+   *     authoritative packet / engine output / private state / action authority を**持たない**）。
+   *   - **server/display 層のみが用意**する（`prepareSafeTravelLinkHrefModels` の出力）。
+   *     **UI はこの model を構築してはならない**・**UI は raw `SafeTravelLinkIntent` を受け取らない**・
+   *     **UI は preparation/generation helper を呼ばない**（render only）。
+   *   - **default 不在**＝producer が set するまで UI は何も描かない（本スライスでは producer/consumer 未配線）。
+   *   - **not-ready / unavailable / invalid には存在し得ない**（それらは `display` payload を運ばない＝型で保証）。
+   */
+  externalLinks?: SafeTravelLinkHrefModel[];
 }
 
 /** not-ready 時に「何を聞くか」だけを伝える中立 ask（provenance / 診断を含まない）。 */
