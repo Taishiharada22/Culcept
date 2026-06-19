@@ -39,6 +39,17 @@ export function isCandidateLensExplanationEnabled(): boolean {
   return PLACE_CANDIDATE_LENS_EXPLANATION_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
 }
 
+/**
+ * ★REDO-15: ②③ の地図を装飾タイルでなく **実 Google 地図**で出す flag（default ON・CEO 直接指示 2026-06-19・env 設定済み）。
+ *   既存 `useGoogleMapsScript`（browser key `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY`・Morning/MapTab と同 singleton）を再利用＝
+ *   新規 API/key 追加なし。key 未設定/未 ready/座標なしは従来の装飾 MapTile に **fail-open**（捏造しない）。① は不変。
+ *   lens 自体が dev-only gate のため本番には出ない（lens overlay は production hard block）。
+ */
+export const PLACE_CANDIDATE_LENS_MAP_ENABLED = true;
+export function isCandidateLensMapEnabled(): boolean {
+  return PLACE_CANDIDATE_LENS_MAP_ENABLED;
+}
+
 /** 候補（placeId 付き・UI key 用）。 */
 export interface LensCandidate extends CandidateInput {
   readonly placeId: string;
@@ -50,6 +61,9 @@ export interface LensCandidateView {
   readonly name: string;
   readonly address: string | null;
   readonly category: string | null;
+  /** ★REDO-15: 実地図表示用の座標（Places の返した実値・捏造でない）。地図不可時は装飾 MapTile に fail-open。 */
+  readonly lat: number;
+  readonly lng: number;
   readonly lens: PurposeLens;
   /** 相性バッジ（観測由来 reason がある時のみ・無ければ null）。 */
   readonly affinityBadge: string | null;
@@ -146,6 +160,8 @@ export function buildLensCandidateView(candidate: LensCandidate, lens: PurposeLe
     name: candidate.name,
     address: attrs.address.value,
     category: attrs.category.value,
+    lat: candidate.lat,
+    lng: candidate.lng,
     lens,
     affinityBadge: hasAffinity ? "相性" : null,
     whyLine: whyChooseLine(attrs, lens, hasAffinity),

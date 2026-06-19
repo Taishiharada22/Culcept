@@ -13,7 +13,7 @@
  * ★honesty: 写真→categoryタイル・地図→簡易mapタイル・Wi-Fi/電源/静か/雰囲気/営業時間は捏造せず dimmed「未確認」・
  *   優位は表示値差のみ・B は約/目安。住所は ① 1行省略 / ② 2行整理。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   buildLensCandidateView,
@@ -21,6 +21,7 @@ import {
   buildWhyBullets,
   buildExplanationCopy,
   isCandidateLensExplanationEnabled,
+  isCandidateLensMapEnabled,
   purposeLensFromSchedule,
   shortAddress,
   splitAddressLines,
@@ -28,6 +29,7 @@ import {
   type LensCandidateView,
   type LensComparisonView,
 } from "@/lib/plan/candidateLens/candidateLensUi";
+import { useGoogleMapsScript, type GmapsMap, type GmapsMarker } from "@/lib/shared/googleMapsLoader";
 import { PURPOSE_LENS_LABEL, type PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
 import { ATTRIBUTE_LABEL, type AttributeKey } from "@/lib/plan/candidateLens/placeAttributeModel";
 import type { UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePreference";
@@ -131,6 +133,53 @@ function MapTile({ h = "h-[4.5rem]", w = "w-[4.5rem]" }: { h?: string; w?: strin
       <div className="absolute -left-2 top-1/2 h-[3px] w-[140%] -rotate-[20deg] rounded-full bg-slate-200/80" />
       <div className="absolute left-1/3 -top-2 h-[150%] w-[3px] rotate-[12deg] rounded-full bg-slate-200/70" />
       <span className="absolute inset-0 flex items-center justify-center text-[18px]">📍</span>
+    </div>
+  );
+}
+
+/**
+ * ★REDO-15: 実 Google 地図（②③ のみ）。既存 `useGoogleMapsScript`（browser key・singleton）を再利用。
+ *   flag OFF / key 未設定 / 未 ready 前 / 座標なし → 装飾 MapTile に fail-open（捏造しない・honesty）。
+ *   gestureHandling="none" + disableDefaultUI で「動かない地図プレビュー」（誤操作・スクロール奪取を防ぐ）。
+ *   座標が変わった時（③ 比較相手の切替）は同 instance を re-center + marker 再生成（map instance を増やさない）。
+ */
+function LensPlaceMap({ lat, lng, name, h = "h-[4.5rem]", w = "w-[4.5rem]" }: { lat: number; lng: number; name?: string; h?: string; w?: string }) {
+  const { ready, keyAvailable } = useGoogleMapsScript();
+  const elRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<GmapsMap | null>(null);
+  const markerRef = useRef<GmapsMarker | null>(null);
+  const enabled = isCandidateLensMapEnabled() && keyAvailable && Number.isFinite(lat) && Number.isFinite(lng);
+
+  useEffect(() => {
+    if (!enabled || !ready || !elRef.current || !window.google?.maps) return;
+    const pos = { lat, lng };
+    if (!mapRef.current) {
+      mapRef.current = new window.google.maps.Map(elRef.current, {
+        center: pos,
+        zoom: 15,
+        disableDefaultUI: true,
+        gestureHandling: "none", // 動かない地図プレビュー（overlay 内での誤スクロール防止）
+        clickableIcons: false,
+      });
+    } else {
+      mapRef.current.setCenter(pos);
+    }
+    markerRef.current?.setMap(null);
+    markerRef.current = new window.google.maps.Marker({ position: pos, map: mapRef.current, title: name });
+    return () => { markerRef.current?.setMap(null); };
+  }, [enabled, ready, lat, lng, name]);
+
+  // 実地図が出せない（flag OFF / key なし / 座標なし）→ 従来の装飾タイル（honesty 維持）。
+  if (!enabled) return <MapTile h={h} w={w} />;
+  // ready 前は grid placeholder を下敷きに（map 描画で上書き）。
+  return (
+    <div data-testid="lens-map" className={`relative ${h} ${w} shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-slate-100 to-slate-50 ring-1 ring-black/5`}>
+      <div ref={elRef} className="h-full w-full" aria-label={name ? `${name} の地図` : "地図"} />
+      {!ready && (
+        <div className="absolute inset-0" style={GRID_BG} aria-hidden>
+          <span className="absolute inset-0 flex items-center justify-center text-[16px] opacity-60">📍</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -276,10 +325,10 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[14px] text-slate-500 transition hover:bg-slate-200">⌃</button>
         </div>
 
-        {/* メディア 2 分割（実写真 or abstract タイル ＋ 地図相当・高さは控えめに） */}
+        {/* メディア 2 分割（実写真 or abstract タイル ＋ 実地図・高さは控えめに） */}
         <div className="mt-2.5 flex gap-2">
           <PhotoOrTile category={v.category} resolution={detailRes} h="h-[5.25rem]" w="w-[58%]" />
-          <MapTile h="h-[5.25rem]" w="flex-1" />
+          <LensPlaceMap lat={v.lat} lng={v.lng} name={v.name} h="h-[5.25rem]" w="flex-1" />
         </div>
 
         {/* 住所（◎ ＋ 2 行整理） */}
@@ -369,7 +418,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
               {/* 上部 2 候補カード（写真相当 ＋ 地図相当 2 分割・しっかり高さ） */}
               <div className="flex items-stretch gap-2">
                 <button type="button" onClick={() => confirmSide("left")} data-testid="lens-compare-left" className={headCls("left")}>
-                  <div className="flex gap-1.5"><PhotoOrTile category={left.category} resolution={leftRes} h="h-14" w="w-[56%]" /><MapTile h="h-14" w="flex-1" /></div>
+                  <div className="flex gap-1.5"><PhotoOrTile category={left.category} resolution={leftRes} h="h-14" w="w-[56%]" /><LensPlaceMap lat={left.lat} lng={left.lng} name={left.name} h="h-14" w="flex-1" /></div>
                   <span className="mt-2 block truncate text-[14px] font-bold text-slate-900">{left.name}</span>
                   <span className="text-[10.5px] text-slate-400">{left.category}{left.affinityBadge && " · 相性高め"}</span>
                 </button>
@@ -377,7 +426,7 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                   onTouchStart={(e) => { touch.y = e.touches[0]?.clientY ?? null; }}
                   onTouchEnd={(e) => { if (touch.y == null) return; const dy = (e.changedTouches[0]?.clientY ?? touch.y) - touch.y; if (Math.abs(dy) > 30) cycleCompare(dy < 0 ? 1 : -1); touch.y = null; }}>
                   <button type="button" onClick={() => confirmSide("right")} data-testid="lens-compare-right" className={headCls("right")}>
-                    <div className="flex gap-1.5"><PhotoOrTile category={right.category} resolution={rightRes} h="h-14" w="w-[56%]" /><MapTile h="h-14" w="flex-1" /></div>
+                    <div className="flex gap-1.5"><PhotoOrTile category={right.category} resolution={rightRes} h="h-14" w="w-[56%]" /><LensPlaceMap lat={right.lat} lng={right.lng} name={right.name} h="h-14" w="flex-1" /></div>
                     <span className="mt-2 block truncate text-[14px] font-bold text-slate-900">{right.name}</span>
                     <span className="text-[10.5px] text-slate-400">{right.category}{right.affinityBadge && " · 相性高め"}</span>
                   </button>
