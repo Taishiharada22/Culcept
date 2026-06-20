@@ -29,7 +29,7 @@
 | C3 | ランタイム健全（対象フローで console error 0） | 🟢 |
 | C4 | dead-click ゼロ（押下要素は全て honest に反応） | 🟢 |
 | C5 | honesty 原則遵守（捏造写真/リンク/偽成功表示なし） | 🟢 |
-| C6 | State Safety（flag OFF・production hard block・main 非結合・既存退行なし） | 🟡（**P0-1 のみに由来**。他は 🟢） |
+| C6 | State Safety（flag OFF・production hard block・main 非結合・既存退行なし） | 🟢（**P0-1 解消済み 2026-06-20**） |
 | C7 | main 連結の resume ゲートが明文化されている | 🟢 |
 
 ---
@@ -85,9 +85,9 @@
 - 画面/タブ切替の `AnimatePresence mode="wait"` exit stuck を keyed `motion.div` fade-in に統一（再発バグ根治）。
 - `ItineraryContext` は重複ガード・`hasAdded` 反映・`useMergedSchedule` を Dashboard/Schedule 双方で消費 → 「旅程に追加」が両画面に即時反映（実機確認）。**内部公開シグネチャは main 接続時も不変**＝消費側ゼロ改修で差し替え可能。
 
-### 2.5 State Safety / honesty — 🟡（**P0-1 のみに由来**。それ以外は 🟢）
+### 2.5 State Safety / honesty — 🟢
 - flag は production hard block、main 非結合、写真は placeholder「サンプル」印、捏造リンクなし、toast は成功/情報を出し分け（偽成功チェック排除）。
-- この 🟡 は **§4 P0-1（検証ルートの production gate）の一点に限る**。他の State Safety 項目（flag・main 非結合・honesty・既存退行なし）はすべて 🟢。
+- **P0-1 解消済み（2026-06-20）**: 検証ルートを `isTravelDayDetailEnabled()` で gate（§4 参照）。全 State Safety 項目が 🟢。
 
 ---
 
@@ -105,13 +105,17 @@
 
 ## 4. P0 freeze ブロッカー（採用＝freeze の条件）
 
-### 🔴 P0-1: 検証用ルート `/stargazer-travel-preview` が production gate を素通りする
-- **事実**: `app/stargazer-travel-preview/page.tsx` は `isTravelDayDetailEnabled()` を**参照せず**直接 `TravelDayDetail` を描画する。さらに proxy（`proxy.ts` の `PUBLIC_PREFIXES` `/stargazer`）により **auth 不要の公開ルート**。flag は Calendar 導線（§1.4）には効くが、**このページには効かない**。
-- **影響**: production へデプロイした場合、誰でも `/stargazer-travel-preview` で fixture プレビューが閲覧可能になる（「今月の成功条件＝デプロイ可能状態」に抵触）。
-- **現状の緩和**: production / push は現在停止中（[GitHub suspended/local only]）。したがって**現時点の実害はゼロ**だが、デプロイ再開時の P0。
-- **freeze 条件**: 次のいずれかを採用前に確定 — (a) 検証後にルート削除（page.tsx コメントの既定方針）、(b) `isTravelDayDetailEnabled()` で gate して非 dev は 404/リダイレクト、(c) proxy の公開対象から除外し認証必須化。
+### ✅ P0-1: 検証用ルート `/stargazer-travel-preview` の production gate — **修正済み（2026-06-20）**
+- **元の問題**: `app/stargazer-travel-preview/page.tsx` が `isTravelDayDetailEnabled()` を参照せず直接 `TravelDayDetail` を描画。proxy（`PUBLIC_PREFIXES` `/stargazer`）で auth 不要のため、production デプロイ時に誰でも fixture プレビューを閲覧可能だった。
+- **修正内容**: page.tsx 冒頭で `if (!isTravelDayDetailEnabled()) notFound();` を実行（`next/navigation` の `notFound()`）。`isTravelDayDetailEnabled()` は `NODE_ENV !== "production"` かつ flag ON のときのみ true。**ルートは削除せず保持**（開発確認用）。
+- **検証（2026-06-20・local）**:
+  - dev（flag ON）: `/stargazer-travel-preview` が HTTP 200・preview 表示（「京都 2泊3日」描画を確認）。
+  - flag OFF（`TRAVEL_DAY_DETAIL_ENABLED=false` で一時検証→復元）: HTTP **404**・アプリの not-found ページ（「観測範囲外です」）が出て preview **非表示**。
+  - production 相当: `NODE_ENV==="production"` で `isTravelDayDetailEnabled()` が false → 同様に `notFound()`（404）。
+  - Calendar 導線の既存 gate（`CalendarPageClient.tsx:1549` / `DayDetailSheet.tsx`）は **未変更**（本修正は page.tsx のみ）→ 退行なし。tsc travel 0・console error 0。
+- **残注意**: production deploy / main 接続 / Supabase / production flag ON は **本対応に含めない**（引き続き禁止・未実施）。
 
-> 上記 P0-1 以外に、本プレビューを「採用済み正本」として凍結することを妨げる blocker は検出されていない。
+> P0 freeze ブロッカーは全て解消。本プレビューを「採用済み正本」として凍結することを妨げる blocker は無い。
 
 ---
 
@@ -133,7 +137,7 @@
 
 | リスク | 重大度 | 緩和 |
 |---|---|---|
-| 検証ルートの公開（P0-1） | 高 | §4 の (a)/(b)/(c) いずれか。production 停止中で現状実害なし |
+| 検証ルートの公開（P0-1） | ~~高~~ → **解消** | `notFound()` gate 実装済み（2026-06-20）。production / flag OFF で 404 |
 | fixture を実データと誤認 | 低 | 写真「サンプル」印・全 toast が honest・他県空状態で明示 |
 | HMR キャッシュで新規ファイル未検出（dev のみ） | 低 | dev サーバ再起動で解消（本セッションで確認）。production 無関係 |
 | pre-existing ESLint（`MealSuggestionScreen` の `Concierge's` 未エスケープ） | 低 | HEAD 既存・本作業導入でない。owning 機能で別途修正 |
@@ -143,19 +147,19 @@
 
 ## 7. 採用（freeze）判定
 
-**判定: 条件付き GO（CONDITIONAL FREEZE）** — 🟢
+**判定: FREEZE GO** — 🟢（2026-06-20 更新。P0-1 解消により CONDITIONAL FREEZE から昇格）
 
-- 本セッションの Travel Day Detail / Location Notes / Calendar 日次詳細 プレビューは、構成忠実度・型安全・ランタイム健全・dead-click ゼロ・honesty・敵対的レビュー全修正を満たし、**「採用済み正本プレビュー」として凍結する水準にある**。
-- **唯一の条件**: §4 P0-1（検証ルートの production gate）を「採用と同時、遅くともデプロイ再開前」に確定すること。production 停止中の現時点では即時 freeze を妨げない。
+- 本セッションの Travel Day Detail / Location Notes / Calendar 日次詳細 プレビューは、構成忠実度・型安全・ランタイム健全・dead-click ゼロ・honesty・敵対的レビュー全修正を満たし、**唯一の P0（P0-1 検証ルートの gate）も解消済み**。「採用済み正本プレビュー」として **freeze 可**。
+- **重要な前提（本 freeze に含まれないこと）**: production deploy / main 本接続 / Supabase（DB migration・接続）/ production flag ON / push・PR・deploy は **まだ行わない**。本 freeze は「dev 限定の正本プレビューの凍結」であり、出荷可否は main 連結後の別ゲート。
 
 ---
 
 ## 8. freeze ゲート・チェックリスト
 
-採用時に CEO が確認：
-- [ ] §4 P0-1 の処置方針を決定（削除 / flag gate / 認証必須）
+- [x] §4 P0-1 を解消（`notFound()` gate・2026-06-20）
 - [ ] freeze 後は本 UX 仕様・画面構成を「正本」とし破壊的変更を避ける合意
 - [ ] main 連結 resume ゲート（下記）を次フェーズ計画に登録
+- [ ] production deploy / main / DB / production flag ON は **未着手のまま据え置き**（CEO 別決裁）
 
 ### main 連結 resume ゲート（freeze 後の着手順・推奨）
 1. `ItineraryContext` Provider 内部を実 trip API（mutation+optimistic）へ差し替え（消費側ゼロ改修）
