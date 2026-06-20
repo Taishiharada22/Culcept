@@ -1033,13 +1033,28 @@ export default function PlanClient({
             onRetry={() => void load()}
           />
         )}
-        {state.kind === "ok" && state.anchors.length === 0 && (
+        {/* UX-1c（CEO 2026-06-21）: alter タブは EmptyState を出さない（予定 0 件でも Battery 本体を描画）。
+          * calendar/flow/map は従来どおり anchors 0 で EmptyState（予定追加導線）を維持。 */}
+        {state.kind === "ok" && state.anchors.length === 0 && activeTab !== "alter" && (
           <EmptyState
             onStartTeaching={() => openAdd()}
             onIcsImport={() => setIcsImportOpen(true)}
           />
         )}
-        {state.kind === "ok" && state.anchors.length > 0 && (
+        {/* UX-1c（CEO 2026-06-21）: バッテリー（ALTER）タブは anchors 非依存。
+          * 予定 0 件の日でも Day State を見せるため anchors ガード外で描画する（CoAlter と同じ考え方）。
+          * state.kind === "ok" が前提（loading/error は上の共通表示に委ねる）。
+          * alterTabEnabled OFF（既定）では visibleTabs に "alter" が無く activeTab に成り得ない＝inert。 */}
+        {state.kind === "ok" && activeTab === "alter" && (
+          <AlterTab
+            anchors={state.anchors}
+            sources={state.sources}
+            dayGraphByDate={dayGraphByDate}
+            dayIndicatorByIso={dayIndicatorByIso}
+            storageEnabled={dayStateStorageEnabled}
+          />
+        )}
+        {state.kind === "ok" && state.anchors.length > 0 && activeTab !== "alter" && (
           <>
             {/*
              * Phase 3-J-6e-1: proposalsByDate を CalendarTab / MapTab に pass (= read-only display)
@@ -1090,17 +1105,7 @@ export default function PlanClient({
                 onAnchorClick={openDetail}
               />
             )}
-            {/* UX-1b（W3a）: バッテリー（ALTER）タブ。alterTabEnabled OFF（既定）では
-              * visibleTabs に "alter" が無く activeTab に成り得ない＝この block は描画されない。 */}
-            {activeTab === "alter" && (
-              <AlterTab
-                anchors={state.anchors}
-                sources={state.sources}
-                dayGraphByDate={dayGraphByDate}
-                dayIndicatorByIso={dayIndicatorByIso}
-                storageEnabled={dayStateStorageEnabled}
-              />
-            )}
+            {/* UX-1c: alter タブは上の anchors 非依存ブロックで描画（length>0 ブロックには置かない）。 */}
           </>
         )}
       </section>
