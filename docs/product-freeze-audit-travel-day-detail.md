@@ -29,7 +29,7 @@
 | C3 | ランタイム健全（対象フローで console error 0） | 🟢 |
 | C4 | dead-click ゼロ（押下要素は全て honest に反応） | 🟢 |
 | C5 | honesty 原則遵守（捏造写真/リンク/偽成功表示なし） | 🟢 |
-| C6 | State Safety（flag OFF・production hard block・main 非結合・既存退行なし） | 🟡（P0-1 あり） |
+| C6 | State Safety（flag OFF・production hard block・main 非結合・既存退行なし） | 🟡（**P0-1 のみに由来**。他は 🟢） |
 | C7 | main 連結の resume ゲートが明文化されている | 🟢 |
 
 ---
@@ -69,7 +69,7 @@
 - 参照画像（Concept 4 系: travel/detail/suggestion/booking/budget/move）に対し構成一致。
 - dead-click 解消済み（通知/保存=navigator.share/予約変更/相談/Budget 展開/節約/移動 等を honest に配線。`ReservationsScreen.tsx`/`BudgetSnapshotScreen.tsx`/`ScheduleDetailScreen.tsx`/`ConciergeDashboard.tsx`）。
 - Walking 進捗をハードコード 62%→実 steps/目標へ（`ConciergeDashboard.tsx`）。
-- **🟡 留意**: 参照画像への「より忠実化」パスは Location Notes 系のみ実施済み。Concierge 7 画面の追加忠実化は**未実施**（freeze は可、別途 polish 余地）。
+- **現状品質で freeze 可**（CEO 確認済み・2026-06-20）。参照画像への追加「より忠実化」は freeze 懸念ではなく **将来の optional polish** 扱い（ブロッカーでも resume ゲートでもない）。
 
 ### 2.2 Location Notes 9 タブ — 🟢 freeze-ready
 - 全タブを参照画像（Concept 8/12-18）と照合しスクショ確認。`e49df6fc5` で hero を variant 化（stack=旅行 / split=スポット・穴場 / overlay=王道 / Match 専用2カラム）し構成忠実化。
@@ -85,9 +85,9 @@
 - 画面/タブ切替の `AnimatePresence mode="wait"` exit stuck を keyed `motion.div` fade-in に統一（再発バグ根治）。
 - `ItineraryContext` は重複ガード・`hasAdded` 反映・`useMergedSchedule` を Dashboard/Schedule 双方で消費 → 「旅程に追加」が両画面に即時反映（実機確認）。**内部公開シグネチャは main 接続時も不変**＝消費側ゼロ改修で差し替え可能。
 
-### 2.5 State Safety / honesty — 🟡（P0-1 を除き 🟢）
+### 2.5 State Safety / honesty — 🟡（**P0-1 のみに由来**。それ以外は 🟢）
 - flag は production hard block、main 非結合、写真は placeholder「サンプル」印、捏造リンクなし、toast は成功/情報を出し分け（偽成功チェック排除）。
-- **例外（P0-1）**: §4 参照。
+- この 🟡 は **§4 P0-1（検証ルートの production gate）の一点に限る**。他の State Safety 項目（flag・main 非結合・honesty・既存退行なし）はすべて 🟢。
 
 ---
 
@@ -124,7 +124,8 @@
 - 写真アップロード（現状 objectURL プレビューのみ）
 - 通知 / 予約変更・キャンセル / コンシェルジュ相談 の実機能（現状 honest toast）
 - 京都府以外の都道府県の実データ（現状 空状態）
-- Concierge Dashboard 7 画面の参照画像「より忠実化」パス（Location Notes のみ実施済み）
+
+> 注: Concierge Dashboard 7 画面の参照画像「より忠実化」は **freeze 対象外でも resume ゲートでもない**。現状品質で freeze 可であり、実施するかは将来の **optional polish**（CEO 確認済み・2026-06-20）。
 
 ---
 
@@ -162,7 +163,6 @@
 3. Calendar `/plan` の特定日 → `TravelDayDetail` の本接続（day データ実取得）
 4. 写真アップロード / 通知 / 予約変更 / 相談 の実機能化
 5. 京都府以外の実データ投入 or ピッカーを実データ県のみに限定
-6. Concierge 7 画面の参照画像 忠実化パス
 
 ---
 
