@@ -127,6 +127,8 @@ import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
 // UX-1b（W3a）: 人体バッテリー（ALTER/「バッテリー」）タブ — flag opt-in・既定 OFF。
 import { AlterTab } from "./tabs/AlterTab";
+// UX-2b: CoAlter（ふたりのプラン）タブ — fixture-only UI プロトタイプ・anchors fetch と独立に描画。
+import { CoAlterTab } from "./tabs/coalter/CoAlterTab";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
 import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken, type LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 import { LifeOpsMomentCard } from "./LifeOpsMomentCard";
@@ -147,7 +149,7 @@ import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-type PlanTab = "calendar" | "flow" | "map" | "alter";
+type PlanTab = "calendar" | "flow" | "map" | "alter" | "coalter";
 
 // Phase 1 C2 (2026-05-20): tab label を CEO mock 寄せ ("Flow"→"リスト"、"聖地"→"地図")
 // 旧 hint subtitle は pill segmented design では表示しない (mock 整合)。
@@ -253,6 +255,17 @@ export interface PlanClientProps {
    * server（plan/page.tsx）が PLAN_FLAGS.dayStateStorageEnabled を読み prop で渡す。**default false**。
    */
   dayStateStorageEnabled?: boolean;
+  /**
+   * UX-2b: CoAlter（ふたりのプラン）タブを /plan に出すか。server（page.tsx）が
+   * PLAN_FLAGS.coalterPlanTabEnabled を読み prop で渡す（私の PlanClient は flag を prop 経由に統一）。
+   * **default false**＝非表示・現タブ挙動不変。fixture-only（fetch/DB/外部API なし）。
+   */
+  coalterPlanTabEnabled?: boolean;
+  /**
+   * UX-2b: 認証 self の userId（server＝page.tsx の auth.getUser 由来）。CoAlter の relation binding が
+   * self を推論せず server 値から取るために渡す。表示には使わない（raw userId 非表示）。
+   */
+  viewerUserId?: string;
 }
 
 export default function PlanClient({
@@ -273,13 +286,22 @@ export default function PlanClient({
   shiftImportSaveEnabled = false,
   alterTabEnabled = false,
   dayStateStorageEnabled = false,
+  coalterPlanTabEnabled = false,
+  viewerUserId,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
 
   // UX-1b（W3a）: alterTabEnabled OFF（既定）→ 現 3 タブ。ON → 末尾に「バッテリー」を足す。
-  const visibleTabs = alterTabEnabled ? TABS_WITH_ALTER : TABS;
+  // UX-2b: coalterPlanTabEnabled ON → さらに末尾に「CoAlter」を足す（alter とは独立 flag）。
+  //   両 OFF（既定）で calendar/flow/map のまま不変。
+  let visibleTabs: ReadonlyArray<{ key: PlanTab; label: string }> = alterTabEnabled
+    ? TABS_WITH_ALTER
+    : TABS;
+  if (coalterPlanTabEnabled) {
+    visibleTabs = [...visibleTabs, { key: "coalter", label: "CoAlter" }];
+  }
 
   // ── 9 closeout corrective (= 2026-05-25 CEO 「最新の状態に」): useNewShell = true 固定 ──
   //   旧 (= MAP smoke 期間): MAP_NEW_SURFACE_ENABLED の副作用で全 tab 新 shell
@@ -826,10 +848,14 @@ export default function PlanClient({
   // calendar タブは画面全面を淡いラベンダーに（ヘッダー・タブ・上下左右端まで）。 白カードがその上に浮く。
   // 他タブ（list/map）は従来の白系を維持（CEO 承認の calendar 限定変更）。
   const calBg = "bg-gradient-to-b from-violet-50 via-violet-50/70 to-violet-50/40";
+  // UX-2b: CoAlter タブは reference 構図に合わせた淡いクールグレー地（白カードが浮く）。flag OFF では coalter 非表示＝不発。
+  const coalterBg = "bg-[#eef1f7]";
+  const tabBg = (fallback: string) =>
+    activeTab === "calendar" ? calBg : activeTab === "coalter" ? coalterBg : fallback;
   const containerClass = isPane
-    ? `h-full overflow-y-auto px-4 py-6 ${activeTab === "calendar" ? calBg : "bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30"}`
+    ? `h-full overflow-y-auto px-4 py-6 ${tabBg("bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30")}`
     : useNewShell
-      ? `min-h-screen px-4 py-4 ${activeTab === "calendar" ? calBg : "bg-white"}`
+      ? `min-h-screen px-4 py-4 ${tabBg("bg-white")}`
       : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
 
   return (
@@ -961,7 +987,7 @@ export default function PlanClient({
         </div>
         {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
             固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}
-        {!isPane && activeTab !== "calendar" && (
+        {!isPane && activeTab !== "calendar" && activeTab !== "coalter" && (
           <p className={useNewShell ? "mt-0.5 text-xs text-slate-500" : "mt-2 text-sm text-slate-500"}>
             {/* 8b-7-B / 8b-10 / 9a-impl Step α: subtitle 小さく + tab-aware
              *   - map: 「場所を地図で確認して、流れをつかみましょう。」 (= mock 整合)
@@ -1020,13 +1046,16 @@ export default function PlanClient({
         role="tabpanel"
         aria-labelledby={`plan-tab-${activeTab}`}
         className={
-          useNewShell && activeTab === "map"
-            ? "-mx-4" // 親 px-4 を相殺、 full-bleed
+          useNewShell && (activeTab === "map" || activeTab === "coalter")
+            ? "-mx-4" // 親 px-4 を相殺、 full-bleed（coalter は 2 パネル split のため横幅が必要）
             : "mx-auto max-w-3xl"
         }
       >
-        {state.kind === "loading" && <LoadingState />}
-        {state.kind === "error" && (
+        {/* UX-2b: CoAlter タブは fixture-only（anchors fetch の loading/error/empty/ok に依存しない・viewerUserId のみ）。
+          * coalterPlanTabEnabled OFF（既定）では visibleTabs に "coalter" 無し→ activeTab に成り得ず inert。 */}
+        {activeTab === "coalter" && <CoAlterTab viewerUserId={viewerUserId} />}
+        {activeTab !== "coalter" && state.kind === "loading" && <LoadingState />}
+        {activeTab !== "coalter" && state.kind === "error" && (
           <ErrorState
             message={state.message}
             status={state.status}
@@ -1035,7 +1064,7 @@ export default function PlanClient({
         )}
         {/* UX-1c（CEO 2026-06-21）: alter タブは EmptyState を出さない（予定 0 件でも Battery 本体を描画）。
           * calendar/flow/map は従来どおり anchors 0 で EmptyState（予定追加導線）を維持。 */}
-        {state.kind === "ok" && state.anchors.length === 0 && activeTab !== "alter" && (
+        {activeTab !== "coalter" && state.kind === "ok" && state.anchors.length === 0 && activeTab !== "alter" && (
           <EmptyState
             onStartTeaching={() => openAdd()}
             onIcsImport={() => setIcsImportOpen(true)}
@@ -1054,7 +1083,7 @@ export default function PlanClient({
             storageEnabled={dayStateStorageEnabled}
           />
         )}
-        {state.kind === "ok" && state.anchors.length > 0 && activeTab !== "alter" && (
+        {activeTab !== "coalter" && state.kind === "ok" && state.anchors.length > 0 && activeTab !== "alter" && (
           <>
             {/*
              * Phase 3-J-6e-1: proposalsByDate を CalendarTab / MapTab に pass (= read-only display)
@@ -1239,6 +1268,14 @@ function TabIcon({ tabKey }: { tabKey: string }): React.ReactElement {
         <svg {...baseProps}>
           <circle cx="12" cy="6.5" r="3" />
           <path d="M6.5 21 v-4 a5.5 5.5 0 0 1 11 0 v4" />
+        </svg>
+      );
+    case "coalter":
+      // UX-2b: Chat bubble + sparkle（2人専属プランナー）
+      return (
+        <svg {...baseProps}>
+          <path d="M12 4 a8 7 0 0 1 8 7 a8 7 0 0 1 -8 7 c-1 0-2-.2-2.9-.5 L5 19 l1-3.2 A7 7 0 0 1 4 11 a8 7 0 0 1 8-7 z" />
+          <path d="M12 8.5 L12.7 10.3 L14.5 11 L12.7 11.7 L12 13.5 L11.3 11.7 L9.5 11 L11.3 10.3 Z" fill="currentColor" stroke="none" />
         </svg>
       );
     default:

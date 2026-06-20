@@ -145,6 +145,8 @@ export default async function PlanPage({
       shiftImportSaveEnabled={PLAN_FLAGS.shiftImportSave}
       alterTabEnabled={PLAN_FLAGS.alterTabEnabled}
       dayStateStorageEnabled={PLAN_FLAGS.dayStateStorageEnabled}
+      coalterPlanTabEnabled={PLAN_FLAGS.coalterPlanTabEnabled}
+      viewerUserId={auth.user.id}
     />
   );
 }
