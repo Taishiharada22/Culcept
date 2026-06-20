@@ -41,7 +41,12 @@ faraday は merge-base `b1393b970`（ffbb9996a の祖先）= ffbb9996a の shift
 5. **week/month 両対応**: `selectedDate` は両モード共通 → 配線は1箇所で両モード自動対応
 
 ### 3.3 DayDetailSheet の扱い（論点2）
-faraday の `DayDetailSheet.tsx`（/calendar 固有・433行）は「選択日の詳細シート」（日程文言 L107 + travel ボタン L130 + 他詳細）。/plan CalendarTab の選択日エリアが**既に日付選択 + 予定表示**を担うため、**DayDetailSheet 全体は取り込まず、CalendarTab 選択日エリアに travel ボタンのみ直付け**を推奨（最小・退化ゼロ）。CEO の「最初の画面の日程文言と接続」は CalendarTab 選択日の日付表示が満たす。
+faraday の `DayDetailSheet.tsx`（/calendar 固有・433行）は「選択日の詳細シート」（日程文言 L107 + travel ボタン L130 + 他詳細）。/plan CalendarTab の選択日エリアが**既に日付選択 + 予定表示**を担うため、**DayDetailSheet 全体は取り込まず、CalendarTab 選択日エリアに travel ボタンのみ直付け**（CEO 確定 2026-06-21・最小・退化ゼロ）。CEO の「最初の画面の日程文言と接続」は CalendarTab 選択日の日付表示が満たす。
+
+### 3.4 month grid flag との関係（CEO 確定 2026-06-21）
+- **week/month 両対応は `selectedDate` 共通で実現する**。travel ボタンは `selectedDate`（week strip / month grid 両モード共通の state）に紐づくため、配線は1箇所で両モード自動対応。
+- **month grid flag（`calendarMonthGridEnabled` = `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED`）の本番 ON は不要**。月グリッド（toggle + MonthGridView）は最新資産として保全するが本番 ON はしない（CEO 禁止「月グリッド ON」を維持）。travel 配線は month flag と独立＝week 表示の通常状態でも week 側で travel 動線が動く。
+- **month mode の実機確認は ephemeral env 限定**: dev smoke 時のみ `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true` を一時設定し、month grid からも travel が開くことを確認してよい。**month flag ON は commit しない・本番 ON もしない**。
 
 ## 4. flag（論点3）
 
