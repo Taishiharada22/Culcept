@@ -38,6 +38,13 @@ export const Star = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
   <Svg {...p}><path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.2l1-5.8L3.5 9.2l5.9-.9z" fill={filled ? "currentColor" : "none"} /></Svg>
 );
 export const Plus = (p: IconProps) => <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>;
+export const Search = (p: IconProps) => <Svg {...p}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></Svg>;
+export const Heart = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <Svg {...p}><path d="M12 21s-7.5-4.6-10-9.3C.5 8.5 2 5 5.3 5 7.4 5 8.9 6.3 12 9c3.1-2.7 4.6-4 6.7-4C22 5 23.5 8.5 22 11.7 19.5 16.4 12 21 12 21Z" fill={filled ? "currentColor" : "none"} /></Svg>
+);
+export const SlidersIcon = (p: IconProps) => <Svg {...p}><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5" /><circle cx="16" cy="6" r="2" /><circle cx="8" cy="12" r="2" /><circle cx="13" cy="18" r="2" /></Svg>;
+// Location Notes 下部ナビ用（ピン付きノート）。
+export const LocationNotes = (p: IconProps) => <Svg {...p}><path d="M5 4a2 2 0 0 1 2-2h7l5 5v6.5" /><path d="M14 2v5h5" /><path d="M16 14.5c0 2.5-3 5.5-3 5.5s-3-3-3-5.5a3 3 0 0 1 6 0Z" /><circle cx="13" cy="14.5" r="1" fill="currentColor" /></Svg>;
 export const Camera = (p: IconProps) => <Svg {...p}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l2-3h8l2 3h3a2 2 0 0 1 2 2z" /><circle cx="12" cy="13" r="3.4" /></Svg>;
 export const Sparkle = (p: IconProps) => <Svg {...p}><path d="M12 3l1.8 4.7L18.5 9.5 13.8 11.3 12 16l-1.8-4.7L5.5 9.5l4.7-1.8z" /></Svg>;
 export const Lightbulb = (p: IconProps) => <Svg {...p}><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V17h6v-.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z" /></Svg>;

@@ -13,9 +13,9 @@ import {
   DurationBadge,
   WeatherGlyph,
 } from "./concierge/primitives";
-import { Bookmark, Share, Crest, ChevronDown, ChevronRight, Lightbulb, TransportIcon } from "./concierge/icons";
+import { Bookmark, Share, Crest, ChevronDown, Lightbulb, TransportIcon } from "./concierge/icons";
 
-export default function ScheduleDetailScreen({ day, onClose, onNavigate }: TravelScreenProps) {
+export default function ScheduleDetailScreen({ day, onClose }: TravelScreenProps) {
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const toggle = (id: string) =>
     setExpanded((prev) => {
@@ -146,23 +146,20 @@ export default function ScheduleDetailScreen({ day, onClose, onNavigate }: Trave
           })}
         </ol>
 
-        {/* コンシェルジュのひとこと */}
-        <button onClick={() => onNavigate("guide")} className="w-full text-left">
-          <ConciergeCard className="flex items-center gap-3 p-4" style={{ background: T.cardAlt }}>
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ color: T.gold, background: T.goldBg }}>
-              <Lightbulb size={17} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: T.ink3 }}>
-                HIRAMATSU コンシェルジュのひとこと
-              </div>
-              <p className="mt-0.5 text-[12px] leading-relaxed" style={{ color: T.ink2 }}>
-                清水寺の朝は比較的空いていておすすめです。澄んだ空気と静けさの中で、より深い京都の魅力を感じられます。
-              </p>
+        {/* コンシェルジュのひとこと（情報カード・遷移なし） */}
+        <ConciergeCard className="flex items-center gap-3 p-4" style={{ background: T.cardAlt }}>
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ color: T.gold, background: T.goldBg }}>
+            <Lightbulb size={17} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: T.ink3 }}>
+              HIRAMATSU コンシェルジュのひとこと
             </div>
-            <ChevronRight size={16} style={{ color: T.ink3 }} />
-          </ConciergeCard>
-        </button>
+            <p className="mt-0.5 text-[12px] leading-relaxed" style={{ color: T.ink2 }}>
+              清水寺の朝は比較的空いていておすすめです。澄んだ空気と静けさの中で、より深い京都の魅力を感じられます。
+            </p>
+          </div>
+        </ConciergeCard>
       </div>
     </div>
   );

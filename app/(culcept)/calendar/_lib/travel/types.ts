@@ -264,7 +264,7 @@ export interface Trip {
   days: TripDay[];
 }
 
-/** ④/⑥/① の bottom nav タブ。 */
+/** ④/⑥/① の bottom nav タブ。locationNotes = Location Notes（旧 マイページ枠）。 */
 export type TravelScreen =
   | "dashboard"
   | "schedule"
@@ -272,5 +272,105 @@ export type TravelScreen =
   | "meal"
   | "budget"
   | "move"
-  | "guide"
-  | "mypage";
+  | "locationNotes";
+
+// ===========================================================================
+// Location Notes（ロケーションノート）— Concept 8/12〜18 準拠
+// 「旅行 / スポット」を 王道 / 穴場、地元民 / 旅行者 の観点で発見・追加するノート。
+// 正本画像: match(12)/traveler(13)/spot(14)/mainstream(15)/hidden(16)/thema(17)/plus(18)。
+// UIロジックは持たず純データ型のみ。写真は placeholder（捏造しない・honesty）。
+// ===========================================================================
+
+/** ノート項目の種別。trip=旅行プラン（複数スポットの行程）/ spot=単体スポット。 */
+export type LocationItemKind = "trip" | "spot";
+
+/** 王道 / 穴場 / その他（標準）。王道・穴場タブの振り分けキー。 */
+export type LocationClassification = "classic" | "hidden" | "standard";
+
+/** 情報の出どころ視点。各タブ内で「地元民から / 旅行者から」に分割表示する。 */
+export type LocationSource = "local" | "traveler";
+
+/** 投稿者（地元民 M さん / 旅行者 〜 さん）。 */
+export interface LocationAuthor {
+  name: string; // 「Kyoto Local M」「Traveler 由香」
+  source: LocationSource;
+  roleLabel?: string; // 「京都在住8年」「2回目の京都」
+}
+
+/** 王道/穴場で参照される情報ソース（検索・SNS・地元民・旅行者…）。 */
+export interface InfoSource {
+  label: string; // 「検索 / Google」
+  channel: string; // 「Google」「Instagram」
+  note?: string; // 「定番の下調べ」
+}
+
+/** エリア絞り込みチップ（スポットタブ「エリアから探す」）。 */
+export interface AreaChip {
+  label: string; // 祇園
+  reading?: string; // ぎおん
+  count?: number; // 件数
+}
+
+/**
+ * Location Notes の1項目（旅行プラン or スポット）。
+ * trip 固有: durationLabel / spotCount / stops。spot 固有: hours / address。
+ * hidden 固有: whySpecial / whyHidden。match 表示: matchPct / matchReasons。
+ */
+export interface LocationItem {
+  id: string;
+  kind: LocationItemKind;
+  prefecture: string; // 「京都府」— 都道府県セレクタで絞り込む
+  title: string;
+  areaLabel: string; // 「京都市・祇園〜東山エリア」
+  classification: LocationClassification;
+  source: LocationSource;
+  author: LocationAuthor;
+  genre: string; // 「寺社・文化」「カフェ」「自然・散策」
+  themeKeys: string[]; // TravelTheme.key の配列
+  tags: string[]; // 「静かさ」「写真映え」「老舗」
+  rating: number; // 4.7
+  ratingCount: number; // 1240
+  description: string;
+  photo: TravelPhoto | null;
+  // trip 固有
+  durationLabel?: string; // 「1泊2日」「日帰り」
+  spotCount?: number; // 4
+  stops?: string[]; // 行程の主な立寄り先名
+  // spot 固有
+  hours?: string; // 「6:00–9:00」
+  address?: string;
+  priceLevel?: PriceLevel;
+  // 穴場固有
+  whySpecial?: string; // なぜ特別なのか
+  whyHidden?: string; // なぜ知られていないのか
+  // Match 表示用
+  matchPct?: number; // 92
+  matchReasons?: string[]; // 「静かさ重視のあなたに」
+}
+
+/** テーマ（Concept 17）。気分・目的で旅を探す軸。 */
+export interface TravelTheme {
+  key: string; // "quiet-morning"
+  label: string; // 静かな朝
+  description: string; // 「人の少ない朝の時間に…」
+  photo: TravelPhoto | null;
+}
+
+/** あなたの好み chip（Match のパーソナライズ表示）。 */
+export interface PreferenceChip {
+  label: string; // 学び / 静かさ重視 / 関西圏
+  active?: boolean;
+}
+
+/** Location Notes 全体のデータ束（都道府県別）。 */
+export interface LocationNotesData {
+  prefectures: string[]; // セレクタ候補（京都府, 大阪府, …）
+  defaultPrefecture: string;
+  preferenceChips: PreferenceChip[];
+  matchReasons: string[]; // 「さらにあなたの好みに合う理由」本文
+  infoSources: InfoSource[]; // 王道「人気の情報ソース」
+  areaChips: AreaChip[]; // スポット「エリアから探す」
+  hiddenHints: string[]; // 穴場「隠れたヒント」chip
+  themes: TravelTheme[];
+  items: LocationItem[]; // trips + spots（prefecture で絞り込み）
+}

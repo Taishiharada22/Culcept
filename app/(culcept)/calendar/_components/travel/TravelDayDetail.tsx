@@ -7,7 +7,7 @@ import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Trip, TripDay, TravelScreen } from "../../_lib/travel/types";
 import type { TravelScreenProps, MapFocus } from "./screenProps";
-import { T, TravelBottomNav, ConciergeHeader } from "./concierge/primitives";
+import { T, TravelBottomNav } from "./concierge/primitives";
 import { TravelMapModal } from "./TravelMapModal";
 import ConciergeDashboard from "./ConciergeDashboard";
 import ScheduleDetailScreen from "./ScheduleDetailScreen";
@@ -15,20 +15,9 @@ import ReservationsScreen from "./ReservationsScreen";
 import MealSuggestionScreen from "./MealSuggestionScreen";
 import BudgetSnapshotScreen from "./BudgetSnapshotScreen";
 import MoveDetailsScreen from "./MoveDetailsScreen";
+import LocationNotesScreen from "./locationNotes/LocationNotesScreen";
 
-function Placeholder({ title, onClose }: { title: string } & Pick<TravelScreenProps, "onClose">) {
-  return (
-    <div className="min-h-full">
-      <ConciergeHeader title={title} onBack={onClose} />
-      <div className="flex flex-col items-center justify-center gap-2 px-6 py-24 text-center">
-        <div className="font-serif text-[18px]" style={{ color: T.ink, fontWeight: 600 }}>準備中</div>
-        <p className="text-[12px]" style={{ color: T.ink3 }}>この機能は近日公開予定です。</p>
-      </div>
-    </div>
-  );
-}
-
-const NAV_TABS = new Set<TravelScreen>(["dashboard", "schedule", "reservations", "guide", "mypage"]);
+const NAV_TABS = new Set<TravelScreen>(["dashboard", "schedule", "reservations", "locationNotes"]);
 
 export default function TravelDayDetail({
   trip,
@@ -85,10 +74,8 @@ export default function TravelDayDetail({
         return <BudgetSnapshotScreen {...screenProps} />;
       case "move":
         return <MoveDetailsScreen {...screenProps} />;
-      case "guide":
-        return <Placeholder title="ガイド" onClose={screenProps.onClose} />;
-      case "mypage":
-        return <Placeholder title="マイページ" onClose={screenProps.onClose} />;
+      case "locationNotes":
+        return <LocationNotesScreen onClose={screenProps.onClose} />;
     }
   };
 

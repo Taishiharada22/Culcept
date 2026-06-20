@@ -15,8 +15,7 @@ import {
   Grid,
   CalendarIcon,
   Ticket,
-  Compass,
-  User,
+  LocationNotes,
   Check,
 } from "./icons";
 
@@ -321,8 +320,7 @@ const NAV_TABS: { key: string; label: string; Icon: (p: { size?: number; strokeW
   { key: "dashboard", label: "ダッシュボード", Icon: Grid },
   { key: "schedule", label: "スケジュール", Icon: CalendarIcon },
   { key: "reservations", label: "予約", Icon: Ticket },
-  { key: "guide", label: "ガイド", Icon: Compass },
-  { key: "mypage", label: "マイページ", Icon: User },
+  { key: "locationNotes", label: "Location Notes", Icon: LocationNotes },
 ];
 export function TravelBottomNav({ active, onSelect }: { active: string; onSelect: (key: string) => void }) {
   return (
