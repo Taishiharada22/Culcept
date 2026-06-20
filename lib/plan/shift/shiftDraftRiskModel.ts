@@ -22,6 +22,10 @@ import {
   normalizeRawCode,
   type ShiftCodeDictionary,
 } from "./shiftCodeDictionary";
+import {
+  detectConfusableCells,
+  summarizeConfusable,
+} from "./shiftConfusableCodes";
 
 /** review hint の重大度。 */
 export type RiskSeverity = "hard" | "soft";
@@ -37,7 +41,9 @@ export type RiskKind =
   | "adjacent_duplicate"
   | "suspicious_shift"
   | "low_confidence"
-  | "chunk_boundary";
+  | "chunk_boundary"
+  // soft（A1B: 似たコードの誤読。confidence に関係なく要確認）
+  | "confusable_code";
 
 /** 下書き 1 セル（day-keyed・golden なし）。 */
 export interface DraftRiskCell {
@@ -154,18 +160,34 @@ export function detectDraftRisks(
       hint("low_confidence", lowConf, `読み取り信頼度が低い日があります（${formatDays(lowConf)}）。原稿と照合してください。`)
     );
 
-  // blank-risk（空欄として読まれた日）
-  const blanks = cells
+  // blank set（全空欄。suspicious_shift と隣接判定の基礎）
+  const blankDays = cells
     .filter((c) => normalizeRawCode(c.rawCode) === "")
     .map((c) => c.day);
-  if (blanks.length)
+  const blankDaySet = new Set(blankDays);
+
+  // blank-risk（A3-D3）= 空欄のうち「低 confidence」または「空欄に隣接」のみ。
+  //   高 confidence で孤立した空欄（＝確実な休み）は flag しない（全空欄を疑わず flood を回避）。
+  //   classification.isBlankRisk（amber dot / 保存前 gate）と同一条件にして、panel と cell amber の判定を揃える。
+  //   ※ read-miss（読めずに "" 化）は adapter（BLANK_MISSING_CONFIDENCE）で低 conf に倒れ、ここで確実に拾われる。
+  const blankRiskDays = cells
+    .filter((c) => {
+      if (normalizeRawCode(c.rawCode) !== "") return false;
+      const lowConf =
+        typeof c.confidence === "number" && (c.confidence ?? 1) < threshold;
+      const adjacentBlank =
+        blankDaySet.has(c.day - 1) || blankDaySet.has(c.day + 1);
+      return lowConf || adjacentBlank;
+    })
+    .map((c) => c.day);
+  if (blankRiskDays.length)
     hints.push(
-      hint("blank_risk", blanks, `空欄として読まれた日があります（${formatDays(blanks)}）。原稿で空欄か確認してください。`)
+      hint("blank_risk", blankRiskDays, `空欄として読まれた日があります（${formatDays(blankRiskDays)}）。原稿で空欄か確認してください。`)
     );
 
   // suspicious shift（空欄の直後＝前詰めずれが起きやすい窓 [E+1, E+2]）
   const shiftDays: number[] = [];
-  for (const e of blanks) {
+  for (const e of blankDays) {
     for (const d of [e + 1, e + 2]) if (d >= 1 && d <= N) shiftDays.push(d);
   }
   if (shiftDays.length)
@@ -202,6 +224,25 @@ export function detectDraftRisks(
     hints.push(
       hint("chunk_boundary", boundaryDays, `読み取りの境目です（${formatDays(boundaryDays)}）。前後のずれがないか確認してください。`)
     );
+
+  // confusable code（A1B + A1-tune-1）= 似たコードの誤読（E↔E-18 等）。**confidence 非依存** soft 要確認。
+  //   高 conf 誤読（F5）は既存の低 conf / 空欄隣接 / 未知コードでは捕まらないため、ここで要確認に回す。
+  //   tier 振り分け（CEO D3）: strong = 日付つき / medium = 件数 summary / weak = panel 非表示（観測のみ）。
+  const confusableSummary = summarizeConfusable(
+    detectConfusableCells(cells.map((c) => ({ day: c.day, rawCode: c.rawCode })))
+  );
+  if (confusableSummary.strongDays.length || confusableSummary.mediumCount > 0) {
+    const segs: string[] = [];
+    if (confusableSummary.strongDays.length)
+      segs.push(
+        `似た形で紛らわしい勤務コードがあります（${formatDays(confusableSummary.strongDays)}）。原稿と照合してください。`
+      );
+    if (confusableSummary.mediumCount > 0)
+      segs.push(
+        `休み種別が紛らわしい日が${confusableSummary.mediumCount}日あります。必要に応じて確認してください。`
+      );
+    hints.push(hint("confusable_code", confusableSummary.strongDays, segs.join("")));
+  }
 
   const hardCount = hints.filter((h) => h.severity === "hard").length;
   const softCount = hints.length - hardCount;

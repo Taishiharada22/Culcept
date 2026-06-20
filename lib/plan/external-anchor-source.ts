@@ -21,7 +21,8 @@ export type ExternalAnchorSourceType =
   | "chat"        // Home 会話キャプチャ
   | "ics"         // P3 W3 (= 2026-05-26): .ics / iCalendar ファイル取り込み
   | "google_calendar" // P3 Phase B (= 2026-05-29 β 恒久化): Google Calendar 連携取り込み
-  | "microsoft_calendar"; // Track B (= 2026-05-29): Outlook / Microsoft 365 連携取り込み
+  | "microsoft_calendar" // Track B (= 2026-05-29): Outlook / Microsoft 365 連携取り込み
+  | "shift_image"; // SR (= 2026-05-31 CEO 承認): シフト表画像取り込み（勤務 anchor の source。DB CHECK と一致）
 
 /** raw 保持方針（§11.1 参照）。default: discarded */
 export type RawRetention = "discarded" | "stored";

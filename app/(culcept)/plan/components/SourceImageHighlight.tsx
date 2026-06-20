@@ -27,6 +27,8 @@ interface SourceImageHighlightProps {
   blankDays?: readonly number[];
   /** 表示幅(px)。画像はこの幅に縮尺。モバイルではコンテナ幅を超え横スクロール */
   displayWidth?: number;
+  /** 校正用: 日数を渡すと全列の境界線（gridLeft + i*colWidth, i=0..dayCount）を重ねる。 */
+  gridDayCount?: number;
 }
 
 export function SourceImageHighlight({
@@ -35,6 +37,7 @@ export function SourceImageHighlight({
   highlightDay,
   blankDays = [],
   displayWidth = 600,
+  gridDayCount,
 }: SourceImageHighlightProps) {
   const scale = displayWidth / geometry.imageWidth;
   const displayHeight = Math.round(geometry.imageHeight * scale);
@@ -97,6 +100,20 @@ export function SourceImageHighlight({
               }}
             />
           )}
+          {/* 校正用: 全列境界線（gridLeft + i*colWidth）。全列が原稿の列に合えば geometry 正確。 */}
+          {gridDayCount != null &&
+            Array.from({ length: gridDayCount + 1 }, (_, i) => {
+              const x = (geometry.gridLeft + i * geometry.colWidth) * scale;
+              if (x < -0.5 || x > displayWidth + 0.5) return null;
+              return (
+                <div
+                  key={i}
+                  data-testid="source-image-grid-line"
+                  className="pointer-events-none absolute inset-y-0 w-px bg-sky-500/70"
+                  style={{ left: x }}
+                />
+              );
+            })}
         </div>
       </div>
     </div>

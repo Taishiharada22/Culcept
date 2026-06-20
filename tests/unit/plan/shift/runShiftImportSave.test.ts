@@ -13,6 +13,13 @@ import type {
   ShiftImportBundleInput,
   ShiftImportSaveResult,
 } from "@/lib/plan/shift/shiftImportRepository";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
+
+const STAGING_URL = `https://${STAGING_PROJECT_REF}.supabase.co`;
+const PRODUCTION_URL = `https://${PRODUCTION_PROJECT_REF}.supabase.co`;
 
 const OK_RESULT: ShiftImportSaveResult = {
   ok: true,
@@ -48,6 +55,12 @@ function deps(over: Partial<RunShiftImportSaveDeps> = {}): RunShiftImportSaveDep
   return {
     getUserId: async () => "user-1",
     isEnabled: () => true,
+    // S-save-0: 既定は staging 接続（guard 通過）。guard NG ケースは connection を上書きして検証。
+    connection: {
+      supabaseUrl: STAGING_URL,
+      stagingRef: STAGING_PROJECT_REF,
+      productionRef: PRODUCTION_PROJECT_REF,
+    },
     repo: makeRepo(OK_RESULT).repo,
     dictionary: HARADA_SPRIX_DICTIONARY,
     ...over,
@@ -236,5 +249,111 @@ describe("runShiftImportSave", () => {
     if (r.ok) return;
     expect(r.kind).toBe("invalid");
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// S-save-0: 接続先 guard（staging allowlist + production deny。fail-closed）
+describe("runShiftImportSave — S-save-0 接続先 guard", () => {
+  it("staging 接続（既定）→ guard 通過し保存成功（repo 呼出）", async () => {
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(VALID_INPUT, deps({ repo }));
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("flag ON でも 接続先が production → disabled・auth(getUserId)/projection/repo 未到達", async () => {
+    let getUserIdCalled = false;
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({
+        repo,
+        isEnabled: () => true,
+        getUserId: async () => {
+          getUserIdCalled = true;
+          return "user-1";
+        },
+        connection: {
+          supabaseUrl: PRODUCTION_URL,
+          stagingRef: STAGING_PROJECT_REF,
+          productionRef: PRODUCTION_PROJECT_REF,
+        },
+      })
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.kind).toBe("disabled");
+    expect(r.message).toBe(SHIFT_IMPORT_ACTION_MESSAGES.disabled);
+    expect(getUserIdCalled).toBe(false); // ★ guard NG で auth/projection 未到達
+    expect(calls).toHaveLength(0); // ★ repo（RPC）未呼出
+  });
+
+  it("staging ref を含まない URL → disabled・repo 未呼出", async () => {
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({
+        repo,
+        connection: {
+          supabaseUrl: "https://other.supabase.co",
+          stagingRef: STAGING_PROJECT_REF,
+          productionRef: PRODUCTION_PROJECT_REF,
+        },
+      })
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.kind).toBe("disabled");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("URL 未設定 → disabled・repo 未呼出（fail-closed）", async () => {
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({
+        repo,
+        connection: {
+          supabaseUrl: undefined,
+          stagingRef: STAGING_PROJECT_REF,
+          productionRef: PRODUCTION_PROJECT_REF,
+        },
+      })
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.kind).toBe("disabled");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("flag OFF が guard より先（flag OFF なら接続先によらず disabled・repo 未呼出）", async () => {
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({ repo, isEnabled: () => false })
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.kind).toBe("disabled");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("safe error に raw URL / ref を出さない", async () => {
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({
+        connection: {
+          supabaseUrl: PRODUCTION_URL,
+          stagingRef: STAGING_PROJECT_REF,
+          productionRef: PRODUCTION_PROJECT_REF,
+        },
+      })
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).not.toContain(PRODUCTION_PROJECT_REF);
+    expect(r.message).not.toContain("supabase");
+    expect(r.message).not.toContain("https://");
   });
 });

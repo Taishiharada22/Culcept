@@ -47,6 +47,7 @@ import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { PlanDayIndicator } from "@/lib/plan/planDayIndicatorReader";
 import { dayIndicatorsByDate } from "@/lib/plan/dayIndicatorView";
+import { shiftImageSourceIds } from "@/lib/plan/shiftImageSource";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 // ── Phase 3-J-6e-1 / J-6e-2: Proposal 接続 ──
 // 注: TestOverrideContext は import しない (= production import 禁止)。
@@ -113,6 +114,8 @@ import { AnchorDetailModal } from "./components/AnchorDetailModal";
 import { EditAnchorModal } from "./components/EditAnchorModal";
 // P3 W2: .ics import modal (= CEO 2026-05-26、 review/approve UI)
 import { IcsImportModal } from "./components/IcsImportModal";
+// S1: 在 app シフト表取込 入口（flag gating・NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED）
+import { PlanShiftImportEntry } from "./components/PlanShiftImportEntry";
 // P3-A-1-1-h: Google Calendar OAuth 結果 banner (= callback redirect 後の user feedback)
 import {
   CalendarConnectBanner,
@@ -212,6 +215,24 @@ export interface PlanClientProps {
   lifeOpsInputResultType?: LifeOpsSourceInputSourceType;
   /** A-4-c39: Moment read-only surface（**surfaced 非 null の時だけ server が渡す**＝沈黙時は不渡し）。 */
   lifeOpsMoment?: { readonly phrase: string; readonly cautions: readonly string[] };
+  /**
+   * S3A-2-2-1: 在app入口の live VLM 下書き抽出を許可するか。server（plan/page.tsx）が
+   * PLAN_FLAGS.shiftDraftLiveEnabled を読み prop で渡す（server-only flag・client 直読み不可）。
+   * default false。S3A-2-2-1 は plumbing のみ＝この prop で live UI はまだ出さない。
+   */
+  draftLiveEnabled?: boolean;
+  /**
+   * S3A-2-2-2: 在app live draft flow の VLM 入力モード（combined-biased）。server（plan/page.tsx）が
+   * PLAN_SHIFT_VLM_INPUT_MODE を resolveShiftDraftVlmInputMode で正規化し prop で渡す。default combined。
+   * 注: action 側は split-bias なので client==action には env を明示設定（smoke で combined）。
+   */
+  shiftDraftVlmInputMode?: "split" | "combined";
+  /**
+   * S-save-2: 在app live draft 確認画面の保存導線を出すか（server-only flag PLAN_SHIFT_IMPORT_SAVE）。
+   * server（plan/page.tsx）が PLAN_FLAGS.shiftImportSave を読み prop で渡す（client 直読み禁止）。
+   * **default false で dormant**（保存ボタン無効・action 未呼出・DB write なし）。本番既定 OFF。
+   */
+  shiftImportSaveEnabled?: boolean;
 }
 
 export default function PlanClient({
@@ -227,6 +248,9 @@ export default function PlanClient({
   lifeOpsInputResult,
   lifeOpsInputResultType,
   lifeOpsMoment,
+  draftLiveEnabled = false,
+  shiftDraftVlmInputMode = "combined",
+  shiftImportSaveEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -522,6 +546,14 @@ export default function PlanClient({
   // SR #216 D3: 休み/希望休 を iso → viewModel に index 化（anchor と別レイヤー / day-level badge 用）
   const dayIndicatorByIso = useMemo(
     () => dayIndicatorsByDate(state.kind === "ok" ? state.dayIndicators : []),
+    [state]
+  );
+
+  // B-1: シフト取込（shift_image）由来の source id 集合。
+  //   勤務 anchor は source_type を直接持たないため anchor.sourceId → この Set で取込由来を判定する。
+  //   週/日/月 view へ渡し、控えめな「取込」由来 marker を表示する（= 警告ではなく provenance）。
+  const importedShiftSourceIds = useMemo(
+    () => shiftImageSourceIds(state.kind === "ok" ? state.sources : []),
     [state]
   );
 
@@ -892,6 +924,15 @@ export default function PlanClient({
               <span>取り込む</span>
             </button>
           )}
+          {/* S1: シフト表（画像/PDF）取込 入口。flag OFF（本番既定）なら null = UI 不変。 */}
+          {!isPane && (
+            <PlanShiftImportEntry
+              draftLiveEnabled={draftLiveEnabled}
+              vlmInputMode={shiftDraftVlmInputMode}
+              saveEnabled={shiftImportSaveEnabled}
+              onSuccess={handleAddSuccess}
+            />
+          )}
         </div>
         {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
             固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}
@@ -1002,6 +1043,7 @@ export default function PlanClient({
                 onProposalUndo={handleProposalUndo}
                 dayGraphByDate={dayGraphByDate}
                 dayIndicatorByIso={dayIndicatorByIso}
+                importedShiftSourceIds={importedShiftSourceIds}
               />
             )}
             {activeTab === "flow" && (
@@ -1011,6 +1053,7 @@ export default function PlanClient({
                 onAnchorClick={openDetail}
                 dayGraphByDate={dayGraphByDate}
                 dayIndicatorByIso={dayIndicatorByIso}
+                importedShiftSourceIds={importedShiftSourceIds}
               />
             )}
             {/* 9 closeout cleanup: MapTab 単一 path 化、 受領 prop は anchors + now + onAnchorClick のみ。

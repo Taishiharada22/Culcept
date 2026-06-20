@@ -16750,3 +16750,189 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 ---
 
 [2026-06-19] [Build] Candidate Lens **master flag dogfood ON**（CEO「まず lens 単体を dogfood 確認」）。`candidateLensUi.ts` の master flag `PLACE_CANDIDATE_LENS_UI_ENABLED` を **true**（dev/dogfood で lens ①②③ 表示）。production は `NODE_ENV!=="production"` で hard block 維持（本番公開は別 GO）。これで master flag(true)＋enrichment fetch/UI(true・canary arm)が dev で揃い、lens ①②③＋写真/営業時間が実描画される。explanation flag は false 維持。flag test を dogfood ON へ更新(production 排他は実関数で検証)。検証: 125 tests・tsc55・eslint clean。**dogfood smoke(実 PlaceCandidatesPanel・/search+/details stub・auth 回避)**: master flag overlay→①(候補2件+pager)→②=実 Google 写真(📷 m. zumi)+営業時間 営業中(月曜 7:00～23:00)+Wi-Fi/電源/静か未確認+Powered by Google→harness/proxy revert・flag は正本維持・console 0 error(favicon のみ)。残: 本番 canary は dogfood の人手確認後に CEO 判断(ops=本番 env 投入/GCP quota/deploy/監視)。[承認: CEO「まず lens 単体を dogfood 確認」→ master flag ON→green→combined smoke→停止]
+
+## SR S-save 帯（在app入口→保存 productization・2026-06-04）
+
+[2026-06-04] [Build] S-save-2 saveEnabled server→prop dormant 配線 — `PLAN_SHIFT_IMPORT_SAVE`（server-only）を page.tsx で読み saveEnabled prop として PlanClient→PlanShiftImportEntry→ShiftImportEntryInner→ShiftDraftInApp→ShiftImportModal へ配線。default false で dormant（保存ボタン無効・action 未呼出）。fixture fallback は false 固定（偽セル非保存）。client は flag 直読みしない。62 PASS / tsc 1112 / commit `21069426`。flag ON は未実施。[承認: CEO]
+
+[2026-06-04] [Build] S-save-1A payload CHECK-mirror contract test — 保存 payload が DB CHECK に「app 側で先に弾かれる」ことを fakeRpc（DB 非接触）で固定。rigidity は projection に無く adapter `buildShiftImportPlan` が既定 `"hard"` 注入・`CreateOneOffAnchorInput` で必須・RPC payload に載る。不正 rigidity/kind/空 label/off_request+公休 → validator が RPC 前に reject（RPC 未到達）。54 PASS / tsc 1112 / commit `da2d6aca`。[承認: CEO/GPT]
+
+[2026-06-04] [Build] S-save-1B-exec staging schema probe（read-only）— Dashboard SQL Editor で staging（`hjcr…wc`・production `alja…hl` 不一致を目視）の schema 実体を SELECT のみで確認。`plan_day_indicators`=true / `external_anchor_sources_source_type_check` に `shift_image` あり / `import_shift_roster`=true（signature `p_user_id uuid, p_range_start date, p_range_end date, p_source jsonb, p_anchors jsonb, p_indicators jsonb → jsonb` が migration `20260531100000` と完全一致）/ `external_anchors` rigidity CHECK あり / RLS 有効 / policy 4 種。**Case 2 = staging 適用済**（migration `20260530100000` + `20260531100000`）と判定。整合: 2026-06-03 の staging DB-write E2E PASS 時に適用済みと推定（probe が正本）。よって **S-save-1C dry-run / S-save-1D migration apply は skip**、本 probe が **1E 確認相当を兼ねる**。次は S-save-3（staging save smoke）readiness。DB write なし・migration apply なし・production 非接触。[承認: CEO/GPT（Case 2 受理・apply skip）]
+
+[2026-06-04] [Build] **S-save-3 productized in-app save smoke PASS** — 在app product 入口 → live VLM（1回）→ ShiftReviewGrid 確認（要確認0・CEO 元画像照合）→ 保存 → staging DB SQL 確認 → cleanup → env rollback の通しを CEO in the loop で実施し PASS。保存結果（`source_type='shift_image'` スコープ・staging）: `external_anchor_sources`=**1** / `external_anchors`=**19**（`2025-06-01`〜`06-29`・`rigidity_ok=true`・`anchor_kind_ok=true(one_off)`）/ `plan_day_indicators`=**11**（kind=`off` **10** + `off_request` **1**・`label_ok=true`）= **合計 30 件**（2026-06-03 dev 経路実測と完全一致）。`original_filename=null`＝**raw画像/base64/VLM raw response 非保存**を確認。在app経路（S-save-2 saveEnabled prop chain + S-save-0 接続 guard）→ RPC → DB が end-to-end で成立し、payload CHECK-mirror（rigidity/kind/label）が実データで保持。**production 不接触**。`PLAN_SHIFT_IMPORT_SAVE=true` は inline smoke のみ（`.env.local` は `=false` のまま）・**server 停止で rollback**（dormant 復帰確認）。**cleanup 0/0/0**（sources/indicators/anchors 全 0）で staging clean 復帰。既知 UX gap: 確認画面のセル hover 照合枠は `geometry` 未生成のため live で非表示（別ゲート S-geo の対象）。[承認: CEO（PASS 受理・cleanup 0/0/0 確認）]
+
+[2026-06-05] [Build] **S-save-4A replace/supersede smoke PASS** — 在app product 入口から**同じ 2025/6 画像を 2 回保存**し、同月再取り込みのデータ整合性を CEO in the loop で検証し PASS。1 回目: `source=1` / `anchors=19` / `indicators=11`（off10+off_request1）。2 回目: `source=1` / `anchors=19` / `indicators=11` — **`anchors=38` / `indicators=22` の二重化なし**（RPC range-scoped replace が在app経路で成立）。**orphan shift_image source = 0**（旧 source GC 成立・残骸ゼロ）。両保存で `rigidity_ok=true` / `anchor_kind_ok=true(one_off)` / indicator kind=`off`/`off_request` / `label_ok=true` 維持・dates `2025-06-01〜29`。**cleanup 0/0/0**（sources/indicators/anchors 全 0）で staging clean 復帰。**env rollback 済**（inline `PLAN_SHIFT_IMPORT_SAVE=true` は server 停止で消失・`.env.local` は `=false` dormant）。**production 不接触**（pre-flight masked staging-only + S-save-0 guard）。**raw画像/base64/VLM raw response 非保存**。VLM は各保存 1 回（連打なし）。次は S-save-4B（manual day_indicator conflict）— 4B fixture は一意 label `S-save-4B-fixture` で seed/cleanup（実 manual 非巻き込み）・別 GO。[承認: CEO（PASS 受理・cleanup 0/0/0 確認）]
+
+[2026-06-05] [Build] **S-save-4B manual conflict smoke PASS** — 手動休み（`plan_day_indicators` source_type=`manual`）がある日を含むシフト取込で、RPC が conflict を返し**手動を黙って上書きしない**ことを CEO in the loop で検証し PASS。手順: 一意 label `S-save-4B-fixture` の manual day_indicator を `2025-06-02`（off）に seed（UNIQUE ガード事前確認・実 manual 非巻き込み）→ 在app product 入口から 2025/6 を取込→保存試行 → **conflict 返却**: UI「手動で設定した休みと重なる日があります。ご確認ください。（2025-06-02）」= **綺麗な conflict**（generic error でなく日付特定）。結果: **shift_image 無書込**（`shift_sources=0`）/ **manual fixture 残存**（`{2025-06-02, off, S-save-4B-fixture}` 1 行）。fixture cleanup（label 指定 DELETE）後 **0/0/0**（fixture_remaining/shift_sources/shift_indicators 全 0）で staging clean 復帰。= RPC の conflict 保護が在app経路で正しく効き、ユーザーの手動休みをシフト取込が破壊しないことを実証。**env rollback 済**（私の :3001 save-enabled server のみ停止・別セッションの :3000 dormant server は無干渉・`.env.local` `=false` dormant）。**production 不接触**。**raw画像/base64/VLM raw response 非保存**。VLM 1 回（連打なし）。範囲外（未実施）: manual work anchor conflict / 保存後の月grid自動遷移 / geometry。[承認: CEO（PASS 受理・cleanup 0/0/0 確認）]
+
+---
+
+## SR S-geo 帯（原稿セル照合の geometry 校正・2026-06-05）
+
+[2026-06-05] [Build] **S-geo geometry calibration PASS（原稿セル hover/tap 照合）** — 確認画面で「カレンダーの日を hover/tap → 原稿の該当セルが拡大＋太枠で正確に光る」を CEO in the loop の live smoke で達成し PASS。経緯と結論:
+- **決定論 geometry を確認画面へ配線**: `selectImportModalProps` が cells_loaded の `selection.dayColumns`（day1中心 + 月末日中心の 2 点・ヘッダ tap）から `buildShiftGridGeometry` で geometry を pure 算出（`41bcb2bb`）→ ShiftDraftInApp が `geometry={modalProps.geometry}` を ShiftImportModal へ渡し既存 pass-through で照合枠が live 接続（`a31d218c`）。`blankDays` は ShiftReviewGrid の cells 自己算出を正本として維持（selector で二重持ちしない）。
+- **band-interaction バグ修正**: dayColumn モードで header/personRow 帯 overlay が `stopPropagation` で tap を横取りし day列中心 capture が無反応だったのを、当該モード時のみ両帯を `pointer-events-none` にして透過（`04ca11b0`）。live smoke が捕捉した実バグ。
+- **該当セル拡大（案A）**: フル表の極小枠ではなく、hover した日の source セルを `cellCropRegion` で crop 拡大＋太枠で強調する `SourceCellZoom` を追加。crop 実描画は既存 `SourceCellCrop` の合成に寄せ技法重複を排除（`b33b9975` → `5e9dd323`）。`SourceImageHighlight`（俯瞰）と併存。
+- **drift の真因と恒久解**: 2 点ヘッダ tap の端点誤差が月全体に線形ドリフト（初め左・中盤一致・終わり右／実測 colW −9%・gridLeft −62px）。解決は **全列グリッド・オーバーレイ校正**: 原稿全体に全列の縦線を重ね、`gridLeft`(左位置) / `colWidth`(列間隔) の手動 2 微調整で全列を原稿の列に合わせ込み、端点誤差を全列で吸収。校正後の `calibratedGeometry` を highlight/zoom に反映。CEO 目視で「拡大セル＋太枠が全日（1日/中盤/月末）正しいセルを指す」ことを確認（`56af9831`）。`SourceCellZoom` は有界ボックス化（過剰拡大/縦長解消）。
+- **重複排除**: geometry 不要の旧「原稿を表示して照合」トグル（S3A-2-4）を削除し、原稿全体表示を `SourceImageHighlight`（校正グリッド付き）に一本化（`56af9831`）。
+- **安全性**: 保存 / DB / production **非接触**。VLM 再実行なし（既存 cells 使用）。**raw画像 / base64 / VLM raw response 非保存**（geometry は座標のみ・SourceCellCrop は ObjectURL の background-image・canvas/dataURI なし）。plan 全体 4711 PASS / tsc 1112。
+- **申し送り（運用負債）**: 校正値（gridLeft/colWidth 調整）は**画面ローカル state**でリロードで消える。実ユーザーが毎回校正し直すのは productization 上未完成 → **校正値の恒久化**（座標値のみ・raw非保存）を次工程の readiness で設計。本番有効化（production migration apply / flag ON / branch merge）は review UX を固めてから（CEO 方針）。[承認: CEO（PASS 受理・「合格」明言・dev server 停止指示）]
+
+---
+
+## SR Persist 帯（校正値の恒久化・2026-06-05）
+
+> S-geo 帯の運用負債「校正値が画面ローカル state でリロードで消える」を、reducer 正本化 → close/reopen survival → localStorage/reload 復元の 3 段で恒久化し、smoke 6/6 PASS でクローズした帯。座標メタデータのみ保存・raw 非保存。
+
+[2026-06-05] [Build] **Persist 帯クローズ（校正値の恒久化・smoke 6/6 PASS）** — グリッド校正値（`gridLeft`/`colWidth` + 誤適用防止 context）を「画面ローカル state」から「reducer 正本 → localStorage 永続 → reload 復元」へ昇格し、CEO in the loop の live smoke（`/plan/dev-shift-draft`・dev server :3001・inline `PLAN_SHIFT_IMPORT_SAVE=false`）で **6/6 PASS**。
+
+- **Persist-1（`219d377c`）**: `GridCalibration` 型（座標 + `source:"manual_overlay"` + 誤適用防止 `imageW/imageH/dayCount` + 任意 `calibratedAt`）+ storage 契約（`toStoredPayload`/`parseStoredPayload` に gridCalibration を構造検証付きで追加）+ `resolveEffectiveGeometry` pure helper（3 層: dayColumns / gridCalibration / effectiveGeometry。gridCalibration は現コンテキスト整合時のみ採用、不整合は dayColumns fallback）。
+- **Persist-2（`90e2b211`）**: **校正値の正本を ShiftReviewGrid local state から reducer `selection.gridCalibration` へ移し controlled 化**。reducer action `set_grid_calibration`（`cells_loaded` のみ・`null`=reset・**dayColumns は温存**）。selector を `computeReviewGeometry`（dayColumns 専用）→ `resolveEffectiveGeometry` へ置換。slider を相対オフセット → **絶対値編集**に。= reducer state 正本化 + **close/reopen survival** まで。
+- **Persist-3（`be50d4fd`）**: 既存 pure 契約（`toStoredPayload`/`parseStoredPayload`/`makeStorageKey`/`buildImageFingerprint`）に **SSR 安全 IO だけを足した** `assistedSelectionStorage.ts`（`getStorage()` funnel・save/load/remove・per-image fingerprint key）で localStorage 永続化（**新 serialize 経路は新設せず**、既存契約に乗せる）。`useShiftDraftFlow` に RESTORE effect（`cells_loaded` 到達時に fingerprint ごと 1 回・read-only・再 mount で復元）+ `onSetGridCalibration` の **write-through**（set=保存 / reset=calibration を外して再保存）。「校正済」表示を **raw 存在ではなく applied**（`resolveEffectiveGeometry` が calibration 由来を採用＝geometry が cal 値と一致）に寄せ、`imageW/imageH/dayCount` mismatch は「（別の画像/月の校正値・未適用）」表示で**校正済を誤点灯させず** dayColumns fallback（3-state バッジ `data-calibration-state`）。reset は raw 存在で活性（不一致の古い校正値も消せる）。
+- **dev-host 配線 fix（`34377fe7`）**: `DevShiftDraftClient`（`/plan/dev-shift-draft`）が `ShiftImportModal` に `geometry` を未配線で校正パネルが dev host で描画されなかった（smoke 中に CEO が捕捉）のを、在app(`ShiftDraftInApp`)と同じ 3 prop（`geometry`/`gridCalibration`/`onGridCalibrationChange`）配線で解消。dev host の prop 配線のみ・永続化ロジック非接触。
+- **smoke 6/6**（CEO 目視）: ①校正→「（校正済）」点灯 + localStorage に `gridCalibration`（数値）出現 / ②modal close→reopen で校正値残存 / ③**reload 相当で localStorage から復元**（Persist-3 本体）/ ④reset で「（自動・未校正）」へ + payload から gridCalibration 消失（dayColumns 残存）/ ⑤reset 後 reload で**古い校正値が復活しない** / ⑥localStorage 値に `base64`/`data:image`/画像データなし（座標 + `manual_overlay` のみ）。
+- **安全性**: 保存 / save payload / DB / production **非接触**（storage 層は server/DB/action/supabase 非 import・client localStorage のみ。save controller/action に gridCalibration 不在）。VLM 再実行は各シナリオ最小（連打なし）。**raw画像 / base64 / blob / VLM raw response 非保存**（型 + parse 両方向で構造排除）。tsc **1112** 維持 / plan 全体 **4762 PASS**。
+- **凍結**: 校正・review 体験（S-geo + Persist）を**保守対象に凍結**。本番有効化（production migration apply / `PLAN_SHIFT_IMPORT_SAVE` flag ON / branch merge）は CEO 方針通り未実施。branch `feat/plan-shift-import-productization` にローカル積み上げ・**未 merge / 未 push**。
+- **申し送り（運用観測・非ブロッカー）**: write-through が slider tick ごとに `setItem` を呼ぶ（小 JSON・実害軽微）。高頻度が問題化したら debounce を別トラックで検討。page-reload 実復元・remount 復元は runtime 挙動のため静的 test 対象外＝本 smoke で担保。[承認: CEO（smoke 6/6 PASS 受理・「次に進みましょう」・decision-log 記録 + 帯 freeze 選択）]
+
+---
+
+## SR A3 read-miss / 空欄分離 帯（2026-06-05）
+
+> A1（confusable）/ A2（rowLabel）に続く **F6（silent read-miss）対策帯**。VLM が読めなかったセルを「高 confidence の空欄」として silent skip させない安全契約を、prompt（第3状態）+ adapter（D2）+ risk model（D3）で固める。決定論側は固定済。実 VLM 観測は auth/host guard で UI 到達不可のため抽出限定 smoke-lite に切替し、clean 画像で liveness のみ確認（read-miss 本体は画像にケース不在で未検証）。
+
+[2026-06-05] [Build] **A3-1 + A3-2 着地（read-miss を低 confidence review へ・`a7c870aa`）** — prompt に第3状態「visible-but-unreadable」を追加（判読不能 → `rawCode ""` + confidence ≤ 0.3 / `""` は確実な空に予約 / combined hardened の「空または低 confidence」OR を解消）。adapter **D2**: 空欄かつ confidence 欠落/非有限を `BLANK_MISSING_CONFIDENCE`=0.5（< 閾値 0.7）に倒し、VLM が confidence を省略しても read-miss を確実に要確認へ。risk model **D3**: `blank_risk` を「低 conf 空欄 ∨ 空欄隣接」に整理し `classification.isBlankRisk` と整合（高 conf 孤立空欄＝確実な休みは flag せず flood 回避・suspicious_shift は全空欄維持）。schema 不変 / unknown_code は hard 不変 / confusable は soft 不変 / save path・rowLabel warning 無傷。unit 70 + plan 全体 **4842 PASS** / tsc **1112** / 敵対的検証 4 reviewer 全 PASS。A3-smoke-pre（`09c2ef8a`）: dev host に per-cell `day/rawCode/confidence` readout（dev-only・raw 非表示）。[承認: CEO（diff preview GO → commit 受理）]
+
+[2026-06-05] [Build] **A3 smoke-lite / extraction-only observation PASS（VLM 1回・clean liveness）** — `/plan/dev-shift-draft` が三重ガード（`PLAN_SHIFT_DRAFT_HOST` + staging supabase）+ auth 必須で Claude 単独到達不可のため、CEO 承認で抽出限定 runner（既存 `buildHardenedCombinedDayKeyedPrompt` → gemini core `extractChunk`(maxRetry:0) → D2 → D3/A1 を再利用・独自 prompt なし・private-eval 作成 → 実行後削除）で **VLM 1 回**観測。画像 `public/shift-demo-july.png`（CEO 提供スクショと同一クリーン描画・full table を combined 1 枚で送信）。
+- **確認できたこと**: 31/31 coverage（missing 0 / duplicate 0）/ column drift 退行なし / confidence omission **0**（gemini は clean 画像で全セルに confidence を付与・省略しない）/ unknown code **0** / blank **0** / confidence **0.99 一律** → **A3 prompt 変更が clean 画像で live pipeline を壊していない**。false flood なし（low_confidence・blank_risk 誤発火 **0**）。
+- **未検証（画像にケース不在）**: read-miss → 低 confidence（#1）/ 低 conf 空欄 → blank_risk（#5）/ 確実な空欄 flood なし（#4）/ omission → 0.5 fallback（#3）。今回画像はクリーン描画で空セル・read-miss が無いため。
+- **安全性**: raw 画像 / base64 / VLM raw response **非保存・非 commit**（runner は core 経由で raw response 非保持・base64 は core 関数 local のみ）/ runner **削除済** / DB / save / production **非接触** / `PLAN_SHIFT_IMPORT_SAVE=false`。
+- **副次観測**: confusable **19/31（61%）** が soft 発火（H/HREQ/E/E-18/N）。soft 非ブロックだが実画面で amber 過多 → 「本当に見るべき日」が埋もれる懸念。次トラック **A1 confusable tuning readiness** で調整（severity tier 化・H/N を cell amber から弱める）。
+- **位置づけ**: **A3 deterministic side + clean-image liveness = PASS / read-miss 本体 = 未検証**。messy 画像（空セル・かすれ）入手後に別 GO で read-miss smoke を 1 回行う。[承認: CEO（smoke-lite 成功受理・「A3 完全 PASS ではない」明記・VLM 停止・次は A1 tuning readiness）]
+
+---
+
+## SR A1 confusable warning 過剰調整 帯（2026-06-05）
+
+> A3 smoke-lite の副次観測「confusable **19/31（61%）** soft 発火 → cell amber 過多で『本当に見るべき日』が埋もれる」を受けた調整トラック。tier + directionality で cell amber を **strong のみ**に絞り、medium は panel 件数 summary、weak は UI 非表示にした。**保存 block は一切しない（soft 維持）**。
+
+[2026-06-05] [Build] **A1-tune-1 着地（confusable を tier + directionality で調整・`80715ea4`）** — readiness `96a0b323` を受け、過剰 confusable warning を「見やすい精度」へ調整。
+- **tier**（CEO D1・全て soft 維持）: E↔E-18=**strong** / H↔HREQ=**medium** / H↔N=**weak**。effective tier は最強（H は medium∨weak→medium）。
+- **directionality**（CEO D2）: 誤読リスクは方向性がある → at-risk な**短い出力のみ** flag（E↔E-18→"E" / H↔HREQ→"H"）。信頼できる長い出力（"E-18" / "HREQ"）は **flag しない**。
+- **表示振り分け**（CEO D3）: cell amber = **strong のみ**（`confusableCellAmberDays`）/ panel summary = strong（日付つき）+ medium（件数 summary）/ weak = **UI 非表示**（`detectConfusableCells` には tier="weak" で残り test・観測用のみ）。
+- **効果**: sampled roster（E×2 / E-18×3 / H×9 / HREQ×1 / N×4 = 19）で **cell amber 19/31 → 2/31**（"E" の strong のみ点灯）。medium(H×9)=panel 件数 summary、weak(N×4)・E-18×3・HREQ×1 は cell amber から消滅。CEO 失敗条件「cell amber が 19 のまま」を回避。
+- **不変**: confusable_code は `HARD_KINDS` 非参加（soft）→ **保存 block 0**。`blockSave` 不変。A3 blank_risk・rowLabel warning 無傷。後方互換 primitive（`confusablePartners`/`isConfusableCode`/`HARADA_CONFUSABLE_PAIRS`）は対称のまま維持。
+- **変更**: pure `shiftConfusableCodes.ts`（spec+tier+directionality+helper）/ `shiftDraftRiskModel.ts`（panel 振り分け）/ `ShiftReviewGrid.tsx`（cell amber を strong-only）+ test 4（CEO test 10点を固定）。内部コメント「見間違い」→「誤読」統一（grep/safe-copy 整合）。
+- **検証**: 影響5ファイル **104 PASS** / plan 全体 **4852 PASS** / tsc **1112**（不変）。**VLM 追加実行 0** / DB / save / production **非接触**。
+- **残課題（非ブロッカー・観測項目）**:
+  - **H/HREQ medium の件数集中**: H が多い月では panel summary の「休み種別が紛らわしい日が N日」の N が大きくなる（cell amber は出さないので flood ではない・実害軽微）。N が体感過多なら H/HREQ を weak 降格する option を A1-tune-2 候補として保持。
+  - **H/N weak の昇格判断**: 実データで H/N の実誤読が観測されれば medium 昇格を検討（現状は観測のみ・smoke では H/N 実誤読ゼロ）。
+  - **read-miss 本体 smoke（A3）**: messy 画像（空セル・かすれ）入手後に別 GO で 1 回（A3 帯の継続項目）。
+  - **production-enablement**（save action 本有効化 / DB write / migration apply / `PLAN_SHIFT_IMPORT_SAVE`=true / flag ON / branch merge / push）: review UX を固めてから・CEO 方針通り**未実施**。branch `feat/plan-shift-import-productization` にローカル積み上げ・**未 merge / 未 push**。
+- **位置づけ**: **A1 confusable tuning = 着地（cell amber 過剰解消・保存 block なし）**。次は CEO 判断で「残課題一覧の整理」or「messy 画像 A3 read-miss smoke」。[承認: CEO（A1-tune-1 commit GO・「strong のみ cell amber / medium summary」方向採用）]
+
+---
+
+[2026-06-05] [Build] **A3 read-miss messy-image smoke — 重大所見: gemini は実 messy 表でも confidence を下げず silent 誤読する** — CEO 提供の実 messy roster（2025-07・9 人・紙テクスチャ/低解像・transcript から抽出 → png）で原田行を抽出限定 smoke（**VLM 1 回**・既存 `buildDayKeyedExtractionPrompt`（base・A3-1 read-miss 指示込み）再利用・独自 prompt なし・runner は private-eval 作成 → **実行後削除**・非 commit）。
+- **良い点**: A2 本人行 cross-check = **match**（9 人中から「原田 大志」を正しく特定・conflict なし）/ **31/31 coverage** / unknown 0 / **days 1-24 は原稿と完全一致**。
+- **重大所見（silent 誤読）**: tail（day25-31）で原稿とズレた誤読。特に **day28 = 原稿「H」（公休・白セルに薄い赤 H）を VLM が ""（空欄）と confidence 0.90（高）で出力**。confidence omission **0** / low-confidence **0**（全セル 0.90-0.95）。
+- **A3 net が catch できない理由**: 高 conf 孤立空欄は D3 通り blank_risk **非 flag**（＝確実な休みとして通過）。つまり **read-miss が「高 conf の空欄」に化けると A3 net は止められない**。A3 readiness §3.1 で「不可避」と記した *confident wrong read* が **実データで発生**した。
+- **核心**: gemini-2.5-pro は実 messy 表でも **confidence を下げない**（難セルを高 conf で誤読）。A3-1 prompt の「判読不能 → 低 conf」は **遵守されない**。→ **confidence ベースの read-miss net は実保護として不十分**。
+- **UX 含意（世界最上級の体験へ）**: 取り込みの正確性を **VLM の confidence に依存できない**。真の安全網は **(1) 確認画面での全セル原稿照合（既存 notice の方向）/ (2) coverage 検査 / (3) tail drift 等の抽出ロバスト化 / (4) 二重読み cross-validation**。confidence 表示・routing は補助に留める。
+- **安全性**: VLM **1 回** / 保存・DB・production **非接触** / raw 画像・base64・VLM raw response **非保存・非 commit** / 抽出画像・runner **削除済**。
+- **位置づけ**: A3 read-miss 本体 = **実観測完了（confident misread が実在）**。A3 の confidence-net は仕様通り動くが、VLM の overconfidence で**実保護が限定的**と判明。次は CEO 判断で read-miss 対策の再設計（review UX 強化 / 抽出ロバスト化 / cross-validation）。[承認: CEO（messy 画像 3 枚提供・「残課題を正確に進めて」「世界最上級の UX」指示）]
+
+---
+
+[2026-06-05] [Build] **A4-1 source-cell visual consistency guard（pure core）実装 + 実画像検証 — confident 誤読を画像側から deterministic に捕捉** — A3 confidence-net が止められない confident 誤読（day28: 原稿コード → "" @0.90）に対し、**VLM の confidence を信じず原稿画像と抽出結果を直接突き合わせる** deterministic guard を実装。CEO「自律的に深く推論して進めよ」の下、readiness の D1-D5 推奨（複合 metric / P1 のみ / soft / fail-open / pure 先行）に沿って自律実行。
+- **実装（pure 2 module・IO/LLM/DB なし・throw しない・25 unit tests・tsc 1112 維持・commit `03552611`）**: `cellContentMetric.ts`（彩度 + 赤チャネル優位 R−max(G,B) + 暗インク の max で content score）/ `sourceCellConsistency.ts`（P1: rawCode="" ∧ content 高 → blank_with_content / P2: 任意・既定 OFF / 全 soft・保存 block しない）。
+- **実画像検証（VLM 不使用・sharp のみ・runner 削除・doc `alter-plan-shift-a4-verification-findings.md`）**: ① **day28 = content 0.951（水色 L セルを crop 目視で正捕捉）+ rawCode="" → P1 発火 ✓**（A3 net が止められない誤読を A4 が捕捉）。② 清潔/テクスチャ白 = **0.000〜0.056**（閾値 0.12 未満）＝真の空白を誤発火しない。③ **CEO 提供 3 枚すべて全セル彩色**（blank セルなし）＝この roster family では「空欄 = 必ず read-miss」で誤発火対象が構造的に不在。④ **geometry が支配的リスク（C1 実証）**: 推定 geometry で day31=0.000 → crop 目視で列ズレと判明 → 補正後 0.979 回復。本番は gridCalibration / dayColumns の確定値 + 不確実時 fail-open。
+- **registration drift への頑健性**: 抽出列ズレで rawCode 系列がずれても、A4 は「画像 content あり ∧ rawCode 空」を flag するので誤読・drift の双方に効く。
+- **残課題（wiring 前・CEO 判断）**: A4-2（sharp IO content 抽出・cellCropRegion 使用・未着手）/ A4-3（risk model `source_mismatch` soft + ShiftReviewGrid 表示・未着手）。閾値の最終 calibration は「鉛筆書き/汚れ空白を含む別形式ロスター」が出たら再測定（現サンプルには不在）。
+- **安全性**: VLM **追加実行 0** / 保存・DB・production **非接触** / raw 画像・base64・VLM raw response **非保存・非 commit** / runner・crop **削除済**（private-eval は git ignored）/ branch `feat/plan-shift-import-productization` ローカル積み上げ・**未 merge / 未 push**。
+- **位置づけ**: A4-1 = **pure core 着地 + 実証完了**（confident 誤読を画像から deterministic に捕捉できると実データで確認）。A4-2/A4-3（IO/UI wiring）は CEO 判断後。[承認: CEO（「自律的に推論を繰り返し進めよ」「世界最上級の UX」指示・readiness D5「pure なら commit 可」）]
+
+---
+
+[2026-06-06] [Build] **SR A4 source-cell consistency guard 帯クローズ — visual smoke PASS（DOM 確定）** — 「VLM の confidence を信じず、原稿画像と抽出結果を画像側から deterministic に突き合わせる」安全網を A4-1〜A4-3 + visual smoke で完成・検証。
+- **実装の連鎖（全 local commit・未 merge / 未 push）**: A4-1 `03552611`（pure metric `cellContentMetric` + guard `sourceCellConsistency` + 25 tests）→ 検証 `2ad0234c`（実 July ロスターで day28=content 0.951→P1 発火を deterministic 確認）→ A4-2a `dd0f7239`（pure ImageData readout adapter・DOM/canvas 非依存）→ A4-2b `6d67248a`（blank-cell only の client canvas readout・fail-open/stale/unmount/debounce）→ A4-3 `83568aad`（warning banner + cell amber 接続・safe-copy・保存 block しない）→ V-1 `6532e4fd`（gated synthetic dev route `/plan/dev-a4-smoke`）→ V-2 `4b018820`（Playwright spec・flag skip-guard）。
+- **auth 壁の発見（重要）**: app 全体の auth は **`proxy.ts`（Next.js 16 の middleware）**。`PUBLIC_PATHS`/`PUBLIC_PREFIXES` 以外は未認証で `/login?next=<path>` に 307。**GPT の Y-lite（route を /plan 外へ移せば auth-free）は経験的に否定**（top-level `/dev-a4-smoke` も 307→login。auth は /plan 固有でなく app 全体）。→ auth 境界（proxy.ts）は**一切触らず**、**Option X（CEO 認証済ブラウザで実行）**で smoke を実施。
+- **V-3 visual smoke PASS（CEO 認証ブラウザ・DOM 確定）**: `{"warning":true,"days":"3","cells":["false","false","true","false","false","false","false"],"save":[false,true]}`。= warning banner 表示 / `data-source-mismatch-days="3"` / **day3 のみ `data-source-mismatch="true"`・day1/2/4/5/6/7 は "false"**（blank-only filter の保証通り）/ 保存 CTA dormant（「この内容で保存」なし）。合成 fixture（day3 空欄・原稿側 read region に青ブロック）でブラウザ runtime の canvas readout 発火 → A4-3 warning/amber を実機確認。
+- **安全性**: VLM 追加実行 0 / 保存・DB write・production・push いずれも非接触 / `PLAN_SHIFT_IMPORT_SAVE` 非設定 / dev server は smoke flag のみで起動 / raw 画像・base64・canvas data を保存/commit せず / auth(proxy.ts) 非変更 / 一時 Playwright config・probe は実行後削除。
+- **位置づけ**: **A4 帯クローズ**。confident 誤読（confidence net が止められない）を画像から捕まえる相補的安全網が、pure core 実証 + 全 unit + 実機 visual smoke まで揃った。残: visual smoke の自動回帰化（proxy.ts public allowlist の gated 例外）は auth 境界変更のため未着手（必要時に readiness）。[承認: CEO（Option X 認証実行・DOM 確認指示）]
+
+---
+
+[2026-06-06] [Build] **SR B-1 取込（shift_image）source marker 実装着地 — 取込シフトを週/日/月 view で一貫識別** — 画像取込された勤務 anchor / 休み day_indicator を手動入力と見分けられる控えめな「取込」由来表示を 3 view 横断で実装（警告でなく provenance）。commit `4d11b84c`（branch `feat/plan-shift-month-grid-reflection`・未 merge / 未 push・15 files・+590/−3）。
+- **B-0 read-only 調査で判明した型 gap**: runtime では `external_anchor_sources.source_type='shift_image'`（migration CHECK・CEO 承認 2026-05-31）が `/api/plan/anchors` → `PlanClient.state.sources[]` まで届く（repository L153 の cast pass-through）。**だが TS `ExternalAnchorSourceType` union に "shift_image" が無く** `=== "shift_image"` が型エラー（TS2367）。→ **localized cast で逃げず union-add で DB 実態と TS 型を一致**（論点A・CEO/GPT 判断）。tsc 強制の exhaustive Record 2 件（`SOURCE_TYPE_LABEL` / `SOURCE_TYPE_LABELS`）に「シフト取込」追加で過不足なく充足（blast radius = この 2 件のみ・origin の sourceType 比較は別型で無関係）。
+- **LIVE 日 view = 新 path の発見**: `LIST_NEW_TIMELINE_ENABLED=true`（8a 採用済）＝日 view の LIVE は **TimelineSpine + EventCard**。当初 anchor marker を旧 AnchorRow（dormant fallback）に入れていたが **render test で検出**（点4 失敗）し、`importedEventIds`（event.id=anchor.id・出発/帰宅 bookends は anchor でないため自然に対象外）を FlowDaySection→TimelineSpine→EventCard へ配線して修正。旧 AnchorRow にも parity で残置（flag-gated dormant・非 live-tested）。
+- **実装**: pure helper `shiftImageSource.ts`（`shiftImageSourceIds(sources)→Set` + `isImportedShiftAnchor`）/ presentational `ImportedSourceBadge`（muted slate・薄 border・title/aria「シフト取込」・amber/red 不使用＝feasibility/警告色と分離）。PlanClient で `useMemo` 導出 → CalendarTab / FlowTab / MonthGridView へ配布（CalendarTab→MonthGridView 転送）。
+- **表示（控えめ・由来表示）**: 日 view = EventCard + 休み badge に「取込」/ 週 view = day-level「取」（個別 item でなく「その日に取込由来あり」・密度配慮・title/aria「シフト取込あり」）/ 月 view = per-cell「取込」（box なし muted）。source ラベル =「シフト取込」。切り分け: anchor=`sourceId ∈ shiftImageSourceIds`・indicator=`vm.sourceType==="shift_image"`・non-shift_image は非表示（test で固定）。
+- **検証**: 新規 28 tests（helper 8 + badge 4 + 3view marker 9 + MonthGrid §11 7）+ **plan 全体 252 files / 4947 tests PASS（回帰ゼロ）**・tsc **1112 維持**・B-1 起因エラー 0。
+- **安全性**: VLM / DB write / save / proxy.ts / auth **非接触** / 月 view enablement flag（`NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED`）**非変更**（月 marker は component/test 上は動作・本番は dormant のまま）/ `PLAN_SHIFT_IMPORT_SAVE` 非接触 / 個別 stage（15 files）・dev-month-grid / `.temp` 非混入。
+- **次**: B-2 = source marker の visual smoke / screenshot 確認（新機能でなく見た目確認。週/日 は LIVE で可・月は flag ON が必要なため dormant のまま deferred）。[承認: CEO/GPT（型 gap union-add 採用・週 day-level「取」確定・B-1 一括 commit GO `4d11b84c`）]
+
+---
+
+[2026-06-07] [Build] **SR B-2 取込 marker visual smoke PASS + C-0 月 view enablement readiness** — B-1 取込 marker を gated dev fixture で週/日/月 一括 screenshot 確認 → PASS。続けて月 view 有効化の read-only audit + readiness（docs-only）。
+- **B-2 gated dev fixture（commit `4162be39`・5 files）**: route `/plan/dev-source-marker-smoke`。gate = `PLAN_SHIFT_SOURCE_MARKER_VISUAL_SMOKE_PREVIEW==="true" && NODE_ENV!=="production"`（server 専用・NEXT_PUBLIC でない・default OFF・production notFound・a4SmokeGate mirror + unit test 4 PASS）。synthetic fixture（夜勤6/10 shift・面談6/10 manual 同日・歯医者6/11 manual・休み6/12 shift・休み6/13 manual）を本番と同じ marker 経路で 3 view 描画（週=CalendarTab / 日=FlowTab LIVE / 月=MonthGridView 直接描画・enablement flag 非依存）。
+- **R1 安全性検証**: FlowTab LIVE は `enhanceAlterNotesAction` を fire するが `alterNoteLive`/`personalModelIntegration` **default OFF** → PM 抽出（Stargazer DB read・`extractPersonalModelV2`）skip・LLM 非発火。→ **DB write/save/VLM/LLM/Stargazer DB read 非接触**。ただし通常認証として **Supabase auth read（`auth.getUser`）は発生し得る**（通常 /plan と同等・blocker でない）。GPT 表現補正反映。
+- **screenshot smoke PASS（CEO 認証ブラウザ + Claude 独立監査）**: 週=10・12 に「取」/ 11・13 なし。日=6/10 夜勤 EventCard に「取込」/ 同日 面談に なし。月=10(面談+N+取込)・12(BD+取込) / 11(歯医者)・13(BD) は marker なし。muted・崩れなし・non-shift_image 非表示・**保存/DB UI なし**。Claude 監査も同結論（cell 10 最密 3 段だが破綻なし）。
+- **C-0 月 view enablement readiness（docs `alter-plan-month-view-enablement-readiness.md`）**: ① MonthGridView は build 完成（code chip + tint + 取込 marker 統合）② flag `calendarMonthGridEnabled` = `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED`（**global NEXT_PUBLIC・default OFF**）③ `DEFAULT_CALENDAR_VIEW_MODE="week"`＝flag ON でも月は opt-in toggle・週体験不変 ④ 月送り nav 既存 ⑤ **本命=C 案（flag ON で toggle 表示・週 default）= 低リスク**。**B（per-user canary）は NEXT_PUBLIC global 制約で本 flag では不可**＝server 駆動 flag の別実装が必要。残=C-1 smoke（実 CalendarTab toggle + mobile 幅）→ C-2 polish（条件付き）→ C-3 本番判断。
+- **安全性**: flag ON・DB write・save・VLM・production・push・merge・proxy.ts・auth・月 enablement flag 変更 **いずれも非接触**。B-2 dev route は gated + production notFound。C-0 は docs-only。[承認: CEO/GPT（B-2 commit GO `4162be39`・smoke PASS・C は read-only audit + docs-only readiness 指示）]
+
+---
+
+[2026-06-07] [Build] **SR C-1 月 view local/dev smoke PASS（実 CalendarTab toggle + month + 月送り + mobile）** — B-2 fixture（`/plan/dev-source-marker-smoke`）を再利用し、月 enablement flag を一時 ON にして実 CalendarTab 経由の月 view を screenshot smoke。新 route・新 code なし。
+- **一時 env（process scope のみ・`.env.local` は編集していない）**: `PLAN_SHIFT_SOURCE_MARKER_VISUAL_SMOKE_PREVIEW=true` + `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true`。dev server 停止後は env も消滅（恒久変更なし）。
+- **smoke 結果 PASS（CEO 認証ブラウザ + Claude 独立スクショ監査）**:
+  - **初期表示は week default のまま**（`週|月` toggle で週が選択状態）。
+  - **`週|月` toggle が表示された**（月 flag が client に到達した証拠）。
+  - **月 view に切り替えできた**（toggle→月で 6×7 grid・コード chip(N/BD)・取込 marker・today/selected/前後月 dimmed が描画）。
+  - **週 view に戻せた**。
+  - **月送りが破綻しなかった**（◀▶ で 6月→7月へ・7/10 selected・clamp 自然・戻って壊れない・July は fixture 無で marker なし＝期待通り）。
+  - **mobile 375px で致命的破綻なし**（**CEO 確認**。Claude は提供 desktop スクショで desktop 幅の非破綻を独立確認・375px 専用スクショは監査対象外）。
+  - **shift_image source marker の regression なし**（週/日/月 全 section で shift=6/10・6/12 取込 / non=6/11・6/13 なし）。
+- **C-2 polish は現時点では不要（CEO 判定）**。
+- **安全性**: 保存 / DB write / VLM / LLM **非接触**（FlowTab 経由の Supabase auth read のみ・通常 /plan と同等）。production **非接触**。月 enablement flag は **一時 env のみ・恒久変更なし**。push / PR / merge なし。[承認: CEO/GPT（C-1 smoke PASS・C-2 不要・C-3 へ進む指示）]
+
+---
+
+[2026-06-07] [Build] **SR C3-1 month view build verification PASS（flag ON で production build 成功）** — 月 enablement flag を一時 ON にして `next build` が通るか確認。visual ではなく build verification（dev fixture は production で notFound が正しいため visual に使わない・C3-1 preflight readiness `63f96b81` 方針）。
+- **一時 env（process scope のみ・`.env.local` 編集なし）**: `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true npm run build`。
+- **build 純度確保**: untracked `dev-month-grid/*` を build 前に repo 外へ `mv` 退避（削除・git clean/checkout/restore/reset は不使用）→ build 後に `mv` で復帰。
+- **結果 PASS**: `BUILD_EXIT=0` / **✓ Compiled successfully in 12.8min** / **✓ Generating static pages 362/362** / Route table 生成 / `/plan/dev-source-marker-smoke` は `ƒ`（dynamic・本番 runtime で gate→notFound＝正しい挙動）/ **month flag 起因の build error なし**。`next.config.js` は `typescript.ignoreBuildErrors:true`（既存 1112 tsc baseline では build を落とさない・webpack compile のみ）。Sentry は DSN 未設定で plugin 無効（外部 upload なし）。
+- **build 生成物の後始末**: build が `next-env.d.ts`（Next 自動生成・tracked）の routes types 参照を書換えたため、`git show HEAD:next-env.d.ts > next-env.d.ts` で HEAD へ復元（git checkout/restore 不使用）。`.next/` build 出力は gitignored。
+- **honest nuance**: 月 flag は runtime boolean（CalendarTab が `{showViewToggle && ...}`）で月 view code は常に bundle ＝ flag-ON build ≈ 通常 build + inlined boolean。本検証の主価値は「production build が健全 + flag が inline で壊れない」確認。
+- **安全性**: production flag ON / deploy / DB write / save / VLM / push / PR / merge **いずれも非実施**。`.env.local` 非編集。dev-month-grid + next-env.d.ts は build 前状態へ復帰。visual は C-1 で済（dev≈prod）。[承認: CEO/GPT（C3-1 build verification GO・PASS なら C3-1 closeout + C3-2 readiness へ）]
+
+---
+
+[2026-06-07] [Build] **SR 月 view enablement トラック local closeout / freeze（C3-3 dogfood ON judgment 完了・本番 ON は保留）** — shift_image source marker（B-1）+ 月 view 有効化（C トラック）を local で完成・検証・enablement 設計まで揃え、branch `feat/plan-shift-month-grid-reflection` を freeze。**本番 flag ON は未実施・別 GO**。
+- **トラック完了状態（全 local commit・未 push）**: B-1 shift_image source marker 実装 `4d11b84c` → B-1 closeout `82b47c60` → B-2 gated dev fixture `4162be39`（visual smoke PASS）→ B-2 closeout + C-0 readiness `00d959f9` → C-1 dev smoke PASS `f253cba4`（実 CalendarTab toggle/month/月送り/mobile）→ C-3 plan `c47fdd3a` → C3-1 preflight `63f96b81` → C3-1 build verification PASS `3c1b635a`（`flag=true npm run build` exit 0・362/362 pages）→ C3-2 production env readiness `83bb0e3c` → **C3-3 dogfood ON judgment `f29a28ee`**。
+- **deploy feasibility（read-only）**: deploy 経路 = **Vercel**（`vercel.json` + GitHub remote `Taishiharada22/Culcept` + CI `ci.yml`/`staging-smoke.yml`）。`vercel.json` の `ignoreCommand` で **.md のみの commit は build/deploy を skip**。flag は Vercel env var として設定 + redeploy で反映。
+- **dogfood ON は現状保留**。理由: **GitHub 未復旧 / branch は local-only（未 push）/ Vercel env 変更 禁止 / remote・push・PR・merge 操作 禁止**。→ Vercel への反映経路が現状塞がっている。
+- **ON 可能条件**: GitHub/remote 復旧 + CEO GO → branch 反映 → Vercel production env に `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true` 設定 → rebuild/redeploy → /plan smoke → observe/rollback window。
+- **flag**: `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true`。**影響**: 全ユーザーに `週\|月` toggle・**default は week**・月 view は opt-in。**rollback**: flag false + rebuild/redeploy → week default。**per-user canary は本 NEXT_PUBLIC global flag では不可**（必要なら server-driven flag 別実装）。
+- **無関係の明示**: 月 view は `PLAN_SHIFT_IMPORT_SAVE` / DB / VLM / save path とは **無関係**（presentational・read-only・DB write 不要）。
+- **branch freeze**: `feat/plan-shift-month-grid-reflection` を本 closeout で freeze。以降この branch へは追加しない（productization branch への直接追加も禁止継続）。production / deploy / push / PR / merge は **未実施**。
+- **次トラック（別 branch）**: 実データ save→/plan 反映の本番 end-to-end（productization branch freeze 解凍 + production migration 待ち）を新 branch で計画予定。[承認: CEO（月 view enablement local closeout / freeze 指示・本番 ON は別 GO）]
+
+---
+
+[2026-06-07] [Build] **SR RD-2 staging realdata save → /plan 反映 end-to-end PASS（save success refetch bug fix 完了）** — stacked branch `feat/plan-shift-import-realdata-reflection`（base `72d49987`）で staging 実 save → DB write 成功 → reflection bug 特定 → surgical fix → CEO ブラウザで hard reload なし自動反映 PASS まで完了。
+- **準備（docs-only）**: RD-0 readiness `e6a49095` → RD-1 staging runbook `bfac760e`。
+- **preflight（read-only・3 回）**: CLI link が **production ref のまま**残存 → STOP 条件成立で停止 → CEO の手動 `supabase link --project-ref hjcrvndumgiovyfdacwc` + `mv supabase/.temp/linked-project.json /tmp/...` で完全 staging に揃え → 3 回目 preflight で全 gate 通過（`project-ref` = staging / Supabase URL = staging / `PLAN_SHIFT_IMPORT_SAVE` = true / `.temp` 内 production ref 残存 0）。**`linked-project.json` は absent**（現環境では `project-ref` / `pooler-url` で operational metadata が成立）。
+- **本実行（staging・dev server）**: env = `NEXT_PUBLIC_PLAN_CALENDAR_MONTH_GRID_ENABLED=true` + `NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED=true` + `PLAN_SHIFT_DRAFT_LIVE_ENABLED=true` + `.env.local` 既存 `PLAN_SHIFT_IMPORT_SAVE=true`。CEO 認証ブラウザでシフト画像投入→保存。
+- **bug 観測**: 保存ボタン押下で **DB write は完全成功**（Dashboard SQL Editor 確認：直近 10 分で source 1 + anchors 19 + indicators 12 が staging に書かれる）が、**hard reload なしでは /plan に反映されない**。
+- **原因特定**: dev server log で save 直後の `GET /api/plan/anchors` が呼ばれていないことを確認。コード調査で **`PlanShiftImportEntry` / `ShiftImportEntryInner` / `ShiftDraftInApp` の 3 階層に `onSuccess` prop seam が存在せず**、save 成功通知が PlanClient.handleAddSuccess（refetch trigger）に到達しないことを確証。
+- **surgical fix（commit `d181e153`・5 ファイル・+75/−2）**: 3 component に `onSuccess?: () => void` 追加（後方互換）+ live path（ShiftDraftInApp）/ fallback path（ShiftImportModal）両方で内部 onSaveSucceeded 後に親 onSuccess を呼ぶ wiring + `PlanClient` に `onSuccess={handleAddSuccess}` 1 行追加 + render contract test §7（pass-through seam）3 件追加。**save logic / RPC / S-save-0 guard / DB schema / migration / reader query は不変**。
+- **検証**: tsc baseline **1112 維持**（触ファイル起因 0）/ plan 全体 **253 files / 4954 tests PASS**（回帰ゼロ）/ **CEO 認証ブラウザで hard reload なし自動反映 PASS 確認済**。
+- **安全性**: production / push / PR / merge / deploy / Vercel env 変更 / 追加 save / cleanup / DELETE / DB schema / migration / RPC / S-save-0 guard / proxy.ts / auth 変更・**いずれも未実施**。staging 接続のみ（CLI link + Supabase URL 共に staging ref）。
+- **残置 staging データ（CEO keep 判断）**: 本 smoke で生成された source 1 + anchors 19 + indicators 12 は staging に残置（cleanup 未実行・テストデータ扱い）。CEO が cleanup したい時に RD-1 §6 SQL を Dashboard で実行（user_id + source_id 起点・順序厳守・blanket 禁止・6 項目報告→GO 方式）。
+- **dev server**: 本 closeout 時点で停止済（clean state 復帰）。
+- **位置づけ**: **RD-2 帯クローズ**（staging で実データ save→反映 end-to-end が bug fix 込みで成立）。本番反映は引き続き別 GO（productization branch 解凍 + production migration + CEO + GitHub 復旧待ち）。本 branch は当面 active 保持（次の作業で再利用可能・必要時に CEO 指示で freeze）。[承認: CEO（GPT 案 B 採用＝本 branch で bug fix・cleanup keep・dev server 停止・decision-log 別 commit）]
+
+---
+
+---

@@ -147,6 +147,8 @@ export type TimelineSpineProps = {
   readonly transitions?: ReadonlyArray<TransitionViewModel>;
   /** Optional: event tap handler (= id を受け取る、 詳細 sheet open trigger 等) */
   readonly onEventTap?: (id: string) => void;
+  /** B-1: シフト取込（shift_image）由来の event id 集合（= anchor id）。該当 EventCard に「取込」表示。 */
+  readonly importedEventIds?: ReadonlySet<string>;
   /**
    * Optional: 8c-2 追加、 transition 詳細 tap handler (= fromTime, toTime を受け取る、 詳細 sheet 等)
    */
@@ -169,6 +171,7 @@ export function TimelineSpine({
   events,
   transitions,
   onEventTap,
+  importedEventIds,
   onTransitionDetailTap,
 }: TimelineSpineProps): ReactNode {
   if (events.length === 0) {
@@ -293,6 +296,7 @@ export function TimelineSpine({
                   <EventCard
                     event={event}
                     onTap={onEventTap ? () => onEventTap(event.id) : undefined}
+                    imported={importedEventIds?.has(event.id) ?? false}
                   />
                 </div>
               </li>

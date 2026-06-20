@@ -17,6 +17,12 @@
  */
 
 import type { ShiftReviewCell } from "./shiftReviewClassification";
+import type {
+  AssistedRowSelection,
+  GridCalibration,
+} from "./assistedRowSelection";
+import type { ShiftGridGeometry } from "./shiftGridGeometry";
+import { resolveEffectiveGeometry } from "./effectiveGeometry";
 
 /** state.kind === "cells_loaded" の最小契約（selector が依存する形）。 */
 export interface CellsLoadedShape {
@@ -26,6 +32,12 @@ export interface CellsLoadedShape {
   cells: ShiftReviewCell[];
   imageObjectUrl: string;
   reviewOpen: boolean;
+  /**
+   * S-geo-2C-1: 照合枠 geometry の算出入力（imageW/H・personRowBand・dayColumns）。
+   * reducer の cells_loaded は必須保持するが、selector 契約では **optional** とし、
+   * 未指定/未捕捉（dayColumns なし）でも geometry undefined で fail-soft（modal は返す）。
+   */
+  selection?: AssistedRowSelection;
 }
 
 /** ShiftImportModal の props サブセット（selector の戻り値契約）。 */
@@ -43,6 +55,18 @@ export interface ImportModalSelected {
   riskReviewEnabled: true;
   /** B1b-1R で 92.8% 最良の chunk 境界（運用前提）。 */
   chunkBoundaries: number[];
+  /**
+   * S-geo-2C/Persist-2: 照合枠用の effective geometry。`resolveEffectiveGeometry` が
+   * gridCalibration（現コンテキスト整合時のみ優先）→ dayColumns 由来、の順で解決する。
+   * 未捕捉 / 不整合 / 破綻なら undefined（fail-soft）。
+   * **blankDays は含めない** — packing 補正は ShiftReviewGrid が cells から自己算出する正本を維持する。
+   */
+  geometry?: ShiftGridGeometry;
+  /**
+   * S-geo Persist-2: 現在の校正値（`selection.gridCalibration` の素通し）。
+   * 校正 UI の正本表示 / reset 判定に使う。正本は reducer 側 selection.gridCalibration。
+   */
+  gridCalibration?: GridCalibration;
 }
 
 /** selector に渡すオプション（context 注入）。 */
@@ -75,6 +99,14 @@ export function selectImportModalProps(
     imageSrc: state.imageObjectUrl,
     riskReviewEnabled: true,
     chunkBoundaries: DEV_SHIFT_DRAFT_CHUNK_BOUNDARIES,
+    // S-geo Persist-2: dayColumns 専用 → effectiveGeometry（gridCalibration 優先・現コンテキスト整合時のみ）。
+    geometry: resolveEffectiveGeometry({
+      selection: state.selection,
+      year: state.year,
+      month: state.month,
+    }),
+    // 校正 UI の正本表示 / reset 判定用（reducer 側 selection.gridCalibration の素通し）。
+    gridCalibration: state.selection?.gridCalibration,
   };
 }
 

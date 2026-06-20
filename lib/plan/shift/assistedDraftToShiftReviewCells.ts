@@ -18,6 +18,14 @@ import type { ShiftReviewCell } from "./shiftReviewClassification";
 /** confidence 未指定セルに与える既定（B1b-2B blank-risk 閾値 0.7 より少し上 = soft hint を発火しすぎない）。 */
 export const DEFAULT_CONFIDENCE = 0.8;
 
+/**
+ * A3-D2: **空欄（rawCode が空）かつ confidence 欠落/非有限**のセルに与える安全側の既定。
+ *   blank-risk 閾値（0.7）より **下** にして、read-miss（読めずに "" に化けた日）が高 confidence の
+ *   空欄として silent skip するのを防ぐ（VLM が confidence を落とさなくても要確認へ確実に回す）。
+ *   ※ 非空セル / 明示 confidence 付きの空欄には適用しない（確実な休みは高 confidence を維持）。
+ */
+export const BLANK_MISSING_CONFIDENCE = 0.5;
+
 export interface AssistedDraftToShiftReviewCellsOptions {
   /** confidence 未指定/null/Infinity の場合の埋め値（0..1）。既定 DEFAULT_CONFIDENCE。 */
   defaultConfidence?: number;
@@ -59,15 +67,25 @@ export function assistedDraftToShiftReviewCells(
       continue;
     }
     seen.add(c.day);
-    const conf =
-      typeof c.confidence === "number" && Number.isFinite(c.confidence)
-        ? clamp01(c.confidence)
+    // A3-D2: 空欄かつ confidence 欠落/非有限は安全側（BLANK_MISSING_CONFIDENCE < 閾値）へ。
+    //   明示 confidence 付き空欄は尊重（確実な休み=高 conf を保つ / read-miss=低 conf をそのまま）。
+    const isBlankCell = typeof c.rawCode === "string" && c.rawCode.trim() === "";
+    const hasConfidence =
+      typeof c.confidence === "number" && Number.isFinite(c.confidence);
+    const conf = hasConfidence
+      ? clamp01(c.confidence as number)
+      : isBlankCell
+        ? BLANK_MISSING_CONFIDENCE
         : def;
     accepted.push({
       day: c.day,
       date: ymd(meta.year, meta.month, c.day),
       rawCode: c.rawCode,
       confidence: conf,
+      // A2B-1: rowLabel（人名）を review 専用 metadata として carry。非空のみ載せる（保存には混ぜない）。
+      ...(typeof c.rowLabel === "string" && c.rowLabel.trim() !== ""
+        ? { rowLabel: c.rowLabel }
+        : {}),
     });
   }
   accepted.sort((a, b) => a.day - b.day);

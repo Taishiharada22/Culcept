@@ -30,6 +30,14 @@ const validSel: AssistedRowSelection = {
   ...IMG,
   headerBand: { top: 180, bottom: 226 },
   personRowBand: { top: 290, bottom: 350 },
+  // S-geo-2: CTA は Y 帯 ∧ day列中心 X の両立で active になるため、X も valid 値を持たせる
+  dayColumns: { firstDayCenterX: 300.75, lastDayCenterX: 1845.75 },
+};
+/** Y 帯のみ valid・day列中心 X 未指定（S-geo-2 の CTA gate 検証用）。 */
+const validSelNoX: AssistedRowSelection = {
+  ...IMG,
+  headerBand: { top: 180, bottom: 226 },
+  personRowBand: { top: 290, bottom: 350 },
 };
 const invalidSel: AssistedRowSelection = {
   ...IMG,
@@ -165,5 +173,34 @@ describe("AssistedRowSelector — CTA / clear の disabled 状態（render contr
     expect(
       render({ initialSelection: validSel, onCancel: () => {} })
     ).toContain('data-testid="assisted-row-cancel"');
+  });
+});
+
+describe("AssistedRowSelector — S-geo-2 day列中心 X capture", () => {
+  it("editTarget に dayColumn モード（日列の中心）が出る", () => {
+    const html = render();
+    expect(html).toContain('data-testid="assisted-row-edit-target-dayColumn"');
+    expect(html).toContain("日列の中心");
+  });
+
+  it("valid Y ∧ valid dayColumns → day列中心 marker 2 本 + CTA active", () => {
+    const html = render({ initialSelection: validSel });
+    expect(html).toContain('data-testid="assisted-row-daycolumn-marker-first"');
+    expect(html).toContain('data-testid="assisted-row-daycolumn-marker-last"');
+    expect(hasDisabled(buttonTag(html, "assisted-row-confirm"))).toBe(false);
+  });
+
+  it("valid Y だが dayColumns なし → CTA disabled（S-geo-2 gate・X 未完了で読み取り不可）", () => {
+    const html = render({ initialSelection: validSelNoX });
+    expect(hasDisabled(buttonTag(html, "assisted-row-confirm"))).toBe(true);
+    expect(html).not.toContain('data-testid="assisted-row-daycolumn-marker-first"');
+  });
+
+  it("regression: dayColumns なしでも header/personRow 帯 overlay + 4 ハンドルは出る（Y UI 不変）", () => {
+    const html = render({ initialSelection: validSelNoX });
+    expect(html).toContain('data-testid="assisted-row-header-band"');
+    expect(html).toContain('data-testid="assisted-row-person-band"');
+    expect(html).toContain('data-testid="assisted-row-handle-personRow-top"');
+    expect(html).toContain('data-testid="assisted-row-handle-header-bottom"');
   });
 });

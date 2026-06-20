@@ -23,7 +23,10 @@ import {
   type DevShiftDraftState,
   type ImageMeta,
 } from "@/app/(culcept)/plan/dev-shift-draft/devShiftDraftReducer";
-import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
+import type {
+  AssistedRowSelection,
+  GridCalibration,
+} from "@/lib/plan/shift/assistedRowSelection";
 import type { ShiftReviewCell } from "@/lib/plan/shift/shiftReviewClassification";
 
 const META: ImageMeta = {
@@ -623,6 +626,120 @@ describe("devShiftDraftReducer — save_succeeded", () => {
     expect(currentImageObjectUrl(before)).toBe(URL1);
     const after = devShiftDraftReducer(before, { type: "save_succeeded" });
     expect(currentImageObjectUrl(after)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// S-geo Persist-2: set_grid_calibration（校正値の正本 = selection.gridCalibration）
+// ─────────────────────────────────────────────────────────────
+
+const CAL: GridCalibration = {
+  gridLeft: 200,
+  colWidth: 44,
+  source: "manual_overlay",
+  imageW: 1860,
+  imageH: 846,
+  dayCount: 31,
+};
+const CAL2: GridCalibration = { ...CAL, gridLeft: 260, colWidth: 42 };
+const SELECTION_WITH_DC: AssistedRowSelection = {
+  ...SELECTION,
+  dayColumns: { firstDayCenterX: 222, lastDayCenterX: 1585 },
+};
+const CELLS_LOADED_DC = (
+  gridCalibration?: GridCalibration
+): DevShiftDraftState => ({
+  kind: "cells_loaded",
+  imageObjectUrl: URL1,
+  imageMeta: META,
+  selection: gridCalibration
+    ? { ...SELECTION_WITH_DC, gridCalibration }
+    : SELECTION_WITH_DC,
+  cells: CELLS,
+  year: 2025,
+  month: 7,
+  reviewOpen: true,
+});
+
+describe("devShiftDraftReducer — set_grid_calibration（Persist-2）", () => {
+  it("cells_loaded + set(CAL) → selection.gridCalibration=CAL（他 field 不変・reviewOpen 保持）", () => {
+    const before = CELLS_LOADED_DC();
+    const next = devShiftDraftReducer(before, {
+      type: "set_grid_calibration",
+      gridCalibration: CAL,
+    });
+    expect(next.kind).toBe("cells_loaded");
+    if (next.kind !== "cells_loaded") return;
+    expect(next.selection.gridCalibration).toEqual(CAL);
+    // 他の selection field は不変
+    expect(next.selection.dayColumns).toEqual(SELECTION_WITH_DC.dayColumns);
+    expect(next.selection.personRowBand).toEqual(SELECTION.personRowBand);
+    expect(next.selection.imageW).toBe(SELECTION.imageW);
+    // cells_loaded の他 field も不変
+    expect(next.reviewOpen).toBe(true);
+    expect(next.imageObjectUrl).toBe(URL1);
+  });
+
+  it("cells_loaded(CAL) + set(CAL2) → 上書き", () => {
+    const before = CELLS_LOADED_DC(CAL);
+    const next = devShiftDraftReducer(before, {
+      type: "set_grid_calibration",
+      gridCalibration: CAL2,
+    });
+    if (next.kind !== "cells_loaded") throw new Error("expected cells_loaded");
+    expect(next.selection.gridCalibration).toEqual(CAL2);
+  });
+
+  it("cells_loaded(CAL) + set(null) → gridCalibration 除去（dayColumns は残す＝reset 仕様）", () => {
+    const before = CELLS_LOADED_DC(CAL);
+    const next = devShiftDraftReducer(before, {
+      type: "set_grid_calibration",
+      gridCalibration: null,
+    });
+    if (next.kind !== "cells_loaded") throw new Error("expected cells_loaded");
+    expect(next.selection.gridCalibration).toBeUndefined();
+    expect("gridCalibration" in next.selection).toBe(false);
+    // reset は gridCalibration を外すだけ。dayColumns / personRowBand は不変。
+    expect(next.selection.dayColumns).toEqual(SELECTION_WITH_DC.dayColumns);
+    expect(next.selection.personRowBand).toEqual(SELECTION.personRowBand);
+  });
+
+  it("未校正状態で set(null) → no-op 相当（gridCalibration 不在のまま・kind 維持）", () => {
+    const before = CELLS_LOADED_DC();
+    const next = devShiftDraftReducer(before, {
+      type: "set_grid_calibration",
+      gridCalibration: null,
+    });
+    if (next.kind !== "cells_loaded") throw new Error("expected cells_loaded");
+    expect(next.selection.gridCalibration).toBeUndefined();
+    expect(next.selection.dayColumns).toEqual(SELECTION_WITH_DC.dayColumns);
+  });
+
+  it("cells_loaded 以外からの set_grid_calibration は no-op（同一 reference）", () => {
+    expect(
+      devShiftDraftReducer(INITIAL_STATE, {
+        type: "set_grid_calibration",
+        gridCalibration: CAL,
+      })
+    ).toBe(INITIAL_STATE);
+    expect(
+      devShiftDraftReducer(ROW_SELECTED, {
+        type: "set_grid_calibration",
+        gridCalibration: CAL,
+      })
+    ).toBe(ROW_SELECTED);
+    expect(
+      devShiftDraftReducer(EXTRACTING, {
+        type: "set_grid_calibration",
+        gridCalibration: CAL,
+      })
+    ).toBe(EXTRACTING);
+    expect(
+      devShiftDraftReducer(ERRORED, {
+        type: "set_grid_calibration",
+        gridCalibration: null,
+      })
+    ).toBe(ERRORED);
   });
 });
 

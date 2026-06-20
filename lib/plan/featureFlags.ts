@@ -425,4 +425,37 @@ export const PLAN_FLAGS = {
    *   （既存 moment VM の表示解禁のみ・writer/notification/timer/polling なし）。production は mainline gate で恒久不可視。
    */
   lifeopsMainlineMoment: process.env.LIFEOPS_MAINLINE_MOMENT === "true",
+
+  /**
+   * S1（PDF/画像シフト取込の本番導線・第一段）: /plan に「シフト表を取り込む」入口を出すか。
+   *   true  : /plan に取込ボタン → ShiftImportModal（確認画面）を表示
+   *   false : 入口非表示（本番デフォルト・UI 完全不変）
+   *
+   * **client 到達のため NEXT_PUBLIC_ env 駆動**（calendarMonthGridEnabled と同方式）。default OFF。
+   *
+   * 重要（gate 分離・CEO 2026-06-04）: 入口を出しても
+   *   - 保存は別 gate（`PLAN_SHIFT_IMPORT_SAVE`・server-side・OFF）→ DB write しない
+   *   - VLM live も別（S2 では cells を fixture 注入＝live 不発火）
+   *   入口 / 保存 / VLM を独立 gate に分離し、画面導線だけ先に安全に出せる。
+   */
+  shiftImportEntryEnabled:
+    process.env.NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED === "true",
+
+  /**
+   * S3A-2-2: 在app入口の **live VLM 下書き抽出**を許可するか（product 導線の live gate）。
+   *   true  : 在app入口が（draftLiveEnabled prop 経由で）live 抽出 flow を出せる（S3A-2-2-2 以降）
+   *   false : 入口は fixture fallback のまま（本番デフォルト・UI 不変）
+   *
+   * env: PLAN_SHIFT_DRAFT_LIVE_ENABLED=true（**server-side のみ評価**・NEXT_PUBLIC_ なし）
+   *
+   * 重要（server→prop・client 直読み禁止／GPT 補正 2026-06-04）:
+   *   - client component は本 flag を**直読みしない**。plan/page.tsx（server）が読み、
+   *     boolean prop（draftLiveEnabled）として client に渡す（composeTimelineEnabled と同方式）。
+   *   - client bundle では非 NEXT_PUBLIC env は undefined → 本値は false に inlining されるが、
+   *     client は prop を使うため漏れ・誤判定なし（server の真値は prop でのみ client に届く）。
+   *   - action 側 gate（PLAN_SHIFT_DRAFT_LIVE_ENABLED || PLAN_SHIFT_DRAFT_HOST・S3A-1）とは別レイヤ。
+   *   - 入口 flag(NEXT_PUBLIC_PLAN_SHIFT_IMPORT_ENTRY_ENABLED) / live flag(本flag) /
+   *     保存 flag(PLAN_SHIFT_IMPORT_SAVE) は **分離**（混ぜない）。
+   */
+  shiftDraftLiveEnabled: process.env.PLAN_SHIFT_DRAFT_LIVE_ENABLED === "true",
 } as const;

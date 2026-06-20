@@ -21,7 +21,10 @@
  *           cells_loaded に reviewOpen フラグ追加（open_review / close_review）
  */
 
-import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
+import type {
+  AssistedRowSelection,
+  GridCalibration,
+} from "@/lib/plan/shift/assistedRowSelection";
 import type { ShiftReviewCell } from "@/lib/plan/shift/shiftReviewClassification";
 import type { DraftExtractionSubmitOutcome } from "@/lib/plan/shift/runDraftExtractionSubmit";
 
@@ -180,6 +183,11 @@ export type DevShiftDraftAction =
       // cells_loaded → saved（Modal の onSuccess）。imageObjectUrl 不保持＝自動 revoke。
       type: "save_succeeded";
     }
+  | {
+      // cells_loaded のみ。グリッド校正の正本を selection.gridCalibration に set / clear（null=reset）。
+      type: "set_grid_calibration";
+      gridCalibration: GridCalibration | null;
+    }
   | { type: "cancel" };
 
 export const INITIAL_STATE: DevShiftDraftState = { kind: "idle" };
@@ -325,6 +333,23 @@ export function devShiftDraftReducer(
         month: state.month,
         cellCount: state.cells.length,
       };
+    }
+
+    case "set_grid_calibration": {
+      // cells_loaded のみ受理。校正値の正本を selection.gridCalibration に set / clear（null）。
+      // dayColumns 等は不変（reset は gridCalibration を外して dayColumns 由来へ戻すだけ）。
+      if (state.kind !== "cells_loaded") return state;
+      if (action.gridCalibration) {
+        return {
+          ...state,
+          selection: {
+            ...state.selection,
+            gridCalibration: action.gridCalibration,
+          },
+        };
+      }
+      const { gridCalibration: _drop, ...selectionRest } = state.selection;
+      return { ...state, selection: selectionRest };
     }
 
     case "cancel":

@@ -31,6 +31,7 @@ import {
 } from "@/lib/plan/list/sourceProvenance";
 import { type EventCategory } from "@/lib/plan/list/types";
 import { SourceIndicator } from "./SourceIndicator";
+import { ImportedSourceBadge } from "../ImportedSourceBadge";
 import { ExecutionLayerChip } from "./ExecutionLayerChip";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -129,6 +130,8 @@ function LocationPinIcon({ size = 12 }: { size?: number }): ReactNode {
 export type EventCardProps = {
   readonly event: StrictEventCardViewModel;
   readonly onTap?: () => void;
+  /** B-1: シフト取込（shift_image）由来の勤務 event か。true で控えめな「取込」由来表示。 */
+  readonly imported?: boolean;
 };
 
 /**
@@ -147,7 +150,7 @@ export type EventCardProps = {
  *   - 📍 廃止 → SVG outline pin
  *   - location: text-xs + text-slate-400 (= 控えめ)
  */
-export function EventCard({ event, onTap }: EventCardProps): ReactNode {
+export function EventCard({ event, onTap, imported }: EventCardProps): ReactNode {
   const proposed = isProposed(event.sourceModel);
 
   // container class (= 8b-10 density up: p-4 → p-3、 rounded-2xl → rounded-xl)
@@ -217,6 +220,8 @@ export function EventCard({ event, onTap }: EventCardProps): ReactNode {
       {/* TERTIARY footer (= 8b-10 mt 縮小) */}
       <div className="mt-2 flex items-center gap-2 text-xs empty:hidden">
         <SourceIndicator sourceModel={event.sourceModel} variant="compact" />
+        {/* B-1: シフト取込（shift_image）由来なら控えめに「取込」（警告でなく由来表示） */}
+        {imported && <ImportedSourceBadge />}
         {event.executionLayerCounts !== undefined && (
           <ExecutionLayerChip counts={event.executionLayerCounts} />
         )}

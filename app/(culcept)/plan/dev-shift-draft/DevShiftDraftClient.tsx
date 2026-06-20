@@ -33,14 +33,8 @@
  *   「本流」「正式入口」「保存できます」「取り込み完了」は使わない。
  */
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-
 import { AssistedRowSelector } from "@/app/(culcept)/plan/components/AssistedRowSelector";
 import { ShiftImportModal } from "@/app/(culcept)/plan/components/ShiftImportModal";
-import type { AssistedRowSelection } from "@/lib/plan/shift/assistedRowSelection";
-import { generateAssistedCrops } from "@/lib/plan/shift/assistedCropGenerator";
-import { generateCombinedDraftImage } from "@/lib/plan/shift/combinedDraftImage";
-import { runDraftExtractionSubmit } from "@/lib/plan/shift/runDraftExtractionSubmit";
 import {
   selectImportModalProps,
   DEV_SHIFT_DRAFT_CHUNK_BOUNDARIES,
@@ -49,21 +43,12 @@ import {
   buildDevShiftDraftDebugSummary,
   type DevShiftDraftDebugInput,
 } from "@/lib/plan/shift/devShiftDraftDebugSummary";
-import {
-  daysInMonth,
-  formatMonthInput,
-  parseMonthInput,
-} from "@/lib/plan/shift/targetMonth";
+import { daysInMonth } from "@/lib/plan/shift/targetMonth";
 
-import { extractShiftDraftAction } from "../_actions/extractShiftDraftAction";
-import {
-  INITIAL_STATE,
-  currentObjectUrls,
-  devShiftDraftReducer,
-  outcomeToAction,
-  type DevShiftDraftAction,
-  type ImageMeta,
-} from "./devShiftDraftReducer";
+// S3A-2-1: 危険ロジック（state machine / ObjectURL lifecycle / crop / VLM submit）は
+//   useShiftDraftFlow hook に共有化。本 client は presentation（debug chrome）のみ。
+//   reducer は現状位置のまま hook が import 再利用（CEO: 移動/rename しない）。
+import { useShiftDraftFlow } from "@/app/(culcept)/plan/components/useShiftDraftFlow";
 
 export interface DevShiftDraftClientProps {
   /**
@@ -87,43 +72,7 @@ export interface DevShiftDraftClientProps {
   vlmInputMode?: "split" | "combined";
 }
 
-/** blob: ObjectURL から HTMLImageElement を decode（browser 専用・transient）。 */
-function decodeImageElement(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("image_decode_failed"));
-    img.src = url;
-  });
-}
-
-/** File → ObjectURL + 自然画像サイズ。失敗時は ObjectURL を revoke して reject。 */
-async function loadImageMetadata(
-  file: File
-): Promise<{ imageObjectUrl: string; imageMeta: ImageMeta }> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await decodeImageElement(url);
-    return {
-      imageObjectUrl: url,
-      imageMeta: {
-        width: img.naturalWidth,
-        height: img.naturalHeight,
-        mimeType: file.type,
-        fileName: file.name,
-        sizeBytes: file.size,
-      },
-    };
-  } catch (e) {
-    URL.revokeObjectURL(url);
-    throw e;
-  }
-}
-
-const SAFE_DECODE_NOTICE = "画像を読み取れませんでした。もう一度お試しください。";
-const SAFE_SELECTION_NOTICE = "選択範囲をご確認ください。";
-const SAFE_MONTH_NOTICE = "対象の年月を選んでください。";
-const SAFE_RUNTIME_FAIL = "読み取りに失敗しました。もう一度お試しください。";
+// decodeImageElement / loadImageMetadata / SAFE_* notice は useShiftDraftFlow に移設（S3A-2-1）。
 
 /** 安全な debug summary の表示（raw / base64 / key を含まない数値・座標のみ）。 */
 function DebugSummaryView({
@@ -169,213 +118,33 @@ export function DevShiftDraftClient({
   vlmModel,
   vlmInputMode = "split",
 }: DevShiftDraftClientProps = {}) {
-  const [state, dispatch] = useReducer(devShiftDraftReducer, INITIAL_STATE);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // S3A-2-1: 危険ロジック（state machine / ObjectURL lifecycle / crop / VLM submit / 連打防止）は
+  //   useShiftDraftFlow に共有化。返り値を**既存と同名**で destructure し、JSX 本体は不変に保つ
+  //   （= dev render-contract が構造的に green）。
+  const {
+    state,
+    fileInputRef,
+    targetMonthValue,
+    setTargetMonthValue,
+    notice,
+    setNotice,
+    lastElapsedMs,
+    onFileInputChange,
+    triggerFilePicker,
+    onRowChange,
+    onRowConfirm,
+    onCancel,
+    handlePrepareCrops,
+    onBackToRowSelect,
+    handleExtract,
+    onRetry,
+    onOpenReview,
+    onCloseReview,
+    onSaveSucceeded,
+    onSetGridCalibration,
+  } = useShiftDraftFlow({ vlmInputMode, defaultYear, defaultMonth });
 
-  // targetMonth（"YYYY-MM"）。server 既定（現在月）があれば prefill、無ければ空。
-  const [targetMonthValue, setTargetMonthValue] = useState<string>(
-    defaultYear && defaultMonth ? formatMonthInput(defaultYear, defaultMonth) : ""
-  );
-  // 軽い inline 通知（invalid selection / decode 失敗 / 月未選択）。画像本体ではない。
-  const [notice, setNotice] = useState<string | null>(null);
-  // 抽出 elapsed ms（debug 表示用・数値のみ）。
-  const [lastElapsedMs, setLastElapsedMs] = useState<number | null>(null);
-
-  // ── ObjectURL revoke 監視（multi-URL set 差分）と unmount cleanup ──
-  // crop_review は元画像 + 3 crop URL を持つ。crop_review を離れると 3 crop URL が
-  // set から消え、ここで revoke される（元画像は持ち越し）。saved は全 URL を revoke。
-  // cells_loaded への遷移では元画像 URL を持ち越すため自動 revoke は発火しない（CEO 補正）。
-  const prevUrlsRef = useRef<string[]>([]);
-  useEffect(() => {
-    const next = currentObjectUrls(state);
-    const nextSet = new Set(next);
-    for (const url of prevUrlsRef.current) {
-      if (!nextSet.has(url)) URL.revokeObjectURL(url);
-    }
-    prevUrlsRef.current = next;
-  }, [state]);
-
-  useEffect(() => {
-    return () => {
-      for (const url of prevUrlsRef.current) URL.revokeObjectURL(url);
-      prevUrlsRef.current = [];
-    };
-  }, []);
-
-  // ── handlers ──
-  const handleSelectFile = useCallback(async (file: File) => {
-    try {
-      const { imageObjectUrl, imageMeta } = await loadImageMetadata(file);
-      dispatch({ type: "image_loaded", imageObjectUrl, imageMeta });
-      setNotice(null);
-    } catch {
-      setNotice(SAFE_DECODE_NOTICE);
-    }
-  }, []);
-
-  const onFileInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      void handleSelectFile(file);
-      e.target.value = ""; // 同一ファイル連続選択でも change 発火
-    },
-    [handleSelectFile]
-  );
-
-  const triggerFilePicker = useCallback(() => fileInputRef.current?.click(), []);
-
-  const onRowChange = useCallback((selection: AssistedRowSelection) => {
-    dispatch({ type: "row_selected", selection });
-  }, []);
-  const onRowConfirm = useCallback((selection: AssistedRowSelection) => {
-    dispatch({ type: "row_selected", selection });
-  }, []);
-
-  const onCancel = useCallback(() => {
-    dispatch({ type: "cancel" });
-    setNotice(null);
-  }, []);
-
-  /**
-   * 9-FIX: クロップを確認（row_selected → crop_review）。VLM は呼ばない。
-   * - month 未選択 / crop null → crop_review に入らず inline 通知（row_selected 維持）。
-   * - header / personRow / combined（VLM に渡す予定の結合画像）を生成して preview。
-   * - Blob は state に持たず、ObjectURL（string）+ 寸法のみ crop_review に載せる。
-   */
-  const handlePrepareCrops = useCallback(async () => {
-    if (state.kind !== "row_selected") return;
-    const { selection, imageObjectUrl } = state;
-
-    const parsed = parseMonthInput(targetMonthValue);
-    if (!parsed) {
-      setNotice(SAFE_MONTH_NOTICE);
-      return;
-    }
-    setNotice(null);
-    try {
-      const img = await decodeImageElement(imageObjectUrl);
-      const cropsOut = await generateAssistedCrops(img, selection);
-      const combinedOut = await generateCombinedDraftImage(img, selection);
-      if (!cropsOut || !combinedOut) {
-        setNotice(SAFE_SELECTION_NOTICE);
-        return;
-      }
-      // Blob.size を読んでから ObjectURL 化（Blob は変数を抜けると ObjectURL が保持）。
-      const headerCropUrl = URL.createObjectURL(cropsOut.header.blob);
-      const personRowCropUrl = URL.createObjectURL(cropsOut.personRow.blob);
-      const combinedCropUrl = URL.createObjectURL(combinedOut.blob);
-      dispatch({
-        type: "crops_prepared",
-        year: parsed.year,
-        month: parsed.month,
-        headerCropUrl,
-        personRowCropUrl,
-        combinedCropUrl,
-        cropMeta: {
-          header: {
-            width: cropsOut.header.region.width,
-            height: cropsOut.header.region.height,
-            sizeBytes: cropsOut.header.blob.size,
-          },
-          personRow: {
-            width: cropsOut.personRow.region.width,
-            height: cropsOut.personRow.region.height,
-            sizeBytes: cropsOut.personRow.blob.size,
-          },
-          combined: {
-            width: combinedOut.plan.combinedWidth,
-            height: combinedOut.plan.combinedHeight,
-            sizeBytes: combinedOut.blob.size,
-          },
-        },
-      });
-    } catch {
-      setNotice(SAFE_DECODE_NOTICE);
-    }
-  }, [state, targetMonthValue]);
-
-  const onBackToRowSelect = useCallback(
-    () => dispatch({ type: "back_to_row_select" }),
-    []
-  );
-
-  /**
-   * この画像で読み取る（crop_review → 再crop → action → cells_loaded/error）。
-   * - crop_review の year/month を使う（targetMonth は crops_prepared 時に確定済）。
-   * - submit 時に再 crop（Blob を state に持たないため）。VLM は server action 経由のみ。
-   */
-  const handleExtract = useCallback(async () => {
-    if (state.kind !== "crop_review") return;
-    const { selection, imageObjectUrl, year, month } = state;
-    const days = daysInMonth(year, month);
-    setNotice(null);
-
-    const t0 = Date.now();
-    let actionStarted = false;
-    try {
-      // SR B1b-2C-9-FIX-2: mode で generate を切替（mode は server-side env 由来）。
-      const baseDeps = {
-        year,
-        month,
-        daysInMonth: days,
-        callAction: extractShiftDraftAction,
-        onActionStart: () => {
-          actionStarted = true;
-          dispatch({ type: "extract_started", year, month });
-        },
-      };
-      const outcome = await runDraftExtractionSubmit(
-        vlmInputMode === "combined"
-          ? {
-              ...baseDeps,
-              mode: "combined" as const,
-              generateCombined: async () => {
-                const img = await decodeImageElement(imageObjectUrl);
-                // Z 案: full-width combined / 2x upscale 既定（minWidth=1500 で薄い時のみ）
-                return generateCombinedDraftImage(img, selection, {
-                  minWidth: 1500,
-                  gridline: true,
-                });
-              },
-            }
-          : {
-              ...baseDeps,
-              mode: "split" as const,
-              generateCrops: async () => {
-                const img = await decodeImageElement(imageObjectUrl);
-                return generateAssistedCrops(img, selection);
-              },
-            }
-      );
-      setLastElapsedMs(Date.now() - t0);
-
-      if (outcome.kind === "invalid_selection") {
-        setNotice(SAFE_SELECTION_NOTICE);
-        return;
-      }
-      const action = outcomeToAction(outcome);
-      if (action) dispatch(action);
-    } catch {
-      setLastElapsedMs(Date.now() - t0);
-      if (actionStarted) {
-        dispatch({ type: "extract_failed", message: SAFE_RUNTIME_FAIL });
-      } else {
-        setNotice(SAFE_DECODE_NOTICE);
-      }
-    }
-  }, [state]);
-
-  const onRetry = useCallback(() => dispatch({ type: "extract_retry" }), []);
-
-  // ── 8-c-4: 確認画面（ShiftImportModal）の開閉 + 保存成功 ──
-  const onOpenReview = useCallback(() => dispatch({ type: "open_review" }), []);
-  const onCloseReview = useCallback(() => dispatch({ type: "close_review" }), []);
-  const onSaveSucceeded = useCallback(
-    () => dispatch({ type: "save_succeeded" }),
-    []
-  );
-
+  // isSelecting はローカル導出（hook 由来の boolean だと JSX 内で state を narrow できないため）。
   const isSelecting =
     state.kind === "image_loaded" || state.kind === "row_selected";
 
@@ -604,16 +373,40 @@ export function DevShiftDraftClient({
             <p data-testid="dev-shift-draft-cells-count" className="font-medium">
               {`${state.year}年${state.month}月 — ${state.cells.length} 件の下書きを読み取りました。`}
             </p>
-            {/* 最小サマリ（day: rawCode）。詳細確認は「確認画面を開く」CTA から。 */}
-            <ul className="grid grid-cols-4 gap-1 text-[11px] text-slate-500">
-              {state.cells.map((c) => (
-                <li
-                  key={c.day}
-                  className="rounded border border-slate-200 px-1 py-0.5 text-center"
-                >
-                  {`${c.day} ${c.rawCode}`}
-                </li>
-              ))}
+            {/* A3-smoke-pre: per-cell readout（day / rawCode / confidence）。
+                read-miss を「空欄として逃がさない」契約を実画像で観測するための **dev-only** 表示。
+                confidence は adapter 適用後（= risk model / amber が見る値）。
+                低 conf（< 0.7）は amber 強調。空欄（rawCode 空）は「·」表記。
+                0.50 ちょうど = D2 fallback の指紋（VLM が blank の confidence を省略した日）。
+                raw VLM response / 画像 / base64 は出さない（structured な数値のみ）。 */}
+            <ul
+              data-testid="dev-shift-draft-cells-list"
+              className="grid grid-cols-3 gap-1 text-[10px]"
+            >
+              {state.cells.map((c) => {
+                const blank =
+                  typeof c.rawCode !== "string" || c.rawCode.trim() === "";
+                const low = c.confidence < 0.7;
+                return (
+                  <li
+                    key={c.day}
+                    data-testid={`dev-shift-draft-cell-${c.day}`}
+                    data-raw-code={c.rawCode}
+                    data-confidence={c.confidence}
+                    data-blank={blank ? "true" : "false"}
+                    data-low-confidence={low ? "true" : "false"}
+                    className={`flex items-center justify-between gap-1 rounded border px-1 py-0.5 font-mono ${
+                      low
+                        ? "border-amber-300 bg-amber-50 text-amber-700"
+                        : "border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    <span>{c.day}</span>
+                    <span>{blank ? "·" : c.rawCode}</span>
+                    <span>{c.confidence.toFixed(2)}</span>
+                  </li>
+                );
+              })}
             </ul>
 
             <DebugSummaryView
@@ -717,6 +510,9 @@ export function DevShiftDraftClient({
             cells={modalProps.cells}
             saveEnabled={modalProps.saveEnabled}
             imageSrc={modalProps.imageSrc}
+            geometry={modalProps.geometry}
+            gridCalibration={modalProps.gridCalibration}
+            onGridCalibrationChange={onSetGridCalibration}
             riskReviewEnabled={modalProps.riskReviewEnabled}
             chunkBoundaries={modalProps.chunkBoundaries}
             onSuccess={onSaveSucceeded}

@@ -32,13 +32,22 @@ import {
   sourceColumnForDay,
   type ShiftGridGeometry,
 } from "@/lib/plan/shift/shiftGridGeometry";
+import type { GridCalibration } from "@/lib/plan/shift/assistedRowSelection";
 import { SourceCellCrop } from "./SourceCellCrop";
 import { SourceImageHighlight } from "./SourceImageHighlight";
+import { SourceCellZoom } from "./SourceCellZoom";
+import { useSourceConsistencyCheck } from "./useSourceConsistencyCheck";
+import { SourceMismatchWarning } from "./SourceMismatchWarning";
 import {
   type ShiftReviewCell,
   computeEmptyDays,
   isBlankRisk,
 } from "@/lib/plan/shift/shiftReviewClassification";
+import {
+  buildShiftReviewWeeks,
+  dayOfWeek,
+  daysInMonth,
+} from "@/lib/plan/shift/shiftReviewCalendar";
 import {
   type ShiftSaveState,
   SHIFT_SAVE_CONFIRM_MESSAGE,
@@ -47,6 +56,14 @@ import {
   detectDraftRisks,
   type DraftRiskReport,
 } from "@/lib/plan/shift/shiftDraftRiskModel";
+import {
+  detectConfusableCells,
+  confusableCellAmberDays,
+} from "@/lib/plan/shift/shiftConfusableCodes";
+import {
+  representativeRowLabel,
+  crossCheckRowLabel,
+} from "@/lib/plan/shift/shiftPersonRowCheck";
 
 export type { ShiftReviewCell };
 
@@ -59,8 +76,21 @@ interface ShiftReviewGridProps {
   lowConfidenceThreshold?: number;
   /** 原稿画像（あれば sheet で該当セル crop を表示。無ければ placeholder） */
   imageSrc?: string;
-  /** calibrated grid geometry（imageSrc とセットで crop 算出に使用） */
+  /**
+   * effective grid geometry（imageSrc とセットで crop 算出に使用）。
+   * S-geo Persist-2: gridCalibration（現コンテキスト整合時）→ dayColumns 由来、を解決済の値が来る。
+   */
   geometry?: ShiftGridGeometry;
+  /**
+   * S-geo Persist-2: 現在の校正値（reducer selection.gridCalibration の素通し・controlled 表示用）。
+   * null/undefined なら未校正（geometry は dayColumns 由来）。**正本は本 component の local state ではない**。
+   */
+  gridCalibration?: GridCalibration | null;
+  /**
+   * S-geo Persist-2: 校正値変更（cal=set / null=reset）。host → reducer set_grid_calibration へ素通し。
+   * 未指定なら校正 UI は read-only（emit しない）。
+   */
+  onGridCalibrationChange?: (gridCalibration: GridCalibration | null) => void;
   // ── SR Step 6D: 保存 CTA contract（host が wire。未指定なら dormant placeholder のまま）──
   /** 保存導線を出すか（flag OFF / host 未設定なら false → 旧 disabled placeholder）。 */
   saveEnabled?: boolean;
@@ -82,27 +112,6 @@ interface ShiftReviewGridProps {
 type CellKind = "empty" | "work" | "off" | "candidate" | "unresolved";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
-
-/** Sakamoto: 0=Sun..6=Sat（pure・Date 非依存） */
-function dayOfWeek(y: number, m: number, d: number): number {
-  const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-  const yy = m < 3 ? y - 1 : y;
-  return (
-    (yy +
-      Math.floor(yy / 4) -
-      Math.floor(yy / 100) +
-      Math.floor(yy / 400) +
-      t[m - 1] +
-      d) %
-    7
-  );
-}
-
-/** その月の日数（pure・Date 非依存・risk model の coverage 用） */
-function daysInMonth(y: number, m: number): number {
-  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
-  return [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
-}
 
 function cellInfo(
   rawCode: string,
@@ -152,6 +161,8 @@ export function ShiftReviewGrid({
   lowConfidenceThreshold = 0.7,
   imageSrc,
   geometry,
+  gridCalibration,
+  onGridCalibrationChange,
   saveEnabled,
   saveState,
   onConfirm,
@@ -164,6 +175,34 @@ export function ShiftReviewGrid({
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [hoveredDay, setHoveredDay] = useState<number | null>(null);
   const highlightDay = hoveredDay ?? selectedDay;
+  // S-geo グリッド校正（controlled）: 正本は reducer の selection.gridCalibration（gridCalibration prop で受ける）。
+  //   geometry は effectiveGeometry（gridCalibration 整合時はそれ由来 / なければ dayColumns 由来）。
+  //   slider は **絶対値**（geometry.gridLeft/colWidth）を編集し、完全な GridCalibration を親へ通知する。
+  // 校正値の「存在(raw)」と「実適用(applied)」を分ける（CEO 補正 2026-06-05）。
+  //   hasCalibrationValue: selection に gridCalibration がある（= reset で消せる対象。mismatch でも true）。
+  //   gridCalibrationApplied: effectiveGeometry が calibration 由来を採用した
+  //     （= geometry.gridLeft/colWidth が cal 値と一致 = resolveEffectiveGeometry が現コンテキスト整合で採用）。
+  //     imageW/imageH/dayCount mismatch の校正値は geometry が dayColumns 由来になり applied=false。
+  //   「校正済」表示は applied のみに寄せる（mismatch 値で誤点灯させない）。reset は hasCalibrationValue で開ける。
+  const hasCalibrationValue = gridCalibration != null;
+  const gridCalibrationApplied =
+    gridCalibration != null &&
+    geometry != null &&
+    geometry.gridLeft === gridCalibration.gridLeft &&
+    geometry.colWidth === gridCalibration.colWidth;
+  // 部分更新（gridLeft だけ / colWidth だけ）を現 geometry で補完し、誤適用防止 context（imageW/H/dayCount）
+  // を埋めた完全形を emit する。calibratedAt は UI 任意・ここでは省略（Date 依存を持ち込まない）。
+  const emitCalibration = (next: { gridLeft?: number; colWidth?: number }) => {
+    if (!geometry || !onGridCalibrationChange) return;
+    onGridCalibrationChange({
+      gridLeft: next.gridLeft ?? geometry.gridLeft,
+      colWidth: next.colWidth ?? geometry.colWidth,
+      source: "manual_overlay",
+      imageW: geometry.imageWidth,
+      imageH: geometry.imageHeight,
+      dayCount: daysInMonth(year, month),
+    });
+  };
 
   // 空の日（コード無し）= 原画像で詰められた日。highlight/crop の列写像で空をスキップ
   const blankDays = useMemo(
@@ -172,6 +211,14 @@ export function ShiftReviewGrid({
         .filter((c) => normalizeRawCode(c.rawCode) === "")
         .map((c) => c.day),
     [cells]
+  );
+
+  // SR A4-2b: 空欄セル(rawCode="")だけ原稿 content を canvas 読取し source/result 不一致(P1)を算出。
+  //   transient・fail-open・save payload / DB 非混入。A4-3: warning banner + cell amber に接続（保存は止めない）。
+  const sourceMismatches = useSourceConsistencyCheck({ imageSrc, geometry, cells, blankDays });
+  const sourceMismatchDaySet = useMemo(
+    () => new Set(sourceMismatches.map((h) => h.day)),
+    [sourceMismatches]
   );
 
   const projection = useMemo(() => {
@@ -187,18 +234,38 @@ export function ShiftReviewGrid({
   const cellIsBlankRisk = (c: ShiftReviewCell): boolean =>
     isBlankRisk(c, emptyDays, lowConfidenceThreshold);
 
-  // カレンダー週構築（先頭の曜日に空きを入れる）
-  const weeks = useMemo(() => {
-    const firstDow = dayOfWeek(year, month, 1);
-    const slots: (ShiftReviewCell | null)[] = [
-      ...Array<null>(firstDow).fill(null),
-      ...[...cells].sort((a, b) => a.day - b.day),
-    ];
-    while (slots.length % 7 !== 0) slots.push(null);
-    const out: (ShiftReviewCell | null)[][] = [];
-    for (let i = 0; i < slots.length; i += 7) out.push(slots.slice(i, i + 7));
-    return out;
-  }, [cells, year, month]);
+  // A1B + A1-tune-1: 似たコード（confusable）の cell amber「要確認」set。**confidence 非依存**だが、
+  //   cell amber は **strong のみ**（confusableCellAmberDays）= 過剰 amber 抑制（CEO D3）。
+  //   medium（H/HREQ）は panel summary に件数で出る・weak（H/N）は UI 非表示（observation only）。保存は止めない。
+  const confusableDays = useMemo(
+    () =>
+      confusableCellAmberDays(
+        detectConfusableCells(cells.map((c) => ({ day: c.day, rawCode: c.rawCode })))
+      ),
+    [cells]
+  );
+
+  // A2B-2: 本人行 cross-check（行**全体**の警告・day-keyed risk panel とは別）。
+  //   representative rowLabel（最頻非空）を ownerLabel（辞書）と照合。**hard block しない**（warning のみ）。
+  //   conflict（複数人名混在）/ mismatch = 高優先 warning / missing = 非表示 / match = 非表示。
+  const rowLabelSummary = useMemo(() => representativeRowLabel(cells), [cells]);
+  const rowLabelCheck = useMemo(
+    () =>
+      crossCheckRowLabel({
+        ownerLabel: dictionary.ownerLabel,
+        rowLabel: rowLabelSummary.representative,
+      }),
+    [dictionary.ownerLabel, rowLabelSummary.representative]
+  );
+  const showRowConflict = rowLabelSummary.hasConflict;
+  const showRowMismatch = rowLabelCheck.status === "mismatch";
+  const showRowWarning = showRowConflict || showRowMismatch;
+
+  // カレンダー週構築（各日を真の曜日スロットへ配置。欠け日も実カレンダー位置を保つ）
+  const weeks = useMemo(
+    () => buildShiftReviewWeeks(cells, year, month),
+    [cells, year, month]
+  );
 
   const knownCodes = Object.values(dictionary.codes).map((e) => e.rawCode);
   const selectedCell = cells.find((c) => c.day === selectedDay) ?? null;
@@ -251,6 +318,22 @@ export function ShiftReviewGrid({
         強調（隅の印）は注意の補助です。<b>強調が無くても全セルを原稿と照合</b>してください。空欄が勝手に埋まる場合があります。
       </p>
 
+      {/* SR A4-3: source/result 不一致(P1) warning（safe-copy・保存は止めない・soft）。dormant 時は null。 */}
+      <SourceMismatchWarning days={sourceMismatches.map((h) => h.day)} />
+
+      {/* A2B-2: 本人行 warning（行全体・カレンダーの前）。conflict / mismatch のみ・**保存は止めない**。 */}
+      {showRowWarning && (
+        <div
+          data-testid="shift-review-rowlabel-warning"
+          data-rowlabel-status={showRowConflict ? "conflict" : "mismatch"}
+          className="mb-3 rounded-xl border border-amber-300 bg-amber-50/80 px-3 py-2 text-[11px] leading-relaxed text-amber-800"
+        >
+          {showRowConflict
+            ? "複数の行名が混在しています。本人行の範囲を原稿と照合してください。"
+            : "抽出した行名が想定と異なる可能性があります。原稿の本人行を確認してください。"}
+        </div>
+      )}
+
       {/* 凡例（うるさくしない最小限） */}
       <div className="mb-2 flex items-center gap-3 text-[10px] text-gray-400">
         <span className="flex items-center gap-1">
@@ -281,12 +364,38 @@ export function ShiftReviewGrid({
         ))}
       </div>
 
-      {/* カレンダー grid */}
+      {/* カレンダー grid（各日を真の曜日スロットへ配置。欠け日も実カレンダー位置に表示） */}
       <div className="grid grid-cols-7 gap-1">
-        {weeks.flat().map((cell, idx) => {
-          if (!cell) return <div key={`pad-${idx}`} className="aspect-square" />;
+        {weeks.flat().map((slot, idx) => {
+          if (!slot) return <div key={`pad-${idx}`} className="aspect-square" />;
+          const { day, cell } = slot;
+          if (!cell) {
+            // 欠け日（抽出セルなし）= 実カレンダー位置に日番号だけ薄く表示。
+            // 原稿照合で「読み取りの穴」がその日の位置に一目で浮く（連番詰めズレを根絶）。
+            return (
+              <div
+                key={`gap-${day}`}
+                data-testid={`shift-review-gap-${day}`}
+                className="relative flex aspect-square flex-col items-center justify-center rounded-xl border border-dashed border-slate-200/60 bg-white/10"
+              >
+                <span className="absolute left-1.5 top-1 text-[9px] font-medium text-gray-300">
+                  {day}
+                </span>
+                <span
+                  className="text-[13px] leading-none text-slate-300"
+                  aria-hidden="true"
+                >
+                  ·
+                </span>
+              </div>
+            );
+          }
           const { kind } = cellInfo(cell.rawCode, dictionary);
-          const risk = cellIsBlankRisk(cell);
+          const blankRisk = cellIsBlankRisk(cell);
+          const confusable = confusableDays.has(cell.day);
+          const sourceMismatch = sourceMismatchDaySet.has(cell.day);
+          // 「要確認」amber は blank-risk / confusable / source mismatch(A4-3) で点灯（赤を足さず既存 amber を共有）。
+          const needsReview = blankRisk || confusable || sourceMismatch;
           const selected = selectedDay === cell.day;
           const isEmpty = normalizeRawCode(cell.rawCode) === "";
           return (
@@ -295,7 +404,9 @@ export function ShiftReviewGrid({
               type="button"
               data-testid={`shift-review-cell-${cell.day}`}
               data-kind={kind}
-              data-blank-risk={risk ? "true" : "false"}
+              data-blank-risk={blankRisk ? "true" : "false"}
+              data-confusable={confusable ? "true" : "false"}
+              data-source-mismatch={sourceMismatch ? "true" : "false"}
               onClick={() => setSelectedDay(cell.day)}
               onMouseEnter={() => setHoveredDay(cell.day)}
               onMouseLeave={() => setHoveredDay(null)}
@@ -314,7 +425,7 @@ export function ShiftReviewGrid({
               >
                 {isEmpty ? "·" : cell.rawCode}
               </span>
-              {risk && (
+              {needsReview && (
                 <span
                   className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-400"
                   aria-label="要確認"
@@ -325,13 +436,102 @@ export function ShiftReviewGrid({
         })}
       </div>
 
-      {/* 原稿画像 + 該当日ハイライト（hover/tap で光る） */}
+      {/* S-geo グリッド校正パネル（controlled）。全列の青線が原稿の各列に合うまで調整 → 端点誤差を全列で吸収。
+          slider は絶対値（effective geometry の gridLeft/colWidth）を編集し、reducer へ完全な校正値を通知する。 */}
+      {imageSrc && geometry && (
+        <div
+          data-testid="shift-review-calibration"
+          className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 p-2 text-[11px]"
+        >
+          <div className="mb-1 flex items-center justify-between">
+            <p className="font-medium text-sky-800">
+              原稿グリッド校正 — 下の青線（全列）が原稿の各列に合うよう調整
+            </p>
+            <button
+              type="button"
+              data-testid="shift-review-calibration-reset"
+              onClick={() => onGridCalibrationChange?.(null)}
+              disabled={!hasCalibrationValue || !onGridCalibrationChange}
+              className="ml-2 shrink-0 rounded-md border border-sky-300 px-1.5 py-0.5 text-[10px] text-sky-700 disabled:opacity-40"
+            >
+              リセット
+            </button>
+          </div>
+          <label className="flex items-center gap-2">
+            <span className="w-14 shrink-0 text-sky-700">左位置</span>
+            <input
+              type="range"
+              min={0}
+              max={Math.round(geometry.imageWidth / 2)}
+              step={1}
+              value={geometry.gridLeft}
+              onChange={(e) => emitCalibration({ gridLeft: Number(e.target.value) })}
+              className="flex-1"
+              data-testid="shift-review-calibration-gridleft"
+            />
+            <span className="w-10 text-right tabular-nums text-sky-700">
+              {Math.round(geometry.gridLeft)}
+            </span>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="w-14 shrink-0 text-sky-700">列間隔</span>
+            <input
+              type="range"
+              min={1}
+              max={Math.max(
+                20,
+                Math.round((geometry.imageWidth / daysInMonth(year, month)) * 2)
+              )}
+              step={0.1}
+              value={geometry.colWidth}
+              onChange={(e) => emitCalibration({ colWidth: Number(e.target.value) })}
+              className="flex-1"
+              data-testid="shift-review-calibration-colwidth"
+            />
+            <span className="w-10 text-right tabular-nums text-sky-700">
+              {geometry.colWidth.toFixed(1)}
+            </span>
+          </label>
+          <p
+            className="mt-0.5 font-mono text-[10px] text-sky-600"
+            data-calibration-state={
+              gridCalibrationApplied
+                ? "applied"
+                : hasCalibrationValue
+                  ? "mismatch"
+                  : "none"
+            }
+          >
+            gridL {geometry.gridLeft.toFixed(0)} · colW {geometry.colWidth.toFixed(1)}
+            <span className="ml-1 not-italic text-sky-500">
+              {gridCalibrationApplied
+                ? "（校正済）"
+                : hasCalibrationValue
+                  ? "（別の画像/月の校正値・未適用）"
+                  : "（自動・未校正）"}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {/* 原稿の該当セル拡大（S-geo-3）。effective geometry を使用。 */}
+      {imageSrc && geometry && (
+        <SourceCellZoom
+          imageSrc={imageSrc}
+          geometry={geometry}
+          day={highlightDay}
+          blankDays={blankDays}
+        />
+      )}
+
+      {/* 原稿画像 全体 + 該当日ハイライト + 全列グリッド線。effective geometry を使用。 */}
       {imageSrc && geometry && (
         <SourceImageHighlight
           imageSrc={imageSrc}
           geometry={geometry}
           highlightDay={highlightDay}
           blankDays={blankDays}
+          gridDayCount={daysInMonth(year, month)}
         />
       )}
 

@@ -23,6 +23,7 @@ import {
   PRODUCTION_PROJECT_REF,
 } from "@/lib/plan/shift/devFixtureHost";
 import { createGeminiDraftExtractionAdapter } from "@/lib/plan/shift/draftExtractionGeminiAdapter.server";
+import { isDraftExtractionFlagAllowed } from "@/lib/plan/shift/draftExtractionFlagGate";
 import {
   runExtractShiftDraft,
   type ExtractShiftDraftResult,
@@ -35,7 +36,14 @@ export async function extractShiftDraftAction(
   const client = await supabaseServer();
   return runExtractShiftDraft(formData, {
     env: {
-      flagOn: process.env.PLAN_SHIFT_DRAFT_HOST === "true",
+      // S3A-1: live draft extraction の flag gate を 2 flag OR に分離（CEO 2026-06-04）。
+      //   PLAN_SHIFT_DRAFT_LIVE_ENABLED（product 導線・在app入口の live VLM gate）
+      //   || PLAN_SHIFT_DRAFT_HOST（dev route /plan/dev-shift-draft 互換の既存 gate）
+      // 保存 flag（PLAN_SHIFT_IMPORT_SAVE）とは無関係。staging/prod/api key/auth は runner の別 gate。
+      flagOn: isDraftExtractionFlagAllowed({
+        liveEnabled: process.env.PLAN_SHIFT_DRAFT_LIVE_ENABLED,
+        draftHost: process.env.PLAN_SHIFT_DRAFT_HOST,
+      }),
       supabaseUrl:
         process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
       geminiApiKey: process.env.GEMINI_API_KEY,

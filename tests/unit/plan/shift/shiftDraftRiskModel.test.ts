@@ -12,8 +12,10 @@ import {
 } from "@/lib/plan/shift/shiftDraftRiskModel";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 
-// 連続同一を避けた有効コードの巡回（adjacent dup / blank / unknown / low-conf なし）
-const VALID = ["H", "E", "N", "L", "G", "BD", "E-18", "HREQ"];
+// 連続同一を避けた有効コードの巡回（adjacent dup / blank / unknown / low-conf なし）。
+// A1B で confusable_code soft hint を追加したため、「完全に clean な下書き」基準には
+// 混同コード（E/E-18/H/HREQ/N）を**含めず** 非混同の L/G/BD のみで作る。
+const VALID = ["L", "G", "BD"];
 function cleanCells(n: number): DraftRiskCell[] {
   return Array.from({ length: n }, (_, i) => ({
     day: i + 1,
@@ -26,8 +28,10 @@ const opt = (extra?: Partial<{ chunkBoundaries: number[] }>) => ({
   ...extra,
 });
 const kinds = (r: { hints: { kind: RiskKind }[] }) => r.hints.map((h) => h.kind);
-const find = (r: { hints: { kind: RiskKind; severity: string; dayNumbers: number[] }[] }, k: RiskKind) =>
-  r.hints.find((h) => h.kind === k);
+const find = (
+  r: { hints: { kind: RiskKind; severity: string; dayNumbers: number[]; message: string }[] },
+  k: RiskKind
+) => r.hints.find((h) => h.kind === k);
 
 describe("detectDraftRisks — 完全な下書き", () => {
   it("欠落/重複/未知/空欄/連続/低信頼 なし + chunk境界未指定 → hint ゼロ・非ブロック", () => {
@@ -78,8 +82,11 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
     expect(r.hasBlockingRisk).toBe(false);
   });
 
-  it("blank_risk + suspicious_shift（空欄 → 直後 E+1,E+2）", () => {
-    const cells = cleanCells(31).map((c) => (c.day === 10 ? { ...c, rawCode: "" } : c));
+  it("blank_risk（低 conf 空欄）+ suspicious_shift（空欄 → 直後 E+1,E+2）", () => {
+    // A3-D3: 空欄は「低 conf or 空欄隣接」のときだけ blank_risk。day10 を低 conf にして発火させる。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 10 ? { ...c, rawCode: "", confidence: 0.4 } : c
+    );
     const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
     expect(find(r, "blank_risk")?.severity).toBe("soft");
     expect(find(r, "blank_risk")?.dayNumbers).toContain(10);
@@ -101,8 +108,10 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
   });
 
   it("adjacent_duplicate 3 連続も全日フラグ", () => {
+    // VALID=[L,G,BD] の cycle 上、day3=BD・day7=L なので run を [4,5,6] に収めるには
+    // 両隣（BD/L）と異なる "G" を 3 連続させる（"L" だと day7 の自然 L と繋がり [4,5,6,7] になる）。
     const cells = cleanCells(31).map((c) =>
-      c.day === 4 || c.day === 5 || c.day === 6 ? { ...c, rawCode: "L" } : c
+      c.day === 4 || c.day === 5 || c.day === 6 ? { ...c, rawCode: "G" } : c
     );
     const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
     expect(find(r, "adjacent_duplicate")?.dayNumbers).toEqual([4, 5, 6]);
@@ -114,6 +123,116 @@ describe("detectDraftRisks — soft risk（確認後は保存可）", () => {
     expect(h?.severity).toBe("soft");
     expect(h?.dayNumbers).toEqual([15, 16]);
     expect(r.hasBlockingRisk).toBe(false);
+  });
+});
+
+describe("detectDraftRisks — blank_risk 定義（A3-D3・空欄を全部疑わない）", () => {
+  it("#3 低 confidence の空欄 → blank_risk（soft）", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 10 ? { ...c, rawCode: "", confidence: 0.4 } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "blank_risk")?.severity).toBe("soft");
+    expect(find(r, "blank_risk")?.dayNumbers).toContain(10);
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("#4 空欄に隣接する空欄 → 高 confidence でも blank_risk（同報告内の高 conf 孤立空欄は除外）", () => {
+    // day10,11 が連続空欄（conf 1・互いに隣接）→ 両方 blank_risk。
+    // day20 は高 conf 孤立空欄 → blank_risk に **含めない**（narrowing を revert-proof に固定。
+    //   旧「全空欄発火」なら [10,11,20] になり fail する）。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 10 || c.day === 11 || c.day === 20
+        ? { ...c, rawCode: "", confidence: 1 }
+        : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "blank_risk")?.dayNumbers).toEqual([10, 11]); // 20 を含まない
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("#5 高 confidence で孤立した空欄（＝確実な休み）→ blank_risk にしない", () => {
+    // day31 を空欄（conf 1・隣接空欄なし・月末で suspicious_shift も範囲外）。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 31 ? { ...c, rawCode: "", confidence: 1 } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "blank_risk")).toBeUndefined();
+    expect(find(r, "suspicious_shift")).toBeUndefined();
+    expect(r.hasBlockingRisk).toBe(false); // missing/unknown なし
+  });
+
+  it("confidence 欠落の空欄は risk model 単体では low 扱いしない（D2 は adapter 担当）", () => {
+    // 注: 本番経路では adapter（BLANK_MISSING_CONFIDENCE）が欠落空欄を低 conf に倒す。
+    //     risk model は確定済 confidence を見るだけ（欠落＝隣接のみで判定）。
+    const cells = cleanCells(31).map((c) =>
+      c.day === 15 ? { day: 15, rawCode: "" } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    // day15 は孤立・confidence 欠落 → blank_risk にならない（adapter で低 conf 化される前提）。
+    expect(find(r, "blank_risk")).toBeUndefined();
+  });
+});
+
+describe("detectDraftRisks — confusable_code（A1B・似た形で紛らわしいコード・soft）", () => {
+  it("E は confusable_code soft hint（confidence 高くても要確認）", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 4 ? { ...c, rawCode: "E", confidence: 1 } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    const h = find(r, "confusable_code");
+    expect(h?.severity).toBe("soft");
+    expect(h?.dayNumbers).toContain(4);
+    expect(r.hasBlockingRisk).toBe(false); // soft = 保存を止めない
+  });
+
+  it("A1-tune-1: H=medium は panel 件数 summary（日付を出さない）/ E-18・N は除外", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 2
+        ? { ...c, rawCode: "H" } // medium
+        : c.day === 8
+          ? { ...c, rawCode: "E-18" } // 信頼できる出力 → 除外
+          : c.day === 20
+            ? { ...c, rawCode: "N" } // weak → panel 非表示
+            : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    const h = find(r, "confusable_code");
+    expect(h?.severity).toBe("soft");
+    expect(h?.dayNumbers).toEqual([]); // medium は日付を出さない（strong のみ日付つき）
+    expect(h?.message).toContain("休み種別が紛らわしい日が1日"); // medium 件数 summary
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("A1-tune-1: strong(E) は日付つき + medium(H) は件数 を 1 hint に同梱", () => {
+    const cells = cleanCells(31).map((c) =>
+      c.day === 4 ? { ...c, rawCode: "E" } : c.day === 10 ? { ...c, rawCode: "H" } : c
+    );
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    const h = find(r, "confusable_code");
+    expect(h?.dayNumbers).toEqual([4]); // strong(E) のみ日付
+    expect(h?.message).toContain("似た形で紛らわしい勤務コードがあります（4日）"); // strong
+    expect(h?.message).toContain("休み種別が紛らわしい日が1日"); // medium(H) 件数
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("非 confusable（L/G/BD）のみ → confusable_code なし", () => {
+    const r = detectDraftRisks(cleanCells(31), HARADA_SPRIX_DICTIONARY, opt());
+    expect(find(r, "confusable_code")).toBeUndefined();
+  });
+
+  it("confusable_code は保存を hard block しない（soft のみなら hasBlockingRisk=false）", () => {
+    const cells = cleanCells(31).map((c) => (c.day === 4 ? { ...c, rawCode: "E" } : c));
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    expect(r.hasBlockingRisk).toBe(false);
+  });
+
+  it("confusable_code message は安全文言（error/誤/失敗/間違 を含まない）", () => {
+    const cells = cleanCells(31).map((c) => (c.day === 4 ? { ...c, rawCode: "E" } : c));
+    const r = detectDraftRisks(cells, HARADA_SPRIX_DICTIONARY, opt());
+    const msg = r.hints.find((h) => h.kind === "confusable_code")?.message;
+    expect(msg).toBeDefined();
+    expect(msg).not.toMatch(/error|wrong|failed|誤|失敗|間違/i);
   });
 });
 

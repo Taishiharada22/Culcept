@@ -24,6 +24,10 @@ import { createRpcShiftImportRepository } from "@/lib/plan/shift/shiftImportRepo
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 import { isShiftImportSaveEnabled } from "@/lib/plan/shift/shiftImportSave";
 import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
+import {
   runShiftImportSave,
   type ShiftImportSaveActionInput,
   type ShiftImportActionResult,
@@ -67,6 +71,15 @@ export async function importShiftRosterAction(
       }
     },
     isEnabled: isShiftImportSaveEnabled, // flag OFF default = dormant
+    // S-save-0: 接続先 guard（staging allowlist + production deny）。接続先 URL が production を
+    //   指す / staging 不一致 / 未設定なら guard NG → disabled（auth/projection/RPC 未到達）。
+    //   flag だけに頼らず、env 誤設定でも production への保存をコードで遮断する多重防御。
+    connection: {
+      supabaseUrl:
+        process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+      stagingRef: STAGING_PROJECT_REF,
+      productionRef: PRODUCTION_PROJECT_REF,
+    },
     repo,
     dictionary: HARADA_SPRIX_DICTIONARY, // MVP seed（per-user 辞書は将来 gate）
   });

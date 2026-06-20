@@ -233,3 +233,78 @@ describe("MonthGridView §10 onSelectDate", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// B-1: シフト取込（shift_image）由来 marker（月 view・per-cell）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+describe("MonthGridView §11 取込 marker（shift_image 由来）", () => {
+  const importedAnchor = {
+    ...oneOff("2025-06-05", "夜勤"),
+    sourceId: "src-shift",
+  } as OneOffExternalAnchor; // resolver "N"
+  const manualAnchor = {
+    ...oneOff("2025-06-07", "夜勤"),
+    sourceId: "src-manual",
+  } as OneOffExternalAnchor; // resolver "N"
+  const indicators = new Map<string, DayIndicatorViewModel>([
+    ["2025-06-09", ind("2025-06-09", "off", "BD")], // ind() = sourceType shift_image
+    ["2025-06-11", { ...ind("2025-06-11", "off", "BD"), sourceType: "manual" }],
+  ]);
+  const html = renderToStaticMarkup(
+    <MonthGridView
+      grid={JUNE}
+      anchors={[importedAnchor, manualAnchor]}
+      dayIndicatorByIso={indicators}
+      selectedIso="2025-06-01"
+      todayIso="2025-06-12"
+      onSelectDate={() => {}}
+      getAnchorChip={fakeResolver}
+      importedShiftSourceIds={new Set(["src-shift"])}
+    />
+  );
+
+  const mark = (iso: string) => `data-testid="plan-month-grid-imported-${iso}"`;
+
+  it("点4: shift_image anchor の cell に「取込」marker", () => {
+    expect(html).toContain(mark("2025-06-05"));
+    const idx = html.indexOf("plan-month-grid-imported-2025-06-05");
+    expect(html.slice(idx - 30, idx + 200)).toContain("取込");
+  });
+  it("点5: non-shift_image anchor の cell には marker なし", () => {
+    expect(html).not.toContain(mark("2025-06-07"));
+  });
+  it("点6: shift_image day_indicator の cell に marker", () => {
+    expect(html).toContain(mark("2025-06-09"));
+  });
+  it("点7: non-shift_image day_indicator の cell には marker なし", () => {
+    expect(html).not.toContain(mark("2025-06-11"));
+  });
+  it("点9: 既存の勤務コード chip（N）は imported / 非 imported とも消えない", () => {
+    expect(chipSpan(html, "2025-06-05")).toContain("N");
+    expect(chipSpan(html, "2025-06-07")).toContain("N");
+  });
+  it("marker は警告色でなく muted slate（由来表示）", () => {
+    const idx = html.indexOf("plan-month-grid-imported-2025-06-05");
+    const seg = html.slice(idx - 30, idx + 200);
+    expect(seg).toContain("slate");
+    expect(seg).not.toMatch(/amber|orange|rose-6|\bred-/);
+  });
+  it("importedShiftSourceIds 未指定 + manual indicator のみ（後方互換）では marker なし", () => {
+    const html2 = renderToStaticMarkup(
+      <MonthGridView
+        grid={JUNE}
+        anchors={[importedAnchor]}
+        dayIndicatorByIso={
+          new Map([
+            ["2025-06-11", { ...ind("2025-06-11", "off", "BD"), sourceType: "manual" as const }],
+          ])
+        }
+        selectedIso="2025-06-01"
+        todayIso="2025-06-12"
+        onSelectDate={() => {}}
+        getAnchorChip={fakeResolver}
+      />
+    );
+    expect(html2).not.toContain("plan-month-grid-imported-");
+  });
+});

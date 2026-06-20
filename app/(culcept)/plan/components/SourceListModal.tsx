@@ -47,6 +47,7 @@ const SOURCE_TYPE_LABELS: Record<ExternalAnchorSource["sourceType"], string> = {
   ics: "カレンダー", // P3 W3 (= 2026-05-26): .ics / iCalendar 取り込み
   google_calendar: "Google", // P3 Phase B (= 2026-05-29): Google Calendar 連携
   microsoft_calendar: "Outlook", // Track B (= 2026-05-29): Outlook / Microsoft 365 連携
+  shift_image: "シフト取込", // SR (= 2026-05-31): シフト表画像取り込み
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

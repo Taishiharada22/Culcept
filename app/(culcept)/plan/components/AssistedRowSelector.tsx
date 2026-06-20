@@ -33,10 +33,13 @@ import {
   normalizeSelection,
   suggestBandsFromTap,
   validateBand,
+  validateDayColumns,
   validateSelection,
 } from "@/lib/plan/shift/assistedRowSelection";
 
 type BandKind = "header" | "personRow";
+/** 編集対象: 帯 2 種 + day列中心 X（S-geo-2）。 */
+type EditTarget = BandKind | "dayColumn";
 
 export interface AssistedRowSelectorProps {
   /**
@@ -71,6 +74,12 @@ const BAND_LABEL: Record<BandKind, string> = {
   header: "ヘッダ帯",
   personRow: "行帯",
 };
+/** editTarget 切替の表示名（帯 2 種 + day列中心）。 */
+const EDIT_TARGET_LABEL: Record<EditTarget, string> = {
+  header: "ヘッダを調整",
+  personRow: "本人行を調整",
+  dayColumn: "日列の中心",
+};
 
 interface HandleDragState {
   band: BandKind;
@@ -96,7 +105,9 @@ export function AssistedRowSelector({
   const [selection, setSelection] = useState<AssistedRowSelection | undefined>(
     initialSelection
   );
-  const [editTarget, setEditTarget] = useState<BandKind>("personRow");
+  const [editTarget, setEditTarget] = useState<EditTarget>("personRow");
+  /** dayColumn モードで 1 点目（pending）を保持。2 点目で dayColumns 確定。 */
+  const [pendingFirstX, setPendingFirstX] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<HandleDragState | null>(null);
 
@@ -127,6 +138,20 @@ export function AssistedRowSelector({
     [imageH]
   );
 
+  /** 表示 client x → 画像 px x（fit-to-width で aspect 維持・integer snap）。dayColumn 用。 */
+  const clientToImageX = useCallback(
+    (clientX: number): number | null => {
+      const el = containerRef.current;
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0) return null;
+      const ratio = imageW / rect.width;
+      const x = Math.round((clientX - rect.left) * ratio);
+      return Math.max(0, Math.min(imageW, x));
+    },
+    [imageW]
+  );
+
   /** 画像 tap（空白）→ suggest（pure model 委譲）。ハンドル/band 内 click は除外。 */
   const handleImageTap = useCallback(
     (clientY: number) => {
@@ -143,6 +168,31 @@ export function AssistedRowSelector({
       setEditTarget("personRow");
     },
     [clientToImageY, emit, imageFingerprint, imageH, imageW]
+  );
+
+  /**
+   * dayColumn モードの画像 tap → day1中心/月末日中心 を 2 点で取る。
+   * 1 点目を pending に置き、2 点目で確定（left=day1・right=月末日 に auto-sort）。
+   * 帯指定前（selection なし）は X を取らない（帯 → X の順）。
+   */
+  const handleDayColumnTap = useCallback(
+    (clientX: number) => {
+      if (!selection) return;
+      const x = clientToImageX(clientX);
+      if (x === null) return;
+      if (pendingFirstX === null) {
+        // 1 点目: pending に置き、確定済 dayColumns は一旦クリア（新ペアを作る）
+        setPendingFirstX(x);
+        if (selection.dayColumns) emit({ ...selection, dayColumns: undefined });
+      } else {
+        // 2 点目: ペア確定（位置で左=day1, 右=月末日 に並べ替え）
+        const firstDayCenterX = Math.min(pendingFirstX, x);
+        const lastDayCenterX = Math.max(pendingFirstX, x);
+        setPendingFirstX(null);
+        emit({ ...selection, dayColumns: { firstDayCenterX, lastDayCenterX } });
+      }
+    },
+    [clientToImageX, emit, pendingFirstX, selection]
   );
 
   /** Pointer events: mouse + touch + pen を一本化（モバイル/PC 共通） */
@@ -245,6 +295,7 @@ export function AssistedRowSelector({
   const handleClear = useCallback(() => {
     setSelection(undefined);
     setEditTarget("personRow");
+    setPendingFirstX(null);
     // onChange は host の永続化が undefined を扱えるとは限らないため、ここでは emit しない（host は CTA で確定）
   }, []);
 
@@ -255,7 +306,11 @@ export function AssistedRowSelector({
         : { ok: false, ctaActive: false, headerIssues: [], personRowIssues: [], orderingIssue: null },
     [selection]
   );
-  const ctaActive = !!selection && validation.ctaActive;
+  // day列中心 X が valid か（S-geo-2）。CTA は Y 帯 valid ∧ X 2 点 valid で active。
+  const dayColumnsValid =
+    !!selection?.dayColumns &&
+    validateDayColumns(selection.dayColumns, imageW).length === 0;
+  const ctaActive = !!selection && validation.ctaActive && dayColumnsValid;
 
   // ── render ──
   // band overlay の位置（画像高さに対する %）
@@ -278,6 +333,20 @@ export function AssistedRowSelector({
           : "画像を tap して自分の行を指定してください。"}
       </p>
 
+      {/* day列中心モードの誘導（S-geo-2・1日中心 → 月末日中心） */}
+      {editTarget === "dayColumn" && (
+        <p
+          data-testid="assisted-row-daycolumn-hint"
+          className="text-[11px] text-emerald-700"
+        >
+          {selection?.dayColumns && pendingFirstX === null
+            ? "日列の中心を指定済みです（やり直すには再度タップ）。"
+            : pendingFirstX !== null
+              ? "次に「月末日」の列中心をタップしてください。"
+              : "ヘッダの「1日」の列中心をタップしてください。"}
+        </p>
+      )}
+
       {/* image + overlays */}
       <div
         ref={containerRef}
@@ -285,9 +354,11 @@ export function AssistedRowSelector({
         className="relative w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
         style={{ aspectRatio: imageW > 0 && imageH > 0 ? `${imageW} / ${imageH}` : undefined }}
         onPointerDown={(e) => {
-          // band/handle の click は stopPropagation で除外（ここに来るのは画像空白のみ）
+          // band/handle の click は stopPropagation で除外。ただし dayColumn モード時は
+          // 両帯を pointer-events-none にしているため、ヘッダ上の tap もここに届く（day列中心 capture）。
           if (e.button !== undefined && e.button !== 0) return;
-          handleImageTap(e.clientY);
+          if (editTarget === "dayColumn") handleDayColumnTap(e.clientX);
+          else handleImageTap(e.clientY);
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -305,8 +376,8 @@ export function AssistedRowSelector({
             data-testid="assisted-row-header-band"
             data-edit={editTarget === "header" ? "true" : "false"}
             className={`absolute left-0 right-0 border ${BAND_TINT.header} ${
-              editTarget === "header" ? "ring-1 ring-sky-500" : ""
-            }`}
+              editTarget === "dayColumn" ? "pointer-events-none" : ""
+            } ${editTarget === "header" ? "ring-1 ring-sky-500" : ""}`}
             style={overlayStyle(selection.headerBand)}
             onPointerDown={(e) => {
               e.stopPropagation();
@@ -339,8 +410,8 @@ export function AssistedRowSelector({
             data-testid="assisted-row-person-band"
             data-edit={editTarget === "personRow" ? "true" : "false"}
             className={`absolute left-0 right-0 border ${BAND_TINT.personRow} ${
-              editTarget === "personRow" ? "ring-1 ring-violet-500" : ""
-            }`}
+              editTarget === "dayColumn" ? "pointer-events-none" : ""
+            } ${editTarget === "personRow" ? "ring-1 ring-violet-500" : ""}`}
             style={overlayStyle(selection.personRowBand)}
             onPointerDown={(e) => {
               e.stopPropagation();
@@ -366,6 +437,33 @@ export function AssistedRowSelector({
             />
           </div>
         )}
+
+        {/* day列中心 markers（確定: emerald 縦線 2 本・S-geo-2） */}
+        {selection?.dayColumns && imageW > 0 && (
+          <>
+            <div
+              data-testid="assisted-row-daycolumn-marker-first"
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 w-0.5 bg-emerald-500/80"
+              style={{ left: `${(selection.dayColumns.firstDayCenterX / imageW) * 100}%` }}
+            />
+            <div
+              data-testid="assisted-row-daycolumn-marker-last"
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 w-0.5 bg-emerald-500/80"
+              style={{ left: `${(selection.dayColumns.lastDayCenterX / imageW) * 100}%` }}
+            />
+          </>
+        )}
+        {/* pending 1 点目（dayColumn モード入力中: amber 縦線） */}
+        {editTarget === "dayColumn" && pendingFirstX !== null && imageW > 0 && (
+          <div
+            data-testid="assisted-row-daycolumn-marker-pending"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 w-0.5 bg-amber-500"
+            style={{ left: `${(pendingFirstX / imageW) * 100}%` }}
+          />
+        )}
       </div>
 
       {/* band 切替（編集対象） */}
@@ -374,13 +472,13 @@ export function AssistedRowSelector({
         className="flex gap-2 text-[11px]"
       >
         <legend className="sr-only">調整する帯</legend>
-        {(["header", "personRow"] as const).map((b) => (
+        {(["header", "personRow", "dayColumn"] as const).map((t) => (
           <label
-            key={b}
-            data-testid={`assisted-row-edit-target-${b}`}
-            data-checked={editTarget === b ? "true" : "false"}
+            key={t}
+            data-testid={`assisted-row-edit-target-${t}`}
+            data-checked={editTarget === t ? "true" : "false"}
             className={`cursor-pointer rounded-full border px-3 py-1 ${
-              editTarget === b
+              editTarget === t
                 ? "border-slate-400 bg-slate-100 text-slate-700"
                 : "border-slate-200 bg-white text-slate-500"
             }`}
@@ -389,10 +487,10 @@ export function AssistedRowSelector({
               type="radio"
               name="assisted-row-edit-target"
               className="sr-only"
-              checked={editTarget === b}
-              onChange={() => setEditTarget(b)}
+              checked={editTarget === t}
+              onChange={() => setEditTarget(t)}
             />
-            {BAND_LABEL[b]}を調整
+            {EDIT_TARGET_LABEL[t]}
           </label>
         ))}
       </fieldset>
@@ -463,7 +561,7 @@ export function AssistedRowSelector({
                 ? "bg-sky-500 text-white shadow-sm shadow-sky-200/50"
                 : "cursor-not-allowed bg-gray-200/80 text-gray-400"
             }`}
-            title={ctaActive ? "このヘッダとこの行を読み取る" : "帯の指定を完了してください"}
+            title={ctaActive ? "このヘッダとこの行を読み取る" : "帯と日列中心の指定を完了してください"}
           >
             このヘッダとこの行を読み取る
           </button>

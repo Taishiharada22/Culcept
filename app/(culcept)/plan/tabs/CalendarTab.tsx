@@ -159,6 +159,8 @@ export function CalendarTab({
   dayGraphByDate,
   // SR #216 D3: 休み/希望休 day-level badge（iso → viewModel）。anchor と別レイヤー。
   dayIndicatorByIso,
+  // B-1: シフト取込（shift_image）由来 source の id 集合。week day-level marker + MonthGridView 転送用。
+  importedShiftSourceIds,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -175,6 +177,8 @@ export function CalendarTab({
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
   /** SR #216 D3: 休み/希望休 day-level badge。未指定なら badge なし。 */
   dayIndicatorByIso?: ReadonlyMap<string, DayIndicatorViewModel>;
+  /** B-1: シフト取込（shift_image）由来 source の id 集合。未指定なら取込 marker なし。 */
+  importedShiftSourceIds?: ReadonlySet<string>;
 } & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
@@ -225,6 +229,31 @@ export function CalendarTab({
   );
   // SR #216 D3: 選択日の休み/希望休 badge（anchor list と別レイヤー）
   const selectedDayIndicator = dayIndicatorByIso?.get(selectedDate);
+
+  // B-1: 週 strip 各日が「シフト取込（shift_image）由来の勤務 or 休みを 1 つでも持つ」かの iso 集合。
+  //   per-item ではなく day-level（密表示の過密回避）。anchor は anchorsForDay 経由（recurring/validity 継承）。
+  const importedWeekDayIsoSet = useMemo(() => {
+    const set = new Set<string>();
+    const hasImportedSources =
+      importedShiftSourceIds != null && importedShiftSourceIds.size > 0;
+    for (const cell of buildWeekStrip(selectedDateObj, currentMonth)) {
+      // 休み（day_indicator）由来
+      if (dayIndicatorByIso?.get(cell.iso)?.sourceType === "shift_image") {
+        set.add(cell.iso);
+        continue;
+      }
+      // 勤務（anchor）由来: その日の anchor に取込 source の sourceId が含まれるか
+      if (
+        hasImportedSources &&
+        anchorsForDay(anchors, cell.date).some((a) =>
+          importedShiftSourceIds!.has(a.sourceId)
+        )
+      ) {
+        set.add(cell.iso);
+      }
+    }
+    return set;
+  }, [selectedDateObj, currentMonth, dayIndicatorByIso, importedShiftSourceIds, anchors]);
 
   // ── L-4d-b1 (= 2026-05-22 CEO 承認): selected day timeline のみ移動時間表示 ──
   //    既存 usePlanGeocode を **selected day anchors の最小 subset に限定** して利用。
@@ -563,6 +592,7 @@ export function CalendarTab({
     todayIso,
     onSelectDate: handleSelectDate,
     getAnchorChip: resolveShiftAnchorChip,
+    importedShiftSourceIds,
   };
 
   return (
@@ -726,6 +756,18 @@ export function CalendarTab({
                           )}`}
                           aria-hidden="true"
                         />
+                      )}
+                      {/* B-1: 週 view は day-level の控えめな「取」（その日に取込由来あり・過密回避） */}
+                      {importedWeekDayIsoSet.has(cell.iso) && (
+                        <span
+                          data-testid={`plan-calendar-day-imported-${cell.iso}`}
+                          data-imported-source="shift_image"
+                          className="mt-0.5 text-[8px] font-medium leading-none text-slate-400"
+                          title="シフト取込あり"
+                          aria-label="シフト取込あり"
+                        >
+                          取
+                        </span>
                       )}
                     </span>
                   </button>
