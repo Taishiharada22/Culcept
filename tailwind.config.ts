@@ -43,6 +43,9 @@ export default {
             fontFamily: {
                 sans: ["var(--font-sans)", "Noto Sans JP", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
                 mono: ["var(--font-mono)", "JetBrains Mono", "SF Mono", "monospace"],
+                // UX-3: Concierge 世界観（travel UI 限定の font-serif / font-serif-latin）。既存 sans/mono 不変。
+                serif: ["var(--font-serif)", "Noto Serif JP", "Hiragino Mincho ProN", "YuMincho", "serif"],
+                "serif-latin": ["var(--font-serif-latin)", "var(--font-serif)", "Georgia", "serif"],
             },
             // ── Spacing & Radius ──
             borderRadius: {

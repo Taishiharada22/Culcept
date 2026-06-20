@@ -1,6 +1,6 @@
 // app/layout.tsx
 import type { Metadata, Viewport } from "next";
-import { Noto_Sans_JP, JetBrains_Mono } from "next/font/google";
+import { Noto_Sans_JP, JetBrains_Mono, Noto_Serif_JP, Cormorant_Garamond } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
@@ -18,6 +18,22 @@ const fontMono = JetBrains_Mono({
     weight: ["400", "500", "700"],
     display: "swap",
     variable: "--font-mono",
+});
+
+// UX-3: Concierge 世界観の serif（travel UI の font-serif / font-serif-latin class でのみ使用）。
+//   variable 追加のみ＝body デフォルトは font-sans 不変＝既存画面の見た目を変えない（CEO 条件）。
+const fontSerif = Noto_Serif_JP({
+    subsets: ["latin"],
+    weight: ["400", "500", "600", "700"],
+    display: "swap",
+    variable: "--font-serif",
+});
+
+const fontSerifLatin = Cormorant_Garamond({
+    subsets: ["latin"],
+    weight: ["400", "500", "600", "700"],
+    display: "swap",
+    variable: "--font-serif-latin",
 });
 
 export const runtime = "nodejs";
@@ -65,7 +81,7 @@ export default function RootLayout({
     children: React.ReactNode;
 }) {
     return (
-        <html lang="ja" className={`${fontSans.variable} ${fontMono.variable}`}>
+        <html lang="ja" className={`${fontSans.variable} ${fontMono.variable} ${fontSerif.variable} ${fontSerifLatin.variable}`}>
             <head>
                 <link
                     rel="preconnect"
