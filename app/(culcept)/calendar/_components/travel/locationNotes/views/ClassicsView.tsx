@@ -23,7 +23,7 @@ export function ClassicsView({ data, savedIds, isAdded, onToggleSave, onAddToIti
         <div className="mb-2">
           <h2 className="font-serif text-[14px]" style={{ color: T.ink, fontWeight: 600 }}>はじめての京都におすすめ</h2>
         </div>
-        <HeroCard item={hero} badges={["王道", hero.kind === "trip" ? "旅行プラン" : "スポット"]} saved={savedIds.has(hero.id)} added={isAdded(hero.id)} onToggleSave={() => onToggleSave(hero.id)} onAddToItinerary={() => onAddToItinerary(hero)} onOpen={() => onOpenDetail(hero)} />
+        <HeroCard item={hero} variant="overlay" badges={["王道", hero.kind === "trip" ? "旅行プラン" : "スポット"]} saved={savedIds.has(hero.id)} added={isAdded(hero.id)} onToggleSave={() => onToggleSave(hero.id)} onAddToItinerary={() => onAddToItinerary(hero)} onOpen={() => onOpenDetail(hero)} />
       </div>
 
       {trips.length > 0 && (
@@ -38,7 +38,7 @@ export function ClassicsView({ data, savedIds, isAdded, onToggleSave, onAddToIti
         <section>
           <SectionHeading ja="王道のスポット" />
           <Grid2>
-            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
+            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} showSource={false} />)}
           </Grid2>
         </section>
       )}

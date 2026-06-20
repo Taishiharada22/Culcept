@@ -3,11 +3,10 @@
 "use client";
 
 import * as React from "react";
+import { T } from "../../concierge/primitives";
 import { HeroCard, TripRowCard, SectionHeading, HScroll, EmptyState } from "../cards";
 import type { LocationViewProps } from "../viewTypes";
 import type { LocationItem } from "../../../../_lib/travel/types";
-
-const CLASS_LABEL: Record<LocationItem["classification"], string> = { classic: "王道", hidden: "穴場", standard: "定番" };
 
 export function TravelView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onGoToAdd }: LocationViewProps) {
   const trips = data.items.filter((i) => i.kind === "trip");
@@ -19,7 +18,7 @@ export function TravelView({ data, savedIds, isAdded, onToggleSave, onAddToItine
   const rest = trips.filter((i) => i.id !== hero.id);
   const localTrips = rest.filter((i) => i.source === "local");
   const travelerTrips = rest.filter((i) => i.source === "traveler");
-  const popular = [...trips].sort((a, b) => b.ratingCount - a.ratingCount);
+  const popular = [...rest].sort((a, b) => b.ratingCount - a.ratingCount);
 
   const row = (items: LocationItem[]) => (
     <HScroll>
@@ -31,15 +30,19 @@ export function TravelView({ data, savedIds, isAdded, onToggleSave, onAddToItine
 
   return (
     <div className="space-y-6">
-      <HeroCard
-        item={hero}
-        badges={["旅行プラン", CLASS_LABEL[hero.classification]]}
-        saved={savedIds.has(hero.id)}
-        added={isAdded(hero.id)}
-        onToggleSave={() => onToggleSave(hero.id)}
-        onAddToItinerary={() => onAddToItinerary(hero)}
-        onOpen={() => onOpenDetail(hero)}
-      />
+      <div>
+        <h2 className="font-serif text-[14px]" style={{ color: T.ink, fontWeight: 600 }}>旅行プラン</h2>
+        <p className="mb-2 mt-0.5 text-[11.5px]" style={{ color: T.ink3 }}>旅のスタイルに合わせて、最適な道を。</p>
+        <HeroCard
+          item={hero}
+          badges={["おすすめルート"]}
+          saved={savedIds.has(hero.id)}
+          added={isAdded(hero.id)}
+          onToggleSave={() => onToggleSave(hero.id)}
+          onAddToItinerary={() => onAddToItinerary(hero)}
+          onOpen={() => onOpenDetail(hero)}
+        />
+      </div>
 
       {localTrips.length > 0 && (
         <section>

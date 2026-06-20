@@ -23,7 +23,7 @@ export function HiddenView({ data, savedIds, isAdded, onToggleSave, onAddToItine
         <div className="mb-2">
           <h2 className="font-serif text-[14px]" style={{ color: T.ink, fontWeight: 600 }}>まだ知られていない、とっておきの発見</h2>
         </div>
-        <HeroCard item={hero} badges={["穴場", hero.kind === "trip" ? "旅行プラン" : "スポット"]} showWhy saved={savedIds.has(hero.id)} added={isAdded(hero.id)} onToggleSave={() => onToggleSave(hero.id)} onAddToItinerary={() => onAddToItinerary(hero)} onOpen={() => onOpenDetail(hero)} />
+        <HeroCard item={hero} variant="split" eyebrow={hero.tagline} badges={["穴場", hero.kind === "trip" ? "旅行プラン" : "スポット"]} showWhy saved={savedIds.has(hero.id)} added={isAdded(hero.id)} onToggleSave={() => onToggleSave(hero.id)} onAddToItinerary={() => onAddToItinerary(hero)} onOpen={() => onOpenDetail(hero)} />
       </div>
 
       {trips.length > 0 && (
@@ -38,7 +38,7 @@ export function HiddenView({ data, savedIds, isAdded, onToggleSave, onAddToItine
         <section>
           <SectionHeading ja="穴場のスポット" />
           <Grid2>
-            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
+            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} showSource={false} />)}
           </Grid2>
         </section>
       )}

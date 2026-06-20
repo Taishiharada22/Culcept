@@ -344,6 +344,7 @@ export interface LocationItem {
   // 穴場固有
   whySpecial?: string; // なぜ特別なのか
   whyHidden?: string; // なぜ知られていないのか
+  tagline?: string; // hero の eyebrow（例「誰も知らない、静寂の神社」）
   // Match 表示用
   matchPct?: number; // 92
   matchReasons?: string[]; // 「静かさ重視のあなたに」

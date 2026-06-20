@@ -29,6 +29,7 @@ export function SpotView({ data, savedIds, isAdded, onToggleSave, onAddToItinera
         </div>
         <HeroCard
           item={hero}
+          variant="split"
           badges={["スポット", hero.classification === "hidden" ? "穴場" : hero.classification === "classic" ? "王道" : "注目"]}
           saved={savedIds.has(hero.id)}
           added={isAdded(hero.id)}
@@ -52,7 +53,7 @@ export function SpotView({ data, savedIds, isAdded, onToggleSave, onAddToItinera
         <section>
           <SectionHeading ja="地元民のスポット" />
           <Grid2>
-            {localSpots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
+            {localSpots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} showSource={false} />)}
           </Grid2>
         </section>
       )}
@@ -60,7 +61,7 @@ export function SpotView({ data, savedIds, isAdded, onToggleSave, onAddToItinera
         <section>
           <SectionHeading ja="旅行者の発見" />
           <Grid2>
-            {travelerSpots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
+            {travelerSpots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} showSource={false} />)}
           </Grid2>
         </section>
       )}

@@ -5,9 +5,9 @@
 
 import * as React from "react";
 import type { LocationItem, LocationSource, PreferenceChip, TravelTheme } from "../../../_lib/travel/types";
-import { T, FOCUS_RING } from "../concierge/primitives";
+import { T, FOCUS_RING, ELEV } from "../concierge/primitives";
 import { PhotoSlot } from "../PhotoSlot";
-import { Star, Heart, ChevronRight, Plus, MapPin, Check } from "../concierge/icons";
+import { Star, Heart, ChevronRight, Plus, MapPin, Check, Clock } from "../concierge/icons";
 
 /** カード全面をタップ可能にする共通 props（キーボード対応）。 */
 function tapProps(onOpen?: () => void) {
@@ -132,8 +132,19 @@ function tripMeta(item: LocationItem): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Hero（Match/旅行/スポット/王道/穴場 各タブ上部の主役カード）
+// Hero（旅行=stack / スポット・穴場=split / 王道=overlay の variant 切替）
 // ---------------------------------------------------------------------------
+function heroMeta(item: LocationItem): string[] {
+  if (item.kind === "trip") {
+    return [item.durationLabel, item.spotCount ? `${item.spotCount}スポット` : "", item.genre].filter(Boolean) as string[];
+  }
+  return [item.genre, item.hours ?? ""].filter(Boolean) as string[];
+}
+
+function sourceRecLabel(source: LocationSource): string {
+  return source === "local" ? "地元民のおすすめ" : "旅行者のおすすめ";
+}
+
 export function HeroCard({
   item,
   badges = [],
@@ -146,6 +157,8 @@ export function HeroCard({
   onAddToItinerary,
   onOpen,
   primaryLabel = "旅程に追加",
+  variant = "stack",
+  eyebrow,
 }: {
   item: LocationItem;
   badges?: string[];
@@ -158,33 +171,103 @@ export function HeroCard({
   onAddToItinerary: () => void;
   onOpen?: () => void;
   primaryLabel?: string;
+  variant?: "stack" | "split" | "overlay";
+  eyebrow?: string;
 }) {
-  return (
-    <div className="overflow-hidden rounded-[20px] border" style={{ borderColor: T.border, background: T.card, boxShadow: "0 8px 26px rgba(120,100,60,0.12), inset 0 1px 0 rgba(255,255,255,0.55)" }}>
-      <div
-        {...tapProps(onOpen)}
-        className={`relative ${onOpen ? `cursor-pointer ${FOCUS_RING}` : ""}`}
-        aria-label={onOpen ? `${item.title} の詳細を見る` : undefined}
+  const meta = heroMeta(item);
+  const cta = (
+    <div className="flex gap-2">
+      <button
+        onClick={onAddToItinerary}
+        disabled={added}
+        className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-[13px] font-semibold transition active:scale-[0.98] ${FOCUS_RING}`}
+        style={added ? { background: T.greenBg, color: T.green } : { background: `linear-gradient(135deg, ${T.gold}, ${T.goldDeep})`, color: "#fdf8ee", boxShadow: "0 3px 12px rgba(138,112,56,0.25)" }}
       >
-        <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-40 w-full" />
-        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-          {badges.map((b) => <ClassChip key={b} label={b} tone="ink" />)}
-        </div>
-        <div className="absolute right-3 top-3">
-          <HeartButton active={saved} onClick={onToggleSave} size={18} />
-        </div>
-        {item.matchPct != null && (
-          <div className="absolute bottom-3 left-3">
-            <ClassChip label={`Match ${item.matchPct}%`} tone="gold" />
+        {added ? <><Check size={15} /> 旅程に追加済み</> : <><Plus size={15} /> {primaryLabel}</>}
+      </button>
+      <button onClick={onToggleSave} aria-pressed={saved} className={`flex items-center justify-center gap-1.5 rounded-xl border px-5 py-2.5 text-[13px] font-medium transition active:scale-[0.98] ${FOCUS_RING}`} style={{ borderColor: T.border, background: saved ? T.goldBg : T.card, color: saved ? T.goldDeep : T.ink2 }}>
+        <Heart size={15} filled={saved} /> {saved ? "保存済み" : "保存"}
+      </button>
+    </div>
+  );
+
+  // ── overlay（王道）：全面写真＋下グラデにテキストをオーバーレイ ──
+  if (variant === "overlay") {
+    return (
+      <div className="overflow-hidden rounded-[20px] border" style={{ borderColor: T.border, background: T.card, boxShadow: ELEV.e2 }}>
+        <div {...tapProps(onOpen)} className={`relative h-56 ${onOpen ? `cursor-pointer ${FOCUS_RING}` : ""}`} aria-label={onOpen ? `${item.title} の詳細を見る` : undefined}>
+          <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-full w-full" />
+          <div className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(to top, rgba(28,22,14,0.82) 0%, rgba(28,22,14,0.10) 55%, rgba(28,22,14,0.18) 100%)" }} />
+          <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">{badges.map((b, i) => <ClassChip key={b} label={b} tone={i === 0 ? "gold" : "plain"} />)}</div>
+          <div className="absolute right-3 top-3"><HeartButton active={saved} onClick={onToggleSave} size={18} /></div>
+          <div className="absolute inset-x-0 bottom-0 p-4">
+            {eyebrow && <div className="mb-0.5 text-[11px]" style={{ color: "rgba(253,248,238,0.85)" }}>{eyebrow}</div>}
+            <h2 className="font-serif text-[20px] leading-snug" style={{ color: "#fdf8ee", fontWeight: 700 }}>{item.title}</h2>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]" style={{ color: "rgba(253,248,238,0.92)" }}>
+              <span className="inline-flex items-center gap-1"><Star size={12} filled style={{ color: T.goldSoft }} /><b className="font-semibold">{item.rating.toFixed(1)}</b>{item.ratingCount > 0 && <span style={{ color: "rgba(253,248,238,0.7)" }}>({item.ratingCount.toLocaleString()})</span>}</span>
+              <span style={{ color: "rgba(253,248,238,0.5)" }}>·</span>
+              <span>by {item.author.name}</span>
+              <span className="rounded-full px-2 py-[2px] text-[10px] font-medium" style={{ background: "rgba(253,248,238,0.18)" }}>{sourceRecLabel(item.source)}</span>
+            </div>
           </div>
-        )}
+        </div>
+        <div className="p-3.5">
+          <p className="text-[12px] leading-relaxed" style={{ color: T.ink2 }}>{item.description}</p>
+          <div className="mt-3">{cta}</div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── split（スポット・穴場）：写真左＋本文右 ──
+  if (variant === "split") {
+    return (
+      <div className="overflow-hidden rounded-[20px] border" style={{ borderColor: T.border, background: T.card, boxShadow: ELEV.e2 }}>
+        <div className="flex gap-3 p-3.5">
+          <div {...tapProps(onOpen)} className={`relative w-[42%] shrink-0 overflow-hidden rounded-2xl ${onOpen ? `cursor-pointer ${FOCUS_RING}` : ""}`} aria-label={onOpen ? `${item.title} の詳細を見る` : undefined}>
+            <PhotoSlot photo={item.photo} rounded="rounded-2xl" className="h-full min-h-[152px] w-full" />
+            <div className="absolute left-1.5 top-1.5 flex flex-col items-start gap-1">{badges.map((b, i) => <ClassChip key={b} label={b} tone={i === 0 ? "gold" : "ink"} />)}</div>
+            <div className="absolute right-1.5 top-1.5"><HeartButton active={saved} onClick={onToggleSave} size={14} /></div>
+          </div>
+          <div className="min-w-0 flex-1">
+            {eyebrow && <div className="text-[10.5px]" style={{ color: T.ink3 }}>{eyebrow}</div>}
+            <h2 className="font-serif text-[17px] leading-snug" style={{ color: T.ink, fontWeight: 700 }}>{item.title}</h2>
+            <div className="mt-1 flex items-center gap-1 text-[11.5px]" style={{ color: T.ink2 }}><MapPin size={11} /> {item.areaLabel}</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Rating rating={item.rating} count={item.ratingCount} size={11} />
+              {item.hours && <span className="inline-flex items-center gap-0.5 text-[10.5px]" style={{ color: T.ink2 }}><Clock size={10} /> {item.hours}</span>}
+            </div>
+            {showWhy ? (
+              <div className="mt-2 grid gap-1.5">
+                {item.whySpecial && <WhyPanel title="なぜ特別なのか" body={item.whySpecial} />}
+                {item.whyHidden && <WhyPanel title="なぜ知られていないのか" body={item.whyHidden} />}
+              </div>
+            ) : (
+              <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: T.ink2, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.description}</p>
+            )}
+          </div>
+        </div>
+        <div className="px-3.5 pb-3.5">{cta}</div>
+      </div>
+    );
+  }
+
+  // ── stack（旅行・既定）：写真上＋本文下 ──
+  return (
+    <div className="overflow-hidden rounded-[20px] border" style={{ borderColor: T.border, background: T.card, boxShadow: ELEV.e2 }}>
+      <div {...tapProps(onOpen)} className={`relative ${onOpen ? `cursor-pointer ${FOCUS_RING}` : ""}`} aria-label={onOpen ? `${item.title} の詳細を見る` : undefined}>
+        <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-40 w-full" />
+        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">{badges.map((b, i) => <ClassChip key={b} label={b} tone={i === 0 ? "gold" : "ink"} />)}</div>
+        <div className="absolute right-3 top-3"><HeartButton active={saved} onClick={onToggleSave} size={18} /></div>
+        {item.matchPct != null && <div className="absolute bottom-3 left-3"><ClassChip label={`Match ${item.matchPct}%`} tone="gold" /></div>}
       </div>
 
       <div className="p-4">
+        {eyebrow && <div className="text-[11px]" style={{ color: T.ink3 }}>{eyebrow}</div>}
         <h2 className="font-serif text-[19px] leading-snug" style={{ color: T.ink, fontWeight: 700 }}>{item.title}</h2>
-        <div className="mt-1 flex items-center gap-1 text-[12px]" style={{ color: T.ink2 }}>
-          <MapPin size={12} /> {item.areaLabel}
-        </div>
+        <div className="mt-1 flex items-center gap-1 text-[12px]" style={{ color: T.ink2 }}><MapPin size={12} /> {item.areaLabel}</div>
+
+        {meta.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{meta.map((m) => <MetaChip key={m}>{m}</MetaChip>)}</div>}
 
         <div className="mt-2 flex items-center gap-2">
           <Rating rating={item.rating} count={item.ratingCount} />
@@ -192,21 +275,13 @@ export function HeroCard({
           <AuthorLine item={item} />
         </div>
 
-        {showWhy && (item.whySpecial || item.whyHidden) && (
-          <div className="mt-3 grid gap-2">
-            {item.whySpecial && <WhyPanel title="なぜ特別なのか" body={item.whySpecial} />}
-            {item.whyHidden && <WhyPanel title="なぜ知られていないのか" body={item.whyHidden} />}
-          </div>
-        )}
-
         {reasons && reasons.length > 0 && (
           <div className="mt-3 rounded-xl p-3" style={{ background: T.cardSunk }}>
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest" style={{ color: T.ink3 }}>おすすめの理由</div>
             <ul className="grid gap-1">
               {reasons.map((r) => (
                 <li key={r} className="flex items-start gap-1.5 text-[12px]" style={{ color: T.ink2 }}>
-                  <span className="mt-[5px] h-1 w-1 shrink-0 rounded-full" style={{ background: T.gold }} />
-                  {r}
+                  <span className="mt-[5px] h-1 w-1 shrink-0 rounded-full" style={{ background: T.gold }} />{r}
                 </li>
               ))}
             </ul>
@@ -218,29 +293,13 @@ export function HeroCard({
             <div className="mb-1 text-[10px]" style={{ color: T.ink3 }}>あなたの好み</div>
             <div className="flex flex-wrap gap-1.5">
               {prefChips.map((c) => (
-                <span key={c.label} className="rounded-full px-2.5 py-1 text-[11px] font-medium" style={c.active ? { background: T.goldBg, color: T.goldDeep } : { background: T.cardAlt, color: T.ink3, border: `1px solid ${T.border}` }}>
-                  {c.label}
-                </span>
+                <span key={c.label} className="rounded-full px-2.5 py-1 text-[11px] font-medium" style={c.active ? { background: T.goldBg, color: T.goldDeep } : { background: T.cardAlt, color: T.ink3, border: `1px solid ${T.border}` }}>{c.label}</span>
               ))}
             </div>
           </div>
         )}
 
-        <div className="mt-4 flex gap-2">
-          <button
-            onClick={onAddToItinerary}
-            disabled={added}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-[13px] font-semibold transition active:scale-[0.98] ${FOCUS_RING}`}
-            style={added
-              ? { background: T.greenBg, color: T.green }
-              : { background: `linear-gradient(135deg, ${T.gold}, ${T.goldDeep})`, color: "#fdf8ee", boxShadow: "0 3px 12px rgba(138,112,56,0.25)" }}
-          >
-            {added ? <><Check size={15} /> 旅程に追加済み</> : <><Plus size={15} /> {primaryLabel}</>}
-          </button>
-          <button onClick={onToggleSave} aria-pressed={saved} className={`flex items-center justify-center gap-1.5 rounded-xl border px-5 py-2.5 text-[13px] font-medium transition active:scale-[0.98] ${FOCUS_RING}`} style={{ borderColor: T.border, background: saved ? T.goldBg : T.card, color: saved ? T.goldDeep : T.ink2 }}>
-            <Heart size={15} filled={saved} /> {saved ? "保存済み" : "保存"}
-          </button>
-        </div>
+        <div className="mt-4">{cta}</div>
       </div>
     </div>
   );
@@ -273,6 +332,7 @@ export function TripRowCard({ item, saved, added = false, onToggleSave, onAddToI
       </div>
       <div className="flex flex-1 flex-col p-2.5">
         <div className="font-serif text-[12.5px] font-semibold leading-snug" style={{ color: T.ink, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
+        {item.description && <p className="mt-0.5 truncate text-[10px]" style={{ color: T.ink3 }}>{item.description}</p>}
         <div className="mt-1 flex flex-wrap gap-1">{tripMeta(item).map((m) => <MetaChip key={m}>{m}</MetaChip>)}</div>
         <div className="mt-1.5 flex items-center justify-between gap-1">
           <Rating rating={item.rating} count={item.ratingCount} size={11} />
@@ -294,7 +354,7 @@ export function TripRowCard({ item, saved, added = false, onToggleSave, onAddToI
 // ---------------------------------------------------------------------------
 // Spot grid card（グリッド・単体スポット）
 // ---------------------------------------------------------------------------
-export function SpotGridCard({ item, saved, onToggleSave, onOpen }: { item: LocationItem; saved: boolean; onToggleSave: () => void; onOpen?: () => void }) {
+export function SpotGridCard({ item, saved, onToggleSave, onOpen, showSource = true }: { item: LocationItem; saved: boolean; onToggleSave: () => void; onOpen?: () => void; showSource?: boolean }) {
   return (
     <div
       {...tapProps(onOpen)}
@@ -304,14 +364,15 @@ export function SpotGridCard({ item, saved, onToggleSave, onOpen }: { item: Loca
     >
       <div className="relative">
         <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-20 w-full" />
+        <div className="absolute left-1.5 top-1.5"><ClassChip label={item.genre} tone="plain" /></div>
         <div className="absolute right-1.5 top-1.5"><HeartButton active={saved} onClick={onToggleSave} size={13} /></div>
       </div>
       <div className="flex flex-1 flex-col p-2">
         <div className="font-serif text-[12px] font-semibold leading-snug" style={{ color: T.ink, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{item.title}</div>
-        <div className="mt-0.5 text-[10px]" style={{ color: T.ink3 }}>{item.genre}</div>
-        <div className="mt-1 flex items-center justify-between">
+        {item.description && <p className="mt-0.5 truncate text-[10px]" style={{ color: T.ink3 }}>{item.description}</p>}
+        <div className="mt-auto flex items-center justify-between pt-1.5">
           <Rating rating={item.rating} size={11} />
-          <SourceBadge source={item.source} />
+          {showSource && <SourceBadge source={item.source} />}
         </div>
       </div>
     </div>

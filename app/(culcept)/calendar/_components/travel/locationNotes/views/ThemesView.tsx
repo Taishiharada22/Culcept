@@ -6,10 +6,10 @@ import * as React from "react";
 import { T, FOCUS_RING } from "../../concierge/primitives";
 import { PhotoSlot } from "../../PhotoSlot";
 import { ChevronRight } from "../../concierge/icons";
-import { TripRowCard, SpotGridCard, SectionHeading, HScroll, Grid2, ThemeTile, EmptyState } from "../cards";
+import { TripRowCard, SpotGridCard, SectionHeading, HScroll, Grid2, ThemeTile, ClassChip, EmptyState } from "../cards";
 import type { LocationViewProps } from "../viewTypes";
 
-export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onGoToAdd }: LocationViewProps) {
+export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onOpenTab, onGoToAdd }: LocationViewProps) {
   const [activeKey, setActiveKey] = React.useState(data.themes[0]?.key ?? "");
   const contentRef = React.useRef<HTMLDivElement>(null);
   const active = data.themes.find((t) => t.key === activeKey) ?? data.themes[0];
@@ -21,6 +21,7 @@ export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItine
   const themed = data.items.filter((i) => i.themeKeys.includes(active.key));
   const trips = themed.filter((i) => i.kind === "trip");
   const spots = themed.filter((i) => i.kind === "spot");
+  const relatedThemes = data.themes.filter((t) => t.key !== active.key);
 
   return (
     <div className="space-y-6">
@@ -32,6 +33,7 @@ export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItine
         <div className="relative overflow-hidden rounded-[20px] border" style={{ borderColor: T.border }}>
           <PhotoSlot photo={active.photo} rounded="rounded-none" className="h-40 w-full" />
           <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(34,28,20,0.78) 0%, rgba(34,28,20,0.15) 65%)" }} />
+          <div className="absolute right-3 top-3"><ClassChip label="テーマ" tone="plain" /></div>
           <div className="absolute inset-x-0 bottom-0 p-4">
             <div className="font-serif text-[22px] font-bold" style={{ color: "#fdf8ee" }}>{active.label}</div>
             <p className="mt-1 max-w-[80%] text-[11.5px] leading-relaxed" style={{ color: "rgba(253,248,238,0.86)" }}>{active.description}</p>
@@ -62,7 +64,7 @@ export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItine
       <div ref={contentRef} className="space-y-6 scroll-mt-24">
         {trips.length > 0 && (
           <section>
-            <SectionHeading ja={`このテーマの旅行 · ${active.label}`} />
+            <SectionHeading ja={`このテーマの旅行 · ${active.label}`} onMore={() => onOpenTab("travel")} />
             <HScroll>
               {trips.map((it) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} added={isAdded(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} onOpen={() => onOpenDetail(it)} />)}
             </HScroll>
@@ -70,14 +72,25 @@ export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItine
         )}
         {spots.length > 0 && (
           <section>
-            <SectionHeading ja={`このテーマのスポット · ${active.label}`} />
+            <SectionHeading ja={`このテーマのスポット · ${active.label}`} onMore={() => onOpenTab("spot")} />
             <Grid2>
-              {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
+              {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} showSource={false} />)}
             </Grid2>
           </section>
         )}
         {themed.length === 0 && (
           <p className="py-6 text-center text-[12px]" style={{ color: T.ink3 }}>「{active.label}」のノートはまだありません。</p>
+        )}
+
+        {relatedThemes.length > 0 && (
+          <section>
+            <SectionHeading ja="あなたにも合うテーマ" />
+            <HScroll>
+              {relatedThemes.map((t) => (
+                <div key={t.key} className="w-[116px] shrink-0"><ThemeTile theme={t} onClick={() => setActiveKey(t.key)} /></div>
+              ))}
+            </HScroll>
+          </section>
         )}
       </div>
     </div>
