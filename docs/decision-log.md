@@ -16936,3 +16936,649 @@ planner → Gemini adapter → runDraftExtraction → cells変換 → riskReport
 ---
 
 ---
+
+## [2026-06-05] Second Self Map v0（Mobility Hypothesis Surface）完成
+
+- 決定: /plan Map の「第二の自己」モビリティ機能 v0-A〜F を完成。仮説（今日のあなたなら）→ mode 選択 → feedback 記録 → 次の belief 反映、のループを閉じた。
+- v0-E: hypothesisFeedbackStore（別 store・selectedModeStore 不変）に confirmation/explicitCorrection を記録（kind+surfacedMode+chosenMode+root version=schemaVersion）。仮説表示時のみ・全選択を override にしない。
+- v0-F: belief を precision 加重（selectedModeStore × hypothesisFeedback を (day,legKey) JOIN）。重み selected=1 / confirmation=1（filter-bubble 上限）/ explicitCorrection=2（反暗示=高精度）。re-selection は stale→1。新 store なし・両 store READ only。
+- 設計判断（GPT 提案を独立検証して採用）: correction は仮説 surface 後にのみ起き得る＝既に確立した belief に対してのみ → 薄い surface は構造的に不能・train→沈黙→walk の滑らかな遷移。confirmation を増幅させないのが filter-bubble 回避の核。uniform belief = feedback 空の weighted belief（特殊ケース統一）。
+- 検証: mobility 84 unit test PASS（A〜I integration smoke 含む・実モジュール round-trip）+ tsc footprint 0 + CEO 手動 live smoke（実機 localhost:3012・A〜D + 視覚 5 点 all pass）。
+
+関連 commit（branch claude/second-self-map-v0）: 72e42678/e6d5a6a5（v0-E）, 2498f81d/45ac65d7（v0-F）, 1f768ca6（integration）。docs（nifty-turing）: mini design / smoke plan / closeout。
+承認: CEO（各 slice GO + 完全 PASS 確認）×GPT（重み {1,1,2} + scope）。ステータス: v0 完成・closeout 済・**ローカル main 着地済**（HEAD 5f05391f・squash・zero-loss / main tsc footprint 0 / 衝突なし・push/PR なし）。
+
+---
+
+## [2026-06-05] Second Self Map Wave 1/L1（移動レパートリー学習・S2-B）完成・main 着地
+
+- 決定: 「過去 OD は再構成不能 → 今から録る」を実装。L1-a 観測前方記録 + L1-b OD 条件付き belief。
+- L1-a mobilityObservationStore: 選択時に rich 観測(mode/timeband/weekday/odKey/privacyClass)を silent 前方記録(別 store・全選択・sensitive はどちらか端点で両 place key redact)。Date 不使用(timeband=to-anchor 時刻 / weekday=Zeller congruence)。
+- L1-b mobilityRepertoireBelief: legKey 優先・cold で odKey×timeband×weekday 階層 fallback(override しない・退行ゼロ)。層採用は v0 strength 判定(buildMobilityHypothesis)流用。OD も feedback JOIN で precision 加重。mode 正本は selectedStore。
+- 4 設計判断(CEO 確定): legKey 優先+cold odKey / v0 strength 流用 / feedback JOIN 加重 / 今 pure 実装。
+- 検証: mobility 121 test(L1-a 4 次元 adversarial PASS + L1-b 退行ゼロ + smoke A/B/C/D)+ tsc footprint 0。
+- ★ローカル main 着地(squash・main HEAD 3d3d24a8・zero-loss・衝突なし・既存 v0/selectedModeStore/hypothesisFeedbackStore 不変・temp 混入 0・push/PR/GitHub なし)。
+
+関連 commit(branch claude/second-self-map-wave1-l1): 93372462/b2ab44a5/fcfac873(L1-a) d4952fae/5cabac40(L1-b) a5aef2a2(smoke)。main: 3d3d24a8。docs(nifty): l1/l1b mini design + closeout。
+承認: CEO(4 判断確定 + L1-b-2 配線承認 + 着地承認)。ステータス: L1 完成・main 着地済。次=L4 partial pooling 設計提出。
+
+---
+
+## [2026-06-05] Second Self Map L4（cold-start partial-pooling）実装・配線・main 着地 live
+
+- 決定: L1-b の hard fallback を partial-pooling へ進化。pure を先に固定 → 別スライスで配線（pure/配線 分離）。
+- L4-a buildPooledBelief: 2-level(legKey←odKey)・pooled=c_leg+κ·p_OD・強 legKey guard(strength===strong は厳密 v0)・cold〜moderate のみ pooling・退行ゼロ。
+- L4-b buildPooledBeliefMultiLevel: multi-level(leg←odKey×tb×wd←odKey×wd←odKey←global)。★effSize 伝播 + min(κ,parent.effSize) cap で **global を弱い seed 化**(effSize≤κ_global=1)→ global-only 過剰 surface しない。per-level κ {leg3,context3,global1}・root 空で厳密退行ゼロ。
+- 配線: MapTab loadRepertoireBelief→loadPooledBeliefMultiLevel(1 行)。empty obs は v0/L1 同一・観測蓄積で段階的に pooling。
+- 検証: mobility 161 test(L4-a 15 + L4-b 20 + 配線 smoke 7項目)・tsc footprint 0。誤ルート GPT 判断(G-V4b-H/x-draft)は read-only で別機能と確認し無視(CEO 訂正済)。
+- 着地: cherry-pick(0b4f404e+8ce05b27)で pure を squash(main 93aa5653)→ merge --squash で配線(main 44633d16)。zero-loss・既存(v0/L1/store/MobilityLegCard)不変・temp 混入0・push/PR/Vercel なし。
+
+関連 commit(branch claude/second-self-map-wave1-l1 + l4b-wire): 0b4f404e/8ce05b27(L4)・29ac2d96(配線)。main: 93aa5653(pure)→44633d16(配線)。
+承認: CEO(5 判断確定×2 + 配線承認 + 着地承認)×GPT。ステータス: L4 live。次=L4-c κ較正(データ後) / L3 selective forgetting(mini design 済・実装 GO 待ち)。
+
+---
+
+## [2026-06-05] Second Self Map L3-a（selective forgetting）実装・配線・main 着地 live
+
+- 決定: パターンが変わった時だけ古い確信を precision で緩める。素朴 time-decay でなく regime-change(矛盾の連続)駆動・belief 消さず重みのみ ×λ。pure を先に固定 → GPT 監査で「pure 積み増しでなく先に配線して live 検証」を採用(L3-b でなく L3-a 配線先行)。
+- 検出: leg の explicitCorrection 末尾連続 N(=2)が同一 Y → regime-change to Y・change-point=開始日。computeRegimeFactorFn が change-point より古い観測を ×λ(=0.5)。no regime → 恒等(退行ゼロ)。
+- 注入: L4-b path の 4 builder に optional regimeFactorFn(default identity・既存温存)。buildL3/loadL3PooledBeliefMultiLevel。
+- 配線: MapTab loadPooledBeliefMultiLevel→loadL3PooledBeliefMultiLevel(1 行)。correction 未蓄積→即時 L4-b 同一・同方向 2 回で selective forgetting が効く。
+- 検証: pure 13 + wire smoke 12項目 + mobility 182 test・tsc footprint 0。L3→L4 composable・3 store READ のみ・削除でない・Date.now 不使用。
+- 着地: pure squash(main 77104e1a)→ 配線 squash(main 7c394a40)。zero-loss・既存(MobilityLegCard/copy/store)不変・temp 0・push/PR/Vercel なし。
+
+関連 commit(branch l3a + l3a-wire): 5171d703(pure)・60f2a5f6(配線)。main: 77104e1a(pure)→7c394a40(配線)。
+承認: CEO(pure GO + GPT 監査で配線先行 GO + 着地承認)×GPT。ステータス: L3-a live。次=L3-b(OD+持続シフト・mini design 済・GO 待ち) / L4-c(データ後)。
+
+---
+
+## [2026-06-05] Second Self Map L3-b-1（OD 単位 regime-change）実装・branch（pure・未配線・main 未着地）
+
+- 決定: L3-a(legKey) の selective forgetting を **OD 単位**へ拡張。explicitCorrection を odKey で集約 → 場所のパターン変化を OD 全 leg に波及。GPT 判断: 強信号(correction)を先に OD へ・弱信号(L3-b-2 持続シフト)は仮説への明示反抗でなく誤検出リスク高で後回し。
+- 検出: computeOdRegimeChange = OD の correction を **dedup-by-day**（同日複数 leg→一致なら 1 signal・矛盾日除外）+ redacted/sensitive 除外 + stale 除外（selected 最終≠chosenMode）+ 同方向連続 N。change-point=連続開始日。
+- 合成: computeCombinedRegimeFactorFn = **leg 優先 + OD fallback**（regimeFactor 1 つ・二重緩和なし）。leg regime あれば λ_leg、無ければ OD regime なら λ_od、どちらも無ければ 1。
+- config: N=2 / λ_leg=0.5 / **λ_od=0.7**（OD は複数 leg 波及で保守的＝leg より緩い relaxation）。additive（L3-a 関数 非破壊）。buildL3b/loadL3bPooledBeliefMultiLevel。
+- 検証: 21 tests（1回不発火/2回発火/異方向/confirmation・selected・stale・redacted 除外/changePoint/leg 優先/OD fallback/別OD非漏洩/削除でない/time decay なし/Date 不使用/READ のみ/fetch なし）+ mobility 203・tsc footprint 0・退行ゼロ。
+- 配線（end-to-end GO）: MapTab `loadL3PooledBeliefMultiLevel`→`loadL3bPooledBeliefMultiLevel`（1 行）。wire smoke 11項目（核=同一 OD の別 leg(観測のみ)に波及・L3-a は波及せず）。OD correction 未蓄積→即時 L3-a 同一（退行ゼロ）。
+- 状態: **main `0cc5217b` 着地 live（pure `b1ba476d` + 配線 `54304b68` を squash）。MapTab=loadL3bPooledBeliefMultiLevel（OD regime live）**。mobility 213・MobilityLegCard/copy/store 不変・push なし。
+
+関連 commit(branch l3b1): b1ba476d(pure)・54304b68(配線)。main: 0cc5217b(squash)。closeout: `docs/second-self-map-l3b1-closeout.md`。
+承認: CEO(GPT で L3-b-1 のみ GO + 配線 end-to-end GO + 着地承認・L3-b-2 後回し)×GPT。ステータス: L3-b-1 live。次=L3-b-2(持続シフト・closeout 後判断・誤検出リスク) / L4-c(データ後)。
+
+---
+
+## [2026-06-06] Second Self Map L3-b-2（selected-only 持続シフト）pure 実装・branch（未配線・配線は CEO 判断）
+
+- 決定: explicitCorrection なしの silent な習慣変化を拾う。最弱信号（明示反抗なし）ゆえ最も厳しい発火条件 + 最も緩い relaxation + legKey 限定。GPT 判断: pure までにし配線は結果を見て判断（雑に live にすると「勝手に忘れる地図」）。
+- 検出: computeSilentShiftRegimeChange = **SELECTED のみ読む**（feedback 不使用＝correction/confirmation/stale 無関係）。recent K=4 全一致で別 mode Y ∧ baseline 強(total≥4 ∧ topShare≥0.6=not split) ∧ Y≠baseline topMode のみ発火。change-point=streak 開始日。
+- 合成: computeFullRegimeFactorFn = **leg > OD > silent**（強信号優先・regimeFactor 1 つ・二重緩和なし）。silent は leg/OD regime を持たない legKey だけ。computeLegOdRegimes 抽出（L3-b-1 挙動不変・213 既存 test で検証）。
+- config: K=4 / **λ_silent=0.8**（λ_leg0.5<λ_od0.7<λ_silent0.8＝信号が弱いほど緩い）/ baseline total≥4 ∧ topShare≥0.6。legKey 限定（OD selected-only 波及は deferred=安全側）。退行ゼロ。
+- 検証: 20 tests（1-3回不発火/4回発火/弱・split baseline 不発火/recent バラバラ不発火/correction・confirmation・stale 不使用/time decay なし/changePoint/λ_silent 境界/削除でない/L3-b-1 同一/legKey-local/READ のみ/fetch なし）+ mobility 233・tsc footprint 0。
+- 状態: **branch `claude/second-self-map-l3b2`・`631b927a`・pure・未配線（MapTab=loadL3b）・main 未着地**。closeout + 配線判断材料: `docs/second-self-map-l3b2-closeout.md`。
+- **Claude 推奨: 当面 pure 保持**（最弱信号・params 実データ未検証 → L3-a/L3-b-1 データで挙動観測 → L3-c 較正 → その後配線）。即時リスクは退行ゼロで極小ゆえ CEO が適応完成優先なら配線可。
+
+- **main 着地（2026-06-06・CEO GO）**: L3-b-2 pure を main `846c3a2e` に squash（未配線・MapTab=loadL3b 維持＝production 不変・退行ゼロ）。zero-loss・tsc footprint 0・mobility 233・store/MobilityLegCard 不変・temp 0・push なし。**pure を main に固定・live 化は保留**（実データ後 or 明示 GO まで）。
+- **較正保留（CEO 方針）**: κ/λ/K/threshold は固定値運用 → 実データ後に較正。`docs/second-self-map-calibration-backlog.md` に記録（見る指標: selected/confirmation/correction 比率・FP/FN・silent は特に慎重）。現時点で tuning 実装しない。
+
+関連 commit(branch l3b2): 631b927a(pure)。main: 846c3a2e(squash 着地)。closeout: `docs/second-self-map-l3b2-closeout.md`。
+承認: CEO(GPT で L3-b-2 pure GO + main 着地 GO・配線は実データ後)×GPT。ステータス: L3-b-2 pure main 着地（未配線）。次=Wave 2 Day Rehearsal（主フェーズ）/ 配線可否(データ後) / L3-c・L4-c(較正 backlog・データ後)。
+
+---
+
+## [2026-06-06] Wave 2 Day Rehearsal — pure simulation layer 実装・branch（未配線・main 未着地）
+
+- 決定: belief stack(L1/L4/L3) を使い 1日を先に走らせる forward simulation。**最適化でなく simulation**（予定を動かさない・修正案/auto-reschedule なし・TSP なし）。「未来の自分が先に試す」。GPT 補正: strain/recovery/friction/risk は**断定せず仮説 estimate**・**evidence trace 必須**。
+- 実装(新規ファイルのみ): `lib/plan/dayRehearsal/dayRehearsalTypes.ts`(Estimate+Evidence+config) / `dayRehearsal.ts`(rehearseDay engine + buildRehearsalInput adapter)。
+- 6 計算(前方積分): 成立(viability holds/tight/breaks/unknown)/friction/buffer(feasibility slack をそのまま=観測)/strain/recovery/convergence(「risk」=確率でなく重なり factors)。全推定が `{basis, known, unknown, inferred}` を携える。
+- 原則: strain≠fatigue 断定でない・unknown duration は捏造せず unknown・全 unknown→viability unknown・Date 不使用・degrade・読み取り専用診断層(Reality Control OS Repair が後で消費)。
+- 検証: 20 test PASS(engine 16 + adapter 4)・dayRehearsal 実ファイル tsc footprint 0・新規ファイルのみ(既存非改変=production 不変)。
+- **main 着地（2026-06-06・CEO GO）**: pure `2cf09824` を main `f1e87f39` に squash（新規ファイルのみ・未配線・UI/PlanClient/MapTab/DB 非接触＝production 不変）。zero-loss・dayRehearsal 20 test・tsc footprint 0・push なし。L3-b-2 pure と同パターン（pure を main 固定・live 化はまだ）。
+- **配線 mini design 済（CEO「pure 固定後に慎重設計」）**: `docs/second-self-map-day-rehearsal-wiring-mini-design.md`。①どこ=Plan view(PlanClient) day-level outlook + point マーカー ②粒度=day-level + point から(transition inline は後段) ③copy=仮説トーン(生数字なし・fatigue/risk 断定禁止・evidence は「なぜ?」開示) ④接続=PlanClient READ-only で rehearseDay 呼ぶ(表示のみ・予定変更なし)。判断点 4。
+
+関連 commit(branch day-rehearsal): 2cf09824(pure)。main: f1e87f39(squash 着地)。closeout: `docs/second-self-map-day-rehearsal-step4-closeout.md`。
+承認: CEO(GPT で Day Rehearsal step 4 pure GO + main 着地 GO・配線は設計後判断)×GPT。ステータス: Day Rehearsal pure main 着地（未配線）+ 配線 mini design 済。次=配線実装可否(CEO 判断・別 GO) / belief・InnerWeather 統合拡張 / 較正(データ後)。
+
+---
+
+## [2026-06-06] Day Rehearsal 配線 — CalendarTab 選択日 day-level outlook バナー（READ-only・main 着地）
+
+- 決定: Day Rehearsal 初回 UI 露出。day-level outlook バナーのみ（timeline point marker は後 slice）。READ-only・表示のみ・予定変更/repair/optimize なし。
+- W-1 監査（HARD GATE）: PlanClient 全日 feasibility/overlay は **unsafe**（async・freeze）→ 停止報告。CalendarTab 選択日の **displayMap status** を再利用する Option D に改訂。さらに displayMap は raw 分数を持たない（display 層）→ 停止報告 → Option D（status-only honest degrade）で GO。**3 度の shape gate を経て安全配線**。
+- 実装（既存 hook/pipeline 非改修）: `buildRehearsalInputFromDisplay`(displayMap status→input・分数 null=未確定・捏造しない) + viability refine(buffer signal あれば travel unknown でも outlook) + `DayOutlookBanner`(仮説トーン・slate・unknown 非表示・warning 色/断定語禁止) + CalendarTab additive 配線（dayGraphByDate + displayMap 再利用）。
+- copy: holds「ゆとりがありそう」/ tight「少し詰まりやすいかも」/ breaks「余白が少なめで重なりやすいかも」/ unknown 非表示。生数字・断定・警告色なし（render contract test で機械保証）。
+- 検証: 33 test（engine/adapter 26 + render 7）・tsc footprint 0・zero-loss・既存 hook/MapTab/DB/route 非改変・push なし。plan suite 4917 PASS（1 flaky timeout は本変更起因でない・単独 36 PASS）。
+- 状態: **main `d9354db4` 着地 live**（CalendarTab 選択日に outlook バナー READ-only）。closeout: `docs/second-self-map-day-rehearsal-wire-closeout.md`。実機 smoke は CEO 確認用 観点を closeout §6 に記載。
+
+関連 commit(branch day-rehearsal-wire): 44668763。main: d9354db4(squash 着地)。
+承認: CEO(GPT で W-1 停止判断 OK + Option D 配線 GO)×GPT。ステータス: Day Rehearsal day-level outlook バナー live。
+- **実機 smoke PASS（2026-06-06・CEO/GPT 判定）**: dev サーバー(main worktree・port 3012・flag 不要・READ-only)で確認 → PASS。次=timeline point marker(mini design 先行) / raw feasibility・transport・InnerWeather 統合 / evidence「なぜ?」UI / 較正(データ後)。
+
+---
+
+## [2026-06-06] Day Rehearsal WPM-1 — 詰まり(convergence) timeline marker（main 着地 live・smoke PASS）
+
+- 決定: banner(今日全体の見通し)の次に、時間軸で「どこが詰まるか」を選択日 timeline に read-only marker で。W-Point-1 audit=安全 → 詰まり marker のみ（回復は Option D で根拠弱く別 slice・GPT/CEO 判断）。
+- 実装(3 ファイル additive): DayGraphTimeline に `convergenceSteps` prop + `ConvergenceMarkerLine`（transition 直後・FeasibilityDisclosureLine pattern・slate・仮説トーン「この前後は予定が重なりやすいかもしれません」・sensitiveProximity redaction・amber/orange/icon/生スコアなし）+ CalendarTab が dayRehearsal.convergencePoints を渡す。
+- 対応: convergencePoints(stepIndex)=event 出現順=transitionIndexByFromNodeId（W-Point-1 検証）。convergence high=buffer 不足∧strain 高（詰まった日のみ・軽い日は出ない）。
+- 検証: 実機 smoke PASS(CEO)・marker render contract 8 + DayGraphTimeline 32 + plan suite 4926 PASS・tsc footprint 0・zero-loss・banner/MapTab/DB/engine 非破壊・temp 0・push なし。
+- 状態: **main `1414bf38` 着地 live**。closeout: `docs/second-self-map-day-rehearsal-wpm1-closeout.md`。
+
+関連 commit(branch dr-timeline-marker): 4add454e。main: 1414bf38(squash)。
+承認: CEO(WPM-1=詰まり marker のみ GO + Option A smoke 前検証 + smoke PASS + 着地)×GPT。ステータス: 詰まり marker live。次=WPM-2 recovery marker(audit+mini design 先行・gapMin/gap/raw feasibility の根拠検証・弱いなら停止)。
+
+---
+
+## [2026-06-06] Day Rehearsal WPM-2 audit — recovery marker 根拠検証 → 実装せず停止（gapMin 弱い）
+
+- 結論: **recovery marker は実装せず停止**（CEO「根拠が弱いなら停止して報告」に該当）。doc: `docs/second-self-map-day-rehearsal-wpm2-audit.md`。
+- 実コード検証: gapMin=`max(0, next.start − prev.end)`=event 間隔（**移動時間を含む**＝free time の上界・過大評価）。GapNode も同じ。真の余白 slack=gap−travel は `transitionRecovery` が依存するが Option D で **slackMin=null**（display 層が raw を破棄）。bufferStatus "sufficient" は余白の量を言わず過大評価を解消できない。
+- なぜ詰まりは OK で回復は NG: convergence は「buffer 不足」という観測を根拠にできた（sound）。recovery は「余白が十分」という量の主張が必要で、量が無い Option D では sound にならない。gapMin で出すと移動が大半の gap を誤って「一息つけそう」表示＝misleading。
+- 道筋: **Option A（raw feasibility を pipeline/hook の戻りに additive 公開・既存 display 不変）**が前提。raw slack は `runFeasibilityDisplayPipeline:143` で計算済だが破棄。公開すれば既存 transitionRecovery がそのまま動き recovery を sound に出せる（convergence も magnitude を持て精度↑）。Option A は banner 段で defer 済。
+- CEO 判断点: (1) recovery のため Option A を解禁するか（解禁→WPM-2a Option A→WPM-2b recovery / 非解禁→recovery 保留・詰まり marker で時間軸価値は既出）。(2) transport 統合でも slack 算出可だが provider 依存で重い→Option A が最短最 sound。
+
+承認: CEO(WPM-2 audit GO)×GPT。ステータス: WPM-2 audit done・recovery 実装は停止（根拠不足）。次=CEO 判断（Option A 解禁 or recovery 保留）。push/Vercel 未実施。
+
+---
+
+## [2026-06-06] Day Rehearsal WPM-2 — Option A 解禁: raw feasibility 公開 + recovery marker（main 着地 live・smoke PASS）
+
+- 決定: CEO が Option A 解禁。raw feasibility(真の slack) を additive 公開し recovery marker を sound に出す。2 段階ゲート（WPM-2a 公開→WPM-2b recovery）。
+- WPM-2a: `feasibilityDisplayPipeline` 戻りに `feasibilityRaw`(DayFeasibilityResult) を additive 追加（内部計算済の raw を返すだけ・display byte 不変）+ `_useCalendarTabFeasibilityDisplay` 戻りを {display, raw} に（overlay 再利用・新 async なし）+ CalendarTab destructure。
+- WPM-2b: `recoveryStepsFromFeasibilityRaw`(sufficient ∧ **真の slack=gap−travel ≥ 60min**・gapMin でない=honest) + `RecoveryMarkerLine`「ここは一息つけそうです」(slate・仮説トーン・convergence と排他=詰まり優先・sensitiveProximity redaction・成功色/生スコアなし)。
+- ★設計核: recovery は strain forward 積分と **decouple**（直接 slack 判定）→ WPM-1 convergence/banner/strain 不変。display byte 不変。
+- 検証: 実機 smoke PASS(CEO・余白165分=180−移動15 で一息 / 間隔14分<移動15 で詰まり)・71 + plan suite 4939 PASS・tsc footprint 0・zero-loss(WPM-2 7 ファイル)・banner/MapTab/DB 非改変・temp 0・push なし。
+- 状態: **main `59e97dc4` 着地 live**。closeout: `docs/second-self-map-day-rehearsal-wpm2-closeout.md`。
+
+関連 commit(branch dr-recovery-marker): 45a661fb。main: 59e97dc4(squash)。
+承認: CEO(Option A 解禁 GO + WPM-2a/b 実装 + smoke PASS + 着地)×GPT。ステータス: 詰まり+一息 marker live。次=Evidence「なぜ?」UI(mini design 先行・placement 監査)。
+
+---
+
+## [2026-06-07] Day Rehearsal Evidence「なぜ?」UI — day-level banner disclosure（main 着地 live・smoke PASS）
+
+- 決定: day-level banner（DayOutlookBanner）に **native `<details>`「なぜ?」toggle**（default 閉・read-only）を追加。outlook 1 行の根拠を **観測 / 推定 / 未確定** の 3 カテゴリ・最大 3 行で開示。placement は banner 内（per-marker は次フェーズ）。
+- pure `explainDayOutlook(rehearsal, recoveryStepCount)`: 観測=この予定の並び/移動の余白(feasibility)/予定の密度(packed)・推定=重なりやすさ(convergence)|詰まりやすさ(tight/breaks)/一息つけそうな区間(recovery)・未確定=移動の余白を確認できない区間。`DayRehearsal.density`(passthrough) + `DayOutlookExplanation` 型を additive 追加。
+- ★「未確定」設計判断: **travelUnknown を常時表示にしなかった**。banner の display path（`buildRehearsalInputFromDisplay`・Option D）は travelMin/travelKnown を常に null/false で返す→`coverage.travelUnknown` は移動がある日は毎日オン＝ノイズ + 「outlook が移動を無視した」と誤解（実際は feasibility status が overlay で移動を織り込み済）。代わりに feasibility が個別 gap を評価できない `not_applicable` のみを honest uncertainty として「移動の余白を確認できない区間」と開示（CEO menu「不明な余白」側）。
+- 検証: 実機 smoke PASS(CEO 2026-06-07・閉/展開両状態 + 文面「この見通しは、この予定の並び・移動の余白から見ています。詰まりやすさ・一息つけそうな区間を加味しています（推定）。」確認)・explainDayOutlook 10 + banner render contract 7 + DayGraphTimeline 24 + CalendarTab wiring 110 + **plan suite 4956 PASS**・**tsc footprint 0**(新 export の consumer は私の 6 ファイルのみ)・zero-loss(6 ファイル branch 一致)・temp 0・push なし。
+- ⚠ **main pre-existing tsc errors 1114**（ceo/origin/baseline/stargazer alter/perspectiveEngine 等・**他セッション着地由来**・私の変更と無関係）。`npx tsc` は default ~2GB で OOM（exit 134）→`--max-old-space-size=8192` 必須。CEO に別途報告。
+- 不変: read-only / 生スコア・数値・level 名なし / 断定・警告・診断なし / 仮説トーン / banner outlook 行・詰まり/一息 marker・timeline・feasibility disclosure 非破壊。MapTab/DB/Google/push 不接触。
+- 状態: **main `c221ac2d` 着地 live**（親 `2e56832d`）。closeout: `docs/second-self-map-day-rehearsal-evidence-ui-closeout.md`。
+
+関連 commit(branch dr-evidence-ui): cb139d56。main: c221ac2d(squash)。
+承認: CEO(Evidence UI GO + smoke PASS + 着地)×GPT。ステータス: day-level「なぜ?」live。次=per-marker「なぜ?」/ detail disclosure（audit + mini design 先行・いきなり実装しない）。
+
+---
+
+## [2026-06-07] Day Rehearsal per-marker「なぜ?」— convergence 詰まり marker（main 着地 live・smoke PASS）
+
+- audit 結論（read-only）: convergence evidence は `rehearsal.steps[i].convergence.factors`（marker=level high=≥2 factors）で **per-marker varied**。recovery は `recoveryStepsFromFeasibilityRaw` 由来で全 marker **uniform**（slack≥閾値のみ）→ per-marker の価値低。安全な表示位置=既存 transition tap→expand disclosure（default closed・smoke 済 live）→ piggyback 可能。停止せず実装 GO。
+- 決定: **案A piggyback** で実装。**convergence/詰まり marker のみ**（recovery は uniform で defer）。pure `explainConvergenceMarker(factors)` が buffer_short/strain_high/friction_high を observed>inferred 順で1文合成（「ここは移動の余白が少なめで、予定が立て込んでいそうです。」）。CalendarTab が `convergenceFactorsByTransitionIndex` を additive 構築 → DayGraphTimeline の expanded 域に `ConvergenceWhyLine`（新 tap target/新 state なし・sensitiveProximity redaction）。
+- dedup: feasibility 行（量的「不足 N 分」）と register 分離（質的 synthesis + strain/friction）。day-level「なぜ?」（集約）とも粒度差。
+- 検証: 実機 smoke PASS(CEO 2026-06-07)・explainConvergenceMarker 8 + convergence-why render 6 + 構造 3 + **plan suite 4973 PASS**・**tsc footprint 0**(per-marker 5 ファイル起因 0)・zero-loss(5 ファイル branch 0bfa845b 一致)・forbidden copy なし・marker/banner/timeline/feasibility 非破壊・temp 0・push なし。
+- ⚠ main pre-existing tsc errors 1114（他セッション由来・per-marker 無関係・blocker にしない）。次工程で `tsc-baseline-cleanup` 監査。
+- 不変: read-only / 生スコア・数値・level 名なし / 断定・警告・診断なし / 仮説トーン / slate / 予定変更・repair・optimize・auto-reschedule なし。MapTab/DB/Google/push 不接触。
+- 状態: **main `ea3556c2` 着地 live**（親 `b609ff8b`）。closeout: `docs/second-self-map-day-rehearsal-per-marker-why-closeout.md`。
+
+関連 commit(branch dr-per-marker-why): 0bfa845b。main: ea3556c2(squash)。
+承認: CEO(per-marker GO + smoke PASS + 着地)×GPT。ステータス: convergence per-marker「なぜ?」live。次=tsc baseline cleanup 監査・mini plan（実装は CEO GO 待ち）。
+
+---
+
+## [2026-06-07] tsc baseline cleanup — read-only 監査 + mini plan（実装は CEO GO 待ち）
+
+- main `ea3556c2` で `--max-old-space-size=8192 npx tsc` = **1114 errors** を read-only 監査。doc: `docs/tsc-baseline-cleanup-audit.md`。
+- ★**核心発見**: 1114 のうち **971 件（87%）= vitest globals（describe/it/expect/beforeAll/test）未認識**（TS2304/TS2582）。`vitest.config` は globals:true だが **tsconfig に `types` フィールドが無く vitest/globals が tsc scope 外**。tsconfig 履歴は init + Pre-production の 2 commit のみ＝構造的ギャップ（globals-style テスト増加で累積・単一 commit 由来でない）。私の plan テストは明示 import でクリーン（記法 2 種混在）。
+- 残り **143 件（13%）= 実型不一致**: stargazer/alter/route ↔ perspectiveEngine 乖離(~15・A1-5-8/9 由来・存在しない searchTaskClassification 等参照)・ceo autoCloseCount(~6)・origin/baseline(~4)・lib misc tourState/coreValues 等(~13)・test fixture 陳腐化(~106)。
+- **per-marker / Day Rehearsal 由来 0 件 再確認**（私の着地ファイルにエラーなし・plan の anchor 系 TS2352 は pre-existing 別件）。
+- ⚠ 型エラーのみ＝vitest は SWC で型剥がし実行のため多くは runtime PASS（plan suite 4973 PASS）。型安全(CI/IDE)の問題。
+- **mini plan（6 slice・各 read-only 診断→最小修正→footprint 検証→着地・1 回で全部直さない）**: S1=vitest globals 認識(~971・案B `vitest-globals.d.ts` に `/// <reference types="vitest/globals" />`・additive・runtime 不変・最優先) → S2 ceo → S3 origin/baseline → S4 lib misc → S5 stargazer/alter(core path・owning session 文脈要・中リスク・単独) → S6 test 型エラー(runtime 影響なし・最後)。
+- 実装は **slice ごとに CEO GO 待ち**。推奨: S1（1 ファイル additive で 87%解消）を最初の GO 候補に。
+- 承認: CEO(監査指示)。ステータス: 監査完了・方針提出。chip task_d50a2f2c は本 inline 監査で達成のため dismiss。次=CEO の slice GO 判断。push/Vercel 不接触。
+
+---
+
+## [2026-06-07] tsc baseline cleanup S1 — vitest globals 認識（main 着地 live）
+
+- 決定: CEO GO で S1 のみ実施。`types/vitest-globals.d.ts`（**13 行 additive**・`/// <reference types="vitest/globals" />`）を追加。tsconfig は無変更（types フィールド restrict の副作用回避・案B）。`include: **/*.ts` で tsc に取り込まれ vitest globals(describe/it/expect/test/...) を global scope に。
+- before/after（main 計測・8GB）: 総 **1114→144（−970）** / TS2304 622→1 / TS2582 349→0 / OOM なし / d.ts 自体エラー 0。残 TS2304 1=`travelTimeEngine.test.ts: 'fail'`（vitest に無い jest global＝S6）。
+- production 挙動変更**なし**（型のみ・runtime emit なし・SWC bundle は d.ts 非含・vitest globals:true は元々 runtime 提供）。
+- 検証: runtime 非影響= alter-morning + calendar + plan **479 files / 9796 tests PASS**(exit 0)・zero-loss(branch f88b4848 一致)・scope外/temp/node_modules 混入 0・変更は d.ts 1 ファイルのみ。
+- 残 144（実型不一致・source 37 + test 107）= S2 ceo / S3 origin・baseline / S4 lib misc / S5 stargazer・alter(core path) / S6 test fixture。**S2 以降は CEO GO 待ち・未着手**（S1 完了で停止）。
+- 状態: **main `a8eb7a04` 着地 live**（親 `a13448bb`）。closeout: `docs/tsc-baseline-cleanup-s1-closeout.md`。
+- 承認: CEO(S1 GO)。ステータス: S1 完了。次=CEO 判断（S2 以降の GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline cleanup S2-S4 — source 低リスク型ズレ 6件（main 着地 live）
+
+- 決定: CEO GO で S2-S4 の source cleanup。read-only 監査で「明確に型のみ・production 挙動不変」のものだけ外科的修正、危険/仕様判断要は HARD GATE で残置。
+- **修正（6 errors・型のみ）**: ① autoCloseCount を CeoDashboardClient.SkillSummary interface + route emptySkill literal に補完（missing field・API/集計既出）② notifications setType を NOTIFICATION_TYPES value union に（literal narrowing）③ useMemoryItems subscribe param に string 注釈（implicit any・非 any）④ EndpointAnchor に fixedStart?:string additive（intentParser が既に代入済の runtime 形）。
+- **残置（HARD GATE: 仕様/logic/挙動変更/ripple）**: skillTelemetry isAutoClose（query が summary 未 select=real bug・修正は挙動変更）・generatePairInsight coreValues（AlterGrowthSummary に field なし=feature 半完成）・llmPlanExtractor "work" 比較・morningPipeline SynthesisSource・journeyOrigin StargazerEvent・MorningMapView google 重複宣言・baseline OCCUPATION 型推論・tourState null・origin onStartExploration。S5 stargazer/alter(15) は明示対象外・S6 test(107) 後回し。
+- before/after（main 計測）: 144→**138**（−6）/ 累計 1114→138（−976）/ 新規エラー 0 / OOM なし / source 37→31。
+- production 挙動変更**なし**（全て型注釈/missing field/param 注釈・runtime 不変）。
+- 検証: alter-morning + plan **463 files / 9474 PASS** + useMemoryItems **47 PASS**・zero-loss（branch c47b12fd 一致）・scope外/temp/node_modules 混入 0・変更は 5 ファイル型のみ（+7 −3）。
+- 状態: **main `be6f12f6` 着地 live**（親 `19e64b34`）。closeout: `docs/tsc-baseline-cleanup-s2s4-closeout.md`。
+- 承認: CEO(S2-S4 GO)。ステータス: S2-S4 完了（低リスク分のみ）。次=CEO 判断（S6 test / S5 / 残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline cleanup S6 batch1 — test fixture 型ズレ 37件（main 着地 live）
+
+- 決定: CEO GO で S6 test fixture cleanup。read-only 監査で「明確に安全・同一原因・cast 不使用・期待値不変・production source 不接触」の 3 cluster のみ修正。
+- **修正（37・test-only）**: ① extractExplicitPlace.test.ts(17): mock 3rd arg の余剰 `entry: {...} as any` 除去（ActivitySpanLike={span,index}・関数は entry 不参照=dead field）② originAnchorExtractor.test.ts(19): JourneyAnchorState union の label/source を type-guard helper `labelOf()`（`"label" in r` 判定・cast 不使用・assertion 不変）で narrow ③ travelTimeEngine.test.ts(1): jest `fail()`（vitest に無し）→ `throw new Error()`。
+- **残置（HARD GATE/別原因）**: anchor `as Record`→`as unknown as Record`(10・cast 多数で「大量キャスト停止」回避)・postSelectionFlow null(13・prod 型 string vs test null=型変更/意味リスク)・urgentLayerDismiss(12・mock+Mock→fn cast 混在)・stargazer 7(S5 隣接 core path)・misc 長尾(~22)。
+- before/after（main 計測）: 138→**101**（−37）/ test 107→70 / source 31 不変 / **累計 1114→101（−1013・91%）**。
+- production 挙動変更**なし**（test ファイルのみ・assertion 不変）。
+- 検証: alter-morning **199 files / 4501 PASS**・zero-loss（branch 3c7ac215 一致）・scope外/temp/node_modules 混入 0・変更は test 3 ファイルのみ。
+- 状態: **main `6138d99a` 着地 live**（親 `9f70563e`）。closeout: `docs/tsc-baseline-cleanup-s6-closeout.md`。
+- 承認: CEO(S6 GO)。ステータス: S6 batch1 完了。次=CEO 判断（S6 batch2 / anchor cast / S5 / 残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline cleanup S6 batch2 — test fixture 型ズレ 14件（main 着地 live）
+
+- 決定: CEO GO で S6 batch2。明確安全な同一原因のみ修正（production source 不接触・期待値不変・cast は意図的 inspection の 10 件限定）。
+- **修正（14・test-only）**: ① anchor cast(10): `(X as Record).field).toBeUndefined()`→`as unknown as Record`（**削除/非存在 field の不在確認＝意図的 inspection**・CEO 限定許可）。anchorUpdateValidation 6/anchorInputForm 2/anchorPrefillIntegration 1（全 as Record が対象=file replace_all）+ externalAnchorSupabaseRepository 1（3 中 line126 のみ per-line・他 2 不変）② @ts-expect-error 除去(2): declinedRecovery/locationOptInState の TS2578（unused=stale）③ planHistory(1): mode "walking"→"walk"（alter-morning TransportMode 値）④ previousDayInheritance(1): result?.source を type-guard helper labelOf()（cast でなく `"label" in r`）で narrow。
+- **HARD GATE 遵守**: blanket sed なし・cast 計 10 ちょうど（型黙らせでなく inspection）・prod source 不変・意味不変・S5 不関与。
+- before/after（main 計測）: 101→**87**（−14）/ source 31 不変 / **累計 1114→87（−1027・92%）**。
+- production 挙動変更**なし**。検証: plan+alter-morning **463 files / 9474 PASS**・zero-loss（branch 0f375134 一致）・対象解消（planHistory 101 は別原因で意図的残置）・scope外/temp/node_modules 混入 0。
+- **残置（CEO GO/仕様/S5）**: postSelectionFlow null(13)・urgentLayerDismiss(12)・stargazer 7(S5)・phaseC isWeekday(5・複数 stale field)・misc 個別。これ以上の test-only 安全 batch は限定的（残りは prod 型/仕様/Mock/S5 判断要）。
+- 状態: **main `08ff945d` 着地 live**（親 `888b1c5a`）。closeout: `docs/tsc-baseline-cleanup-s6b2-closeout.md`。
+- 承認: CEO(S6 batch2 GO)。ステータス: S6 batch2 完了。次=CEO 判断（postSelectionFlow/urgentLayerDismiss/S5/残置 source の個別 GO or 別タスク）。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline cleanup S6 batch3 — test fixture 型ズレ 13件（厳格 audit・main 着地 live）
+
+- 決定: CEO「より厳格な audit」指示で S6 batch3。各 cluster を「test fixture が古いだけ」か「prod 型/仕様判断要」かを切り分け、無判断で安全なものだけ修正。
+- **厳格 audit 結論（CEO 5 観点）**: ①postSelectionFlow null→string=**STOP**（JSON schema は null 許容だが TS 型 string＝prod 型不整合）②urgentLayerDismiss reason=**SAFE**（型のみ required・未 assert）③Mock→fn=**SAFE**（cast でなく `Mock<()=>void>`+`vi.fn<()=>void>()` の typed generic で clean 化）④phaseC isWeekday/timeOfDay=**STOP 保守**（removed-old-spec dead field だが weekday 意図が元々未配線＝spec review 要）⑤misc=一部 SAFE。
+- **修正（13・test-only・cast 不使用）**: urgentLayerDismiss(12: makeDecision に reason placeholder + dismissMock を typed Mock<()=>void>/vi.fn<()=>void>())・journeyOriginDebugLog(1: c に unknown[] 注釈)。
+- before/after（main 計測）: 87→**74**（−13）/ source 31 不変 / **累計 1114→74（−1040・93%）**。
+- production 挙動変更**なし**。検証: coalter+alter-morning **432 files / 9171 PASS**・zero-loss（branch 396d8012 一致）・対象解消・scope外/temp/node_modules 混入 0。
+- ★ディスク 100% に遭遇→着地済 worktree 6 本削除（branch 全保持）+ Culcept/.next 削除で 15Gi 解放後に実施。
+- **残置（厳格 audit で judgment 要・無判断 safe ほぼ尽きた）**: postSelectionFlow(13・prod 型)・phaseC(5・spec)・mock multi-field stale(b3b/placeResolver/planHistory)・ceoScenario/planIntakeGate/presenceTelemetry/realityCandidate/domainRouter/sceneWeighting/planner(個別)・stargazer 7(S5)。
+- 状態: **main `8eeec516` 着地 live**（親 `08ff945d`）。closeout: `docs/tsc-baseline-cleanup-s6b3-closeout.md`。
+- 承認: CEO(S6 batch3 GO・厳格 audit)。ステータス: S6 batch3 完了。次=CEO 判断（mock multi-field 補正 / postSelectionFlow prod 型 / S5 / 据え置き別作業 のいずれか）。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline — postSelectionFlow activity null→"" 監査 GO + 実装（main 着地 live）
+
+- 監査結論（mini design `…-postselectionflow-mini-design.md`）: 前回 batch3 の「prod 型不整合」評価を**訂正**。誤って patch 専用 WHAT_PATCH_SCHEMA(null 許容) を参照していた。test の文脈は WHAT_SLOT で schema/型とも `activity: string` 必須。**production は「what 未指定」を `""`(空文字) で表す**（null 生成箇所ゼロ・全 consumer が `!activity`/`?? ""` で null/"" 同一扱い）。＝test fixture の null が production 実態(="")と乖離した stale 値。型バグでない。
+- 候補: A(test null→"")推奨 / B(型 string|null=仕様変更 NO-GO・production は null 不生成) / C(omit 不可)。HARD GATE 全通過（consumer string 前提でない・仕様変更でない・test 意味不変・S5 不波及・tsc-only でない）。
+- 決定: CEO GO で**案A 実装**。`postSelectionFlow.test.ts` の `what.{activity,activityCanonical}: null→""`（6 ペア=12 箇所・test-only）。型/schema/production source 不変。
+- before/after（main 計測）: 74→**62**（−12）/ source 31 不変 / **累計 1114→62（−1052・94%）**。
+- production 挙動変更**なし**（consumer が null/"" 同一扱い）。検証: postSelectionFlow 7 + alter-morning 199 files/4501 PASS・zero-loss（branch 1b6bfe94 一致）。
+- 残: postSelectionFlow line154 `rawRef`(mock-shape) は別案件で残存。
+- 状態: **main `d2f3b64d` 着地 live**（親 `8eeec516`）。closeout: `docs/tsc-baseline-cleanup-postselectionflow-closeout.md`。
+- 承認: CEO(監査 GO→実装 GO)。ステータス: postSelectionFlow 完了。残 62（source 31[S5 15含]+test 31）。次=CEO 判断。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline cleanup S6 batch4 — test fixture 型ズレ 7件（厳格 audit・main 着地 live）
+
+- 決定: CEO GO で S6 batch4。残 test 24（S5 7 除外）を厳格 audit し「断定 safe・test-only」のみ修正。
+- **修正（7・test-only・cast 不使用・挙動不変）**: ① phaseC-integration(5): DayConditions の isWeekday/timeOfDay 除去（production 参照ゼロ・現行 field 置換なし=removed-old-spec dead field・assertion 不参照・残 mainTransport 有効）② realityCandidate Generator/Evaluator(2): `const anchors: RealityInput["anchors"](Readonly)={}` を mutable `Record<string, RealityInput["anchors"][string]>` に（書き込み解消・同値型・cast/import なし）。
+- **STOP（HARD GATE）**: rawRef 系(b3bFoundation 多 field overhaul+rawRef 複合型構築・postSelectionFlow rawRef)・placeResolver/planHistory(HardAnchor order/anchorScore・PlanItem fixedStart の semantic 値)・ceoScenario(MorningSession spec)・planIntakeGate(assertion 編集)・domainRouter("schedule" 意図)・presenceTelemetry(prod export 要)・sceneWeighting/planner/morningPipeline/b3c2(個別)・stargazer 7(S5)。
+- before/after（main 計測）: 62→**55**（−7）/ source 31 不変 / **累計 1114→55（−1059・95%）**。
+- production 挙動変更**なし**（phaseC は buildDayPlan が isWeekday/timeOfDay を元々読まない・realityCandidate は同一 record）。検証: phaseC+reality 82 + alter-morning 199 files/4501 PASS・zero-loss（branch a9b5c9ef 一致）。
+- 状態: **main `60ee0a9e` 着地 live**（親 `d2f3b64d`）。closeout: `docs/tsc-baseline-cleanup-s6b4-closeout.md`。
+- 承認: CEO(S6 batch4 GO)。ステータス: S6 batch4 完了。**無判断 test-only safe は尽きた**（5 batch+psf で 1114→55=95%減）。残 55 は prod export/型整合・mock semantic 値/複合型・spec・S5 のいずれか要。次=CEO 判断（据え置き別作業 / 残置個別 GO / S5）。push/Vercel/DB/Google 不接触。
+
+---
+
+## [2026-06-07] tsc baseline — 広範囲 auto cleanup 停止 + 残 55 blocker ledger 作成（read-only）
+
+- 決定: CEO 指示で広範囲の自動 tsc cleanup を一旦停止。**1114→55（−1059・95%減）達成後、以後は blocker-ledger 段階**へ。残 55 は仕様判断が混ざるため自動修正しない。
+- read-only ledger 作成（実装なし）: `docs/tsc-baseline-blocker-ledger.md`。残 55 を A-F 分類:
+  - **A test-only・小判断で直せる可能性(8)**: morningPipelineJourneyAnchors(2)・placeResolver HardAnchor(2)・planHistory*(2)・rawRef(b3b/postSelectionFlow 2)。mock missing field の値/構築を 1 件ずつ確認 GO 要。
+  - **B production source 変更要(16)**: tourState null(4)・baseline OCCUPATION(3)・skillTelemetry isAutoClose(2・real bug 挙動変更)・generatePairInsight coreValues(2・feature 半完成)・llmPlanExtractor/morningPipeline/journeyOrigin/MorningMapView/origin(各 1)。
+  - **C production export 要(1)**: presenceTelemetry TelemetryEvent。
+  - **D spec/test expectation 判断(8)**: ceoScenario(3)・domainRouter/planIntakeGate/sceneWeighting/planner/b3c2(各 1)。
+  - **E S5/perspectiveEngine/core path(22・NO-GO)**: stargazer/alter route(15)+stargazer test(7)。route 15 は perspectiveEngine API 乖離で**機能バグの可能性**→ A1-5-x owning session に別途エスカレーション推奨。
+- 最安全 top3: ①morningPipelineJourneyAnchors priorPersistedEvents(extraneous なら除去) ②placeResolver/planHistory mock 補完(値の assertion 非依存を確認) ③planIntakeGate stale assertion(runtime 不変)。いずれも 1 件ずつ確認 GO。
+- **baseline 固定の是非**: 妥当（推奨度高）。残 55 は型エラーのみで runtime は健全（route 15 除く）・owning 機能が触る時に spec 込みで直すのが自然・CI footprint 0 ルールで自然減衰。route 15 のみ機能確認を別投げ。
+- ステータス: blocker-ledger 段階。実装修正なし。次に何を倒すかは CEO 判断に戻す。push/Vercel/DB/Google/source/test/S5 不接触。
+
+---
+
+## [2026-06-07] tsc cleanup 完全停止・baseline 55 固定 + 本流復帰（Day Rehearsal Repair Candidate v0）
+
+- 決定: CEO 判断で **tsc cleanup を完全停止・残 55 を baseline として固定**（route 15 audit も不要）。理由: 1114→55 で低リスク cleanup 完了・残りは仕様判断/core path/未完配線/prod export/mock 複合型中心・これ以上は型のために仕様を壊すリスク。本流（プロダクト）へ復帰。着地済 worktree 11 本を整理（branch 全保持・ディスク 29Gi 解放）。
+- 本流復帰タスク（GPT 提案・CEO 確認）= **Day Rehearsal Repair Candidate v0**: Day Rehearsal 出力から read-only な対処候補を生成する pure layer。予定変更でなく「壊れにくくする候補」（Aneurasync 哲学=最適化でなく示唆）。
+- W-Repair-1 audit: rehearsal 出力（viability/convergencePoints/bufferStatus/recoveryWindows/density/evidence）に必要シグナル全存在・pure 導出可・suggestion 形に閉じ可 → 安全と判断し pure 実装。
+- 実装（branch `claude/dr-repair-v0` HEAD `eeca4fcc`・未配線）: `lib/plan/dayRehearsal/dayRepairCandidates.ts` の `generateDayRepairCandidates(rehearsal, context?)`。5 kind(protect_buffer/leave_earlier/confirm_uncertain/use_recovery_window/reduce_density)・leave_earlier↔protect_buffer 排他・viability unknown/シグナルなし→候補 0・各候補 evidence trace・suggestion トーン・禁止語/生スコアなし。★GPT 例文「壊れにくそう」は禁止語「壊れる」抵触で不採用→「重なりにくそう」。
+- 検証: unit 13 + dayRehearsal dir 63 + plan suite 4986 PASS・tsc footprint 0（baseline 55 不変）・additive（既存不接触）・UI 未配線。
+- ステータス: **pure layer 完成・branch commit 済。main 着地・UI 配線は CEO 判断待ち**（原典 step4 同様 branch→CEO GO 段階）。closeout: `docs/second-self-map-day-rehearsal-repair-v0-closeout.md`。push/Vercel/DB/Google/予定変更/UI 不接触。
+
+---
+
+## [2026-06-07] Day Rehearsal Repair Candidate v0 — pure layer main 着地 + UI placement mini design（実装は次 GO）
+
+- 決定: CEO GO で Repair v0 pure layer を main 固定（UI 未配線）。squash 着地。
+- 着地: main `9c220da2`（親 `8564f4de`=A1-5-11-4・別セッション）。changed = `lib/plan/dayRehearsal/dayRepairCandidates.ts` + test の 2 ファイルのみ。
+- 検証: zero-loss（branch eeca4fcc 一致）・**tsc footprint 0（dayRepairCandidates 起因 0）**・dayRehearsal dir 63 + plan suite 4986 PASS・additive・production 挙動不変（consumer=test のみ・UI 未配線）。
+  - ⚠ main full tsc = 56（前回 55 から +1）。+1 は**他セッション A1-5-11-4 の drift**（realityStructuredCaptureOrchestrator narrowing・該当 session が cleanup 予定）で**私の変更と無関係**。私の footprint は 0。
+- **UI placement mini design 作成**（実装なし）: `docs/second-self-map-day-rehearsal-repair-v0-ui-mini-design.md`。CEO 質問への回答=**案A（day-level「どうする?」native `<details>` disclosure・default 閉・最大 3 件・read-only suggestion 行のみ・実行 UI 一切なし・evidence raw 非表示）を推奨**。B(per-marker 展開内)は後回し（「なぜ?」の day→per-marker 進化と同順）。既存 banner/なぜ?/marker と非重複（why/what-is でなく「what could help」別レイヤー）。CEO 判断点 5 件。
+- 状態: pure layer main live。UI 実装は mini design GO 後。push/PR/Vercel/DB/Google/予定変更/UI 配線 不接触。次フェーズ未着手。
+
+---
+
+## [2026-06-07] Day Rehearsal Repair Candidate v0 UI 配線 main 着地 + What-if Preview mini design（実装は次 GO）
+
+- 決定: CEO GO（判断点6点）で Repair v0 UI を配線・実機 smoke PASS（CEO + 自己監査）後 main 着地。
+- 実装（main `98332f09`・親 `ed9aed7e`・5 ファイル）: day-level banner 下に native `<details>`「**どうするとよさそう？**」（default 閉）。`prioritizeRepairCandidates`(優先度 stable+cap3) + CalendarTab で `repairCandidates`(generateDayRepairCandidates(dayRehearsal,{recoverySteps})→prioritize) を banner に。**read-only・suggestion テキスト行のみ・実行 UI（button/適用/保存/チェック）一切なし・0 件非表示・copy は pure layer 由来**。
+- production 挙動: 候補ありの選択日で banner 下に read-only「どうするとよさそう？」。予定変更/保存なし。banner/なぜ?/marker/timeline 非破壊。
+- smoke: 6/6 tight 日で use_recovery_window 表示（convergencePoints 空+余白不足なし→1 件のみが正・他 kind は render test 7 本で保証）。
+- 検証: prioritize 5 + banner repair render 7 + dayRepairCandidates 18 + wiring/banner/DayGraphTimeline 101 + plan suite 4998 PASS・tsc footprint 0（baseline 55 不変）・zero-loss（branch 1be59ce4）。
+- **What-if Preview mini design 作成**（実装なし）: `…-repair-v0-whatif-mini-design.md`。結論=**定性 what-if は feasible/pure/safe・定量は NO-GO**（banner は Option D で slackMin/shortfallMin null=raw 数値なし・定量には raw feasibility 露出 + re-simulation 要で予定変更モデリングに接近）。category 3 分(effect/clarity/utilization)で confirm_uncertain=不確定解消・use_recovery_window=既存余裕活用 を改善と別扱い。reduce_density は予定変更に見えやすく v0 弱める。「改善します」断定禁止。pure `previewRepairEffect` 案。CEO 判断点 5 件。
+- 状態: Repair v0 UI main live。What-if 実装は CEO GO 後（定性 v0 or raw feasibility slice 先行）。push/PR/Vercel/DB/Google/予定変更/実行/保存 不接触。
+- closeout: `…-repair-v0-ui-closeout.md`。
+
+---
+
+## [2026-06-07] Day Rehearsal What-if Preview v0 — pure layer 実装・branch commit（UI 配線前で停止）
+
+- 決定: CEO/GPT GO で What-if Preview v0 を **定性 pure layer** として実装。判断点回答: 定性のみ（定量は別 slice）/ category 3 系統 / reduce_density 弱 / UI 未実装 / pure 関数新設可。
+- 実装（branch `claude/dr-repair-preview` HEAD `2122b486`・未配線）: `lib/plan/dayRehearsal/dayRepairPreview.ts` の `previewRepairEffect(candidate)` / `previewRepairEffects(candidates)`。`RepairEffectPreview = {kind, category, headline, body, confidence, uncertainty, evidence, appliesTo}`。category=effect(leave_earlier/protect_buffer/reduce_density)/clarity(confirm_uncertain)/utilization(use_recovery_window)。confidence=level のみ（effect=medium・reduce_density=low・clarity/utilization=high）。**「改善します/解決します」断定なし・禁止語/生数値なし・reduce_density は具体的予定変更を促さない**。evidence は candidate 保持・appliesTo=targetStepIndex(UI 未出力)。★rehearsal param は v0 定性では不要で candidate-only（CEO「同等の関数」許容・定量 re-simulation 時に追加）。
+- 検証: unit 11 + dayRehearsal dir 79 + plan suite 5009 PASS・tsc footprint 0（baseline 55 不変・起因 0）・additive・production 挙動不変（consumer=test のみ）。
+- HARD GATE 照合: 予定変更指示でない / 定量出さない / raw feasibility・re-simulation 不使用 / shape 想定どおり / confidence 数値化なしで成立 / UI 配線なし。
+- 状態: pure layer 完成・branch commit 済。**main 着地・UI 配線は次の判断**（CEO「UI 配線前で停止・main 着地は次に回す」）。closeout: `docs/second-self-map-day-rehearsal-whatif-v0-closeout.md`。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---
+
+## [2026-06-07] Day Rehearsal What-if Preview v0 — pure layer main 着地 + UI placement mini design（実装は次 GO）
+
+- 決定: CEO GO で What-if Preview v0 pure layer を main 固定（UI 未配線）。squash 着地。
+- 着地: main `a39ba2d4`（親 `98332f09`）。changed = `dayRepairPreview.ts` + test の 2 ファイルのみ。
+- ★着地時、main worktree に**別セッションの未コミット reality WIP**（reality integration 5 + stargazer/alter-morning route 2 + 新 test 1）が存在。私の commit は明示パス（私の 2 ファイル）のみで**別セッション WIP は不接触**（未コミットのまま保全）。私の branch diff も reality/route を含まない（完全非衝突）。
+- 検証: zero-loss（branch 2122b486 一致）・**tsc footprint 0（dayRepairPreview 起因 0）**・私の test 29 PASS・additive・production 挙動不変（consumer=test のみ・UI 未配線）。
+- closeout 補足（CEO 指示）: **将来の定量 preview では rehearsal/raw feasibility を入力に追加し re-simulation する可能性あり**（v0 candidate-only からの拡張）と明記。
+- **UI placement mini design 作成**（実装なし）: `docs/second-self-map-day-rehearsal-whatif-ui-mini-design.md`。★核心 finding=**candidate.suggestion と preview.body は重複大**（特に clarity/utilization はほぼ同義）→ 常時全 preview は overload。**推奨=案B（候補ごと「もしやるなら？」second-level disclosure・default 閉・effect 候補のみ・uncertainty 主体・confidence 内部のみ・raw evidence 非表示）or UI 出さず pure 保持**。CEO 判断点 6。
+- 状態: pure layer main live。UI 実装は mini design GO 後。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate v1 — target-aware / evidence-aware copy（main 着地完了）[承認: CEO/GPT GO]
+- 判断: What-if Preview UI は **保留**（candidate↔preview.body 重複大で UI 価値薄）。次は **候補文そのものの質**を上げる（UI を増やさない）= Repair v1。
+- **main 着地済（squash・main HEAD `25337696`・親 `d2ce57ef`）。** 実機 smoke PASS（CEO+自己監査・「どうするとよさそう？」に v1 copy 描画確認）。code branch `claude/dr-repair-v1`（HEAD `9e4b8d74`）保持。
+- 実装（COPY 3 文・logic 不変・read-only）:
+  - leave_earlier「ここは…」→「**この移動の前後は**、出発を少し早める余地があるかもしれません」（必ず insufficient transition → 移動 grounded）
+  - confirm_uncertain →「未確定の移動の余白を確認できると、**見通しが立てやすくなりそうです**」（clarity preview value 統合）
+  - use_recovery_window「ここで一息入れられそうです」→「この一息つけそうな区間は、**そのまま残せると、次の予定に入りやすそうです**」（utilization preview value 統合）
+  - protect_buffer / reduce_density: 据置（前者 Option D 不到達=full path のみ・後者 弱め維持）
+- ★audit 知見: production（Option D）は bufferMin=null・friction 一律 moderate・recoveryWindows 空 → **分/factor 差分は無根拠**。kind の構造的意味（移動/一息/全体）にのみ grounded。**protect_buffer は Option D 到達不能**（convergencePoint=buffer_short[insufficient] 必須 ⇒ leave_earlier 分岐）。
+- evidence trace / 型 / kind 判定 / prioritize / preview（`previewRepairEffect`）は **不変**。UI コード不変（banner が `c.suggestion` 直接描画 → 既存 UI に自然反映）。production 挙動=**表示文のみ変化**。
+- 検証: dayRehearsal dir + render contract **106 PASS**（新規 V1-V6）・**plan suite 5015 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（main↔branch diff 空・明示パス commit で別セッション WIP 不接触）。
+- follow-up（v1 未対応・別判断）: 同 kind 同一文重複（**次=dedup mini design**）/ rehearsal の full path 化（protect_buffer/bufferMin/friction 解放=定量 what-if の前提）。
+- closeout: `docs/second-self-map-day-rehearsal-repair-v1-audit-closeout.md`。
+- 状態: **main 着地完了・実機 smoke PASS**。次=Repair dedup mini design（実装なし）。push/PR/Vercel/DB/Google/予定変更/実行 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — dedup（案A 実装・main 着地完了）[承認: CEO GO]
+- 目的: 同 kind 同一文の重複（busy 日に「この移動の前後は…」等が複数並ぶ）の解消。**案A で実装 → main 着地。**
+- **main 着地済（squash・main HEAD `db70d018`・親 `94c413b7`）。** 実機 smoke PASS（CEO+自己監査・6/7 で 3 種併存/重複なし/最大3）。code branch `claude/dr-repair-dedup`（HEAD `9986befb`）保持。
+- 実装: `dedupeRepairCandidates(cands)` pure helper（同 kind は先頭のみ・copy/evidence/targetStepIndex 代表保持・無改変）+ CalendarTab `prioritize(dedupe(generate(...)))`。generation/prioritize(P1-P5)/型/preview/banner UI 不変。
+- 検証: dayRehearsal dir + render contract **115 PASS**（新規 D1-D9）・**plan suite 5024 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（明示パス commit・別セッション WIP 不接触）。production 挙動=重複行が減るのみ。
+- ★finding: 生成は step ごとに push → 同 kind は複数 step で発火 → kind 固定 COPY で**同一文が並ぶ**（production でも leave_earlier/confirm_uncertain/use_recovery_window で起こりうる）。候補文は移動を指さない（anchor 無し）→ 同一文 2 本は 1 本と同じ情報＝ノイズ。
+- 推奨 = **display 段で同 kind→代表1件に集約**（copy 無改変・read-only）。generation は full-fidelity 維持（将来 per-row anchoring 両立）。集約は **prioritize と別の composable `dedupeRepairCandidates`**（既存 prioritize/P3 契約不変）。CalendarTab で `prioritize(dedupe(generate(...)))`。
+- max-3 と矛盾せず**改善**（top-3 が「3 行」→「3 種の示唆」＝kind 多様性↑）。qualitative-plural（「いくつかの…」）は別オプション・数値出さない・v1.1 非推奨。
+- CEO 5 問（複数並ぶか/まとめるか/異 targetStepIndex 扱い/max-3 矛盾/copy 安全）に回答・実装。doc+closeout: `docs/second-self-map-day-rehearsal-repair-dedup-mini-design.md`。
+- 状態: **main 着地完了・実機 smoke PASS**。次=Repair Candidate full-path audit（実装なし）。push/PR/Vercel/DB/予定変更/実行 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — full-path audit + mini design（read-only・実装なし・停止）[CEO 指示]
+- 目的: protect_buffer の Option D 不到達の許容可否・raw feasibility/full path 解放の是非を read-only 監査。
+- ★証明: protect_buffer 解放 = **transport を含む full path が必須**（非 insufficient step で friction_high が要る → 実 travelMin が要る。raw feasibility だけでは不十分=shortfall friction は insufficient 時のみ）。
+- ★データ可用性: full path は **新規外部呼び出し不要で feasible**。raw feasibility は CalendarTab に既存（recoverySteps 用）。transport は hook（`_useCalendarTabFeasibilityDisplay`）内で `resolveMovementSegmentOverlay` が計算済だが **discard 中**（resolved=estimatedDurationMin/modeCandidate/source）→ additive surface で利用可。
+- 回答: ①protect_buffer 不到達は**許容**（dormant・明記が条件・他 4 kind+outlook で coverage 充足）②raw/full path 解放は**今は否**（rehearsal 出力 outlook/friction/convergence/recovery 全面変更=churn・消費者[定量 what-if]無し）③full path 化で bufferMin/可変 friction/engine recoveryWindows/protect_buffer 到達/精緻 convergence が増・コスト=全面再検証+再 smoke+transport surface ④**定量 what-if の前提になる** ⑤UI/挙動変更なしで audit 可（本書）。
+- 推奨: 現状維持（Option D）。full path は **定量 what-if slice で bundle**して flag 裏+canary 段階導入。CEO 判断点 4。doc: `docs/second-self-map-day-rehearsal-repair-fullpath-audit.md`。
+- 状態: **audit + mini design 提出で停止**。full path 実装は CEO GO 後。push/PR/Vercel/DB/予定変更/実行 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Candidate — Draft v0 mini design（設計のみ・実装なし・停止）[CEO 指示]
+- 目的: Repair Candidate を将来「予定変更の下書き」に変換するための設計。実装しない。
+- ★前提を覆す finding: 「予定変更の下書き」層は **既に存在**＝Reality Control OS（`lib/plan/reality/`・別セッション A1-x 進行中）が `ChangeOp`(add/remove/update=move/shorten)・`ChangeSet`(ops+reason+traces)・`applyChangeSet`(純粋 apply・persist なし)・`invertOp`(undo)・`authority.ts`(flexibility/protection 正本・INV-7「Repair は flexibility 順」)を持つ。→ **Repair Draft の新規 parallel 型は redundant（NO-GO）**。
+- ★Repair Candidate の大半は予定変更でない: leave_earlier のみ plan-change 寄り（かつ Option D で magnitude 無し＋Reality move mode 未実装＝二重ブロック）。confirm_uncertain=確認タスク・use_recovery_window/protect_buffer=Reality 保護シグナル(recovery_core/cascade_guard)・reduce_density=vague optimize(v0 除外)。
+- 回答（9 問）: kind 別 disposition（adjust/confirm/protect/reduce）・draft 必須情報(after 時刻)は Option D に欠落・leave_earlier は方向のみ(出発時刻不可)・confirm=タスク・recovery=保護・reduce 除外・境界=suggestion/disposition/ChangeSet の 3 層・UI は将来 applyChangeSet で試算(commit なし)・pure で閉じる=YES。
+- 推奨 v0 = **pure な disposition 分類器**（`repairDraftDisposition.ts`・candidate→{disposition,isPlanChange,realityHint,magnitudeMin=null,blockers}・unwired・Reality 非 couple・ChangeSet 作らない）。実 ChangeSet は full path(magnitude)+Reality coordination 後。
+- 戦略: 「Repair」が 2 系統（Day Rehearsal=診断 / Reality=governed 変更）→ feed するか独立か は architecture 決定。哲学整合（最適化に寄せない）を型(isPlanChange=false 大半)で強制。CEO 判断点 5。doc: `docs/second-self-map-day-rehearsal-repair-draft-v0-mini-design.md`。
+- 状態: **mini design 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Draft Disposition v0 — pure 分類層（main 着地完了）[承認: CEO/GPT GO]
+- 実装: `lib/plan/dayRehearsal/repairDraftDisposition.ts`（`classifyRepairDisposition(candidate)`/`classifyRepairDispositions`）。candidate→disposition の **分類のみ**・新 RepairDraft/ChangeSet 作らず・Reality 非接続・予定変更/apply なし。
+- kind→disposition: leave_earlier=adjust / confirm_uncertain=confirm / use_recovery_window=protect / protect_buffer=protect / reduce_density=reduce。**v0 は全 draftable=false**（leave_earlier=magnitude 無+Reality move 未実装の二重ブロック・reduce_density 除外・confirm/protect は非 plan-change）。realityHint（doc 文字列・Reality enum 非 import）/blockers/evidence 保持・suggestion 無改変。
+- **main 着地済（squash・main HEAD `3d12d26e`・親 `ba4cc6ca`）。** code branch `claude/dr-repair-disposition`（HEAD `121c2951`）保持。
+- 検証: 新規 DD1-DD16 + dayRehearsal dir 110 + **plan suite 5040 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（明示パス commit・別セッション WIP 不接触）。pure/unwired/production 挙動不変。closeout: `docs/second-self-map-day-rehearsal-repair-draft-disposition-v0-closeout.md`。
+- 状態: **main 着地完了**。次=Reality bridge mini design（実装なし）。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair → Reality Control OS bridge mini design（設計のみ・実装なし・停止）[CEO 指示]
+- 目的: disposition → Reality（governance/protection/ChangeOp）の橋渡し設計 + coordination。実装しない。
+- ★Reality 境界 audit: governance は **RealityInput の入力**（per-node protectionReasons）。candidate-generator は recovery_core を「保全=決して触れない」に分類・evaluator は recovery_core を触る変更を reject。`recovery_core`=「移動余白等の回復核」→ use_recovery_window と概念一致。move/Optimize は別 slice（現状 trim-only）。
+- 結論: **最初に橋渡し可能なのは protect（use_recovery_window/protect_buffer）→ recovery_core 保護シグナルのみ**（governance 入力・変更でない・magnitude/move-mode 不要・最安全・哲学整合）。adjust(leave_earlier→move) は三重ブロック（magnitude/move-mode 未実装/which-node）・reduce(→Optimize) 未実装+vague・confirm は Reality 領域外（確認タスク）。
+- ★設計課題: protect は gap-vs-node mismatch（Reality governance は node 単位・use_recovery_window は gap）→ 解法 A=区間保護/B=余白 node 化/C=add 制約（coordination 要）。
+- ★Reality は in-flight（A1-x）→ **直接 couple しない**。bridge は disposition→Reality 概念の pure mapping spec + authority.ts 安定 enum の doc 参照に留め、実注入は coordination 後。
+- 推奨 first layer（GO 時）= **protect signal exporter（pure・unwired・Reality 非 import）** のみ / or mapping spec だけに留める。CEO 判断点 5。doc: `docs/second-self-map-day-rehearsal-repair-reality-bridge-mini-design.md`。
+- 状態: **mini design 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair Protect Signal v0 — pure 橋渡し候補層（main 着地完了）+ Reality coordination checklist [承認: CEO/GPT GO]
+- 実装: `lib/plan/dayRehearsal/repairProtectSignal.ts`（`exportRepairProtectSignals(candidates)`）。protect disposition（use_recovery_window/protect_buffer）を将来 Reality `recovery_core` 保護に渡せる **橋渡し候補**に変換。★Reality 非接続・ChangeSet 作らず・apply なし・予定変更なし。
+- `RepairProtectSignal = { kind, targetStepIndex, protectionHint:"recovery_core", evidence }`。protect のみ（adjust/confirm/reduce 除外）・protect 判定は classifyRepairDisposition を single source of truth に・gap-vs-node 未解決(生 targetStepIndex 保持)・Reality enum 非 import。
+- ★独立判断: **candidate-based 入力**（着地済 RepairDraftDisposition は targetStepIndex を持たないため・着地済 disposition 層を不改変＝surgical）。注: protect_buffer は Option D dormant→本番は実質 use_recovery_window のみ emit。
+- **main 着地済（squash・main HEAD `a8fe73a7`・親 `3d12d26e`）。** code branch `claude/dr-protect-signal`（HEAD `a8f9e5a1`）保持。
+- 検証: 新規 PS1-PS12 + dayRehearsal dir 122 + **plan suite 5052 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss。closeout: `…-repair-protect-signal-v0-closeout.md`。
+- **Reality coordination checklist 作成**（実装なし）: 実注入前に Reality セッションと合意すべき項目（A 安定性 / B 注入経路+gap-vs-node / C recovery_core 適格性 / D 競合・fail-safe / E 安全検証 / F 段取り / G CEO 判断点 5）。doc: `…-repair-reality-coordination-checklist.md`。
+- 状態: **protect signal main 着地完了 + coordination checklist 提出で停止**。実注入は CEO GO + Reality coordination 後。push/PR/Vercel/DB/予定変更/repair 実行/full path/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Day Rehearsal Repair → Reality Bridge Contract Audit（read-only・実装なし・停止）[CEO 指示]
+- 目的: protect signal を Reality にどう渡すかの contract 確定（gap-vs-node を決める）。実注入しない。
+- ★**重大補正（前 mini design を覆す）**: 正しい対応先は node `recovery_core` でなく **gap-meaning `recovery`（INV-17）**。Reality は DayGraph に **GapNode（kind:"gap"）を明示モデル化**し gap-meaning（「空白は埋めない・意味づけ」）を持つ。use_recovery_window=回復 gap ⇒ gap-meaning `recovery` に 1:1。
+- ★**recovery_core(node) は目的不達**: evaluator `recoveryProtected` は node recovery_core の **remove/update のみ**弾き **`add は recovery を cut しない`（gap を add で埋めるのは無害扱い）**と明記。use_recovery_window の本質「gap を埋めるな」は add 抑止＝recovery_core で効かない。→ **landed protect signal の `protectionHint:"recovery_core"` は誤り（要補正）**。
+- ★**共有キー = GapNode id**（両システムが同一 DayGraph を読む・targetStepIndex i → event[i] の次の GapNode）。
+- gap-vs-node 推奨 = **A（gap-level・GapNode の gap-meaning `recovery`）**。B（recovery_core node）=誤機構+phantom・C（add-constraint bolt-on）=INV-17 重複。
+- ★ブロッカー: **gap-meaning は未 enforce**（classifyGap は contract・generator/evaluator/complete に未配線）→ contract 確定可だが実保護は Reality の INV-17 enforcement 配線が前提。現 Reality は trim-only+Complete のみ（move/optimize 未実装）。
+- contract: use_recovery_window → GapNode gap-meaning `recovery`（restrict-only/additive/reversible=fail-safe）。最初の pure adapter 案=`resolveProtectSignalsToGapMeaning(signals, dayGraph)→GapRecoveryAssertion[]`（dayGraph で GapNode 解決・Reality 非接続）+ hint 補正(recovery_core→recovery)。
+- GO=contract 確定（+任意 pure adapter）。NO-GO=実注入（enforcement 未配線）/recovery_core 経路/add-constraint/Reality couple。CEO 判断点 4。doc: `docs/second-self-map-day-rehearsal-repair-reality-bridge-contract-audit.md`。
+- 状態: **audit + contract 提出で停止**。実装は CEO GO 後。push/PR/Vercel/DB/予定変更/repair 実行/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Repair Protect Signal v1 + Gap Resolver（pure・main 着地完了）+ Reality INV-17 enforcement mini design [承認: CEO/GPT GO]
+- (1) hint 補正: `repairProtectSignal.ts` の `protectionHint` を **`recovery_core`(node) → `recovery`(gap-meaning/INV-17)**。理由=use_recovery_window は gap・node recovery_core は add 無害扱いで gap を埋めるのを止めない＝誤対応先（contract audit）。
+- (2) Gap Resolver 新設: `repairGapResolver.ts` の `resolveProtectSignalsToGapMeaning(signals, dayGraph) → GapRecoveryAssertion[]`。use_recovery_window のみ（protect_buffer defer）・targetStepIndex i → events[i]/events[i+1]（同一 dayGraph 前提）→ **厳密 double time-match で一意 GapNode 解決**・★fail-safe(0/2+ match・event 不在 → skip＝誤マップ皆無)・Reality enum 非 import。
+- HARD GATE 全 PASS: 厳密一致時のみ解決（不確実 skip）・DayGraph shape 検証済（GapNode は start/end 一意・min_gap=30<recovery 60）・Reality import なし・protect_buffer 非解決。
+- **main 着地済（squash・main HEAD `d5596e24`・親 `f91c7f44`）。** code branch `claude/dr-gap-adapter`（HEAD `928b5554`）保持。
+- 検証: 新規 GR1-GR12 + 補正 PS7 + dayRehearsal dir 134 + **plan suite 5064 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss。closeout: `…-protect-signal-v1-gap-resolver-closeout.md`。
+- **Reality INV-17 enforcement mini design 作成**（実装なし・Reality セッション向け coordination spec）: gap-meaning(classifyGap) は未 enforce → 最小 enforcement=**Complete(add) の freeGaps から recovery/free_time gap を除外**（現 Reality は trim-only+Complete のみ）・source=classifyGap ∪ GapRecoveryAssertion の union・additive/restrict-only/fail-safe。move/optimize gate は mode 実装時。★Reality セッション所有=Day Rehearsal は Reality コード非変更。CEO 判断点 4。doc: `…-reality-inv17-enforcement-mini-design.md`。
+- 状態: **protect signal v1 + gap resolver main 着地 + INV-17 mini design 提出で停止**。Reality enforcement 実装は Reality セッション（coordination + CEO GO 後）。push/PR/Vercel/DB/予定変更/Reality couple 不接触。
+
+---
+
+## [2026-06-07] [Build] Reality INV-17 enforcement audit + 最小実装案（read-only・実装なし・停止）[CEO 指示]
+- 目的: Reality 側で gap-meaning `recovery` を実際に守れるか read-only 監査 + 最小設計。main HEAD `a24de790`(A1-6-2)。
+- ★audit: INV-17 は **ゼロ enforce**（classifyGap は純粋分類器でどこからも呼ばれない・complete-generator busy=existing のみ・evaluator recoveryProtected は node の remove/update のみで add 無害扱い）。★**Reality kernel 全体が production route 未配線**（app/ から import なし・実反映は別 slice live path）→ enforcement 変更は pure kernel への additive＝**production 影響ゼロ**。Reality セッションは A1-6-x で gap-meaning 非接触＝無競合。
+- 最小実装案（実装なし）: `CompleteInput.protectedGaps?: Interval[]`（additive optional）+ `generateComplete` で `busy=[...existing, ...protectedGaps]`。既存 `freeGaps` が除外 → Complete(add) が recovery gap を埋めない。default 空=挙動完全不変。現 Reality は trim-only+Complete のみ＝add が唯一の脅威ゆえ十分。
+- 入力境界: GapRecoveryAssertion(startTime/endTime "HH:MM") → Interval(分) map（integration 層・将来）+ flag gate（注入側 OFF default）。
+- 触るファイル: complete-generator.ts(+test) のみ（最小・今）。evaluator `gapMeaningRespected` gate は move/optimize 実装時。
+- risk/rollback: 未配線 kernel + additive optional default 空 → ほぼゼロリスク・fail-safe（過剰保護でも add 減のみ）。rollback=flag OFF/field 除去。in-flight ゆえ実装時 再 audit。
+- ★**Reality セッション所有**（Day Rehearsal は Reality kernel 非変更・本系は map 提供のみ）。GO=設計確定。CEO 判断点 4。doc: `…-reality-inv17-enforcement-audit.md`。
+- 状態: **audit + 最小実装案 提出で停止**。実装は Reality セッション（coordination + CEO GO 後）。push/PR/Vercel/DB/予定変更/Reality kernel 変更 不接触。
+
+---
+
+## [2026-06-07] [Build] Reality INV-17 enforcement v0（Complete protectedGaps・additive・main 着地完了）+ integration mini design [承認: CEO GO]
+- ★CEO 判断: INV-17 enforcement を **本セッション（Day Rehearsal 系）が Reality kernel に additive 実装**（私の audit 推奨「Reality 所有」を CEO が上書き）。in-flight 干渉は complete-generator が A1-4-2b 以降安定 + 純 additive + zero-conflict 確認で緩和。**Reality セッションへ周知要**。
+- 実装: `complete-generator.ts` の `CompleteInput.protectedGaps?: Interval[]`（additive optional）+ `generateComplete` で `busy = existing ∪ protectedGaps` → 既存 freeGaps が除外 → Complete(add) が recovery/free_time gap を埋めない。**default 空＝挙動完全不変**・restrict-only・fail-safe・pure。現 Reality は trim-only+Complete のみ＝add が唯一の脅威ゆえ十分。evaluator gate は move/optimize 時。
+- **main 着地済（squash・main HEAD `12727e43`・親 `4d61990b`）。** code branch `claude/reality-inv17-protectedgaps`（HEAD `030d6d50`）保持。
+- 検証: 新規 PG0-PG6 + realityCompleteGenerator 34 + reality 全 **563 PASS**・**tsc footprint 0（total 55 baseline 不変）**・zero-loss（complete-generator は base から無変化＝他セッション無競合）。closeout: `…-reality-inv17-enforcement-v0-closeout.md`。
+- **GapRecoveryAssertion → protectedGaps integration mini design 作成**（実装なし）: 配線チェーン= GapRecoveryAssertion →(map HH:MM→Interval 分)→ CompleteDispatchInput.protectedGaps →(generateCompleteFromContext pass-through)→ CompleteInput.protectedGaps →(busy 除外)。必要 plumbing= pure map + CompleteDispatchInput.protectedGaps + pass-through 1 行。★**最後の caller は Reality production 未配線ゆえ不在＝実注入 blocked**（map+plumbing は準備可・flag 裏 OFF）。CEO 判断点 4。doc: `…-gaprecovery-protectedgaps-integration-mini-design.md`。
+- 状態: **INV-17 enforcement v0 main 着地 + integration mini design 提出で停止**。実注入は Reality wiring + CEO GO 後。push/PR/Vercel/DB/予定変更/実注入 不接触。
+
+---
+
+## [2026-06-07] [Build] Reality production wiring audit（read-only・実装なし・停止）+ protectedGaps plumbing 再判定=NO-GO [CEO 指示・GPT 2案を Claude が監査]
+- 経緯: GPT-A「pure plumbing 進行」vs GPT-B「停止して production wiring audit 先行」を CEO が「Claude が監査し正しい方へ」と指示。**Claude 独立判定=GPT-B 正しい**（自分の honest 評価「inert 在庫が課題」と整合・goal から逆算で「目的地未確認のまま配管しない」・Direction A は自身の HARD GATE「caller 必要なら停止」に抵触）。
+- ★**精度補正**: 以前の「Reality kernel 完全 unwired」は**不正確**。正しくは **「candidate SURFACE（read-only preview）は alter-morning/plan route に配線済だが `REALITY_CAPTURE_SURFACE`(server default off)+`realityCaptureSurfaceClient`(client default off)+prod block で二重 dormant・ゼロ露出」**。act-on（accept→apply）は no-write skeleton・未配線。
+- read-only preview 機構は既存（capture surface DTO「候補があります」・apply なし・flag dormant）。最短 live=**A: capture surface flag 前進（Reality セッション所有）**。Day Rehearsal-native（banner）は既に live=**B**。Repair→Reality bridge（protectedGaps）は **最遠**（flag ON + cross-context + refinement の 3 条件待ち）。
+- **protectedGaps plumbing 再判定=NO-GO（今やらない）**: 消費先（capture surface generateComplete）は存在するが二重 dormant + Day Rehearsal(client)→capture surface(server) の cross-context 接続が未設計 → 今積んでも inert 在庫増。capture surface canary 前進 + cross-context 設計後にまとめて。
+- 次 bundle 案: A(capture surface flag・Reality 所有) / B(Day Rehearsal-native 深化・本系) / C(protectedGaps=保留) / D(pivot)。CEO 判断点 4。doc: `…-reality-production-wiring-audit.md`。
+- 状態: **audit 提出で停止**。次の bundle 方向（A/B/D）は CEO 判断。pure plumbing は保留。push/PR/Vercel/DB/予定変更/実注入 不接触。
+
+---
+
+## [2026-06-07] [Build] Reality capture surface canary readiness audit（read-only・flag/env 変更なし・停止）[CEO 判断 A]
+- 目的: dormant な Reality capture surface（read-only preview）を安全前進できるか監査。flag ON / production exposure はしない。
+- ★**read-only preview pipeline は end-to-end 配線済**（server 生成→route 合成→client 読込→banner 描画）。**client は live 配線**（`useAlterChat` が response の `morningProtocol.captureCandidate` を読み `CaptureCandidateBanner` 描画）。**dormant の原因は server surface gate のみ**（`REALITY_CAPTURE_SURFACE` 既定 off + evaluateCaptureGate の staging/canary/user 条件）。
+- 安全: surface は **read-only**（write/RPC/.from/.insert/.delete なし）・gate は多層 fail-closed（kill→flag→ref→prod block→staging allowlist→canary user）・**production hard block**・fail-open（null→banner 出さない＝既存 UI 不変）。★**surface flag ON でも write は走らない**（write は別 flag `realityCaptureLive`）。
+- DTO: redacted（raw/source_ref/UUID/prose なし・enum/number/date/null のみ・「候補があります」止まり）。UI: MorningPlanCard 内の控えめ purple banner・null-safe・button/apply なし。
+- local canary smoke: 技術的に可能だが env/flag 変更要（staging supabase + REALITY_CAPTURE_SURFACE=true + canary user + **seed データ依存**＝seed 無ければ候補出ない）→ 本タスクは**設計のみ**（実行は別 GO）。
+- readiness=高。GO 候補（別タスク）: ①local canary smoke ②staging canary（Reality coordinate）。CEO 判断点 4。doc: `…-reality-capture-surface-canary-readiness-audit.md`。
+- 状態: **canary readiness audit 提出で停止**。flag ON/env 変更/実 smoke は別 GO。push/PR/Vercel/DB/予定変更/flag 変更 不接触。
+
+---
+
+## [2026-06-07] [Build] Reality capture surface local smoke — preflight GREEN + 実機 smoke handoff（CEO 視覚確認待ち）[CEO 判断 A]
+- preflight（read-only・秘密非表示）: supabase=**STAGING(hjcr)** ✅ / NODE_ENV=dev ✅ / REALITY_CAPTURE_SURFACE=**true**(.env.local 既設) ✅ / **REALITY_CAPTURE_LIVE=off＝seed write なし** ✅ / PLAN_CANARY_USER_IDS 設定済(reality 専用 list 空→shared fallback) ✅ / port 3000 空き ✅。
+- client: useAlterChat が response の morningProtocol.captureCandidate を**無条件で読み** CaptureCandidateBanner 描画（client flag 不要・B案 live path）。
+- HARD GATE 照合: staging ✅ / raw 漏れなし(DTO redacted=enum/number/date/null) ✅ / apply に見えない(banner read-only・button なし) ✅ / write off ✅。
+- ★未検証 2 点（私の制約）: ①**seed 存在**（候補は pending captured seed 由来・DB 確認不可・write off ゆえ既存 seed が無ければ banner は fail-open で非表示=正常）②**auth**（私はログイン不可＝視覚確認は CEO・従来の smoke と同様）。
+- dev server 起動済（main worktree `35dde74d`・staging・read-only surface・write off・port 3000）。**実機 smoke 観点を CEO に提示・視覚確認待ちで停止**。flag 前進/main 着地はしない。
+- ★**更新（CEO 指摘）**: capture banner は **home 専用**（`components/home/morning/` 配下・MorningPlanCard←AskHero・**/plan に参照なし**＝確認済）。**culcept-staging は home 到達不可**ゆえ staging で視覚 smoke 不可。/plan 参照を作るのは **新規 UI 配線＝本タスク scope 外**（非推奨）。
+- ★**code-level smoke で代替（GREEN）**: 既存 render-contract/presenter/client test（`realityCaptureCandidateBanner.test.tsx` / `…Presenter.test.ts` / `…Client.test.tsx`）= **3 files / 64 tests PASS**。検証観点が視覚 smoke と同一: absent→空 markup(null-safe・既存 UI 不変) / present→控えめ「候補があります」+約60分+友好ラベル / **技術名/raw/source_ref/UUID が DOM に出ない(redaction)** / MorningPlanCard additive wiring。
+- **判定（推奨）**: 視覚 smoke は staging home 不可 + /plan 参照 scope 外 → **code-level smoke（64 PASS）+ preflight GREEN（staging/write off/fail-open/redaction/read-only）をもって readiness PASS**。dev server 停止済。flag 前進/main 着地はしない。最終 PASS 判断は CEO。
+
+## [2026-06-07] [Build] Reality capture surface — local smoke PASS 記録 + staging canary rollout plan（実行手前で停止）[CEO 判断 A・PASS 認定]
+- local smoke **PASS（CEO 認定）**: preflight GREEN（staging hjcr / dev / REALITY_CAPTURE_SURFACE=true / **LIVE=off=write なし** / canary list 設定 / port 空き）。視覚 smoke は staging home 不可（banner は home 専用・/plan 参照なし）+ AI auth 不可 → **code-level smoke 64 PASS で代替**（render-contract/presenter/client・absent→空/控えめ「候補があります」/raw・UUID 非露出/additive wiring）。dev server 停止済。
+- ★**正本 runbook 発見**: `docs/reality-production-canary-runbook.md`（Reality セッション所有・A1-5-15・phases/canary user/rollback/monitoring/STOP/禁止）。本系 plan はそれを surface 視点で補完（再発明せず）。
+- ★**gate architecture 整理**: deployed-staging(staging supabase)は **Vercel NODE_ENV=production → staging lane block・production lane は prod ref 必須** ＝ **gate 通れない**。実 deploy canary は **production canary lane**（REALITY_CAPTURE_PRODUCTION_CANARY + reality canary UUID）一択。local smoke 止まり or production canary。
+- ★**重要な漏れ flag**: runbook line 116/121「user-facing banner は dormant・backend-only・user 不可視」は **stale**。`useAlterChat` line 819（A1-5-8-3）が client を **live 配線済** → surface ON = canary user に **banner が実際に見える（user-facing）**。canary 前に Reality と「user-facing にするか backend-only か」合意 + runbook 更新要。
+- flag/canary/seed/rollback/safety + 実行前チェックリスト C1-C7 + CEO 作業 + GO/NO-GO（CEO 判断点 4）整理。doc: `…-reality-capture-surface-canary-rollout-plan.md`。
+- 状態: **local smoke PASS 記録 + rollout plan 提出で staging canary 実行手前で停止**。Vercel/env/flag/seed/deploy は CEO/operator 手動（AI しない）。push/PR/Vercel 不接触。
+
+## [2026-06-07] [Build] Reality capture surface runbook 補正（doc-only・main 着地）[CEO 指示・canary=user-facing read-only preview]
+- 目的: `reality-production-canary-runbook.md`（Reality 所有・A1-5-15）の「client banner dormant / backend-only / user 不可視」前提が現コードと乖離 → canary 前に正本補正。
+- ★根拠: A1-5-8-3 が `useAlterChat` L819 で client を **live 配線済**（response の morningProtocol.captureCandidate → MorningPlanCard → CaptureCandidateBanner）→ surface ON で canary user に控えめ banner「候補があります」が**実際に表示**。
+- 補正内容（surgical・doc-only）: 前提 table / Phase 3 / 実行手順 step6 / 禁止 / 検証されないこと を **user-facing read-only preview 前提**に更新。**read-only・apply/save/write なし**（banner 表示限定・act-on は別 slice 未配線）明記。NEXT_PUBLIC client flag は不要（B案 useAlterChat は response から直接描画）と訂正。seed 依存（無→banner 非表示=fail-open 正常）・home 到達前提・production canary lane 条件を明記。旧 backend-only/禁止/検証されない は **stale・撤回**と明示。
+- **main 着地済（squash・main HEAD `6252825a`・親 `e0d66a8f`）**・zero-loss・diff surgical（1 file・17+/11-・runbook が base から無変化＝Reality 無競合）。code branch `claude/reality-runbook-fix` 保持。
+- ★**ownership**: Reality 所有 doc を CEO 指示で本系が doc-only 補正。**Reality セッション周知要**（client wiring A1-5-8-3 前提で runbook 更新した旨）。production exposure / env / Vercel は未実施（CEO 手動のまま）。
+- 状態: **runbook 補正で停止**。canary 実行は CEO/operator 手動（正本 runbook 準拠・user-facing read-only preview として）。push/PR/Vercel/env/予定変更 不接触。
+
+## [2026-06-07] [Build] Day Rehearsal 診断層 完遂 Batch 1 — full-path（実 transport + raw feasibility・flag-gated）main 着地 [CEO 判断: 原典 plan を全部高品質で完遂・local-only]
+- 文脈: CEO 指摘「production 不可（GitHub 不可）→ Reality/介入層 HOLD・local 診断層の原典 plan を全て高品質で完遂」。私の drift（Reality 介入層 = production）を是正し Day Rehearsal 診断層に復帰。
+- ★完遂の意義: 原典 mini-design §3 は入力を DayGraph+feasibility+**Transport（必須）**と定義。現 Option D（status-only・transport なし）は line 34 の既知 degrade stopgap → full-path 化は新規 scope でなく**原典の意図入力モデルの完遂**。
+- 実装: `buildRehearsalInputFull`（真の slack/shortfall + 実 travel）+ `RehearsalTravelView` + `DAY_REHEARSAL_FULL_PATH_ENABLED`(default false) + hook が discard していた overlay transport を additive surface（mode 写像・manual_user のみ known）+ CalendarTab flag 分岐。★flag OFF＝既存挙動不変。
+- full-path ON で friction 可変・convergence/recovery 正確・protect_buffer 到達（Option D で dead だった候補が生きる）。生数値は UI に出さず内部精度向上のみ（ethos 維持）。
+- **main 着地済（squash・main HEAD `bcfca834`・親 `dedaaf1d`）**。検証: FP1-FP6 + dayRehearsal 56 + **plan suite 5070 PASS**・**tsc footprint 0（total 55 不変）**・zero-loss。tsc で OverlayTransitionOutcome ネスト + TransportMode 2 種の型ズレを発見・修正。closeout: `…-fullpath-batch1-closeout.md`。code branch `claude/dr-fullpath`(HEAD `731a4574`)保持。
+- 次: activation（flag ON）は local smoke（/plan・到達可）検証後 → Batch 2（InnerWeather energy）→ Batch 3（marker 精緻化）→ Batch 4（What-if UI）。production/Reality 介入層は HOLD。push/PR/Vercel 不接触。
+
+## [2026-06-07] [Build] Day Rehearsal full-path activation（DAY_REHEARSAL_FULL_PATH_ENABLED=true・main 着地）[承認: CEO smoke PASS]
+- Batch 1 full-path を /plan 実機 smoke（CEO + 自己監査）→ PASS → **既定 ON に activation**。診断が real（実 transport + raw feasibility）になった。
+- ★smoke 実証（full-path の効果の動かぬ証拠）: ①**protect_buffer 候補が出現**（「この前後は余白を守ると…」・Option D で到達不能だった dead 候補が live）②per-marker why に **friction_high**（「移動に時間がかかりそう」・Option D で friction 一律 moderate ゆえ不可能だった）③一息/詰まり marker が実 slack/travel ベース。
+- ★ethos 維持: Day Rehearsal の marker/outlook は**数値非表示・仮説トーン**（「移動60分/余白90分」は既存 feasibility 表示=FeasibilityDisclosureLine であり Day Rehearsal でない）。異常なし（friction 爆発/UI 崩れ/apply・save なし）。
+- **main 着地済（squash・main HEAD `c60eb3ae`・親 `17826f16`）**・zero-loss（私の 2 ファイル無競合）。検証: dayRehearsal dir PASS（FP6 を true に更新）・tsc footprint 0（total 55 不変）。緊急時 false で Option D 即復帰。code branch `claude/dr-fullpath-smoke`(HEAD `d7f7f66b`)保持。
+- ★**calibration 候補（記録・実データ後）**: 余白30分+移動90分+夕方密度で convergence やや厳しめ（friction_high 閾値/strain 係数）。仮説トーンゆえ非 blocking。backlog 追記。
+- 次: Batch 2（InnerWeather energy）前の短い次工程案 → 提示後停止。production/Vercel/GitHub/DB/env 不接触。
+
+## [2026-06-08] [Build] Day Rehearsal Batch 2 — InnerWeather energy（状態次元）main 着地 + activation [承認: CEO/GPT GO]
+- Day Rehearsal に **状態次元（energy）** を導入。`InnerWeather.energyLevel`(-1〜1・useInnerWeather・read-only・DB write なし)→`normalizeInnerWeatherEnergy`((e+1)/2)→strain budget を仮説補正。★最適化/予定変更でなく診断。
+- **過悲観回避**: `energyBudgetWeight=0.5`(1→0.5)で e=0 でも budget≥0.75×baseBudget（最大 −25%・自然下限）。floor は冗長ゆえ不採用（監査の 3 層提案を 1 層に refine）。null degrade で未記録日は baseBudget 不変（既存挙動維持・安全側）。
+- **着地**: Batch2 OFF `d5e88970`(default false) → **activation `deef2b45`(親 `069c8ca7`・default true)**。EN5 を false→true assert。
+- ★**監査（実エンジン再現で energy 寄与を切り分け）**: CEO smoke スクショ(6/8 packed)の「重さ」は **energy 由来でない**ことを実測。energy=null(OFF)/1.0/0.5/0.0(最悪) で 6/8 packed は **完全同一**(outlook=breaks/conv=3/全 strain=high・peak score 7.34=high 閾値 2.01 の 3.6 倍に飽和)。moderate 日でも energy=0 で内部 step 1 つが moderate→high のみ・outlook/convergence/marker 不変。energy は有界かつ非常に保守的 → 過悲観ゲート決定的 PASS。
+- ethos: energy 数値/診断感を UI に leak しない(内部 budget のみ)・仮説トーン維持。検証: 62 tests PASS(EN1-EN6+FP1-FP6)・tsc footprint 0(total 55 不変)・zero-conflict/zero-loss。code branch `claude/dr-energy`(HEAD `b3b3c2b8`)保持。closeout: `…-energy-batch2-closeout.md`。
+- ★**Batch 3 へ引き継ぐ baseline 所見(energy 非依存・full-path 自体)**: (A)strain 飽和(全 step high で動的レンジ消失) (B)余白あるのに「重なりやすい」copy mismatch (C)marker 3/3 で警告過多 (D)convergence magnitude 不在。calibration backlog 追記済。
+- 次: **Batch 3 marker 精緻化 / convergence 較正**の計画起案(deep research)→CEO 提示→GO 後実装。HOLD: Reality/介入層(production 不可)。push/Vercel/GitHub/DB/env 不接触。
+
+## [2026-06-08] [Build] Day Rehearsal Batch 3 — F1 convergence marker 見出しの factor 別出し分け main 着地 [承認: CEO/GPT GO + smoke PASS]
+- ★**Batch 3 を F1 のみに絞り込み**（deep research 5視点 + adversarial + 独立検証）。理由は CEO ご自身の原則: strain 飽和/threshold/magnitude tier/marker 抑制は**実データ無しの magic number 弄り**＝calibration §0「固定値→実データ後較正」違反 + ethos(シグナル隠し)。**最小化でなく正しい順序付け**（full-path 後に出た一番明確な UX mismatch を直す）。
+- ★独立発見(workflow を鵜呑みにせず是正): (1)convergence marker は必ず factor≥2 ゆえ「friction 単独抑制」案は無意味。(2)「警告だらけ感」の正体は『3個』でなく『3個とも同一文』→ factor 別見出しで density 感の大半が解消・能動抑制は不要かつシグナル隠しリスク。(3)Repair v1 が preview value を suggestion に統合済＝candidate↔preview 重複は悪化(Batch 4 論点)。
+- 実装: `buildConvergenceMarkerHeadline(factors)`(pure)で buffer_short の有無で出し分け。あり→「予定が重なりやすい」(既存維持)・なし(strain+friction)→「移動と予定が立て込みやすい」(CEO/GPT 確定コピー・「重なりやすい」「詰まりやすい」回避)。ConvergenceMarkerLine に factors prop・既存 convergenceFactorsByTransitionIndex 再利用・不在は既存文 degrade。★診断ロジック(判定/level/marker の有無/色/layout)不変・text-only。
+- HARD GATE 全 PASS: factor 取得(構築上整合)/copy 警告語なし・仮説トーン/marker 数不変(F1-d)/layout 非破壊。検証: MH1-MH8 + F1-a〜e + 構造 invariant・plan suite 5091 PASS・tsc footprint 0(total 55 不変)。smoke PASS(6/8 で余白145分が「重なりやすい」→「立て込みやすい」・矛盾解消・不足10/40分は据置)。
+- main 着地 **`af6c30c3`**(親 `3c856dd4`・zero-conflict)。code branch `claude/dr-batch3-f1`(`dab4c58a`)保持。closeout `…-batch3-f1-closeout.md`。
+- 次: **Batch 4 What-if Preview UI(audit-first)**。HOLD: Reality/介入層。push/Vercel/GitHub/DB/env 不接触。
+
+## [2026-06-08] [Build] Day Rehearsal Batch 4 — What-if Preview UI(別UI) NO-GO 確定 + 診断層ロードマップ完了 [承認: CEO]
+- ★**Batch 4「別 preview UI を candidate 下に出す」案は NO-GO 確定**(audit-first・4視点 workflow + adversarial + 独立検証・critique goJustified=false)。HARD GATE「preview が候補文とほぼ重複」に明確抵触。
+- 根拠(実コード): (1)候補文↔preview 重複が高い(confirm_uncertain >90%・protect_buffer/use_recovery_window >75%・平均 ~67-72%)・★Repair v1 が preview の distinct value(見通し/次に入りやすい)を candidate.suggestion に統合済(dayRepairCandidates L18-19)→preview.body は言い替え。(2)previewRepairEffect は candidate-only(rehearsal の定量データ未使用・dayRepairPreview L81)→full-path の恩恵ゼロ・cosmetic。(3)preview 層は production inert(UI 未配線)。(4)唯一非冗長な uncertainty[] も generic・3段 nesting 要・価値<UI コスト。
+- ★気づき: **What-if の価値は v1 で実質達成済**(候補文に統合済)→別 UI は冗長。NO-GO は最小化でなく「達成済+追加冗長」の実証。preview v0 pure layer は資産保持。audit doc `…-batch4-whatif-audit.md`。
+- ★**診断層ロードマップ(原典 §2)実質完了**: Batch1 full-path✅ / Batch2 energy✅ / Batch3 F1 marker✅ / Batch4 別UI=NO-GO(value 達成済)。残=実データ後 calibration(backlog・gated) + HOLD Reality/介入層(production 不可)。
+- ★**新方針(CEO・2026-06-08)**: 別 UI でなく **本格 What-if / Draft Preview v0** に進む。「候補文を見せる」→「候補を仮採用したら 1 日の見通しがどう変わるか」を**予定変更なしで pure simulation**する土台。`previewRepairSimulation`(pure・input=DayGraph/rehearsal/candidate・output=before/after 定性差分)。full-path の raw feasibility/travel/slack/shortfall を使い予定変更なしで試算。禁止=実予定変更/apply/DB write/Google API/production/新 UI/Reality。HARD GATE=対象 step なし→停止/before-after 捏造→停止/根拠なき数値改善→停止/不可候補は不可と分類/UI 前で停止。pure layer→test→tsc footprint 0→closeout、UI 配線は次判断。
+
+## [2026-06-08] [Build] What-if/Draft Preview v0 — previewRepairSimulation pure layer main 着地（未配線）[承認: CEO audit-first GO]
+- audit-first → GO（捏造なし・保守的・実エンジン repro で検証）→ pure layer 実装。`lib/plan/dayRehearsal/dayRepairSimulation.ts`。「候補を仮採用したら 1 日の見通しがどう変わるか」を**予定変更なし** counterfactual re-simulation（rehearseDay 再実行）で試算。**未配線=production 不変**。
+- 候補分類(実コード根拠): leave_earlier=eases_conditionally(対象 transition を bufferStatus=sufficient + slackMin/shortfallMin=null=**数値を作らず**「解消できれば」に置換し再実行・before/after 質的比較) / protect_buffer・use_recovery_window=preserves(strain/friction 由来 or 既確保ゆえ delta なし・diff=null・改善を捏造しない) / confirm_uncertain=uncertain(未確定で不可) / reduce_density=ambiguous_target(対象 step null で不可)。
+- ★honest 設計: local(対象区間が和らぐ)と day(1日全体)を別々に報告→「この区間は和らぐが他に不足が残りその日全体はまだ…」と過剰主張しない。長距離移動で strain も高い区間は buffer 解消後も marker 残り localEased=false「大きく変わらないかも」と正直に。slack=null ゆえ recovery 0(恩恵盛らない)。
+- HARD GATE 全 PASS(対象 step なし→不可分類/捏造なし/根拠なき数値改善なし/不可は不可分類/UI 前停止)。pure/READ/Date 不使用/実予定変更・apply・DB write・新 UI なし・生数値/level 名を summary に出さない・仮説トーン。
+- 検証: SIM1-14 + dayRehearsal suite 168 PASS・tsc footprint 0(total 55 不変)・zero-conflict(additive)・main worktree 14 PASS(zero-loss)。main `ad0c9ee7`・code branch `claude/dr-repair-sim`(`08bf0796`)。closeout/audit `…-repair-simulation-v0-(closeout|audit).md`。
+- 次: UI 配線(CEO 判断)。Batch 4 NO-GO の教訓=candidate.suggestion と重複しない出し方必須(本 sim は before/after の新情報を持つので重複回避の余地あり)。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] What-if v0 UI 配線 main 着地（最小・非冗長）[承認: CEO smoke PASS]
+- `previewRepairSimulation` を「どうするとよさそう？」候補文の下に**小さく 1 行**表示。`repairSimulationShortLine`(leave_earlier の eases のみ短文・他 null=非表示)・DayOutlookBanner `simulationLineByKind` prop(span・read-only)・CalendarTab `rehearsalInput` 独立 memo→sim 再実行→banner。
+- 記録(CEO 指定): ✅leave_earlier のみ表示 ✅protect/recovery/confirm/reduce 非表示 ✅read-only 維持 ✅apply/save/予定変更なし ✅UI 過多なし(1 行・既存 disclosure 内) ✅生数値/confidence/raw evidence なし ✅smoke PASS。
+- ★非冗長: 候補文=action(出発を早める)/sim 行=effect(試すとどうなるか)で register 異なる。Batch 4 NO-GO(candidate-only 言い替え)を、rehearsal 実データの before/after(新情報)で解消。HARD GATE 全 PASS(候補文重複→非表示/弱根拠→非表示・SIM18 機械保証)。
+- 検証 SIM15-19+WIF1-6+plan suite 5116 PASS・tsc footprint 0(total 55)・zero-conflict(178+/12-)・main worktree 46 PASS(zero-loss)。main `e7b45272`・code branch `claude/dr-repair-sim`(`4fff9170`)。closeout `…-repair-simulation-v0-ui-closeout.md`。
+- ★次: **Day Rehearsal 診断層 + What-if v0 完了**。全体マスタープラン提出(`second-self-map-master-roadmap.md`)→CEO 判断でフェーズ実装。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] master-roadmap honesty audit + 訂正（CEO「嘘をついているか・FH 漏れなく含むか」への回答）[承認: CEO 検証指示]
+- CEO が roadmap の正直さ/網羅性を質問 → independent 検証(`wf_a7caa6b8-b9b`・6 agents・5 cluster を実コード/git で裏取り)を実施。防御せず確定：
+- ★**意図的な嘘は無いが 3 overclaim 確定**: ①energy curve「✅done」は誤り(内部 budget 調整のみ・可視化曲線は未) ②S6 partial は「理由観測 UI 皆無」を understate ③S4「weather bias partial」は配線断絶 0/3(MapTab→weather 未配線)を未記載。
+- ★**漏れ(旧版インベントリ欠落)**: FH §4.2/§4.4 派生＝新 mobility 軸・observationBridge→Stargazer pipeline・contradiction engine 二面性・Mobility→Stargazer bridge・理由観測フック。roadmap §3.5 に追加。
+- ★**乖離(未記載)**: FH §4.2「Stargazer 軸を足すだけ」計画→実装は standalone mobilityRepertoireBelief(localStorage)に divergent(機能達成・自己理解合流は未)。
+- ★★★**最重大=魂が BROKEN**: 「移動が自己理解になる」(堀②・鏡・「自分ってそういう人間だったのか」)が 5 段すべて未(理由観測→Stargazer 合流→軸検出→Alter 返答→自己理解)。FH が「競合が構造的に持てない堀」と明言した中核。subscription value(自己発見)は現状デリバー不可。
+- **FH 項目の取りこぼし(項目欠落)は無い**(S1-S6/M1-M5 全捕捉)。正確: S1-A/S2-A/S2-B/S5/L3/L4/counterfactual/S1-B gated/Phase 構造/read-only/仮説トーン。
+- ★**推奨変更**: 旧 A1=S3 pace → **A0=S6-0 理由観測 UI(魂の起動点・最優先)**。roadmap §0 CORE PROMISE / §3.5 / §7 / §8.5 を訂正。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] master-roadmap 二重訂正（CEO 指摘「master-design/impl-plan を無視してないか」）[承認: CEO 指摘]
+- CEO が「FH より master-design/implementation-plan が重要・無視してないか」と指摘 → 正本で再突合。**roadmap は両正本に anchor 済(無視せず)**だが、**honesty audit 第一版が FH §4.2 を binding 扱いした逆誤り**を確定：
+- ❌ 私の誤り: §4.2 belief 機構(mobility 軸/observationBridge→Stargazer belief/contradiction engine 二面性)を「漏れ/乖離」と過剰断罪 → 実際は **master-design §2(L56)/§4(L106,123) が localStorage `repertoireBelief`(Dirichlet)に意図的 supersede 済**＝設計判断。実装は正本に忠実。
+- ✅ 有効として残る指摘: ①energy curve overclaim(正本 §1/§D 未) ②魂(移動→自己理解)未実装(正本でも S6/L2=Wave1 次・M5 鏡=moonshot・§7 open論点) ③S3 未 ④S4 配線断絶。
+- 結論: 真の不正確は **energy curve overclaim と魂の過小評価の 2 点のみ**。§3.5 を「漏れ」→「supersede + 魂のみ未」に訂正・§0/§8.5-b 追記。推奨 **L2 理由捕捉=master-design Wave 1 の次の残**で正本整合。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] 全 plan .md 読了 + Reality Phase C 粒度漏れの保全（CEO「存在する計画 .md を全て読んだか」）[承認: CEO 指摘]
+- 正直回答: 当初は plan 系 68 本中 正本＋本セッション分(約14)のみ直読・残 54 は MEMORY 索引のみ(=全読でなかった)。→ 5 クラスタの read-only Explore agent で**残 54 本を全文読了し roadmap と cross-check**。
+- 結果: mobility belief/Day Rehearsal core/repair・what-if/MapTab redesign = **トップレベル plan 漏れなし**(defer/較正 backlog 既載・旧 what-if UI 形態 CEO 判断点は Batch4 NO-GO + leave_earlier UI で解決済)。
+- ★唯一の発掘: **Reality/介入層を Phase C に丸めすぎて具体未決を落としていた**(Reality coordination 未開始/gap-vs-node A/B/C 未決/recovery_core slack≥60min 未承認/canary 前チェック[banner runbook stale・seed・NODE_ENV block]/protectedGaps plumbing NO-GO/INV-17 owning 曖昧)。→ roadmap §4「★C 起動時に解く具体未決」に doc 参照付きで保全・§8.6 に全読記録。
+- → 68 本全読了・cross-check 済。漏れは Reality 粒度のみで保全済。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] A0 理由観測（local reason capture）main 着地 [承認: CEO smoke PASS]
+- 魂(自己理解ループ)の第一歩。推奨と違う選択の「なぜ」を local 捕捉。store に MobilityReason(疲れ/景色/安い/急ぎ/気分/その他・free text なし)+reason? additive(後方互換)+helper(setFeedbackReason は entry 不在 leg で no-op)。MobilityLegCard に explicitCorrection 時のみ inline chip(任意/可逆/dismissible/modal でない/readOnly 非表示)。MapTab 配線。
+- ★scope 厳守: Alter/Stargazer/DB/belief 学習反映なし・人格ラベルなし(per-leg 文脈)・捏造なし(1-tap)。HARD GATE 全 PASS(explicitCorrection のみ/sensitive 非表示/後方互換/人格診断化なし)。
+- 検証 R1-R8+A0-1〜7+plan suite 5131 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss(main 32 PASS)。main `759a983b`・code branch `claude/dr-a0-reason`(`c62c3a04`)。smoke-force(一時)は revert 済。closeout `…-a0-reason-capture-closeout.md`。
+- ★**CEO 方針更新(2026-06-08): 自律バッチ制**。small scope は内部で切る・低リスク同一目的同一層はまとめて進める・plan→実装→自己監査→test/tsc→closeout→次 plan を自律。停止境界=production/Vercel/deploy・GitHub push/PR/merge・DB/migration/RLS・env・外部API/Google/Calendar/Reality apply・予定変更・大 UI で smoke 要・仕様判断・test/tsc/lint 失敗・scope 拡張・設計矛盾・破壊的 git。各報告に 6 点(実装/未実装/test・tsc/不接触確認/次 plan/stop gate 該当)。
+
+## [2026-06-08] [Build] A0-1 reason → local insight（pure / readiness layer）main 着地（未配線）[承認: CEO 方向確定=魂継続・自律バッチ]
+- CEO 方向「魂継続=reason→local insight」+ 補正「pure/readiness + tests + closeout + UI mini-design まで自律・UI 実装は次判断」に従い自律バッチ実行。
+- `lib/plan/mobility/mobilityReasonInsight.ts`: A0 reason を leg 単位で観測のみ集約 → ReasonInsight | NotEnoughReasonSignal。readiness=minObservations 3(★1-2 件は出さない)+reason/mode strict majority(2-2 tie 出さない)+established(≥5∧share≥0.67)。structured のみ(copy/強語なし)・生数値 internal・per-leg のみ(OD 扱わず境界明確)・trait なし・belief 非依存・excludeLegKeys で sensitive 除外。
+- HARD GATE 全 PASS(sparse 保護/trait なし/belief 上書きなし/per-leg 境界明確)。検証 RI1-RI14・mobility 255 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss(main 14 PASS)。main `856c5919`・code branch `claude/dr-a0-insight`。closeout `…-a0-1-reason-insight-closeout.md`。
+- ★次=A0-2 reason reflection UI（mini-design `…-a0-2-reason-reflection-ui-mini-design.md` 提出済）。**UI 実装は次の CEO 判断**（user-facing+copy=smoke+copy review gate）。stop gate 該当: A0-2 は大 UI/copy → 停止。
+
+## [2026-06-08] [Build] fix: map の「今日」を JST 暦日に（UTC ズレ修正）main 着地 [承認: CEO smoke PASS]
+- CEO 報告「map の時間感覚が UTC かも」→ 特定: MapTab `todayDate = utcMidnight(baseNow)`(UTC 暦日)が JST 00:00-09:00 で前日にズレ。plan は「UTC 内部」設計だが map の「今日」境界が UTC midnight(=09:00 JST)。
+- 最小修正: `jstTodayUtcMidnight(now)` を `_helpers.ts` 追加(JST 暦日を UTC-midnight Date で返す=anchorsForDay/dayKey の UTC モデルと互換)・MapTab `todayDate` を置換。MapTab specifically(Calendar/Flow の UTC は別 scope)。
+- CEO smoke PASS(05:09 JST に map が今日=6/8 表示)。検証 jstTodayUtcMidnight 3 ケース + plan suite 5147 + helpers 58 PASS・tsc footprint 0(total 55)・zero-conflict/zero-loss。main `0630f306`・code branch `claude/fix-jst-today`。
+- ★A0-2 着地時の注意: A0-2 branch(`dacce503`)の MapTab は JST 前 base。A0-2 着地時は git checkout overwrite でなく **JST-main の MapTab に A0-2 変更を Edit で再適用**(reason chips/reflection は line 161 と別位置=非競合)し JST を保全すること。
+- 次: A0-2 reflection UI smoke 再開（CEO 指示）。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] A0-2 reason reflection UI main 着地（★JST 保全・cherry-pick）[承認: CEO smoke PASS]
+- 魂の可視化第一歩。established insight のみ穏やかな 1 行（reasonReflectionLine pure・emerging/「その他」/not_enough は沈黙・仮説トーン・強語/生数値/人格語なし・per-leg・trait でない）。MobilityLegCard inline 1 行(readOnly 非表示・modal でない・local dismiss)。MapTab established 計算(readOnly/sensitive 沈黙)。
+- ★**JST 保全**: A0-2 branch(`dacce503`)は JST 前 base ゆえ git checkout overwrite だと JST を revert する危険。**`git cherry-pick dacce503`** で JST-main に 3-way merge → MapTab auto-merge・**JST(`0630f306`)保持+ A0-2 共存**を確認(jstTodayUtcMidnight×3 + reasonReflection×5・smoke-force 混入 0)。
+- 検証 RR1-6+RUI1-6・main 98 PASS・tsc footprint 0(total 55)・zero-loss。main `dad0fd59`・code branch `claude/dr-a0-reflection-ui`(`dacce503`)。closeout `…-a0-2-reason-reflection-ui-closeout.md`。
+- ★CEO 指示「revert 禁止」遵守: smoke-force(dr-energy worktree の未 commit)は revert せず放置(main 非接触・cherry-pick は clean commit から取得ゆえ無害)。
+- 次: 次バッチ計画提示。Alter/Stargazer 合流(full 鏡)は gated。push/Vercel/GitHub/DB/env/Reality 不接触。
+
+## [2026-06-08] [Build] A1「あなたのペース」(S3) audit — ★設計上の重要発見（measured pace は不可）[stop gate: 設計と矛盾する発見]
+- CEO 方向: roadmap v2.1 Phase A1「あなたのペース」(S3・原典 Wave 2 残)。warm briefing は backlog 化(roadmap Phase B4・A1 後に戻す)済。
+- ★**audit 核心発見**: 原典 S3「実移動から個人化した移動時間」の前提=**actual signal が存在しない**。実到着/完了 timestamp なし(completedAt/arrivedAt 等 grep 0)・GPS なし・mobilityObservation は gap/estimate を持たない。estimatedDurationMin は generic 見積。→ **距離→時間捏造禁止ゆえ measured pace(実速度)は出せない**。
+- 観測可能な唯一の honest signal = **time-budget tendency**(予定 gap vs route estimate・feasibility の slack/shortfall 由来)。ただし「予定の組み方の癖」であって実速度でない・outcome 無しで弱い・capture も未存在(別 slice 要)。
+- ★**CEO 判断点(設計の岐路)**: (A)honest「time-budget tendency」pure layer を作る(推奨・unknown gate・捏造なし) / (B)S3 を defer(actual signal 待ち) / (C)reframe。audit doc `…-a1-personal-pace-audit.md`。
+- 「設計と矛盾する発見」stop gate に該当 → pure 実装前に CEO の方向確認で停止。push/Vercel/GitHub/DB/env/Reality 不接触。
