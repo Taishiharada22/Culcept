@@ -465,4 +465,148 @@ export const PLAN_FLAGS = {
   //   両方 default OFF → 着地時点で現 3 タブ挙動は不変。本番表示/ON は別 GO。
   alterTabEnabled: process.env.PLAN_ALTER_TAB_ENABLED === "true",
   dayStateStorageEnabled: process.env.PLAN_DAY_STATE_STORAGE === "true",
+
+  // ── UX-2: CoAlter /plan タブ（practical-diffie 由来・全 default OFF・本番 inert・既存タブ不変）──
+  //   coalterPlanTabEnabled でタブ表示（fixture-only）。live read / relation / send / live messages は
+  //   段階別 gate で全 dormant。送信 route は別 server gate planCoAlterSendLocalEnabled() で二重 gate。
+  /**
+   * CoAlter /plan タブ（**UI プロトタイプ・fixture data のみ**）を表示するか。
+   *   true  : /plan のタブ列に「CoAlter」タブが追加される（左 Plan Intelligence + 右ペアチャット）
+   *   false : タブ非表示（**本番デフォルト**・既存 3 タブ UI 完全不変）
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED=true で有効化
+   *   （タブ列は client component（PlanClient）のため calendarMonthGridEnabled と同じく
+   *     NEXT_PUBLIC_ prefix が必須。default OFF = env 未設定なら従来どおり）。
+   *
+   * 契約正本: docs/coalter-plan-tab-backend-contract-draft.md（UI が bind する安定インターフェース）
+   * 制約（2026-06-12 CEO 指示の最初のスライス）:
+   *   - local only / fixture data のみ。fetch・DB・migration・外部 API・実 CoAlter backend 接続なし
+   *   - M2 PersonalizationPort / pair read / RLS 対応なし（バックエンド統合は CEO の明示 GO 後）
+   */
+  coalterPlanTabEnabled: process.env.NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED === "true",
+
+  /**
+   * @deprecated TalkBridge legacy retire（2026-06-12）: 本 flag が駆動していた T1b **thread-as-body**
+   *   は B で本文が session message 化したため撤去。CoAlterTab は本 flag を**消費しない**。
+   *   thread 内容は relation→thread の `coalterThreadContext` 文脈セクションで読む。freeze（新依存禁止）。
+   *
+   * TalkBridge-T1a: CoAlter タブのチャット **read-only live read** の gate（**dormant・default OFF**）。
+   *   true  : （T1b 以降）resolveCoAlterChatAdapter が read-only talk thread adapter を返す予定
+   *   false : fixture adapter（**本番デフォルト・現行動作・視覚的に完全不変**）
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE=true で有効化（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-plan-tab-talk-migration-design.md §4（T1a/T1b/T1c 分割・CEO 承認 2026-06-12）
+   *
+   * ★ flag semantics（CEO 2026-06-12 訂正）: この flag は **read（read-only thread 表示）の
+   *   gate のみ**。send / 既読 / Realtime / CoAlter invoke を **一括で点ける単一スイッチに
+   *   してはならない**。それらは将来も別段階・別 gate（adapter `capabilities` の独立 field で
+   *   表現・各々別 flag を後で追加）。1 つの env でチャット機能が全部 live 化することはない。
+   * 制約: **T1a では ON でも fixture のまま**（live adapter 未実装＝実 API 呼び出しゼロ）。
+   *   T1b（read-only thread 表示）/ T1c（send/realtime）は各 CEO GO 後に分岐のみ追加。
+   */
+  coalterChatLive: process.env.NEXT_PUBLIC_PLAN_COALTER_CHAT_LIVE === "true",
+
+  /**
+   * @deprecated TalkBridge legacy retire（2026-06-12）: thread-as-body 撤去に伴い CoAlterTab は消費しない。
+   *   文脈セクションの threadId は relation→thread（genome-connections.threadId）由来＝別経路。freeze。
+   *
+   * TalkBridge-T1b: read-only live read の対象 threadId（**dev/local 注入専用・default 空**）。
+   *   - 空（既定）: live read 対象なし＝coalterChatLive が ON でも fixture のまま（fetch 0）
+   *   - 非空 ∧ coalterChatLive=true: 既存 GET /api/talk/threads/[id]/messages を 1 回読む
+   *     （read-only。失敗/empty は fixture へ fail-closed）
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_DEV_THREAD_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
+   * 制約: **thread picker は作らない**（CEO T1b thread resolution・picker は別 GO）。
+   *   本 env は local 検証用の明示注入のみ。production では未設定＝空。
+   */
+  coalterChatDevThreadId: (process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_THREAD_ID ?? "").trim(),
+
+  /**
+   * TalkBridge-C1: relation metadata binding（**read-only・default OFF・C-1 専用 gate**）。
+   *   true  : C-1 前提（viewerUserId + dev counterpart）充足時に既存 `GET /api/genome-connections`
+   *           を 1 回読み、accepted connection の counterpart を `culcept_relation` に解決して
+   *           session participants を bind（read-only・失敗は fixture へ fail-closed）。
+   *   false : fixture のまま（**本番デフォルト**・fetch 0・現行動作不変）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_RELATION_LIVE=true で有効化（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-plan-tab-c1-relation-binding-preflight.md（CEO 承認 2026-06-12）。
+   * ★ chat live（read）とは **独立 gate**（capabilities は単一スイッチにしない原則）。relation 源は
+   *   genome-connections のみ＝**`/api/talk/threads` は使わない**・service_role 非依存。
+   */
+  coalterRelationLive: process.env.NEXT_PUBLIC_PLAN_COALTER_RELATION_LIVE === "true",
+
+  /**
+   * TalkBridge-C1: relation 解決対象の counterpart userId（**dev/local 注入専用・default 空**）。
+   *   - 空（既定）: 解決対象なし＝coalterRelationLive が ON でも fixture のまま（fetch 0・**勝手に選ばない**）
+   *   - 非空 ∧ coalterRelationLive=true ∧ viewerUserId あり: genome-connections を読み、その userId が
+   *     accepted connection の counterpart のときだけ resolve。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_DEV_COUNTERPART_USER_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
+   * 制約: **thread picker / counterpart picker は作らない**（明示注入のみ・production 未設定＝空）。
+   *   production の counterpart は session 作成由来（C-1 範囲外）。
+   */
+  coalterDevCounterpartUserId: (
+    process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_COUNTERPART_USER_ID ?? ""
+  ).trim(),
+
+  /**
+   * TalkBridge-A: 「これまでの会話」**文脈セクション**（read-only・**default OFF**・session 本文と分離）。
+   *   true  : C-1 relation が `attachedThreadRef`（= genome-connections.threadId）を得たとき、その thread の
+   *           messages を read-only で**別セクション**に表示（**本文の bubble list には混ぜない**）。
+   *   false : 文脈セクション非表示（**本番デフォルト**・thread messages fetch 0・本文不変）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_THREAD_CONTEXT=true で有効化（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-session-message-closeout-thread-context-preflight.md §6-A（CEO 承認 2026-06-12）。
+   * 制約: read-only（GET-only・既存 messages GET 再利用）・send/既読/Realtime/useCoAlter なし・
+   *   thread→identity/session 派生なし（話者は匿名/表示専用・participants に昇格しない）・
+   *   threadId 源は **genome-connections のみ**（`/api/talk/threads` LIST 不使用・picker なし）。
+   */
+  coalterThreadContext: process.env.NEXT_PUBLIC_PLAN_COALTER_THREAD_CONTEXT === "true",
+
+  /**
+   * CoAlter **local-only human send route** gate（POST /api/coalter/sessions/:id/messages・**default OFF**）。
+   *   true  : participant が自分の session に session message を送信できる（user-RLS・author は server stamp）。
+   *   false : route は 404（**本番デフォルト**・送信経路 dormant）。
+   *
+   * env: PLAN_COALTER_SEND_LOCAL=true（**server-side のみ評価・NEXT_PUBLIC_ なし**＝client に露出しない）。
+   * 正本: docs/coalter-send-route-preflight.md（CEO GO 2026-06-13 local-only persistence/send bundle）。
+   * 制約: **local only**（push/staging/production なし）。human participant の chat 送信のみ。
+   *   system/CoAlter 送信なし・read receipt/realtime/typing/useCoAlter なし・`/talk` mutation なし・
+   *   service_role 非依存（user-RLS client + DB RLS が最終ゲート）。route は request 時に本 env を再評価する。
+   */
+  coalterSendLocal: process.env.PLAN_COALTER_SEND_LOCAL === "true",
+
+  /**
+   * CoAlter **本文を実 session message に接続**（read + send・**client gate・default OFF**）。
+   *   true  : `coalterDevSessionId` がある時、本文を GET /api/coalter/sessions/:id/messages から読み、
+   *           送信は POST（同 route）。失敗/未認証/session 未束縛 → fixture へ fail-closed。
+   *   false : fixture のまま（**本番デフォルト**・fetch 0・現行 UI 完全不変）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_LIVE_MESSAGES=true（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-send-route-preflight.md / docs/coalter-plan-session-message-schema-rls-design.md。
+   * 制約: **local only**（route 側 server gate `PLAN_COALTER_SEND_LOCAL` と AND で初めて live）。
+   *   raw userId を UI に出さない（未解決 author は中立ラベル）。read receipt/realtime/typing/useCoAlter なし。
+   *   thread を session root にしない・thread から session identity を推論しない。
+   */
+  coalterLiveMessages: process.env.NEXT_PUBLIC_PLAN_COALTER_LIVE_MESSAGES === "true",
+
+  /**
+   * CoAlter live 本文の対象 sessionId（**dev/local 注入専用・default 空**・product strategy ではない）。
+   *   - 空（既定）: live 対象なし＝coalterLiveMessages が ON でも fixture のまま（fetch 0）
+   *   - 非空 ∧ coalterLiveMessages=true: その sessionId の messages を読む/送る。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_DEV_SESSION_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
+   * 制約: **session 作成は production 未実装**（本 env は local 検証用の明示注入のみ・production 未設定＝空）。
+   *   **`/talk` thread を session root にしない**（sessionId は plan_coalter session・thread 由来でない）。
+   */
+  coalterDevSessionId: (process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_SESSION_ID ?? "").trim(),
 } as const;
+
+/**
+ * CoAlter local-only send route の **request 時**評価（route handler 用）。
+ * `PLAN_FLAGS.coalterSendLocal` は module load 時固定だが、route は毎リクエストで env を再評価して
+ * local-only gate を効かせる（test も env stub で制御できる）。default OFF。
+ */
+export function planCoAlterSendLocalEnabled(): boolean {
+  return process.env.PLAN_COALTER_SEND_LOCAL === "true";
+}
