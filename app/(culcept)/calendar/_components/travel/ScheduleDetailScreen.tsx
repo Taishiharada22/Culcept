@@ -14,9 +14,12 @@ import {
   WeatherGlyph,
 } from "./concierge/primitives";
 import { Bookmark, Share, Crest, ChevronDown, Lightbulb, TransportIcon } from "./concierge/icons";
+import { useMergedSchedule } from "./state/ItineraryContext";
 
-export default function ScheduleDetailScreen({ day, onClose }: TravelScreenProps) {
+export default function ScheduleDetailScreen({ day, onClose, onToast }: TravelScreenProps) {
+  const schedule = useMergedSchedule(day);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  const [bookmarked, setBookmarked] = React.useState(false);
   const toggle = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -24,6 +27,18 @@ export default function ScheduleDetailScreen({ day, onClose }: TravelScreenProps
       else next.add(id);
       return next;
     });
+
+  const onShare = () => {
+    const text = `${day.theme}（${day.monthDayLabel} ${day.weekdayLabel}）の旅程`;
+    const nav = typeof navigator !== "undefined" ? navigator : undefined;
+    if (nav?.share) {
+      nav.share({ title: "Aneurasync 旅程", text }).catch(() => {});
+    } else if (nav?.clipboard) {
+      nav.clipboard.writeText(text).then(() => onToast("旅程をコピーしました")).catch(() => onToast("共有に対応していません"));
+    } else {
+      onToast("共有に対応していません");
+    }
+  };
 
   return (
     <div className="min-h-full">
@@ -33,8 +48,18 @@ export default function ScheduleDetailScreen({ day, onClose }: TravelScreenProps
         onBack={onClose}
         right={
           <>
-            <button aria-label="保存" className="flex h-9 w-9 items-center justify-center"><Bookmark size={18} /></button>
-            <button aria-label="共有" className="flex h-9 w-9 items-center justify-center"><Share size={18} /></button>
+            <button
+              onClick={() => { setBookmarked((v) => !v); onToast(bookmarked ? "保存を解除しました" : "しおりに保存しました"); }}
+              aria-label="保存"
+              aria-pressed={bookmarked}
+              className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90"
+              style={{ color: bookmarked ? T.goldDeep : T.ink2 }}
+            >
+              <Bookmark size={18} />
+            </button>
+            <button onClick={onShare} aria-label="共有" className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90" style={{ color: T.ink2 }}>
+              <Share size={18} />
+            </button>
           </>
         }
       />
@@ -78,9 +103,9 @@ export default function ScheduleDetailScreen({ day, onClose }: TravelScreenProps
 
         {/* タイムライン */}
         <ol>
-          {day.schedule.map((it, idx) => {
+          {schedule.map((it, idx) => {
             const isOpen = expanded.has(it.id);
-            const last = idx === day.schedule.length - 1;
+            const last = idx === schedule.length - 1;
             return (
               <li key={it.id} className="flex gap-2">
                 {/* 時刻 */}

@@ -67,6 +67,7 @@ export interface ReservationAction {
   kind: ReservationActionKind;
   label: string;
   emphasis?: "gold" | "outline"; // 変更・キャンセル = gold
+  url?: string; // 提供時のみ外部リンクで開く（メニュー/チケット/時刻表 等・捏造しない）
 }
 export interface ReservationTag {
   label: string;

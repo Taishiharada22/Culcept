@@ -51,9 +51,12 @@ function actionIcon(kind: ReservationAction["kind"]) {
   }
 }
 
-function ReservationCard({ r, onOpenMap }: { r: Reservation; onOpenMap: TravelScreenProps["onOpenMap"] }) {
+function ReservationCard({ r, onOpenMap, onToast }: { r: Reservation; onOpenMap: TravelScreenProps["onOpenMap"]; onToast: TravelScreenProps["onToast"] }) {
   const handle = (a: ReservationAction) => {
-    if (a.kind === "map") onOpenMap({ point: r.coords, title: r.name });
+    if (a.url) { window.open(a.url, "_blank", "noreferrer"); return; }
+    if (a.kind === "map") { onOpenMap({ point: r.coords, title: r.name }); return; }
+    if (a.kind === "change") { onToast("ご変更・キャンセルはコンシェルジュ経由で承ります"); return; }
+    onToast(`${a.label}は接続後に対応します`);
   };
   return (
     <ConciergeCard className="p-3">
@@ -124,7 +127,7 @@ function ReservationCard({ r, onOpenMap }: { r: Reservation; onOpenMap: TravelSc
   );
 }
 
-export default function ReservationsScreen({ trip, day, onClose, onOpenMap }: TravelScreenProps) {
+export default function ReservationsScreen({ trip, day, onClose, onOpenMap, onNavigate, onToast }: TravelScreenProps) {
   const stats = day.reservationStats;
   const statCols = [
     { Icon: ListChecks, label: "すべての予約", value: stats.total, color: T.ink2 },
@@ -140,7 +143,7 @@ export default function ReservationsScreen({ trip, day, onClose, onOpenMap }: Tr
         subLabel="Your Reservations"
         subCaps
         onBack={onClose}
-        right={<button aria-label="通知" className="flex h-9 w-9 items-center justify-center"><Bell size={18} /></button>}
+        right={<button onClick={() => onToast("通知はまだありません")} aria-label="通知" className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90"><Bell size={18} /></button>}
       />
 
       <div className="mx-auto w-full max-w-md flex-1 space-y-4 px-4 pb-6 pt-3">
@@ -148,6 +151,7 @@ export default function ReservationsScreen({ trip, day, onClose, onOpenMap }: Tr
           thumb={<PhotoSlot photo={day.heroPhoto} className="h-12 w-16" rounded="rounded-lg" />}
           title={trip.title}
           meta={`${trip.dateRangeLabel}・${trip.partySize}名`}
+          onAction={() => onNavigate("schedule")}
         />
 
         {/* 4スタット */}
@@ -171,14 +175,14 @@ export default function ReservationsScreen({ trip, day, onClose, onOpenMap }: Tr
             <section key={cat} className="space-y-2">
               <div className="font-serif text-[14px]" style={{ color: T.ink2, fontWeight: 600 }}>{cat}</div>
               {items.map((r) => (
-                <ReservationCard key={r.id} r={r} onOpenMap={onOpenMap} />
+                <ReservationCard key={r.id} r={r} onOpenMap={onOpenMap} onToast={onToast} />
               ))}
             </section>
           );
         })}
 
         {/* フッター */}
-        <ConciergeCard className="flex items-center gap-3 p-4" style={{ background: T.cardAlt }}>
+        <ConciergeCard interactive onClick={() => onToast("コンシェルジュにおつなぎします（準備中）")} ariaLabel="コンシェルジュに相談する" className="flex items-center gap-3 p-4" style={{ background: T.cardAlt }}>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ color: T.gold, background: T.goldBg }}>
             <ConciergeBell size={18} />
           </span>

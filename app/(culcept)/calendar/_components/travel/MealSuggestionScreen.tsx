@@ -48,7 +48,7 @@ export default function MealSuggestionScreen({ trip, day, onClose, onOpenMap }: 
         latinTitle
         subLabel="食のおすすめ"
         onBack={onClose}
-        right={<button aria-label="地図" onClick={() => onOpenMap({ title: day.meal.areaLabel })} className="flex h-9 w-9 items-center justify-center"><MapGlyph size={18} /></button>}
+        right={<button aria-label="地図" onClick={() => onOpenMap({ point: pick.coords, title: pick.name })} className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90"><MapGlyph size={18} /></button>}
       />
 
       <div className="mx-auto w-full max-w-md flex-1 space-y-4 px-4 pb-6 pt-3">
@@ -132,7 +132,7 @@ export default function MealSuggestionScreen({ trip, day, onClose, onOpenMap }: 
 
           <div className="grid grid-cols-2 gap-3">
             {alts.map((a) => (
-              <ConciergeCard key={a.id} className="overflow-hidden">
+              <ConciergeCard key={a.id} interactive onClick={() => onOpenMap({ point: a.coords, title: a.name })} ariaLabel={`${a.name} を地図で見る`} className="overflow-hidden">
                 <div className="relative">
                   <PhotoSlot photo={a.photo} className="h-24 w-full" rounded="rounded-none" />
                   <span className="absolute left-2 top-2 rounded px-1.5 py-0.5 text-[9px] font-medium" style={{ background: `${T.card}e6`, color: T.ink2 }}>

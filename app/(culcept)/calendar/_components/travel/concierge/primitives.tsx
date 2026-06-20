@@ -3,6 +3,8 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import type { ReservationCategory, ReservationStatus } from "../../../_lib/travel/types";
 import {
   ChevronLeft,
@@ -43,26 +45,60 @@ export const T = {
 
 export const GOLD_GRADIENT = `linear-gradient(135deg, ${T.gold} 0%, ${T.goldDeep} 100%)`;
 
-/** カード。warm ivory・細い warm border・soft shadow。 */
+/** 3段エレベーション（warm tone・世界観統一）。e1=補助 / e2=主役 hero / e3=モーダル。 */
+export const ELEV = {
+  e1: "0 2px 14px rgba(120,100,60,0.06)",
+  e2: "0 8px 26px rgba(120,100,60,0.12), inset 0 1px 0 rgba(255,255,255,0.55)",
+  e3: "0 18px 44px rgba(60,45,20,0.26)",
+} as const;
+
+/** gold tone の focus-visible リング（全 interactive 共通・キーボード操作配慮）。 */
+export const FOCUS_RING = "outline-none focus-visible:ring-2 focus-visible:ring-[#c9b485] focus-visible:ring-offset-1 focus-visible:ring-offset-[#f5efe6]";
+
+/** カード。warm ivory・細い warm border・soft shadow。interactive で hover/press の手応えを付与。 */
 export function ConciergeCard({
   children,
   className = "",
   style,
   onClick,
+  elevated = false,
+  ariaLabel,
 }: {
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
   onClick?: () => void;
+  /** @deprecated affordance は onClick の有無で決まる。型互換のため残置。 */
+  interactive?: boolean;
+  elevated?: boolean;
+  ariaLabel?: string;
 }) {
+  // クリック表現(cursor/hover/focus)と a11y(role/tab/key)は「実際に操作可能か(onClick 有無)」に一致させる。
+  // interactive 単独（onClick 無し）でクリック風だけ付く落とし穴を排除。
+  const operable = !!onClick;
   return (
     <div
       onClick={onClick}
-      className={`rounded-[20px] border ${className}`}
+      role={operable ? "button" : undefined}
+      tabIndex={operable ? 0 : undefined}
+      aria-label={ariaLabel}
+      onKeyDown={
+        operable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick!();
+              }
+            }
+          : undefined
+      }
+      className={`rounded-[20px] border transition duration-150 ${
+        operable ? `cursor-pointer hover:-translate-y-[1px] active:scale-[0.99] ${FOCUS_RING}` : ""
+      } ${className}`}
       style={{
         background: T.card,
         borderColor: T.border,
-        boxShadow: "0 2px 14px rgba(120,100,60,0.06)",
+        boxShadow: elevated ? ELEV.e2 : ELEV.e1,
         ...style,
       }}
     >
@@ -382,5 +418,99 @@ export function PriceLevelText({ level }: { level: string }) {
       <span style={{ color: T.goldDeep }}>{"¥".repeat(used)}</span>
       <span style={{ color: T.ink3 }}>{"¥".repeat(Math.max(0, 4 - used))}</span>
     </span>
+  );
+}
+
+/**
+ * 共通ボトムシート（都道府県ピッカー・詳細シート等で再利用）。
+ * overflow コンテナにクリップされない fixed レイヤ。scrim タップ / Escape で閉じる。
+ */
+export function BottomSheet({
+  open,
+  onClose,
+  children,
+  title,
+  maxHeightVh = 88,
+}: {
+  open: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  title?: string;
+  maxHeightVh?: number;
+}) {
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopImmediatePropagation(); // 親（TravelDayDetail）の Escape→overlay 閉じを抑止し、シートのみ閉じる
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onClose]);
+
+  // framer-motion の transform を持つ祖先を escape するため body 直下へ portal（fixed をビューポート基準に）。
+  if (!mounted) return null;
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            className="fixed inset-0 z-[70]"
+            style={{ background: "rgba(40,32,18,0.42)", backdropFilter: "blur(2px)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            onClick={onClose}
+            aria-hidden
+          />
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-x-0 bottom-0 z-[71] mx-auto w-full max-w-[480px] overflow-hidden rounded-t-[24px]"
+            style={{ background: T.bg, boxShadow: ELEV.e3 }}
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 34, stiffness: 340 }}
+          >
+            <div className="flex flex-col" style={{ maxHeight: `${maxHeightVh}vh` }}>
+              <div className="flex shrink-0 items-center justify-center pt-2.5">
+                <span className="h-1 w-9 rounded-full" style={{ background: T.line }} />
+              </div>
+              {title && (
+                <div className="shrink-0 px-5 pb-2 pt-1.5 text-center font-serif text-[15px]" style={{ color: T.ink, fontWeight: 600 }}>
+                  {title}
+                </div>
+              )}
+              <div className="overflow-y-auto overscroll-contain px-5 pb-[max(20px,env(safe-area-inset-bottom))] pt-1">
+                {children}
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
+/** shimmer skeleton（main 接続後の非同期取得 placeholder）。reduced-motion は globals.css で無効化。 */
+export function SkeletonBlock({ className = "", rounded = "rounded-xl" }: { className?: string; rounded?: string }) {
+  return (
+    <div
+      className={`animate-travel-shimmer ${rounded} ${className}`}
+      style={{
+        backgroundImage: `linear-gradient(90deg, ${T.cardSunk} 25%, ${T.cardAlt} 50%, ${T.cardSunk} 75%)`,
+        backgroundSize: "200% 100%",
+      }}
+      aria-hidden
+    />
   );
 }

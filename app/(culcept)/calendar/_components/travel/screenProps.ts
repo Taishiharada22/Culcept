@@ -14,4 +14,6 @@ export interface TravelScreenProps {
   onNavigate: (screen: TravelScreen) => void;
   onClose: () => void;
   onOpenMap: (focus?: MapFocus) => void;
+  /** 画面共通トースト（操作フィードバック）。 */
+  onToast: (msg: string) => void;
 }

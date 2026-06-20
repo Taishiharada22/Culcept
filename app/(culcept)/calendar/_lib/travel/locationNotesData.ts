@@ -592,8 +592,20 @@ export const KYOTO_LOCATION_NOTES: LocationNotesData = {
 
 /** 都道府県でデータを絞り込む（都道府県セレクタ反映用）。 */
 export function getLocationNotes(prefecture: string): LocationNotesData {
-  return {
-    ...KYOTO_LOCATION_NOTES,
-    items: KYOTO_LOCATION_NOTES.items.filter((it) => it.prefecture === prefecture),
-  };
+  const items = KYOTO_LOCATION_NOTES.items.filter((it) => it.prefecture === prefecture);
+  // データ未整備の都道府県は全セクションを空に（選択した都道府県に内容が追従＝honesty。
+  // 京都のテーマ/エリア/好みを他県に残さない）。
+  if (items.length === 0) {
+    return {
+      ...KYOTO_LOCATION_NOTES,
+      items: [],
+      themes: [],
+      areaChips: [],
+      preferenceChips: [],
+      matchReasons: [],
+      infoSources: [],
+      hiddenHints: [],
+    };
+  }
+  return { ...KYOTO_LOCATION_NOTES, items };
 }

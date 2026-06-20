@@ -8,7 +8,7 @@ import { Search } from "../../concierge/icons";
 import { HeroCard, TripRowCard, SpotGridCard, SectionHeading, HScroll, Grid2, EmptyState } from "../cards";
 import type { LocationViewProps } from "../viewTypes";
 
-export function ClassicsView({ data, savedIds, onToggleSave, onAddToItinerary, onGoToAdd }: LocationViewProps) {
+export function ClassicsView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onGoToAdd }: LocationViewProps) {
   const classics = data.items.filter((i) => i.classification === "classic");
   if (classics.length === 0) {
     return <EmptyState title="王道がまだありません" body="定番の名所やルートを王道として追加できます。" actionLabel="王道を追加" onAction={onGoToAdd} />;
@@ -23,14 +23,14 @@ export function ClassicsView({ data, savedIds, onToggleSave, onAddToItinerary, o
         <div className="mb-2">
           <h2 className="font-serif text-[14px]" style={{ color: T.ink, fontWeight: 600 }}>はじめての京都におすすめ</h2>
         </div>
-        <HeroCard item={hero} badges={["王道", hero.kind === "trip" ? "旅行プラン" : "スポット"]} saved={savedIds.has(hero.id)} onToggleSave={() => onToggleSave(hero.id)} onAddToItinerary={() => onAddToItinerary(hero)} />
+        <HeroCard item={hero} badges={["王道", hero.kind === "trip" ? "旅行プラン" : "スポット"]} saved={savedIds.has(hero.id)} added={isAdded(hero.id)} onToggleSave={() => onToggleSave(hero.id)} onAddToItinerary={() => onAddToItinerary(hero)} onOpen={() => onOpenDetail(hero)} />
       </div>
 
       {trips.length > 0 && (
         <section>
           <SectionHeading ja="王道の旅程" />
           <HScroll>
-            {trips.map((it) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} />)}
+            {trips.map((it) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} added={isAdded(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} onOpen={() => onOpenDetail(it)} />)}
           </HScroll>
         </section>
       )}
@@ -38,7 +38,7 @@ export function ClassicsView({ data, savedIds, onToggleSave, onAddToItinerary, o
         <section>
           <SectionHeading ja="王道のスポット" />
           <Grid2>
-            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} />)}
+            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
           </Grid2>
         </section>
       )}

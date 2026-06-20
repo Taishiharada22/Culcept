@@ -15,8 +15,9 @@ import {
 } from "./concierge/primitives";
 import { Bookmark, Flag, TransportIcon } from "./concierge/icons";
 
-export default function MoveDetailsScreen({ trip, day, onClose, onOpenMap }: TravelScreenProps) {
+export default function MoveDetailsScreen({ trip, day, onClose, onOpenMap, onNavigate, onToast }: TravelScreenProps) {
   const { legs, summary } = day.move;
+  const [bookmarked, setBookmarked] = React.useState(false);
 
   return (
     <div className="flex h-full flex-col">
@@ -25,7 +26,17 @@ export default function MoveDetailsScreen({ trip, day, onClose, onOpenMap }: Tra
         subLabel="Move Details"
         subCaps
         onBack={onClose}
-        right={<button aria-label="保存" className="flex h-9 w-9 items-center justify-center"><Bookmark size={18} /></button>}
+        right={
+          <button
+            onClick={() => { setBookmarked((v) => !v); onToast(bookmarked ? "保存を解除しました" : "ルートを保存しました"); }}
+            aria-label="保存"
+            aria-pressed={bookmarked}
+            className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90"
+            style={{ color: bookmarked ? T.goldDeep : T.ink2 }}
+          >
+            <Bookmark size={18} />
+          </button>
+        }
       />
 
       <div className="mx-auto w-full max-w-md flex-1 space-y-4 px-4 pb-6 pt-3">
@@ -33,6 +44,7 @@ export default function MoveDetailsScreen({ trip, day, onClose, onOpenMap }: Tra
           thumb={<PhotoSlot photo={day.heroPhoto} className="h-12 w-16" rounded="rounded-lg" />}
           title={trip.title}
           meta={`${day.monthDayLabel} (${day.weekdayLabel}) ${day.dayIndex}日目`}
+          onAction={() => onNavigate("schedule")}
         />
 
         {/* ヒント */}

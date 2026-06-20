@@ -12,7 +12,7 @@ import {
   SectionLabel,
   ProgressBar,
 } from "./concierge/primitives";
-import { ChevronDown, ChevronRight, Crest, Leaf, Lightbulb, BedIcon, ForkKnife, TransportIcon, Sparkle, Camera2 } from "./concierge/icons";
+import { ChevronRight, Crest, Leaf, Lightbulb, BedIcon, ForkKnife, TransportIcon, Sparkle, Camera2 } from "./concierge/icons";
 
 const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
 const DONUT_TONES = ["#8a7038", "#a17f44", "#b2935a", "#c2a673", "#d1b98d", "#dccba6"];
@@ -70,9 +70,11 @@ function Donut({ segments, usagePct }: { segments: BudgetDonutCategory[]; usageP
   );
 }
 
-export default function BudgetSnapshotScreen({ trip, day, onClose }: TravelScreenProps) {
+export default function BudgetSnapshotScreen({ trip, day, onClose, onToast }: TravelScreenProps) {
   const b = day.budget;
   const maxDay = Math.max(...b.dayComparison.map((d) => d.amount), 1);
+  const [showAllCats, setShowAllCats] = React.useState(false);
+  const visibleCats = showAllCats ? b.donut : b.donut.slice(0, 3);
 
   return (
     <div className="min-h-full">
@@ -83,7 +85,7 @@ export default function BudgetSnapshotScreen({ trip, day, onClose }: TravelScree
         onBack={onClose}
         right={
           <span className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium" style={{ borderColor: T.border, background: T.cardAlt, color: T.ink2 }}>
-            {trip.title} <ChevronDown size={13} />
+            {trip.title}
           </span>
         }
       />
@@ -129,7 +131,7 @@ export default function BudgetSnapshotScreen({ trip, day, onClose }: TravelScree
           <div className="flex items-center gap-4">
             <Donut segments={b.donut} usagePct={b.progressPct} />
             <div className="min-w-0 flex-1 space-y-2">
-              {b.donut.map((c, i) => (
+              {visibleCats.map((c, i) => (
                 <div key={c.key} className="flex items-center gap-2">
                   <span style={{ color: DONUT_TONES[i % DONUT_TONES.length] }}>{catIcon(c.key)}</span>
                   <div className="min-w-0 flex-1">
@@ -144,9 +146,17 @@ export default function BudgetSnapshotScreen({ trip, day, onClose }: TravelScree
               ))}
             </div>
           </div>
-          <button className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg border py-2 text-[11px] font-medium" style={{ borderColor: T.border, background: T.cardAlt, color: T.ink2 }}>
-            すべてのカテゴリーを表示 <ChevronRight size={13} />
-          </button>
+          {b.donut.length > 3 && (
+            <button
+              onClick={() => setShowAllCats((v) => !v)}
+              aria-expanded={showAllCats}
+              className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg border py-2 text-[11px] font-medium transition active:scale-[0.99]"
+              style={{ borderColor: T.border, background: T.cardAlt, color: T.ink2 }}
+            >
+              {showAllCats ? "一部のみ表示" : "すべてのカテゴリーを表示"}
+              <ChevronRight size={13} className="transition-transform" style={{ transform: showAllCats ? "rotate(90deg)" : undefined }} />
+            </button>
+          )}
         </ConciergeCard>
 
         {/* DAY VS TRIP COMPARISON */}
@@ -201,7 +211,7 @@ export default function BudgetSnapshotScreen({ trip, day, onClose }: TravelScree
               </div>
             </div>
           </div>
-          <button className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border py-2 text-[11px] font-medium" style={{ borderColor: T.border, background: T.cardAlt, color: T.goldDeep }}>
+          <button onClick={() => onToast("コンシェルジュが節約プランをご提案します（準備中）")} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border py-2 text-[11px] font-medium transition active:scale-[0.99]" style={{ borderColor: T.border, background: T.cardAlt, color: T.goldDeep }}>
             <Lightbulb size={13} /> 節約のヒントをみる <ChevronRight size={12} />
           </button>
         </ConciergeCard>

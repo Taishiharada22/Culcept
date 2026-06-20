@@ -5,9 +5,25 @@
 
 import * as React from "react";
 import type { LocationItem, LocationSource, PreferenceChip, TravelTheme } from "../../../_lib/travel/types";
-import { T } from "../concierge/primitives";
+import { T, FOCUS_RING } from "../concierge/primitives";
 import { PhotoSlot } from "../PhotoSlot";
-import { Star, Heart, ChevronRight, Plus, MapPin } from "../concierge/icons";
+import { Star, Heart, ChevronRight, Plus, MapPin, Check } from "../concierge/icons";
+
+/** カード全面をタップ可能にする共通 props（キーボード対応）。 */
+function tapProps(onOpen?: () => void) {
+  if (!onOpen) return {};
+  return {
+    onClick: onOpen,
+    role: "button" as const,
+    tabIndex: 0,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onOpen();
+      }
+    },
+  };
+}
 
 // ---- source 配色（地元民=gold / 旅行者=slate）-------------------------------
 const SOURCE_STYLE: Record<LocationSource, { label: string; fg: string; bg: string }> = {
@@ -125,8 +141,10 @@ export function HeroCard({
   prefChips,
   showWhy = false,
   saved,
+  added = false,
   onToggleSave,
   onAddToItinerary,
+  onOpen,
   primaryLabel = "旅程に追加",
 }: {
   item: LocationItem;
@@ -135,13 +153,19 @@ export function HeroCard({
   prefChips?: PreferenceChip[];
   showWhy?: boolean;
   saved: boolean;
+  added?: boolean;
   onToggleSave: () => void;
   onAddToItinerary: () => void;
+  onOpen?: () => void;
   primaryLabel?: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-[20px] border" style={{ borderColor: T.border, background: T.card, boxShadow: "0 2px 14px rgba(120,100,60,0.07)" }}>
-      <div className="relative">
+    <div className="overflow-hidden rounded-[20px] border" style={{ borderColor: T.border, background: T.card, boxShadow: "0 8px 26px rgba(120,100,60,0.12), inset 0 1px 0 rgba(255,255,255,0.55)" }}>
+      <div
+        {...tapProps(onOpen)}
+        className={`relative ${onOpen ? `cursor-pointer ${FOCUS_RING}` : ""}`}
+        aria-label={onOpen ? `${item.title} の詳細を見る` : undefined}
+      >
         <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-40 w-full" />
         <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
           {badges.map((b) => <ClassChip key={b} label={b} tone="ink" />)}
@@ -203,10 +227,17 @@ export function HeroCard({
         )}
 
         <div className="mt-4 flex gap-2">
-          <button onClick={onAddToItinerary} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-[13px] font-semibold transition active:scale-[0.98]" style={{ background: `linear-gradient(135deg, ${T.gold}, ${T.goldDeep})`, color: "#fdf8ee", boxShadow: "0 3px 12px rgba(138,112,56,0.25)" }}>
-            <Plus size={15} /> {primaryLabel}
+          <button
+            onClick={onAddToItinerary}
+            disabled={added}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-[13px] font-semibold transition active:scale-[0.98] ${FOCUS_RING}`}
+            style={added
+              ? { background: T.greenBg, color: T.green }
+              : { background: `linear-gradient(135deg, ${T.gold}, ${T.goldDeep})`, color: "#fdf8ee", boxShadow: "0 3px 12px rgba(138,112,56,0.25)" }}
+          >
+            {added ? <><Check size={15} /> 旅程に追加済み</> : <><Plus size={15} /> {primaryLabel}</>}
           </button>
-          <button onClick={onToggleSave} className="flex items-center justify-center gap-1.5 rounded-xl border px-5 py-2.5 text-[13px] font-medium transition active:scale-[0.98]" style={{ borderColor: T.border, background: saved ? T.goldBg : T.card, color: saved ? T.goldDeep : T.ink2 }}>
+          <button onClick={onToggleSave} aria-pressed={saved} className={`flex items-center justify-center gap-1.5 rounded-xl border px-5 py-2.5 text-[13px] font-medium transition active:scale-[0.98] ${FOCUS_RING}`} style={{ borderColor: T.border, background: saved ? T.goldBg : T.card, color: saved ? T.goldDeep : T.ink2 }}>
             <Heart size={15} filled={saved} /> {saved ? "保存済み" : "保存"}
           </button>
         </div>
@@ -227,9 +258,14 @@ function WhyPanel({ title, body }: { title: string; body: string }) {
 // ---------------------------------------------------------------------------
 // Trip row card（横スクロール・旅行プラン）
 // ---------------------------------------------------------------------------
-export function TripRowCard({ item, saved, onToggleSave, onAddToItinerary, onOpen }: { item: LocationItem; saved: boolean; onToggleSave: () => void; onAddToItinerary: () => void; onOpen?: () => void }) {
+export function TripRowCard({ item, saved, added = false, onToggleSave, onAddToItinerary, onOpen }: { item: LocationItem; saved: boolean; added?: boolean; onToggleSave: () => void; onAddToItinerary: () => void; onOpen?: () => void }) {
   return (
-    <div onClick={onOpen} className="flex w-[168px] shrink-0 flex-col overflow-hidden rounded-2xl border" style={{ borderColor: T.border, background: T.card }}>
+    <div
+      {...tapProps(onOpen)}
+      className={`flex w-[168px] shrink-0 flex-col overflow-hidden rounded-2xl border transition duration-150 ${onOpen ? `cursor-pointer hover:-translate-y-[1px] hover:shadow-[0_8px_22px_rgba(120,100,60,0.12)] active:scale-[0.99] ${FOCUS_RING}` : ""}`}
+      style={{ borderColor: T.border, background: T.card }}
+      aria-label={onOpen ? `${item.title} の詳細` : undefined}
+    >
       <div className="relative">
         <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-24 w-full" />
         <div className="absolute right-1.5 top-1.5"><HeartButton active={saved} onClick={onToggleSave} size={13} /></div>
@@ -242,8 +278,13 @@ export function TripRowCard({ item, saved, onToggleSave, onAddToItinerary, onOpe
           <Rating rating={item.rating} count={item.ratingCount} size={11} />
         </div>
         <AuthorLine item={item} className="mt-1" />
-        <button onClick={(e) => { e.stopPropagation(); onAddToItinerary(); }} className="mt-2 inline-flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-medium" style={{ borderColor: T.border, background: T.cardAlt, color: T.goldDeep }}>
-          <Plus size={12} /> 旅程に追加
+        <button
+          onClick={(e) => { e.stopPropagation(); onAddToItinerary(); }}
+          disabled={added}
+          className={`mt-2 inline-flex items-center justify-center gap-1 rounded-lg border py-1.5 text-[11px] font-medium transition active:scale-[0.98] ${FOCUS_RING}`}
+          style={added ? { borderColor: T.greenBg, background: T.greenBg, color: T.green } : { borderColor: T.border, background: T.cardAlt, color: T.goldDeep }}
+        >
+          {added ? <><Check size={12} /> 追加済み</> : <><Plus size={12} /> 旅程に追加</>}
         </button>
       </div>
     </div>
@@ -255,7 +296,12 @@ export function TripRowCard({ item, saved, onToggleSave, onAddToItinerary, onOpe
 // ---------------------------------------------------------------------------
 export function SpotGridCard({ item, saved, onToggleSave, onOpen }: { item: LocationItem; saved: boolean; onToggleSave: () => void; onOpen?: () => void }) {
   return (
-    <div onClick={onOpen} className="flex flex-col overflow-hidden rounded-2xl border" style={{ borderColor: T.border, background: T.card }}>
+    <div
+      {...tapProps(onOpen)}
+      className={`flex flex-col overflow-hidden rounded-2xl border transition duration-150 ${onOpen ? `cursor-pointer hover:-translate-y-[1px] hover:shadow-[0_8px_22px_rgba(120,100,60,0.12)] active:scale-[0.99] ${FOCUS_RING}` : ""}`}
+      style={{ borderColor: T.border, background: T.card }}
+      aria-label={onOpen ? `${item.title} の詳細` : undefined}
+    >
       <div className="relative">
         <PhotoSlot photo={item.photo} rounded="rounded-none" className="h-20 w-full" />
         <div className="absolute right-1.5 top-1.5"><HeartButton active={saved} onClick={onToggleSave} size={13} /></div>

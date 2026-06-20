@@ -8,6 +8,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { Trip, TripDay, TravelScreen } from "../../_lib/travel/types";
 import type { TravelScreenProps, MapFocus } from "./screenProps";
 import { T, TravelBottomNav } from "./concierge/primitives";
+import { Check } from "./concierge/icons";
+import { TravelItineraryProvider } from "./state/ItineraryContext";
 import { TravelMapModal } from "./TravelMapModal";
 import ConciergeDashboard from "./ConciergeDashboard";
 import ScheduleDetailScreen from "./ScheduleDetailScreen";
@@ -30,6 +32,15 @@ export default function TravelDayDetail({
 }) {
   const [screen, setScreen] = React.useState<TravelScreen>("dashboard");
   const [mapFocus, setMapFocus] = React.useState<MapFocus | null>(null);
+  const [toast, setToast] = React.useState<string | null>(null);
+  const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = React.useCallback((msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }, []);
+  React.useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   // 背景スクロールを抑制
   React.useEffect(() => {
@@ -58,6 +69,7 @@ export default function TravelDayDetail({
     // dashboard の戻る＝overlay を閉じる。sub 画面の戻る＝dashboard へ。
     onClose: screen === "dashboard" ? onClose : () => setScreen("dashboard"),
     onOpenMap: (focus?: MapFocus) => setMapFocus(focus ?? {}),
+    onToast: showToast,
   };
 
   const renderScreen = () => {
@@ -75,7 +87,7 @@ export default function TravelDayDetail({
       case "move":
         return <MoveDetailsScreen {...screenProps} />;
       case "locationNotes":
-        return <LocationNotesScreen onClose={screenProps.onClose} />;
+        return <LocationNotesScreen onClose={screenProps.onClose} onToast={showToast} />;
     }
   };
 
@@ -90,19 +102,18 @@ export default function TravelDayDetail({
       className="fixed inset-0 z-50 flex flex-col"
       style={{ background: T.bg }}
     >
+      <TravelItineraryProvider>
       <div className="flex-1 overflow-y-auto overscroll-contain">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={screen}
-            initial={{ opacity: 0, x: 8 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -8 }}
-            transition={{ duration: 0.18 }}
-            className="min-h-full"
-          >
-            {renderScreen()}
-          </motion.div>
-        </AnimatePresence>
+        {/* 画面切替は keyed remount の fade-in のみ（AnimatePresence mode="wait" は exit が stuck し得るため不使用）。 */}
+        <motion.div
+          key={screen}
+          initial={{ opacity: 0, x: 8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.18 }}
+          className="min-h-full"
+        >
+          {renderScreen()}
+        </motion.div>
       </div>
 
       <TravelBottomNav active={navActive} onSelect={(k) => setScreen(k as TravelScreen)} />
@@ -112,6 +123,34 @@ export default function TravelDayDetail({
           <TravelMapModal stops={day.routeStops} focus={mapFocus} onClose={() => setMapFocus(null)} />
         )}
       </AnimatePresence>
+
+      {/* 画面共通トースト */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none fixed inset-x-0 bottom-24 z-[80] flex justify-center px-6"
+          >
+            <div
+              className="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-[12.5px] font-medium"
+              style={{ background: T.ink, color: "#f7f1e6", boxShadow: "0 8px 28px rgba(60,45,20,0.28)" }}
+            >
+              {/* 成功系のみ check。情報/エラー系（準備中・対応していません・失敗・済み 等）は中立ドット（偽の成功表示を出さない＝honesty） */}
+              {/(まだ|準備中|接続後|対応していません|失敗|済み|承ります)/.test(toast) ? (
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: T.goldSoft }} aria-hidden />
+              ) : (
+                <Check size={14} style={{ color: T.goldSoft }} />
+              )}
+              {toast}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </TravelItineraryProvider>
     </motion.div>
   );
 }

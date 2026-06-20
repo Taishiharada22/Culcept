@@ -56,6 +56,16 @@ export default {
                 md: "0.75rem",
                 sm: "0.5rem",
             },
+            // ── Animations (Concierge skeleton shimmer) ──
+            keyframes: {
+                "travel-shimmer": {
+                    "0%": { backgroundPosition: "-200% 0" },
+                    "100%": { backgroundPosition: "200% 0" },
+                },
+            },
+            animation: {
+                "travel-shimmer": "travel-shimmer 1.6s ease-in-out infinite",
+            },
             // ── Shadows (hierarchy-aware) ──
             boxShadow: {
                 soft: "0 8px 30px rgba(0,0,0,0.08)",

@@ -8,7 +8,7 @@ import { Sparkle } from "../../concierge/icons";
 import { HeroCard, TripRowCard, SpotGridCard, SectionHeading, HScroll, Grid2, EmptyState } from "../cards";
 import type { LocationViewProps } from "../viewTypes";
 
-export function MatchView({ data, savedIds, onToggleSave, onAddToItinerary, onGoToAdd }: LocationViewProps) {
+export function MatchView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onOpenTab, onGoToAdd }: LocationViewProps) {
   const trips = data.items.filter((i) => i.kind === "trip");
   const spots = data.items.filter((i) => i.kind === "spot");
   const ranked = [...data.items].filter((i) => i.matchPct != null).sort((a, b) => (b.matchPct ?? 0) - (a.matchPct ?? 0));
@@ -34,17 +34,19 @@ export function MatchView({ data, savedIds, onToggleSave, onAddToItinerary, onGo
           reasons={hero.matchReasons}
           prefChips={data.preferenceChips}
           saved={savedIds.has(hero.id)}
+          added={isAdded(hero.id)}
           onToggleSave={() => onToggleSave(hero.id)}
           onAddToItinerary={() => onAddToItinerary(hero)}
+          onOpen={() => onOpenDetail(hero)}
         />
       </div>
 
       {matchedTrips.length > 0 && (
         <section>
-          <SectionHeading ja="あなたにマッチした旅行プラン" />
+          <SectionHeading ja="あなたにマッチした旅行プラン" onMore={() => onOpenTab("travel")} />
           <HScroll>
             {matchedTrips.map((it) => (
-              <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} />
+              <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} added={isAdded(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} onOpen={() => onOpenDetail(it)} />
             ))}
           </HScroll>
         </section>
@@ -52,10 +54,10 @@ export function MatchView({ data, savedIds, onToggleSave, onAddToItinerary, onGo
 
       {matchedSpots.length > 0 && (
         <section>
-          <SectionHeading ja="あなたにマッチしたスポット" />
+          <SectionHeading ja="あなたにマッチしたスポット" onMore={() => onOpenTab("spot")} />
           <Grid2>
             {matchedSpots.slice(0, 6).map((it) => (
-              <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} />
+              <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />
             ))}
           </Grid2>
         </section>

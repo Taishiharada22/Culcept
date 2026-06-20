@@ -28,7 +28,7 @@ function FilterRow<T extends string>({ value, onChange, options }: { value: T; o
   );
 }
 
-export function SearchView({ data, savedIds, onToggleSave, onAddToItinerary, onGoToAdd }: LocationViewProps) {
+export function SearchView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onGoToAdd }: LocationViewProps) {
   const [q, setQ] = React.useState("");
   const [kind, setKind] = React.useState<KindF>("all");
   const [cls, setCls] = React.useState<ClassF>("all");
@@ -79,7 +79,7 @@ export function SearchView({ data, savedIds, onToggleSave, onAddToItinerary, onG
             <section>
               <div className="mb-2 font-serif text-[13px]" style={{ color: T.ink, fontWeight: 600 }}>旅行 {trips.length}</div>
               <div className="-mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
-                {trips.map((it: LocationItem) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} />)}
+                {trips.map((it: LocationItem) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} added={isAdded(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} onOpen={() => onOpenDetail(it)} />)}
               </div>
             </section>
           )}
@@ -87,7 +87,7 @@ export function SearchView({ data, savedIds, onToggleSave, onAddToItinerary, onG
             <section>
               <div className="mb-2 font-serif text-[13px]" style={{ color: T.ink, fontWeight: 600 }}>スポット {spots.length}</div>
               <Grid2>
-                {spots.map((it: LocationItem) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} />)}
+                {spots.map((it: LocationItem) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
               </Grid2>
             </section>
           )}

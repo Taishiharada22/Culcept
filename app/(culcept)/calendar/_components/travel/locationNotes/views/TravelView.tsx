@@ -9,7 +9,7 @@ import type { LocationItem } from "../../../../_lib/travel/types";
 
 const CLASS_LABEL: Record<LocationItem["classification"], string> = { classic: "王道", hidden: "穴場", standard: "定番" };
 
-export function TravelView({ data, savedIds, onToggleSave, onAddToItinerary, onGoToAdd }: LocationViewProps) {
+export function TravelView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onGoToAdd }: LocationViewProps) {
   const trips = data.items.filter((i) => i.kind === "trip");
   if (trips.length === 0) {
     return <EmptyState title="旅行プランがまだありません" body="あなたの行程を旅行プランとして追加できます。" actionLabel="旅行プランを追加" onAction={onGoToAdd} />;
@@ -24,7 +24,7 @@ export function TravelView({ data, savedIds, onToggleSave, onAddToItinerary, onG
   const row = (items: LocationItem[]) => (
     <HScroll>
       {items.map((it) => (
-        <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} />
+        <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} added={isAdded(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} onOpen={() => onOpenDetail(it)} />
       ))}
     </HScroll>
   );
@@ -35,8 +35,10 @@ export function TravelView({ data, savedIds, onToggleSave, onAddToItinerary, onG
         item={hero}
         badges={["旅行プラン", CLASS_LABEL[hero.classification]]}
         saved={savedIds.has(hero.id)}
+        added={isAdded(hero.id)}
         onToggleSave={() => onToggleSave(hero.id)}
         onAddToItinerary={() => onAddToItinerary(hero)}
+        onOpen={() => onOpenDetail(hero)}
       />
 
       {localTrips.length > 0 && (

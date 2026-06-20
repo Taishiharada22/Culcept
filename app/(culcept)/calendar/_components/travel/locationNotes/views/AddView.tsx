@@ -36,8 +36,9 @@ function Segmented<T extends string>({ value, onChange, options }: { value: T; o
 
 const inputStyle: React.CSSProperties = { borderColor: T.border, background: T.card, color: T.ink };
 const GENRE_SUGGEST = ["寺社・文化", "自然・散策", "カフェ", "グルメ", "庭園", "景観・写真"];
+const DRAFT_KEY = "aneurasync.travel.locationNotes.draft.v1";
 
-export function AddView({ prefecture, themes, onAddItem }: { prefecture: string; themes: TravelTheme[]; onAddItem: (item: LocationItem) => void }) {
+export function AddView({ prefecture, themes, onAddItem, onToast }: { prefecture: string; themes: TravelTheme[]; onAddItem: (item: LocationItem) => void; onToast: (msg: string) => void }) {
   const [kind, setKind] = React.useState<LocationItemKind>("trip");
   const [classification, setClassification] = React.useState<LocationClassification>("standard");
   const [source, setSource] = React.useState<LocationSource>("local");
@@ -47,6 +48,49 @@ export function AddView({ prefecture, themes, onAddItem }: { prefecture: string;
   const [tags, setTags] = React.useState("");
   const [desc, setDesc] = React.useState("");
   const [themeKeys, setThemeKeys] = React.useState<string[]>([]);
+  const [photoUrl, setPhotoUrl] = React.useState<string | null>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const transferredRef = React.useRef(false); // 追加でアイテムへ所有権移譲したら cleanup の revoke を抑止
+
+  // 下書き復元（写真 objectURL は揮発のため除く）
+  React.useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw) as Partial<Record<string, unknown>>;
+      if (typeof d.kind === "string") setKind(d.kind as LocationItemKind);
+      if (typeof d.classification === "string") setClassification(d.classification as LocationClassification);
+      if (typeof d.source === "string") setSource(d.source as LocationSource);
+      if (typeof d.title === "string") setTitle(d.title);
+      if (typeof d.genre === "string") setGenre(d.genre);
+      if (typeof d.area === "string") setArea(d.area);
+      if (typeof d.tags === "string") setTags(d.tags);
+      if (typeof d.desc === "string") setDesc(d.desc);
+      if (Array.isArray(d.themeKeys)) setThemeKeys(d.themeKeys.filter((x): x is string => typeof x === "string"));
+    } catch {
+      /* 破損時は無視 */
+    }
+  }, []);
+
+  // objectURL 後始末（アイテムへ移譲済みなら revoke しない＝追加後のカード画像を壊さない）
+  React.useEffect(() => () => { if (photoUrl && !transferredRef.current) URL.revokeObjectURL(photoUrl); }, [photoUrl]);
+
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (photoUrl && !transferredRef.current) URL.revokeObjectURL(photoUrl);
+    transferredRef.current = false; // 選び直しは未移譲に戻す
+    setPhotoUrl(URL.createObjectURL(file));
+  };
+
+  const saveDraft = () => {
+    try {
+      window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ kind, classification, source, title, genre, area, tags, desc, themeKeys }));
+      onToast("下書きを保存しました");
+    } catch {
+      onToast("下書きの保存に失敗しました");
+    }
+  };
 
   const toggleTheme = (k: string) => setThemeKeys((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
   const canSubmit = title.trim().length > 0;
@@ -68,10 +112,14 @@ export function AddView({ prefecture, themes, onAddItem }: { prefecture: string;
       rating: 0,
       ratingCount: 0,
       description: desc.trim() || "（説明は未入力です）",
-      photo: { source: "placeholder", label: title.trim() || "ノート", tone: "neutral" },
+      photo: photoUrl
+        ? { source: "user", url: photoUrl, caption: title.trim() }
+        : { source: "placeholder", label: title.trim() || "ノート", tone: "neutral" },
       ...(kind === "trip" ? { durationLabel: "未設定", spotCount: 0 } : { hours: "未設定" }),
     };
+    if (photoUrl) transferredRef.current = true; // objectURL の所有権をアイテムへ移譲
     onAddItem(item);
+    try { window.localStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
   };
 
   return (
@@ -108,7 +156,15 @@ export function AddView({ prefecture, themes, onAddItem }: { prefecture: string;
       </div>
 
       <Field label="写真">
-        <PhotoSlot photo={null} rounded="rounded-xl" className="h-24 w-full" />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickFile} />
+        <PhotoSlot
+          photo={photoUrl ? { source: "user", url: photoUrl, caption: title } : null}
+          rounded="rounded-xl"
+          className="h-24 w-full"
+          editable={!!photoUrl}
+          onAdd={() => fileRef.current?.click()}
+          onChange={() => fileRef.current?.click()}
+        />
       </Field>
 
       <Field label="テーマ" hint="複数選択可">
@@ -140,7 +196,7 @@ export function AddView({ prefecture, themes, onAddItem }: { prefecture: string;
         <button onClick={submit} disabled={!canSubmit} className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-3 text-[13px] font-semibold transition active:scale-[0.98]" style={canSubmit ? { background: `linear-gradient(135deg, ${T.gold}, ${T.goldDeep})`, color: "#fdf8ee", boxShadow: "0 3px 12px rgba(138,112,56,0.25)" } : { background: T.cardSunk, color: T.ink3 }}>
           <Plus size={15} /> 追加する
         </button>
-        <button onClick={() => { /* 下書きは session 内では未保持（preview） */ }} className="rounded-xl border px-5 py-3 text-[13px] font-medium" style={{ borderColor: T.border, background: T.card, color: T.ink2 }}>
+        <button onClick={saveDraft} className="rounded-xl border px-5 py-3 text-[13px] font-medium transition active:scale-[0.98]" style={{ borderColor: T.border, background: T.card, color: T.ink2 }}>
           下書き保存
         </button>
       </div>

@@ -14,11 +14,18 @@ import {
   WeatherGlyph,
   ReservationCategoryIcon,
 } from "./concierge/primitives";
-import { Bell, ChevronLeft, ChevronDown, ChevronRight, Crest, Pencil, TransportIcon } from "./concierge/icons";
+import { Bell, ChevronLeft, ChevronRight, Crest, Pencil, TransportIcon } from "./concierge/icons";
+import { useMergedSchedule } from "./state/ItineraryContext";
 
-export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onOpenMap }: TravelScreenProps) {
+const STEP_GOAL = 10000; // 標準的な1日の目標歩数（honest な基準値）
+
+export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onOpenMap, onToast }: TravelScreenProps) {
   const yen = (n: number) => `¥${n.toLocaleString("ja-JP")}`;
   const featuredMeal = day.meal.alternatives[0] ?? null;
+  const schedule = useMergedSchedule(day);
+  const previewSchedule = schedule.slice(0, 6); // preview は最大6件（追加で肥大化させない）
+  const extraCount = schedule.length - previewSchedule.length;
+  const walkPct = Math.min(100, (day.walking.steps / STEP_GOAL) * 100);
 
   return (
     <div className="min-h-full">
@@ -27,15 +34,14 @@ export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onO
         className="sticky top-0 z-20 flex items-center gap-1 px-3 py-3"
         style={{ background: `${T.bg}f0`, backdropFilter: "blur(8px)", borderBottom: `1px solid ${T.borderSoft}` }}
       >
-        <button onClick={onClose} aria-label="閉じる" className="flex h-9 w-9 items-center justify-center rounded-full" style={{ color: T.ink2 }}>
+        <button onClick={onClose} aria-label="閉じる" className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90" style={{ color: T.ink2 }}>
           <ChevronLeft size={22} />
         </button>
-        <button className="flex items-center gap-1 font-serif text-[17px]" style={{ color: T.ink, fontWeight: 600 }}>
+        <div className="font-serif text-[17px]" style={{ color: T.ink, fontWeight: 600 }}>
           {trip.title}
-          <ChevronDown size={16} />
-        </button>
+        </div>
         <div className="ml-auto">
-          <button aria-label="通知" className="flex h-9 w-9 items-center justify-center rounded-full" style={{ color: T.ink2 }}>
+          <button onClick={() => onToast("通知はまだありません")} aria-label="通知" className="flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-black/[0.04] active:scale-90" style={{ color: T.ink2 }}>
             <Bell size={20} />
           </button>
         </div>
@@ -72,22 +78,20 @@ export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onO
         </div>
 
         {/* THEME */}
-        <button onClick={() => onNavigate("schedule")} className="w-full text-left">
-          <ConciergeCard className="flex items-center gap-3 px-4 py-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full" style={{ color: T.gold, background: T.goldBg }}>
-              <Crest size={18} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: T.ink3 }}>
-                Theme
-              </div>
-              <div className="truncate font-serif text-[15px]" style={{ color: T.ink, fontWeight: 600 }}>
-                {day.theme}
-              </div>
+        <ConciergeCard interactive onClick={() => onNavigate("schedule")} ariaLabel="テーマと旅程を見る" className="flex items-center gap-3 px-4 py-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full" style={{ color: T.gold, background: T.goldBg }}>
+            <Crest size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[9px] uppercase tracking-[0.2em]" style={{ color: T.ink3 }}>
+              Theme
             </div>
-            <ChevronRight size={18} style={{ color: T.ink3 }} />
-          </ConciergeCard>
-        </button>
+            <div className="truncate font-serif text-[15px]" style={{ color: T.ink, fontWeight: 600 }}>
+              {day.theme}
+            </div>
+          </div>
+          <ChevronRight size={18} style={{ color: T.ink3 }} />
+        </ConciergeCard>
 
         {/* 2カラム：SCHEDULE / RESERVATIONS + ROUTE MAP */}
         <div className="grid grid-cols-2 gap-3">
@@ -96,7 +100,7 @@ export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onO
             <SectionLabel en="Schedule" className="mb-2" />
             <ol className="relative space-y-2.5">
               <span className="absolute left-[33px] top-1 bottom-1 w-px" style={{ background: T.line }} aria-hidden />
-              {day.schedule.map((it) => (
+              {previewSchedule.map((it) => (
                 <li key={it.id} className="relative flex gap-2">
                   <div className="w-7 shrink-0 pt-0.5 text-[10px] font-semibold tabular-nums" style={{ color: T.ink2 }}>
                     {it.startTime}
@@ -123,7 +127,7 @@ export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onO
               className="mt-3 flex w-full items-center justify-center gap-1 rounded-lg border py-2 text-[11px] font-medium"
               style={{ borderColor: T.border, color: T.ink2, background: T.cardAlt }}
             >
-              {day.dayIndex}日目の詳細を見る <ChevronRight size={13} />
+              {day.dayIndex}日目の詳細を見る{extraCount > 0 ? `（他${extraCount}件）` : ""} <ChevronRight size={13} />
             </button>
           </ConciergeCard>
 
@@ -194,7 +198,7 @@ export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onO
             <div className="mt-0.5 text-[9px]" style={{ color: T.ink3 }}>
               約 {day.walking.distanceKm} km
             </div>
-            <ProgressBar pct={62} height={5} className="mt-2" />
+            <ProgressBar pct={walkPct} height={5} className="mt-2" />
             <button onClick={() => onNavigate("move")} className="mt-auto flex items-center gap-0.5 pt-2 text-[9px] font-medium" style={{ color: T.goldDeep }}>
               移動詳細 <ChevronRight size={11} />
             </button>
@@ -231,8 +235,8 @@ export default function ConciergeDashboard({ trip, day, onNavigate, onClose, onO
               <Pencil size={13} />
               <SectionLabel en="Memories Note" />
             </div>
-            <button className="flex items-center gap-1 text-[11px] font-medium" style={{ color: T.goldDeep }}>
-              編集する
+            <button onClick={() => onToast("メモの編集は接続後に対応します")} className="flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] font-medium transition hover:bg-black/[0.04] active:scale-95" style={{ color: T.goldDeep }}>
+              <Pencil size={12} /> 編集する
             </button>
           </div>
           <div className="flex gap-3">

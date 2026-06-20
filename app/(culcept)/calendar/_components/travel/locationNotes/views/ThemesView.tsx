@@ -3,14 +3,15 @@
 "use client";
 
 import * as React from "react";
-import { T } from "../../concierge/primitives";
+import { T, FOCUS_RING } from "../../concierge/primitives";
 import { PhotoSlot } from "../../PhotoSlot";
 import { ChevronRight } from "../../concierge/icons";
 import { TripRowCard, SpotGridCard, SectionHeading, HScroll, Grid2, ThemeTile, EmptyState } from "../cards";
 import type { LocationViewProps } from "../viewTypes";
 
-export function ThemesView({ data, savedIds, onToggleSave, onAddToItinerary, onGoToAdd }: LocationViewProps) {
+export function ThemesView({ data, savedIds, isAdded, onToggleSave, onAddToItinerary, onOpenDetail, onGoToAdd }: LocationViewProps) {
   const [activeKey, setActiveKey] = React.useState(data.themes[0]?.key ?? "");
+  const contentRef = React.useRef<HTMLDivElement>(null);
   const active = data.themes.find((t) => t.key === activeKey) ?? data.themes[0];
 
   if (!active) {
@@ -34,9 +35,15 @@ export function ThemesView({ data, savedIds, onToggleSave, onAddToItinerary, onG
           <div className="absolute inset-x-0 bottom-0 p-4">
             <div className="font-serif text-[22px] font-bold" style={{ color: "#fdf8ee" }}>{active.label}</div>
             <p className="mt-1 max-w-[80%] text-[11.5px] leading-relaxed" style={{ color: "rgba(253,248,238,0.86)" }}>{active.description}</p>
-            <button onClick={() => trips[0] && onAddToItinerary(trips[0])} className="mt-3 inline-flex items-center gap-1 rounded-full px-3.5 py-2 text-[12px] font-semibold" style={{ background: "rgba(253,248,238,0.92)", color: T.goldDeep }}>
-              このテーマの旅行を見る <ChevronRight size={13} />
-            </button>
+            {themed.length > 0 && (
+              <button
+                onClick={() => contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className={`mt-3 inline-flex items-center gap-1 rounded-full px-3.5 py-2 text-[12px] font-semibold ${FOCUS_RING}`}
+                style={{ background: "rgba(253,248,238,0.92)", color: T.goldDeep }}
+              >
+                このテーマの旅・スポットを見る <ChevronRight size={13} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -52,25 +59,27 @@ export function ThemesView({ data, savedIds, onToggleSave, onAddToItinerary, onG
       </section>
 
       {/* このテーマの旅行/スポット */}
-      {trips.length > 0 && (
-        <section>
-          <SectionHeading ja={`このテーマの旅行 · ${active.label}`} />
-          <HScroll>
-            {trips.map((it) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} />)}
-          </HScroll>
-        </section>
-      )}
-      {spots.length > 0 && (
-        <section>
-          <SectionHeading ja={`このテーマのスポット · ${active.label}`} />
-          <Grid2>
-            {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} />)}
-          </Grid2>
-        </section>
-      )}
-      {themed.length === 0 && (
-        <p className="py-6 text-center text-[12px]" style={{ color: T.ink3 }}>「{active.label}」のノートはまだありません。</p>
-      )}
+      <div ref={contentRef} className="space-y-6 scroll-mt-24">
+        {trips.length > 0 && (
+          <section>
+            <SectionHeading ja={`このテーマの旅行 · ${active.label}`} />
+            <HScroll>
+              {trips.map((it) => <TripRowCard key={it.id} item={it} saved={savedIds.has(it.id)} added={isAdded(it.id)} onToggleSave={() => onToggleSave(it.id)} onAddToItinerary={() => onAddToItinerary(it)} onOpen={() => onOpenDetail(it)} />)}
+            </HScroll>
+          </section>
+        )}
+        {spots.length > 0 && (
+          <section>
+            <SectionHeading ja={`このテーマのスポット · ${active.label}`} />
+            <Grid2>
+              {spots.map((it) => <SpotGridCard key={it.id} item={it} saved={savedIds.has(it.id)} onToggleSave={() => onToggleSave(it.id)} onOpen={() => onOpenDetail(it)} />)}
+            </Grid2>
+          </section>
+        )}
+        {themed.length === 0 && (
+          <p className="py-6 text-center text-[12px]" style={{ color: T.ink3 }}>「{active.label}」のノートはまだありません。</p>
+        )}
+      </div>
     </div>
   );
 }
