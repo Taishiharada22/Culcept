@@ -1,0 +1,123 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- RO-10 — canonical_tasks migration-ready SQL DRAFT
+-- ════════════════════════════════════════════════════════════════════════════
+-- ⚠⚠⚠ DO NOT APPLY ⚠⚠⚠
+--   - これは **DRAFT**（`.sql.draft` 拡張子・`docs/` 配下）であり migration ファイルではない。
+--   - **supabase/migrations/ に置かない**（auto-apply 回避・CEO RO-10 禁止）。
+--   - production / staging DB へ apply しない。CEO migration GO（RO-9 step 4）後に
+--     `supabase/migrations/<ts>_canonical_tasks.sql` へ rename → staging dry-run → 適用。
+-- 正本設計: docs/reality-os-ro10-canonical-task-migration-readiness.md / RO-9 §2
+-- CEO 裁定反映: table=canonical_tasks / soft archive(archived_at) / source_kind 3値 /
+--   due_time=time(JST 合成は projection) / recurring instance 永続しない(recurrence 定義のみ)
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- ── neutral updated_at trigger 関数（Origin 非依存・generic） ──
+-- 検証: 既存 public.set_origin_updated_at() は generic（new.updated_at = now()）で再利用可能だが、
+--   canonical_tasks は Origin 非依存ゆえ neutral 名の関数を新設（命名結合を避ける）。冪等(CREATE OR REPLACE)。
+CREATE OR REPLACE FUNCTION public.set_canonical_task_updated_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  new.updated_at = now();
+  RETURN new;
+END;
+$$;
+
+-- ── canonical_tasks（CanonicalTaskV0 の永続先・neutral・Origin 非依存） ──
+CREATE TABLE IF NOT EXISTS public.canonical_tasks (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- 新 canonical task id（= CanonicalTaskV0.taskId 正本）
+  user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  source_task_id  text NOT NULL,                               -- salvage provenance（OrbitTask.id 等）・正本でない
+  source_kind     text NOT NULL DEFAULT 'daily_orbit'
+                    CHECK (source_kind IN ('daily_orbit','manual','import')),
+  text            text NOT NULL,
+  completed       boolean NOT NULL DEFAULT false,
+  completed_at    timestamptz,
+  carried_from    date,
+  carry_count     integer NOT NULL DEFAULT 0 CHECK (carry_count >= 0),
+  due_date        date,
+  due_time        time,                                        -- HH:mm（tz なし・JST 解釈は projection 側）
+  recurrence      jsonb,                                       -- {pattern,dayOfWeek?,dayOfMonth?,intervalDays?}（定義のみ・instance 展開しない）
+  motivation      text CHECK (motivation IS NULL OR motivation IN
+                    ('impulse','obligation','investment','curiosity')),     -- TaskNature salvage
+  completion_feel text CHECK (completion_feel IS NULL OR completion_feel IN
+                    ('satisfying','relieved','just_done')),                  -- CompletionTexture salvage
+  tags            text[] NOT NULL DEFAULT '{}',
+  parent_id       uuid REFERENCES public.canonical_tasks(id) ON DELETE SET NULL,  -- subtask 1階層
+  added_at        timestamptz NOT NULL,
+  archived_at     timestamptz,                                 -- ★CEO RO-10: soft archive（通常削除/非表示は archive・観測資産保全）
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  -- re-import 重複防止: 同一 user の同一 source task は 1 行（冪等 migration の鍵）
+  CONSTRAINT canonical_tasks_source_unique UNIQUE (user_id, source_kind, source_task_id),
+  -- completed=true は completed_at を要求（honest・観測時刻）
+  CONSTRAINT canonical_tasks_completed_at CHECK (NOT completed OR completed_at IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_canonical_tasks_user_due       ON public.canonical_tasks (user_id, due_date);
+CREATE INDEX IF NOT EXISTS idx_canonical_tasks_user_completed ON public.canonical_tasks (user_id, completed);
+CREATE INDEX IF NOT EXISTS idx_canonical_tasks_user_parent    ON public.canonical_tasks (user_id, parent_id);
+-- archive 非表示の通常一覧用（archived_at IS NULL の active task）
+CREATE INDEX IF NOT EXISTS idx_canonical_tasks_user_active    ON public.canonical_tasks (user_id) WHERE archived_at IS NULL;
+
+-- ── RLS（owner-only・plan_seeds パターン踏襲・service_role 不使用） ──
+ALTER TABLE public.canonical_tasks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY canonical_tasks_owner_select ON public.canonical_tasks FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY canonical_tasks_owner_insert ON public.canonical_tasks FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY canonical_tasks_owner_update ON public.canonical_tasks FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY canonical_tasks_owner_delete ON public.canonical_tasks FOR DELETE USING (auth.uid() = user_id);  -- hard delete は残すが主経路でない（soft archive 優先）
+
+CREATE TRIGGER canonical_tasks_updated_at BEFORE UPDATE ON public.canonical_tasks
+  FOR EACH ROW EXECUTE FUNCTION public.set_canonical_task_updated_at();
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- READ-ONLY EXTRACTION（dry-run 用・SELECT のみ・daily_orbit_state を変更しない）
+--   ⚠ これも DRAFT。実 INSERT は CEO migration GO 後（two-pass・§5）。下記は extraction の検証クエリ。
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- [E1] 抽出候補 task（防御的・欠損/型揺れを COALESCE/NULL で吸収・id 欠落は除外）
+--   addedAt fallback = entry.createdAt（v1→v2 migration が createdAt 既定・honest・捏造でない）
+-- SELECT
+--   op.user_id,
+--   (t->>'id')                                   AS source_task_id,
+--   'daily_orbit'                                AS source_kind,
+--   (t->>'text')                                 AS text,
+--   COALESCE((t->>'completed')::boolean, false)  AS completed,
+--   NULLIF(t->>'completedAt','')::timestamptz    AS completed_at,
+--   NULLIF(t->>'carriedFrom','')::date           AS carried_from,
+--   COALESCE((t->>'carryCount')::int, 0)         AS carry_count,
+--   NULLIF(t->>'dueDate','')::date               AS due_date,
+--   NULLIF(t->>'dueTime','')::time               AS due_time,
+--   (t->'recurrence')                            AS recurrence,
+--   (t->>'nature')                               AS motivation,
+--   (t->>'texture')                              AS completion_feel,
+--   COALESCE(ARRAY(SELECT jsonb_array_elements_text(t->'tags')), '{}') AS tags,
+--   (t->>'parentId')                             AS source_parent_id,   -- two-pass で解決
+--   COALESCE(NULLIF(t->>'addedAt','')::timestamptz, (entry->>'createdAt')::timestamptz) AS added_at
+-- FROM public.origin_profiles op
+--   CROSS JOIN LATERAL jsonb_each(COALESCE(op.daily_orbit_state->'entries','{}'::jsonb)) AS e(date_key, entry)
+--   CROSS JOIN LATERAL jsonb_array_elements(COALESCE(e.entry->'tasks','[]'::jsonb))      AS t
+-- WHERE op.daily_orbit_state IS NOT NULL
+--   AND (t->>'id') IS NOT NULL          -- id 欠落 task は除外（dedup 鍵がないため）
+--   AND (t->>'text') IS NOT NULL;       -- text 欠落も除外（NOT NULL 列）
+
+-- [E2] audit: 抽出件数 / id 欠落 skip 件数 / 重複 source_task_id（dedup 前）
+-- SELECT count(*) AS total_tasks,
+--        count(*) FILTER (WHERE (t->>'id') IS NULL) AS skipped_no_id,
+--        count(*) FILTER (WHERE (t->>'text') IS NULL) AS skipped_no_text
+-- FROM public.origin_profiles op
+--   CROSS JOIN LATERAL jsonb_each(COALESCE(op.daily_orbit_state->'entries','{}'::jsonb)) AS e(date_key, entry)
+--   CROSS JOIN LATERAL jsonb_array_elements(COALESCE(e.entry->'tasks','[]'::jsonb))      AS t
+-- WHERE op.daily_orbit_state IS NOT NULL;
+
+-- [E3] parentId two-pass: pass1 = 全 task insert（parent_id=NULL）/ pass2 = source_parent_id→新 id 解決 UPDATE
+--   UPDATE canonical_tasks c SET parent_id = p.id
+--   FROM canonical_tasks p
+--   WHERE c.user_id = p.user_id AND c.source_kind = p.source_kind
+--     AND c._source_parent_id = p.source_task_id;   -- ※ _source_parent_id は import 一時列 or staging table
+--   ・dangling（親 source 不在）→ parent_id は NULL のまま（honest・捏造しない）
+
+-- ROLLBACK（abort 時）: DROP TABLE public.canonical_tasks CASCADE; DROP FUNCTION public.set_canonical_task_updated_at();
+--   daily_orbit_state は READ-ONLY ゆえ rollback 対象外（非破壊・元データ無傷）。
