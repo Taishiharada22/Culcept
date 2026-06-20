@@ -361,11 +361,9 @@ export function MapTab({
     const reasonReflection =
       isDone || sensitive
         ? null
-        : reasonReflectionLine(
-            buildReasonInsightForLeg(loadHypothesisFeedbackStore(), openLeg.legKey, {
-              excludeLegKeys: sensitive ? new Set([openLeg.legKey]) : undefined,
-            }),
-          );
+        : "この区間では、景色を理由に 徒歩を選ぶことがあるようです"; // ★A0-2 SMOKE-FORCE(temp・未commit・検証後revert): established 履歴が無い env で reflection 行を見せる仮注入
+    // 本来の行（revert 時に戻す）:
+    // const reasonReflection = isDone || sensitive ? null : reasonReflectionLine(buildReasonInsightForLeg(loadHypothesisFeedbackStore(), openLeg.legKey, { excludeLegKeys: sensitive ? new Set([openLeg.legKey]) : undefined }));
     return {
       legKey: openLeg.legKey,
       fromTitle: maskedAnchorTitle(sorted[idx]!.anchor),
