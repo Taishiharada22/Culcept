@@ -113,6 +113,11 @@ import { CalendarViewBody } from "../components/CalendarViewBody";
 import type { MonthGridViewProps } from "../components/MonthGridView";
 // M3-b polish: 勤務 anchor → 原稿コード chip の resolver（辞書はここ経由。MonthGridView 非依存）
 import { resolveShiftAnchorChip } from "@/lib/plan/shift/shiftAnchorChip";
+// UX-3b: travel day detail（fixture・flag ON ∧ 旅行日 6/24-26 のみ）。/calendar 配下の資産を /plan から import。
+import TravelDayDetail from "../../calendar/_components/travel/TravelDayDetail";
+import { getSampleTripDay, SAMPLE_KYOTO_TRIP } from "../../calendar/_lib/travel/sampleTrip";
+import { isTravelDayDetailEnabled } from "../../calendar/_lib/travel/flags";
+import { Map as TravelMapGlyph, ChevronRight as TravelChevron } from "../../calendar/_components/travel/concierge/icons";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
@@ -188,6 +193,14 @@ export function CalendarTab({
   // ── state ──
   const [currentMonth, setCurrentMonth] = useState<Date>(() => todayMonthStart);
   const [selectedDate, setSelectedDate] = useState<string>(todayIso);
+  // UX-3b: travel day detail overlay 開閉 + 旅行日判定（fixture・flag ON ∧ SAMPLE_KYOTO_TRIP 6/24-26 のみ）。
+  //   flag OFF or 旅行日でない通常日 → travelTripDay=null → ボタン非表示＝既存 CalendarTab 完全不変。
+  const [travelOpen, setTravelOpen] = useState(false);
+  const travelTripDay = useMemo(() => {
+    if (!isTravelDayDetailEnabled()) return null;
+    if (selectedDate < SAMPLE_KYOTO_TRIP.startDate || selectedDate > SAMPLE_KYOTO_TRIP.endDate) return null;
+    return getSampleTripDay(selectedDate);
+  }, [selectedDate]);
   // M3-a: week ⇄ month view（既定 week）。本コミットでは body は week strip のみ
   // （viewMode が month でも month grid は描画しない）。MonthGridView 接続は M3-b。
   const [viewMode, setViewMode] = useState<CalendarViewMode>(
@@ -882,6 +895,21 @@ export function CalendarTab({
                 );
               })()}
 
+        {/* UX-3b: 旅の詳細（fixture・flag ON ∧ 旅行日 6/24-26 のみ・通常日は非表示＝退化ゼロ）。
+          * CEO「本丸の前の最初の画面（特定の日程文言）」は CalendarTab 選択日エリアで再現。 */}
+        {travelTripDay && (
+          <button
+            type="button"
+            onClick={() => setTravelOpen(true)}
+            className="w-full mb-3 flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[13px] font-semibold text-white transition active:scale-[0.98]"
+            style={{ background: "linear-gradient(135deg,#a98a55 0%,#8a7038 100%)", boxShadow: "0 6px 20px rgba(138,112,56,0.28)" }}
+            data-testid="plan-calendar-open-travel"
+          >
+            <TravelMapGlyph size={16} /> 旅の詳細を見る
+            <TravelChevron size={15} />
+          </button>
+        )}
+
         {selectedDayAnchors.length === 0 ? (
           <div
             className="rounded-2xl bg-slate-50 px-4 py-6 text-center"
@@ -1050,6 +1078,15 @@ export function CalendarTab({
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* UX-3b: travel day detail full-screen overlay（fixture・flag ON ∧ 旅行日のみ到達・onClose で戻る） */}
+      {travelOpen && travelTripDay && (
+        <TravelDayDetail
+          trip={travelTripDay.trip}
+          day={travelTripDay.day}
+          onClose={() => setTravelOpen(false)}
+        />
+      )}
 
       {/* ── FAB (右下 fixed、紫 gradient、選択日 prefill) ── */}
       {/* CEO mock 整合、PR #214 containing block で pane 内に閉じ込まる */}
