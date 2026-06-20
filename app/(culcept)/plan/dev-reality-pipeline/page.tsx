@@ -30,6 +30,9 @@ import { runRealityPipeline } from "@/lib/plan/reality/orchestration/reality-pip
 import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta } from "./RealityPipelinePreviewClient";
+import { previewProposalSurfaces } from "@/lib/plan/realityCore/proposalSurfacePreview";
+import { buildDevProposalSurfaceInput } from "./devProposalSurfaceFixture";
+import { ProposalSurfaceSection } from "./ProposalSurfaceSection";
 
 export const dynamic = "force-dynamic";
 
@@ -98,5 +101,15 @@ export default async function DevRealityPipelinePage() {
     memoryItemCount: memoryItems.length,
   };
 
-  return <RealityPipelinePreviewClient envelope={envelope} meta={meta} />;
+  // ── RO-6: 「今の現実への構え」dev preview（RO-3→4→5 fail-closed chain・synthetic fixture・別 section）──
+  //   empty-day（envelope）とは別 payload・別 section。RealityPipelineEnvelope に混載しない。
+  //   real anchor/DB を読まず synthetic frame（realityCore real-data wiring は別トラック）。read-only・apply なし。
+  const proposalPreview = previewProposalSurfaces(buildDevProposalSurfaceInput(now));
+
+  return (
+    <>
+      <RealityPipelinePreviewClient envelope={envelope} meta={meta} />
+      <ProposalSurfaceSection surfaces={proposalPreview.surfaces} diagnostics={proposalPreview.diagnostics} />
+    </>
+  );
 }
