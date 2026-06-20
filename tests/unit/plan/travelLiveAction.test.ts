@@ -89,3 +89,20 @@ describe("4. external links option passing（live gate に従属・FormData/clie
     expect(SRC).not.toContain("NEXT_PUBLIC_PLAN_TRAVEL_EXTERNAL_LINKS");
   });
 });
+
+describe("5. best-effort persistence wiring（display-without-save・seam 経由・production unavailable）", () => {
+  it("auth 後に persistTravelLiveIntentIfAvailable を呼ぶ・owner は authUserId のみ", () => {
+    expect(SRC).toContain("persistTravelLiveIntentIfAvailable");
+    expect(SRC).toMatch(/persistTravelLiveIntentIfAvailable\(\{[\s\S]*ownerUserId:\s*authUserId/);
+  });
+  it("concrete Supabase port / service_role / repository を直接 resolve/注入しない・NEXT_PUBLIC persistence flag なし", () => {
+    expect(SRC).not.toContain("createSupabaseTravelSessionDbPort");
+    expect(SRC).not.toContain("resolveTravelSessionRepository"); // action は seam を直接呼ばず helper 経由
+    expect(SRC).not.toContain("injectedRepository"); // action は repository を注入しない（production unavailable）
+    expect(SRC).not.toContain("service_role");
+    expect(SRC).not.toMatch(/NEXT_PUBLIC[A-Z_]*PERSIST/i);
+  });
+  it("display は primary（persistence は action-state を変えない＝return は toTravelLiveActionState(result)）", () => {
+    expect(SRC).toMatch(/return toTravelLiveActionState\(result\);/);
+  });
+});

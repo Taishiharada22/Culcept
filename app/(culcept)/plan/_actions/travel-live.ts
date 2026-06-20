@@ -24,6 +24,7 @@ import { isPlanTravelLiveAllowed, isPlanTravelExternalLinksAllowed } from "@/lib
 import { buildTravelSessionEventsFromFormData } from "@/lib/plan/travel/travel-formdata-intake";
 import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
 import { toTravelLiveActionState, type TravelLiveActionState } from "@/lib/plan/travel/travel-live-action-state";
+import { persistTravelLiveIntentIfAvailable } from "@/lib/server/travel/travel-live-persistence";
 
 export async function submitTravelLiveIntakeAction(
   _prevState: TravelLiveActionState,
@@ -61,6 +62,12 @@ export async function submitTravelLiveIntakeAction(
     { includeExternalLinks },
   );
 
-  // ④ display-safe な action state を RETURN（型で AuthoritativePacket/raw/diagnostics を拘束・redirect/persistence なし）。
+  // ④ best-effort persistence（**display-without-save**）。owner は auth のみ・FormData から owner/session を読まない。
+  //   production は repository provider 既定 unavailable（注入なし）＝no-op・display readiness を決めない・
+  //   raw diagnostics を出さない。real Supabase 配線は別 GO（seam が available を返すようになるまで dormant）。
+  await persistTravelLiveIntentIfAvailable({ events, ownerUserId: authUserId, viewerId: authUserId });
+
+  // ⑤ display-safe な action state を RETURN（型で AuthoritativePacket/raw/diagnostics を拘束・redirect なし・
+  //   action-state は persistence で不変＝display-without-save）。
   return toTravelLiveActionState(result);
 }
