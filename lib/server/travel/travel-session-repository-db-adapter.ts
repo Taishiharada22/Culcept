@@ -138,20 +138,37 @@ export function createTravelSessionRepositoryFromDbPort(
       if (hasForbiddenKey(input)) return { ok: false, error: "forbidden_field" };
       if (input.links.some((l) => l.inert !== true)) return { ok: false, error: "non_inert_link" };
 
-      const sessionRow = await port.insertSession({
-        owner_user_id: input.ownerUserId,
-        status: input.status,
-        visibility: input.visibility,
-      });
-      const inputRows = await port.insertInputs(input.inputs.map((i) => inputToInsertRow(i, sessionRow.id)));
-      const linkRows = await port.insertLinks(input.links.map((l) => linkToInsertRow(l, sessionRow.id)));
+      // ① session insert（失敗時は cleanup 不要＝session 未作成）。
+      let sessionRow;
+      try {
+        sessionRow = await port.insertSession({
+          owner_user_id: input.ownerUserId,
+          status: input.status,
+          visibility: input.visibility,
+        });
+      } catch {
+        return { ok: false, error: "invalid_input" }; // raw DB diagnostics を client に出さない
+      }
 
-      const bundle: PersistedTravelSessionBundle = {
-        session: rowToSession(sessionRow),
-        inputs: inputRows.map((r) => rowToInput(r, sessionRow)),
-        links: linkRows.map(rowToLink),
-      };
-      return { ok: true, bundle };
+      // ② children insert。部分失敗なら ★ best-effort cleanup（session delete→FK cascade で children も削除）。
+      //   Supabase JS は跨 table transaction を持たないため、これが atomicity の代替（§8-B）。
+      try {
+        const inputRows = await port.insertInputs(input.inputs.map((i) => inputToInsertRow(i, sessionRow.id)));
+        const linkRows = await port.insertLinks(input.links.map((l) => linkToInsertRow(l, sessionRow.id)));
+        const bundle: PersistedTravelSessionBundle = {
+          session: rowToSession(sessionRow),
+          inputs: inputRows.map((r) => rowToInput(r, sessionRow)),
+          links: linkRows.map(rowToLink),
+        };
+        return { ok: true, bundle };
+      } catch {
+        try {
+          await port.deleteByOwner(sessionRow.id, input.ownerUserId); // owner-scoped cleanup
+        } catch {
+          /* best-effort: cleanup 失敗は swallow（client に raw を出さない） */
+        }
+        return { ok: false, error: "invalid_input" };
+      }
     },
 
     async loadTravelSessionIntent(sessionId: string, ownerUserId: string): Promise<PersistedTravelSessionBundle | null> {
