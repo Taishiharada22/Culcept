@@ -88,6 +88,10 @@ export interface DayStateEstimates {
 
 export type EstimateFieldKey = keyof DayStateEstimates;
 
+// 人体メーター 3 系統（カーソルで % を直接合わせられる本人入力対象）。
+// 周辺カード（outingTolerance 等）は band ベースのまま（水位メーターを持たない）。
+export type BatteryFieldKey = "focusReserve" | "emotionalReserve" | "energyLevel";
+
 export interface UserCorrection {
   at: string; // "HH:MM"
   field: EstimateFieldKey;
@@ -99,6 +103,9 @@ export interface DayStateUserInputs {
   moodCode?: ActivityMoodCode;
   sleepQuality?: SleepQualityInput; // 睡眠カードのチップ入力（生理データ無しの唯一の睡眠源）
   corrections: UserCorrection[];
+  // 本人がカーソルで合わせた水位（0-100）。AI 見立て（estimates・band）とは別レイヤーで、
+  // 設定された系統は visualFill / 表示 % / source を本人値で上書きする（凍結＝AI 見立ては不変）。
+  manualLevels?: Partial<Record<BatteryFieldKey, number>>;
 }
 
 // ── Night Check ──
@@ -164,7 +171,8 @@ export interface DayStateRecordV0 {
 // ── MomentState（保存しない導出値。設計書 §2.1 で 14 フィールド凍結） ──
 export interface MomentStateV0 {
   nowHHMM: string;
-  timeBucket: TimeBucket;
+  // v0.4（W2・受領監査 3）: parse 不能時は placeholder でなく "unknown"（正常値の顔でバグを隠さない）
+  timeBucket: TimeBucket | "unknown";
   nowSegment: { kind: "event" | "travel" | "gap"; startHHMM: string; endHHMM: string } | null;
   nextFixedEventAt: string | null; // fixed = latencyTolerance ∈ {strict, tight}
   minutesUntilNextFixedEvent: number | null;
@@ -225,6 +233,11 @@ export interface DayStateBuildInput {
   heartHint?: HeartHint;
   personaCoefficients?: PersonaCoefficientsV0; // Stage 0: 受領のみ・estimates へ未適用（適用は Stage D 契約）
   dailyModeHint?: DailyGuidanceMode; // 呼び出し側が既存 resolveDailyMode を実行して渡す（Stage 1）。無ければ保守的 fallback
+  // v0.4（W2・C-2）: dailyModeHint と併送する confidence（resolveDailyMode 入力 ConfidentValue 群の min）。
+  // 固定 0.5 を廃止し、呼び出し側の確信度を反映。hint があり本値が無ければ暫定 0.5。
+  dailyModeHintConfidence?: number;
+  // W6-smoke-fix-2: 本人がカーソルで合わせた水位（0-100）。設定系統は表示を本人値で上書き。
+  manualLevels?: Partial<Record<BatteryFieldKey, number>>;
 }
 
 // ── AlterBatteryViewModel（Session B が読むだけの境界面。visual-contract §4 が正本） ──
@@ -233,7 +246,7 @@ export type Band = "very_low" | "low" | "medium" | "high" | "unknown";
 export interface BatteryZoneVM {
   label: string;
   band: Band;
-  visualFill: number; // 0-1 描画専用。画面に数値として出さない
+  visualFill: number; // 0-1 描画専用。正本 VM の文字列に数値を出さない（数値化 = derived 層の責務。visual-contract §0.1/§4.1）
   confidence: "low" | "medium" | "high";
   source: "見立て" | "本人";
   evidence: string[]; // EvidenceTag → 日本語語彙に変換済み（表示用）
@@ -262,7 +275,9 @@ export interface AlterBatteryViewModel {
   };
   morningReveal: {
     forDate: string;
-    items: Array<{ label: string; estimatedBand: Band; actualBand: Band; verdict: GradeVerdict }>;
+    // actualAnchor（v0.4・C-4）: dayFelt のアンカー語（「少し余った」等）。設計 §3.5' の表示例に対応。
+    // 帯語より具体的な開示文を可能にする additive optional。Session B は未消費でも可（後方互換）。
+    items: Array<{ label: string; estimatedBand: Band; actualBand: Band; verdict: GradeVerdict; actualAnchor?: string }>;
     adjustmentNote: string; // B1 前 = 「記録した」系固定文。反映済み表現は Stage 3 から
   } | null; // 前日未回答・前日レコード欠如・朝以外は null（undefined 不可）
   alterMessage: string;

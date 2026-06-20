@@ -125,6 +125,8 @@ import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
+// UX-1b（W3a）: 人体バッテリー（ALTER/「バッテリー」）タブ — flag opt-in・既定 OFF。
+import { AlterTab } from "./tabs/AlterTab";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
 import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken, type LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 import { LifeOpsMomentCard } from "./LifeOpsMomentCard";
@@ -145,7 +147,7 @@ import type { TimelineBlock } from "./components/compose/DayTimelineCanvas";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-type PlanTab = "calendar" | "flow" | "map";
+type PlanTab = "calendar" | "flow" | "map" | "alter";
 
 // Phase 1 C2 (2026-05-20): tab label を CEO mock 寄せ ("Flow"→"リスト"、"聖地"→"地図")
 // 旧 hint subtitle は pill segmented design では表示しない (mock 整合)。
@@ -158,6 +160,13 @@ const TABS: ReadonlyArray<{
   { key: "flow", label: "リスト" },
   { key: "map", label: "マップ" }, // 8b-9: CEO 「地図 → マップ」
 ];
+
+// UX-1b（W3a）: ALTER タブ（flag opt-in）。label は CEO 確定「バッテリー」、内部 key は "alter"。
+// alterTabEnabled OFF（既定）の時は visibleTabs に含めず＝現 3 タブ挙動は完全不変。
+const TABS_WITH_ALTER: ReadonlyArray<{
+  key: PlanTab;
+  label: string;
+}> = [...TABS, { key: "alter", label: "バッテリー" }];
 
 type FetchState =
   | { kind: "loading" }
@@ -233,6 +242,17 @@ export interface PlanClientProps {
    * **default false で dormant**（保存ボタン無効・action 未呼出・DB write なし）。本番既定 OFF。
    */
   shiftImportSaveEnabled?: boolean;
+  /**
+   * UX-1b（W3a）: バッテリー（ALTER）タブを /plan に出すか（server-only flag PLAN_ALTER_TAB_ENABLED）。
+   * server（plan/page.tsx）が PLAN_FLAGS.alterTabEnabled を読み prop で渡す（client 直読み禁止）。
+   * **default false で非表示**＝現 3 タブ挙動を完全に不変に保つ。本番表示は別 GO。
+   */
+  alterTabEnabled?: boolean;
+  /**
+   * UX-1b（W3a）: Day State の localStorage dogfood（plan_day_state_v0 等・DB/Supabase write なし）。
+   * server（plan/page.tsx）が PLAN_FLAGS.dayStateStorageEnabled を読み prop で渡す。**default false**。
+   */
+  dayStateStorageEnabled?: boolean;
 }
 
 export default function PlanClient({
@@ -251,10 +271,15 @@ export default function PlanClient({
   draftLiveEnabled = false,
   shiftDraftVlmInputMode = "combined",
   shiftImportSaveEnabled = false,
+  alterTabEnabled = false,
+  dayStateStorageEnabled = false,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
+
+  // UX-1b（W3a）: alterTabEnabled OFF（既定）→ 現 3 タブ。ON → 末尾に「バッテリー」を足す。
+  const visibleTabs = alterTabEnabled ? TABS_WITH_ALTER : TABS;
 
   // ── 9 closeout corrective (= 2026-05-25 CEO 「最新の状態に」): useNewShell = true 固定 ──
   //   旧 (= MAP smoke 期間): MAP_NEW_SURFACE_ENABLED の副作用で全 tab 新 shell
@@ -872,7 +897,7 @@ export default function PlanClient({
               role="tablist"
               aria-label="Plan tabs"
             >
-              {TABS.map((tab) => {
+              {visibleTabs.map((tab) => {
                 const isActive = activeTab === tab.key;
                 return (
                   <button
@@ -959,7 +984,7 @@ export default function PlanClient({
           className="mx-auto mb-6 max-w-3xl"
         >
           <div className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner">
-            {TABS.map((tab) => {
+            {visibleTabs.map((tab) => {
               const isActive = activeTab === tab.key;
               return (
                 <button
@@ -1063,6 +1088,17 @@ export default function PlanClient({
               <MapTab
                 anchors={state.anchors}
                 onAnchorClick={openDetail}
+              />
+            )}
+            {/* UX-1b（W3a）: バッテリー（ALTER）タブ。alterTabEnabled OFF（既定）では
+              * visibleTabs に "alter" が無く activeTab に成り得ない＝この block は描画されない。 */}
+            {activeTab === "alter" && (
+              <AlterTab
+                anchors={state.anchors}
+                sources={state.sources}
+                dayGraphByDate={dayGraphByDate}
+                dayIndicatorByIso={dayIndicatorByIso}
+                storageEnabled={dayStateStorageEnabled}
               />
             )}
           </>
@@ -1190,6 +1226,14 @@ function TabIcon({ tabKey }: { tabKey: string }): React.ReactElement {
         <svg {...baseProps}>
           <path d="M12 22 s8-7.5 8-13 a8 8 0 0 0 -16 0 c0 5.5 8 13 8 13 z" />
           <circle cx="12" cy="9" r="2.5" />
+        </svg>
+      );
+    case "alter":
+      // W3a: 人体バッテリー（ALTER タブ）— 簡素な人型 icon
+      return (
+        <svg {...baseProps}>
+          <circle cx="12" cy="6.5" r="3" />
+          <path d="M6.5 21 v-4 a5.5 5.5 0 0 1 11 0 v4" />
         </svg>
       );
     default:

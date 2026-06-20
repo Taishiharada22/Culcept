@@ -458,4 +458,11 @@ export const PLAN_FLAGS = {
    *     保存 flag(PLAN_SHIFT_IMPORT_SAVE) は **分離**（混ぜない）。
    */
   shiftDraftLiveEnabled: process.env.PLAN_SHIFT_DRAFT_LIVE_ENABLED === "true",
+
+  // ── UX-1b: Battery(ALTER)タブ — Day State 人体バッテリー（xenodochial 由来・既定 OFF・本番 inert）──
+  //   alterTabEnabled: /plan に「バッテリー」タブを出すか（server-side・page.tsx が prop 渡し）。
+  //   dayStateStorageEnabled: localStorage dogfood（plan_day_state_v0 等 3 キー・DB/Supabase write なし）。
+  //   両方 default OFF → 着地時点で現 3 タブ挙動は不変。本番表示/ON は別 GO。
+  alterTabEnabled: process.env.PLAN_ALTER_TAB_ENABLED === "true",
+  dayStateStorageEnabled: process.env.PLAN_DAY_STATE_STORAGE === "true",
 } as const;

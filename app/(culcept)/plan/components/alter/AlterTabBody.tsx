@@ -8,7 +8,7 @@
  *  1. ヘッダー
  *  2. 上段 2 カラング: あなたのバッテリー（人体 + コールアウト + コネクタ）| 状態の背景（昨日までの影響）
  *  3. 周辺カード 2x2（外出耐性 / 夜の余白 / 持ち越し / 成立見込み）
- *  4. 今日の流れ（事実横帯。予測曲線なし）
+ *  4. 今日の推移予測（B5 改名）+ 流れレール（W1・D-1: flowTimeline の事実マーカーを統合）
  *  5. Night Check / 5'. Morning Reveal
  *  6-7. 会話エリア（見立てメッセージ → チップ → 直近往復）→ CTA → 入力バー
  * 規律:
@@ -19,8 +19,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { AlterBatteryViewModel } from "@/lib/plan/dayState/dayStateTypes";
-import { AlterAvatar } from "./AlterChatPreview";
+import type { AlterBatteryViewModel, Band } from "@/lib/plan/dayState/dayStateTypes";
+import { AlterAvatar } from "./AlterAvatar";
 import { AlterCtaRow } from "./AlterCtaRow";
 import { AlterInputBar } from "./AlterInputBar";
 import { AlterQuickReplies } from "./AlterQuickReplies";
@@ -40,6 +40,8 @@ export interface AlterTabBodyProps {
   /** over.png 表示 VM（基底 AlterBatteryViewModel を内包）。CEO 2026-06-11 契約緩和 */
   screen: AlterScreenViewModel;
   onCorrection?: (target: CorrectionTarget, direction: CorrectionDirection) => void;
+  /** 人体メーター 3 系統をカーソルで合わせた水位（0-100）。CEO 指示③: チップ→カーソル */
+  onManualLevel?: (zone: ZoneKey, pct: number) => void;
   onSleepInput?: (choice: SleepChoice) => void;
   onNightCheckAnswer?: (chip: string) => void;
   onQuickReply?: (chip: string) => void;
@@ -57,6 +59,13 @@ const CORRECTION_CHOICES: Array<{ label: string; direction: CorrectionDirection 
 ];
 
 const SLEEP_CHOICES: SleepChoice[] = ["よく眠れた", "浅い", "短い"];
+
+/** 睡眠チップ → 睡眠セルの本人記録表示（mock: 保存なし・local UI のみ。h を捏造せず本人申告の質を反映） */
+const SLEEP_DISPLAY: Record<SleepChoice, { value: string; band: Band; note: string; barPct: number; userReported: true }> = {
+  "よく眠れた": { value: "良好", band: "high", note: "よく眠れたと記録", barPct: 80, userReported: true },
+  "浅い": { value: "浅め", band: "low", note: "眠りが浅いと記録", barPct: 33, userReported: true },
+  "短い": { value: "短め", band: "low", note: "睡眠が短いと記録", barPct: 30, userReported: true },
+};
 
 /** §3.5' きのうの答え合わせ（コンポーネントマップ外のため AlterTabBody 内ローカル） */
 function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<AlterBatteryViewModel["morningReveal"]> }) {
@@ -103,6 +112,7 @@ function MorningRevealCard({ morningReveal }: { morningReveal: NonNullable<Alter
 export function AlterTabBody({
   screen,
   onCorrection,
+  onManualLevel,
   onSleepInput,
   onNightCheckAnswer,
   onQuickReply,
@@ -112,7 +122,10 @@ export function AlterTabBody({
 }: AlterTabBodyProps) {
   const vm = screen.base;
   const [sheet, setSheet] = useState<SheetTarget | null>(null);
+  const [sleepChoice, setSleepChoice] = useState<SleepChoice | null>(null);
   const [pulseZone, setPulseZone] = useState<ZoneKey | null>(null);
+  // 補正シートのスライダー値（0-100）。シートを開いた時に現在の水位 % で初期化
+  const [sliderPct, setSliderPct] = useState<number>(50);
   const [ack, setAck] = useState<string | null>(null);
   const ackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -138,6 +151,23 @@ export function AlterTabBody({
         : vm.battery[sheet.target].label
       : null;
 
+  // 補正シートを開く。人体メーター 3 系統はスライダーを現在の水位 % で初期化（CEO 指示③）
+  const openCorrection = (target: CorrectionTarget) => {
+    if (target !== "outingTolerance") {
+      const pct = screen.meterPct[target]; // number | null（unknown は null）
+      setSliderPct(pct ?? 50);
+    }
+    setSheet({ kind: "correction", target });
+  };
+
+  // スライダー操作（ライブ反映: ドラッグ中も人体メーターが動く）
+  const handleSlider = (pct: number) => {
+    setSliderPct(pct);
+    if (sheet?.kind === "correction" && sheet.target !== "outingTolerance") {
+      onManualLevel?.(sheet.target, pct);
+    }
+  };
+
   const handleCorrection = (direction: CorrectionDirection) => {
     if (sheet?.kind !== "correction") return;
     onCorrection?.(sheet.target, direction);
@@ -151,9 +181,15 @@ export function AlterTabBody({
 
   const handleSleep = (choice: SleepChoice) => {
     onSleepInput?.(choice);
+    setSleepChoice(choice); // mock: 睡眠セルに本人記録を即時反映（保存なし）
     setSheet(null);
     showAck("受け取りました");
   };
+
+  // 睡眠を入力したら、セル表示を本人記録で上書き（h を捏造せず申告した質を反映。実保存は Stage 1 W4）
+  const displayStateBg = sleepChoice
+    ? { ...screen.stateBg, sleep: SLEEP_DISPLAY[sleepChoice] }
+    : screen.stateBg;
 
   return (
     <div className="relative min-h-screen">
@@ -166,11 +202,11 @@ export function AlterTabBody({
             outingTolerance={vm.contextCards.outingTolerance}
             eveningSlack={vm.contextCards.eveningSlack}
             meterPct={screen.meterPct}
-            onZoneTap={(z) => setSheet({ kind: "correction", target: z })}
-            onOutingTap={() => setSheet({ kind: "correction", target: "outingTolerance" })}
+            onZoneTap={(z) => openCorrection(z)}
+            onOutingTap={() => openCorrection("outingTolerance")}
             pulseZone={pulseZone}
           />
-          <StateBackgroundPanel stateBg={screen.stateBg} />
+          <StateBackgroundPanel stateBg={displayStateBg} onSleepTap={() => setSheet({ kind: "sleep" })} />
         </div>
 
         <AnimatePresence>
@@ -205,8 +241,8 @@ export function AlterTabBody({
           feasibility={screen.feasibility}
         />
 
-        {/* 今日のリソース推移予測（over.png のグラフ） */}
-        <ResourceTrendChart trend={screen.trend} />
+        {/* 今日の推移予測 + 流れレール（D-1: 事実セグメントをチャート下部に統合） */}
+        <ResourceTrendChart trend={screen.trend} segments={vm.flowTimeline.segments} />
 
         {/* Night Check（state=hidden なら描画なし） */}
         <NightCheckCard nightCheck={vm.nightCheck} onAnswer={onNightCheckAnswer} />
@@ -263,7 +299,42 @@ export function AlterTabBody({
           >
             <div className="mx-auto max-w-3xl rounded-t-3xl border border-white/90 bg-white/95 p-5 pb-8 shadow-2xl backdrop-blur-xl">
               <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-200" />
-              {sheet.kind === "correction" ? (
+              {sheet.kind === "correction" && sheet.target !== "outingTolerance" ? (
+                // 人体メーター 3 系統: カーソルで水位 % を直接合わせる（CEO 指示③）
+                <>
+                  <div className="flex items-baseline justify-between">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {sheetZoneLabel}の今の感覚に、水位を合わせてください
+                    </p>
+                    <span className="text-lg font-bold tabular-nums text-indigo-600">{Math.round(sliderPct)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={sliderPct}
+                    onChange={(e) => handleSlider(Number(e.target.value))}
+                    aria-label={`${sheetZoneLabel}の水位（パーセント）`}
+                    className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-gradient-to-r from-slate-200 via-indigo-200 to-indigo-400 accent-indigo-500"
+                  />
+                  <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                    <span>からっぽ</span>
+                    <span>満タン</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSheet(null);
+                      showAck("水位を合わせました");
+                    }}
+                    className="mt-5 w-full rounded-2xl bg-indigo-500 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600"
+                  >
+                    完了
+                  </button>
+                </>
+              ) : sheet.kind === "correction" ? (
+                // 周辺カード（外出耐性）は水位メーターでないため従来の 3 択
                 <>
                   <p className="text-sm font-semibold text-slate-800">
                     {sheetZoneLabel}の見立て、合っていますか？

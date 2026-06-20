@@ -143,6 +143,8 @@ export default async function PlanPage({
         process.env.PLAN_SHIFT_VLM_INPUT_MODE
       )}
       shiftImportSaveEnabled={PLAN_FLAGS.shiftImportSave}
+      alterTabEnabled={PLAN_FLAGS.alterTabEnabled}
+      dayStateStorageEnabled={PLAN_FLAGS.dayStateStorageEnabled}
     />
   );
 }

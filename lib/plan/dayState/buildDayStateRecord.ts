@@ -191,7 +191,13 @@ function deriveDailyMode(
   input: DayStateBuildInput,
   energy: ConfidentValue<EnergyLevelValue>,
 ): ConfidentValue<DailyGuidanceMode> {
-  if (input.dailyModeHint) return cv(input.dailyModeHint, 0.5, "derived");
+  // C-2（W2）: 固定 0.5 を廃止し、呼び出し側が併送する dailyModeHintConfidence を反映（無ければ暫定 0.5）。
+  // 0-1 に clamp（不正値の混入を防ぐ）。
+  if (input.dailyModeHint) {
+    const c = input.dailyModeHintConfidence;
+    const confidence = c === undefined ? 0.5 : Math.min(1, Math.max(0, c));
+    return cv(input.dailyModeHint, confidence, "derived");
+  }
   // 保守的 fallback（既存 resolveDailyMode の配線は Stage 1。低 confidence）
   if (energy.value === "depleted" || energy.value === "low") return cv("recover", 0.3, "inferred");
   return cv("maintenance", 0.2, "inferred");
@@ -240,6 +246,7 @@ export function buildDayStateRecord(input: DayStateBuildInput): DayStateRecordV0
       moodCode: input.moodCode,
       sleepQuality: input.sleepQuality,
       corrections: [],
+      manualLevels: input.manualLevels,
     },
     evidence: collectEvidence(input, facts),
   };

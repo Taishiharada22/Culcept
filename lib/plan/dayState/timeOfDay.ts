@@ -54,11 +54,12 @@ export function toFrozenKind(hhmm: string): FrozenKind {
   return "late_snapshot";
 }
 
-export function isNightCheckBucket(bucket: TimeBucket): boolean {
+// "unknown"（MomentStateV0.timeBucket）も受ける — その場合は両者 false（偽の窓を開かない）
+export function isNightCheckBucket(bucket: TimeBucket | "unknown"): boolean {
   return bucket === "evening" || bucket === "night" || bucket === "late_night";
 }
 
-export function isMorningRevealBucket(bucket: TimeBucket): boolean {
+export function isMorningRevealBucket(bucket: TimeBucket | "unknown"): boolean {
   return bucket === "early_morning" || bucket === "morning";
 }
 

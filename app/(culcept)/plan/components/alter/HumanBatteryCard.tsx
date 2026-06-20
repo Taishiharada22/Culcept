@@ -96,6 +96,31 @@ export function HumanBatteryCard({
           pulseZone={pulseZone}
         />
 
+        {/* 中央の人体メーターを直接タップして補正シートを開く導線（FAIL 1: 左右バッジだけでは
+          * 「どこを押せば水位を直せるか」が不明瞭だった）。透明オーバーレイ＝絵は不変・z はバッジ(z-10)の下。 */}
+        {onZoneTap && (
+          <div className="pointer-events-none absolute left-1/2 top-1 z-[5] h-[318px] w-[120px] -translate-x-1/2">
+            <button
+              type="button"
+              aria-label={`${battery.brain.label}を補正`}
+              onClick={() => onZoneTap("brain")}
+              className="pointer-events-auto absolute left-1/2 top-0 h-[72px] w-[88px] -translate-x-1/2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/60"
+            />
+            <button
+              type="button"
+              aria-label={`${battery.heart.label}を補正`}
+              onClick={() => onZoneTap("heart")}
+              className="pointer-events-auto absolute left-1/2 top-[78px] h-[66px] w-[96px] -translate-x-1/2 rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
+            />
+            <button
+              type="button"
+              aria-label={`${battery.body.label}を補正`}
+              onClick={() => onZoneTap("body")}
+              className="pointer-events-auto absolute left-1/2 top-[150px] h-[150px] w-[104px] -translate-x-1/2 rounded-3xl focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/60"
+            />
+          </div>
+        )}
+
         {/* コネクタ（3 系統のみ。脳: 左上 → 頭 / 心: 左中 → 胸 / 外出は周辺で接続なし。体: 右 → 胴） */}
         <Connector side="left" top={23} fromPx={86} toCenterOffset={12} dotClass="bg-blue-400" lineClass="border-blue-300/80" glow="rgba(59,130,246,0.7)" />
         <Connector side="left" top={116} fromPx={86} toCenterOffset={15} dotClass="bg-pink-400" lineClass="border-pink-300/80" glow="rgba(236,72,153,0.7)" />

@@ -25,33 +25,39 @@ export interface TrendPoint {
 
 export interface AlterScreenViewModel {
   base: AlterBatteryViewModel;
-  /** 人体メーターの数値 = visualFill×100（人体水位と完全同源） */
-  meterPct: { brain: number; heart: number; body: number; outing: number };
+  /** 人体メーターの数値 = visualFill×100（人体水位と完全同源）。unknown 系統は null（数値を出さない） */
+  meterPct: { brain: number | null; heart: number | null; body: number | null; outing: number | null };
   /** 状態の背景 4 セル */
   stateBg: {
-    sleep: { value: string; band: Band; note: string; barPct: number };
-    yesterdayLoad: { pct: number; note: string };
-    recoveryQuality: { pct: number; note: string };
+    sleep: { value: string; band: Band; note: string; barPct: number; userReported?: boolean };
+    yesterdayLoad: { pct: number | null; note: string };
+    recoveryQuality: { pct: number | null; note: string };
     stamina: { value: string; note: string };
   };
   /** 今日の消耗予測（負荷予定 = 予定実分数から導出） */
   consumption: { energy: number; focus: number; loadPlanned: number };
-  /** 夜の回復見込み（時間 = 夜の余白セグメント実分数） */
-  nightRecovery: { hours: string; energyAfter: number; focusAfter: number };
-  /** 明日への持ち越し（% = band 写像） */
-  carryOver: { pct: number; note: string };
-  /** 今日の成立見込み（% = band 写像） */
-  feasibility: { pct: number; note: string };
+  /** 夜の回復見込み（時間 = 夜の余白セグメント実分数。回復後 % は基点メーター unknown 時 null） */
+  nightRecovery: { hours: string; energyAfter: number | null; focusAfter: number | null };
+  /** 明日への持ち越し（% = band 写像。unknown は null） */
+  carryOver: { pct: number | null; note: string };
+  /** 今日の成立見込み（% = band 写像。unknown は null） */
+  feasibility: { pct: number | null; note: string };
   /** 今日の推移予測（flowTimeline + メーター値から決定論生成） */
   trend: { points: TrendPoint[]; nowMarker: string; recoveryBand: [string, string] };
 }
 
-// ── band → % の固定写像（導出表。閲覧者が水位帯と数値の対応を検証できるよう一意） ──
-const RESERVE_PCT: Record<Band, number> = { very_low: 14, low: 33, medium: 56, high: 78, unknown: 0 };
-const LOAD_PCT: Record<Band, number> = { very_low: 18, low: 30, medium: 52, high: 72, unknown: 0 };
-const QUALITY_PCT: Record<Band, number> = { very_low: 22, low: 38, medium: 64, high: 82, unknown: 0 };
-const CARRY_PCT: Record<Band, number> = { very_low: 14, low: 28, medium: 48, high: 66, unknown: 0 };
-const FEAS_PCT: Record<Band, number> = { very_low: 20, low: 34, medium: 55, high: 78, unknown: 0 };
+// ── band → % の固定写像（vm_derived の正式表示規則 — visual-contract §4.1）。
+//    unknown は数値を持たない（W1: unknown→0% 禁止。null = 表示側で「—」/「まだ読めていません」） ──
+type KnownBand = Exclude<Band, "unknown">;
+const RESERVE_PCT: Record<KnownBand, number> = { very_low: 14, low: 33, medium: 56, high: 78 };
+const LOAD_PCT: Record<KnownBand, number> = { very_low: 18, low: 30, medium: 52, high: 72 };
+const QUALITY_PCT: Record<KnownBand, number> = { very_low: 22, low: 38, medium: 64, high: 82 };
+const CARRY_PCT: Record<KnownBand, number> = { very_low: 14, low: 28, medium: 48, high: 66 };
+const FEAS_PCT: Record<KnownBand, number> = { very_low: 20, low: 34, medium: 55, high: 78 };
+
+function pctFor(table: Record<KnownBand, number>, band: Band): number | null {
+  return band === "unknown" ? null : table[band];
+}
 
 const clamp = (v: number, lo = 4, hi = 96) => Math.min(hi, Math.max(lo, Math.round(v)));
 
@@ -171,10 +177,10 @@ export function buildScreenViewModel(
   const nowMinJst = opts?.nowMinJst ?? 14 * 60; // 注入なし時のフォールバック
   const overrides = opts?.overrides;
   const meterPct = {
-    brain: Math.round(base.battery.brain.visualFill * 100),
-    heart: Math.round(base.battery.heart.visualFill * 100),
-    body: Math.round(base.battery.body.visualFill * 100),
-    outing: RESERVE_PCT[base.contextCards.outingTolerance.band],
+    brain: base.battery.brain.band === "unknown" ? null : Math.round(base.battery.brain.visualFill * 100),
+    heart: base.battery.heart.band === "unknown" ? null : Math.round(base.battery.heart.visualFill * 100),
+    body: base.battery.body.band === "unknown" ? null : Math.round(base.battery.body.visualFill * 100),
+    outing: pctFor(RESERVE_PCT, base.contextCards.outingTolerance.band),
   };
 
   // 負荷予定 = 予定+移動の実分数 / 稼働帯 10h（600 分）
@@ -191,8 +197,9 @@ export function buildScreenViewModel(
   const slackMin = slackMinutes(base);
   const nightRecovery = {
     hours: fmtHours(slackMin),
-    energyAfter: clamp(meterPct.body + (slackMin / 60) * 9),
-    focusAfter: clamp(meterPct.brain + (slackMin / 60) * 8),
+    // 基点メーターが unknown（null）の系統は回復後も数値を出さない（捏造禁止）
+    energyAfter: meterPct.body === null ? null : clamp(meterPct.body + (slackMin / 60) * 9),
+    focusAfter: meterPct.brain === null ? null : clamp(meterPct.brain + (slackMin / 60) * 8),
   };
 
   const carryBand = base.contextCards.carryOver.band;
@@ -210,16 +217,17 @@ export function buildScreenViewModel(
         base.contextCards.sleep.source === "user_reported"
           ? { value: "5.8h", band: base.contextCards.sleep.band, note: "やや少なめ", barPct: 70 }
           : { value: "—", band: "unknown", note: "まだ読めていません", barPct: 0 },
-      yesterdayLoad: { pct: LOAD_PCT[loadBand], note: loadBand === "unknown" ? "まだ読めていません" : "前日の予定から" },
-      recoveryQuality: { pct: QUALITY_PCT[rqBand], note: rqBand === "unknown" ? "まだ読めていません" : "夜の答え合わせ由来" },
+      yesterdayLoad: { pct: pctFor(LOAD_PCT, loadBand), note: loadBand === "unknown" ? "まだ読めていません" : "前日の予定から" },
+      recoveryQuality: { pct: pctFor(QUALITY_PCT, rqBand), note: rqBand === "unknown" ? "まだ読めていません" : "夜の答え合わせ由来" },
       // 体質スタミナ: VM に源なし（軸不在）。over.png 準拠の検証用 mock 表示。
       stamina: { value: "高い", note: "持久力タイプ" },
     },
     consumption,
     nightRecovery,
-    carryOver: { pct: CARRY_PCT[carryBand], note: carryBand === "unknown" ? "まだ読めていません" : "夜以降に確定" },
-    feasibility: { pct: FEAS_PCT[feasBand], note: feasBand === "unknown" ? "まだ読めていません" : base.contextCards.feasibility.text },
-    trend: deriveTrend(base, { body: meterPct.body, brain: meterPct.brain }, nowMinJst),
+    carryOver: { pct: pctFor(CARRY_PCT, carryBand), note: carryBand === "unknown" ? "まだ読めていません" : "夜以降に確定" },
+    feasibility: { pct: pctFor(FEAS_PCT, feasBand), note: feasBand === "unknown" ? "まだ読めていません" : base.contextCards.feasibility.text },
+    // trend は mock_reference（参考値）。unknown 系統は中位の既定値から描く（数値セルと違い「実測風の 0」にならない）
+    trend: deriveTrend(base, { body: meterPct.body ?? 50, brain: meterPct.brain ?? 50 }, nowMinJst),
     ...overrides,
   };
 }
