@@ -124,12 +124,30 @@ export interface FrameSupplyResultV0 {
 
 ## 8. CEO への上申（unblock に必要な決定）
 
-real frame supply を進めるには、**task の real source をどこに置くか**の CEO 決定が必要（RO-8 候補）：
+### 8.0 CEO 補足（2026-06-20）: Origin は削除予定
+CEO 確認: **旧来の Origin（日記/自己探索/excavation 機能）は画面として削除予定**。`app/(culcept)/origin/` は巨大な journaling 機能で、`DailyOrbitSection`（todo）はその 1 レイヤー（`DailyOrbitEntry` の Layer 1: tasks）。**「使える部分は引っ張ってきてよいが Origin 画面自体は消す」**。
+→ **推奨①の「Origin OrbitTask 橋渡し adapter」は撤回**。削除予定機能（Origin 画面）に依存する adapter は不適切。正しい道は **OrbitTask の*データモデル*を Origin 非依存の task source に salvage** する（画面に依存しない）。
 
-1. **Origin OrbitTask 橋渡し案**: `daily_orbit_state` の OrbitTask → TaskRealityNode に写像する adapter を作る。**利点**: real task source が既にある。**リスク**: OrbitTask と TaskRealityNode の二重正本化（RO-4 が RO-1 vocab を独立 re-define した先例に倣い、OrbitTask を import せず adapter で写像する設計が必要）。OrbitTask の deadline/見積/anchorId 整合の確認が要る。
-2. **新規 task source 案**: TaskRealityNode 専用の入力（UI/parser/DB）を新設。**利点**: clean。**リスク**: Origin todo と機能重複（ユーザー混乱）。
-3. **snapshot-only 先行案**: task を待たず、snapshot（event）side だけ real 化（RD0 の orchestration 残作業）。**但し RO-4/5 proposal は task が無いと空**ゆえ proposal 価値は出ない。
+### 8.1 OrbitTask → TaskRealityNode salvage 分析（実型・lib/origin/dailyOrbit/types.ts:240-265）
+| TaskRealityNode 属性 | OrbitTask 対応 | salvage |
+|---|---|---|
+| deadline (ISO) | `dueDate`(YYYY-MM-DD) + `dueTime`(HH:mm) | ✅ 写像可 |
+| completionStatus (6値) | `completed` + `carriedFrom` + `carryCount` | ✅ done/not_started/carried_over |
+| carryOver signal | `carriedFrom`/`carryCount` | ✅ 良質な real 信号 |
+| （recurrence） | `recurrence`(daily/weekly/…) | ✅ subjectiveDate 展開に使える |
+| estimatedDuration | **なし** | ❌ honest-unknown（捏造しない） |
+| cognitiveLoad | `nature`(TaskNature) がヒント程度 | ❌ honest-unknown |
+| canSplit / canMove | `parentId`(subtask 1階層)のみ | ❌ honest-unknown |
+| minimalProgress | なし（v0 null） | — |
+| **placements / sourceRefs.anchorId** | **なし** | ❌ → **protect は anchor 無しで発火不可**・block も無し |
 
-**推奨**: ①Origin OrbitTask 橋渡しの **adapter 設計**（docs-first・二重正本化回避を最優先）を次フェーズ（RO-8）候補とする。但しこれも「前提を疑う」調査から始める（OrbitTask が TaskRealityNode の 7 属性 deadline/estimatedDuration/cognitiveLoad/canSplit/canMove/minimalProgress/completionStatus をどこまで満たすか）。
+**含意**: OrbitTask は **push + task_proposal edge には十分**（completed→push / 全 task→task_proposal）だが、duration/load/split/move は honest-unknown、**anchor/block 不在ゆえ protect は永久空・easy は gradient 由来で task 非依存**。つまり salvage しても RO-4 の 3 stance のうち push が主、protect は別途 anchor 紐付けが要る。
 
-**本 RO-7 は docs-only supply contract で確定・停止。実装は real task source 決定後。**
+### 8.2 修正後の選択肢（task の real source 設計・RO-8 候補）
+1. **OrbitTask データモデル salvage 案（推奨・Origin 画面非依存）**: `DailyOrbitEntry.tasks`（OrbitTask）の **task データ層だけ**を Origin 画面から切り離し、realityCore 隣接の task source として再ホーム化（adapter は OrbitTask 型を import せず写像・二重正本化回避）。**利点**: real task データが既にある（dueDate/completed/carryover/recurrence）・Origin 画面削除と両立。**リスク**: `daily_orbit_state` table / 永続層の扱い（Origin 削除時に table を残す/移行する判断）・duration/load/anchor の欠落を honest-unknown で受ける。
+2. **新規 task source 案（clean）**: TaskRealityNode 専用の入力を新設し 7 属性を捕捉。**利点**: 7 属性フル・anchor 紐付け可（protect 発火）。**リスク**: 新規 UI/データの実装コスト・Origin 削除後の空白期間。
+3. **snapshot-only 先行案**: task を待たず event side だけ real 化。**proposal は task 無しで空**ゆえ価値出ない（非推奨）。
+
+**推奨**: ①の **OrbitTask データモデル salvage**（Origin 画面非依存・docs-first・二重正本化回避最優先）。但し「前提を疑う」調査から: (a) `daily_orbit_state` 永続層を Origin 削除でどう扱うか、(b) OrbitTask の欠落属性（duration/load/anchor）を honest-unknown で受ける RO-4 proposal の質、(c) protect 発火に anchor 紐付け（OrbitTask↔anchor or block source）が別途要るか。
+
+**本 RO-7 は docs-only supply contract で確定・停止。実装は CEO の task source 決定（Origin salvage 範囲含む）後。**
