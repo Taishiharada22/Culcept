@@ -623,6 +623,18 @@ export const PLAN_FLAGS = {
    *   no API/fetch/送信/realtime・**本番 `/plan` 体験に非接触**・action button なし。production caller は本 preview 経路を使わない。
    */
   travelPersonalizationPreview: process.env.PLAN_TRAVEL_PERSONALIZATION_PREVIEW === "true",
+
+  /**
+   * UX-6b-1: Travel personalization の **real snapshot read** gate（solo/self・**dormant**・default OFF）。
+   *   true  : （UX-6b-2 以降・caller 配線後）server caller が **user-RLS client** で snapshotReader を呼び、
+   *           自 user の stargazer_axis_snapshots / stargazer_alter_growth → PersonalizationSnapshot → derive → m2 enrich。
+   *   false : real read 一切なし（**本番デフォルト**・fixture preview のみ・DB 不触）。
+   *
+   * env: PLAN_TRAVEL_PERSONALIZATION_REAL_READ=true（**server-only・NEXT_PUBLIC_ なし**）。default OFF。
+   * 制約（**UX-6b-1 では caller 未配線＝ON でも no-op**）: **service_role 禁止**（user-RLS client 注入）・自 user のみ・
+   *   **consent gate（UX-6b-2 必須）なしでは real read しない**・companions(pair) は HOLD・staging re-link 後のみ。
+   */
+  travelPersonalizationRealRead: process.env.PLAN_TRAVEL_PERSONALIZATION_REAL_READ === "true",
 } as const;
 
 /**
