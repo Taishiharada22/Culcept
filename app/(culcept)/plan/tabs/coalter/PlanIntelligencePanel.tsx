@@ -65,6 +65,15 @@ export interface PlanIntelligencePanelProps {
   readonly onCollapse: () => void;
   /** ドック状態（ピンチで極小化）からタップで既定幅へ戻す */
   readonly onExpand: () => void;
+  /**
+   * 面の見せ方（CEO 2026-06-21）:
+   *   - "solid"（既定）= 白いパネル（従来）。
+   *   - "floating" = **地（背景）を透過**し、各情報カードがフロスト気味に浮かぶ。
+   *     チャットが隙間から自然に見え隠れする overlay 用。中身/構成は不変・容器の chrome のみ。
+   */
+  readonly surface?: "solid" | "floating";
+  /** overlay が自前のヘッダ（ドラッグ/閉じる）を持つ場合、パネル内ヘッダを隠す（既定 true）。 */
+  readonly showHeader?: boolean;
 }
 
 export function PlanIntelligencePanel({
@@ -76,7 +85,10 @@ export function PlanIntelligencePanel({
   confirmedCandidateId,
   onCollapse,
   onExpand,
+  surface = "solid",
+  showHeader = true,
 }: PlanIntelligencePanelProps) {
+  const floating = surface === "floating";
   const selected =
     session.candidates.find((c) => c.id === selectedCandidateId) ?? session.candidates[0];
   const appliedAdjustments = session.adjustments.filter((a) => appliedAdjustmentIds.has(a.id));
@@ -87,7 +99,12 @@ export function PlanIntelligencePanel({
   return (
     <section
       aria-label="プランインテリジェンス"
-      className="@container flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm"
+      className={`@container flex h-full min-h-0 flex-col overflow-hidden rounded-3xl ${
+        floating
+          ? // 地は透明（フロストは overlay が提供）。白い各カードが overlay のフロスト面に浮かぶ。
+            "bg-transparent"
+          : "border border-slate-200/70 bg-white shadow-sm"
+      }`}
     >
       {/* ── ドック面（ピンチで極小化した時のみ・タップで既定幅へ復帰） ── */}
       <button
@@ -102,8 +119,8 @@ export function PlanIntelligencePanel({
         <span className="text-[10px] font-bold text-slate-600">プラン</span>
       </button>
 
-      {/* ── パネルヘッダ（pinned）: タイトル + たたむ ── */}
-      <div className="hidden shrink-0 items-center justify-between gap-2 px-3.5 pb-1 pt-3 @min-[120px]:flex @xl:px-5 @xl:pt-4">
+      {/* ── パネルヘッダ（pinned）: タイトル + たたむ。overlay 時は showHeader=false で非表示 ── */}
+      <div className={`${showHeader ? "hidden @min-[120px]:flex" : "hidden"} shrink-0 items-center justify-between gap-2 px-3.5 pb-1 pt-3 @xl:px-5 @xl:pt-4`}>
         <h2 className="min-w-0 truncate text-[13px] font-bold text-slate-900 @xl:text-sm">
           プランインテリジェンス
         </h2>

@@ -49,7 +49,6 @@ import {
 } from "@/app/(culcept)/plan/coalter-runtime/coalterLiveSessionClient";
 import {
   CalendarMiniIcon,
-  ChatRoundIcon,
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -62,6 +61,8 @@ import { PlanIntelligencePanel } from "./PlanIntelligencePanel";
 import { CoAlterChatPanel } from "./CoAlterChatPanel";
 // CoAlter タブの入口ホーム（会話一覧）。タブは Home で始まり、会話を選ぶと Talk へ（CEO 2026-06-21）。
 import { CoAlterHome } from "./CoAlterHome";
+// プランは Talk 上に浮かぶフローティング overlay（ドラッグ/リサイズ・透過）（CEO 2026-06-21）。
+import { CoAlterPlanOverlay } from "./CoAlterPlanOverlay";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -87,21 +88,7 @@ const AVATAR_TONE: Record<"sky" | "rose", string> = {
   rose: "from-rose-300 to-pink-400",
 };
 
-// ── split（UI 専権・local state） ──
-const PLAN_PCT_DEFAULT = 58;
-/** これ未満で指を離すとプランは完全に畳まれる */
-const PLAN_COLLAPSE_AT = 14;
-/** チャットは畳めない: 最低でもこの px 幅を確保（入力欄の常時固定） */
-const CHAT_MIN_PX = 168;
-const DIVIDER_PX = 12;
-/** ペイン share がこの % を下回ると高さも縮み始める（下隅へ縮んでいく表現） */
-const SHRINK_BELOW_PCT = 38;
-
-/** share(%) → ペイン高さ(%)。下限 56%。 */
-function shrinkHeightPct(sharePct: number): number {
-  if (sharePct >= SHRINK_BELOW_PCT) return 100;
-  return Math.max(56, Math.round(100 - (SHRINK_BELOW_PCT - sharePct) * 1.7));
-}
+// ── Talk overlay（旧 split のピンチ/divider は overlay 化で廃止） ──
 
 export interface CoAlterTabProps {
   /**
@@ -115,6 +102,8 @@ export interface CoAlterTabProps {
 export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
   // 画面: Home（会話一覧・入口） ⇄ Talk（チャット＋プラン）。タブは Home で始まる。
   const [view, setView] = useState<"home" | "talk">("home");
+  // プラン overlay の開閉（Talk 上に浮かぶ）。既定 open（talk.png 準拠）・✕で閉じ・「予定を確認」で再表示。
+  const [planOpen, setPlanOpen] = useState(true);
   // モード未選択（null）の間も daily の内容を仮表示する（reference の「モードを選ぶ」状態）
   const [modeChoice, setModeChoice] = useState<CoAlterPlanMode | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -255,140 +244,22 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     }
   };
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // split 領域: 1画面フィット + ピンチ縮小 + divider ドラッグ + プラン折りたたみ
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  const splitRef = useRef<HTMLDivElement | null>(null);
-  const [planPct, setPlanPct] = useState(PLAN_PCT_DEFAULT);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
-  /** ピンチ/ドラッグ中は width/height transition を切る */
-  const [interacting, setInteracting] = useState(false);
-
-  // 1画面フィット: split 領域の高さ = viewport 残り（ページスクロールを出さない）
+  // ── Talk: 1画面フィット（コンテナ高さ = viewport 残り・ページスクロールを出さない） ──
+  const talkRef = useRef<HTMLDivElement | null>(null);
   const [fillHeight, setFillHeight] = useState<number | null>(null);
   useEffect(() => {
+    if (view !== "talk") return;
     const update = () => {
-      const el = splitRef.current;
+      const el = talkRef.current;
       if (!el) return;
       const top = el.getBoundingClientRect().top;
-      // 28 = タブ root pb-2(8) + /plan main py-4 の下 padding(16) + 余裕(4)。ページスクロールを出さない。
-      setFillHeight(Math.max(400, Math.round(window.innerHeight - top - 28)));
+      // 28 = タブ root pb-2(8) + /plan main py-4 の下 padding(16) + 余裕(4)。
+      setFillHeight(Math.max(420, Math.round(window.innerHeight - top - 28)));
     };
     update();
-    // モバイルはチャット読みやすさ優先の初期 split（チャット側を広めに）
-    if (window.innerWidth < 640) setPlanPct(46);
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, []);
-
-  /** チャット下限を反映した plan share の上限（%） */
-  const maxPlanPct = useCallback(() => {
-    const w = splitRef.current?.getBoundingClientRect().width ?? 1200;
-    return Math.min(84, 100 - ((CHAT_MIN_PX + DIVIDER_PX) / w) * 100);
-  }, []);
-
-  const clampPlanPct = useCallback(
-    (pct: number) => Math.min(maxPlanPct(), Math.max(0, pct)),
-    [maxPlanPct],
-  );
-
-  /** ジェスチャ終了時: 小さすぎたら完全折りたたみへ（復帰幅はチャット下限を尊重） */
-  const settlePlanPct = useCallback(
-    (pct: number) => {
-      if (pct < PLAN_COLLAPSE_AT) {
-        setPlanCollapsed(true);
-        setPlanPct(clampPlanPct(PLAN_PCT_DEFAULT));
-      }
-    },
-    [clampPlanPct],
-  );
-
-  // ── ピンチ（2 ポインタ）: プラン上で縮小→プランが左下へ / チャット上で縮小→チャットが右下へ ──
-  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinchRef = useRef<{
-    startDist: number;
-    startPlanPct: number;
-    target: "plan" | "chat";
-  } | null>(null);
-  const planPctRef = useRef(planPct);
-  planPctRef.current = planPct;
-
-  const pinchDistance = () => {
-    const pts = [...pointersRef.current.values()];
-    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-  };
-
-  const handleSplitPointerDown = (e: React.PointerEvent) => {
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointersRef.current.size === 2 && !planCollapsed) {
-      const rect = splitRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const pts = [...pointersRef.current.values()];
-      const midX = (pts[0].x + pts[1].x) / 2;
-      const dividerX = rect.left + (rect.width * planPctRef.current) / 100;
-      pinchRef.current = {
-        startDist: pinchDistance(),
-        startPlanPct: planPctRef.current,
-        target: midX < dividerX ? "plan" : "chat",
-      };
-      setInteracting(true);
-    }
-  };
-
-  const handleSplitPointerMove = (e: React.PointerEvent) => {
-    if (!pointersRef.current.has(e.pointerId)) return;
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pinch = pinchRef.current;
-    if (!pinch || pointersRef.current.size < 2) return;
-    e.preventDefault();
-    const ratio = pinchDistance() / pinch.startDist;
-    // ピンチイン（ratio<1）で対象ペインが縮む
-    const next =
-      pinch.target === "plan"
-        ? pinch.startPlanPct * ratio
-        : 100 - (100 - pinch.startPlanPct) * ratio;
-    setPlanPct(clampPlanPct(next));
-  };
-
-  const releasePointer = (e: React.PointerEvent) => {
-    pointersRef.current.delete(e.pointerId);
-    if (pinchRef.current && pointersRef.current.size < 2) {
-      pinchRef.current = null;
-      setInteracting(false);
-      settlePlanPct(planPctRef.current);
-    }
-  };
-
-  // ── divider ドラッグ（マウス/1本指の代替操作） ──
-  const handleDividerPointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation(); // ピンチ系へ流さない
-    const container = splitRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    setInteracting(true);
-    const onMove = (ev: PointerEvent) => {
-      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-      setPlanPct(clampPlanPct(pct));
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      setInteracting(false);
-      settlePlanPct(planPctRef.current);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  };
-
-  // 派生 share / 高さ（縮むほど下隅アンカーで小さくなる）
-  const chatPct = planCollapsed ? 100 : 100 - planPct;
-  const planHeightPct = shrinkHeightPct(planPct);
-  const chatHeightPct = planCollapsed ? 100 : shrinkHeightPct(chatPct);
-  const paneTransition = interacting
-    ? ""
-    : " transition-[width,height] duration-200 ease-out";
+  }, [view]);
 
   // ── 入口は Home（会話一覧）。会話を選ぶと Talk へ。全 hooks の後に分岐（hooks 規則順守） ──
   if (view === "home") {
@@ -534,56 +405,13 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
         </div>
       </header>
 
-      {/* ── 本体: 左 Plan Intelligence / divider / 右チャット（常に横並び・1画面フィット） ──
-        * ピンチ: 対象ペインの share を縮め、share が小さいほど高さも縮む（items-end ＝
-        * プランは左下・チャットは右下へ「どんどん縮小していく」）。
-        * touch-action: pan-y ＝ ペイン内 1 本指スクロールは生かしつつ native pinch-zoom を抑止。
+      {/* ── 本体: チャット全画面（背景・スタイルは現状のまま） + プランのフローティング overlay ──
+        * overlay は talk.png 準拠でチャットの上に浮かぶ（ドラッグ/リサイズ・透過でチャット見え隠れ）。
+        * 閉じている時は「予定を確認」で再表示（CoAlter が決定事項を出す判断時も同じ setPlanOpen(true)）。
         */}
-      <div
-        ref={splitRef}
-        className={`relative flex flex-row items-end [touch-action:pan-y]${interacting ? " select-none" : ""}`}
-        style={{ height: fillHeight ?? undefined }}
-        onPointerDown={handleSplitPointerDown}
-        onPointerMove={handleSplitPointerMove}
-        onPointerUp={releasePointer}
-        onPointerCancel={releasePointer}
-      >
-        {!planCollapsed && (
-          <>
-            <div
-              className={`min-w-0 self-end${paneTransition}`}
-              style={{
-                width: `calc(${planPct}% - ${DIVIDER_PX}px)`,
-                height: `${planHeightPct}%`,
-              }}
-            >
-              <PlanIntelligencePanel
-                session={session}
-                selectedCandidateId={ui.selectedCandidateId}
-                onSelectCandidate={handleSelectCandidate}
-                appliedAdjustmentIds={appliedSet}
-                onToggleAdjustment={handleToggleAdjustment}
-                confirmedCandidateId={ui.confirmedCandidateId}
-                onCollapse={() => setPlanCollapsed(true)}
-                onExpand={() => setPlanPct(clampPlanPct(PLAN_PCT_DEFAULT))}
-              />
-            </div>
-            {/* divider（全幅で表示・ドラッグで比率調整＝ピンチの代替操作） */}
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="パネル幅の調整"
-              onPointerDown={handleDividerPointerDown}
-              className="group flex h-full w-3 shrink-0 cursor-col-resize touch-none items-center justify-center"
-            >
-              <span className="h-12 w-1 rounded-full bg-slate-300 transition-colors group-hover:bg-violet-400" />
-            </div>
-          </>
-        )}
-        <div
-          className={`min-w-0 flex-1 self-end${paneTransition}`}
-          style={{ height: `${chatHeightPct}%` }}
-        >
+      <div ref={talkRef} className="relative" style={{ height: fillHeight ?? undefined }}>
+        {/* チャットは全画面固定 */}
+        <div className="h-full">
           <CoAlterChatPanel
             session={session}
             participants={bodySelection.participants}
@@ -605,16 +433,36 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
           />
         </div>
 
-        {/* プラン復帰チップ（完全折りたたみ時・左下） */}
-        {planCollapsed && (
+        {/* プランのフローティング overlay（各カードが面に浮かぶ・チャット見え隠れ） */}
+        {planOpen && (
+          <CoAlterPlanOverlay
+            caption={session.header.dateLabel + " のプランを提案中"}
+            onClose={() => setPlanOpen(false)}
+          >
+            <PlanIntelligencePanel
+              session={session}
+              selectedCandidateId={ui.selectedCandidateId}
+              onSelectCandidate={handleSelectCandidate}
+              appliedAdjustmentIds={appliedSet}
+              onToggleAdjustment={handleToggleAdjustment}
+              confirmedCandidateId={ui.confirmedCandidateId}
+              onCollapse={() => setPlanOpen(false)}
+              onExpand={() => {}}
+              surface="floating"
+              showHeader={false}
+            />
+          </CoAlterPlanOverlay>
+        )}
+
+        {/* 「予定を確認」: overlay を閉じている時の再表示トリガ */}
+        {!planOpen && (
           <button
             type="button"
-            onClick={() => setPlanCollapsed(false)}
-            className="absolute bottom-2 left-1 z-10 inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-white px-3 py-2 text-[11px] font-bold text-violet-700 shadow-md transition-colors hover:bg-violet-50"
+            onClick={() => setPlanOpen(true)}
+            className="absolute bottom-20 right-4 z-10 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg ring-2 ring-white/60 transition-transform hover:scale-105"
           >
-            <ChatRoundIcon size={12} className="text-violet-400" />
-            プランを開く
-            <ChevronRightIcon size={11} className="text-violet-400" />
+            <CalendarMiniIcon size={13} />
+            予定を確認
           </button>
         )}
       </div>
