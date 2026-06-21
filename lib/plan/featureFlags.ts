@@ -602,6 +602,19 @@ export const PLAN_FLAGS = {
   coalterSendMessages: process.env.NEXT_PUBLIC_PLAN_COALTER_SEND_MESSAGES === "true",
 
   /**
+   * C4: CoAlter **brain preview** の read-only dev gate（**fixture 会話で脳 preview を観測するだけ**・default OFF）。
+   *   true  : /plan/dev-coalter-brain-preview が fixture New-session messages → `buildCoAlterBrainPreview`
+   *           （Legacy 脳の DB 非依存決定論コア `analyzeConversation` 再利用）の **preview を read-only 表示**。
+   *   false : Disabled（**本番デフォルト**・render しない）。
+   *
+   * env: PLAN_COALTER_BRAIN_PREVIEW=true（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 設計: docs/coalter-brain-newsession-bridge-migration-gap-design.md（§4-B/§8）。
+   * 制約: **保存しない**（DB/Supabase/insert なし）・**`runCoAlterPipeline` 本体を呼ばない**・LLM/外部なし・
+   *   send/write は別 flag（本 flag は preview のみ・read-only）・bounded surface のみ（raw 内部 signal 非露出）。
+   */
+  coalterBrainPreview: process.env.PLAN_COALTER_BRAIN_PREVIEW === "true",
+
+  /**
    * CoAlter live 本文の対象 sessionId（**dev/local 注入専用・default 空**・product strategy ではない）。
    *   - 空（既定）: live 対象なし＝coalterReadMessages が ON でも fixture のまま（fetch 0）
    *   - 非空 ∧ coalterReadMessages=true: その sessionId の messages を read-only で読む（送信は coalterSendMessages）。
