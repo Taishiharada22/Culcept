@@ -52,10 +52,6 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  CloudSunIcon,
-  DotsIcon,
-  SparkleIcon,
-  SunIcon,
 } from "./coalterIcons";
 import { PlanIntelligencePanel } from "./PlanIntelligencePanel";
 import { CoAlterChatPanel } from "./CoAlterChatPanel";
@@ -107,10 +103,17 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
   // モード未選択（null）の間も daily の内容を仮表示する（reference の「モードを選ぶ」状態）
   const [modeChoice, setModeChoice] = useState<CoAlterPlanMode | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
-  const [infoOpen, setInfoOpen] = useState(false);
 
   const mode: CoAlterPlanMode = modeChoice ?? "daily";
   const session = COALTER_PLAN_SESSION_FIXTURES[mode];
+
+  // ヘッダ日付の compact 表記（talk.png = "5/18" 形式）。
+  const planWindow = session.window;
+  const windowIso = "date" in planWindow ? planWindow.date : planWindow.start;
+  const compactDate = (() => {
+    const [, mm, dd] = windowIso.split("-");
+    return `${Number(mm)}/${Number(dd)}`;
+  })();
 
   const [uiBySession, setUiBySession] = useState<Record<string, SessionUiState>>({});
   const ui = uiBySession[session.id] ?? initialUiState(session);
@@ -266,19 +269,36 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     return <CoAlterHome onOpenConversation={() => setView("talk")} />;
   }
 
+  // 会話相手（talk.png のヘッダ person selector）= ペアの相手側を表示。
+  const partner = headerParticipants[1] ?? headerParticipants[0];
+
   return (
     <div className="mx-auto flex max-w-[1480px] flex-col px-3 pb-2 sm:px-5">
-      {/* ── タブ内ヘッダ: 戻る / モード選択 / 日付 / 天気 / ペアアバター / メニュー ── */}
-      <header className="flex flex-wrap items-center gap-2 py-2.5">
+      {/* ── タブ内ヘッダ（talk.png 準拠・1行）: 戻る / 会話相手 / モード / 日付 ── */}
+      <header className="flex items-center gap-2 py-2">
         {/* Home（会話一覧）へ戻る */}
         <button
           type="button"
           onClick={() => setView("home")}
           aria-label="ホームに戻る"
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-slate-700"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm ring-1 ring-slate-200/70 transition-colors hover:text-slate-700"
         >
           <ChevronRightIcon size={16} className="rotate-180" />
         </button>
+
+        {/* 会話相手（person selector・静的） */}
+        {partner && (
+          <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full bg-white py-1.5 pl-1.5 pr-3 shadow-sm ring-1 ring-slate-200/70">
+            <span
+              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-[10px] font-bold text-white ${AVATAR_TONE[partner.tone]}`}
+            >
+              {partner.initial}
+            </span>
+            <span className="truncate text-xs font-bold text-slate-800">{partner.name}</span>
+            <ChevronDownIcon size={11} className="shrink-0 text-slate-400" />
+          </span>
+        )}
+
         {/* モード選択（白系デザイン・CEO 必須指定） */}
         <div className="relative">
           <button
@@ -286,13 +306,15 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
             onClick={() => setModeMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={modeMenuOpen}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 shadow-sm transition-colors hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-bold text-slate-800 shadow-sm ring-1 ring-slate-200/70 transition-colors hover:bg-slate-50"
           >
             <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-violet-400">
               <span className="h-1 w-1 rounded-full bg-violet-500" />
             </span>
-            {modeChoice === null ? "モードを選ぶ" : COALTER_MODE_LABELS[modeChoice]}
-            <ChevronDownIcon size={12} className="text-slate-400" />
+            <span className="truncate">
+              {modeChoice === null ? "モードを選ぶ" : COALTER_MODE_LABELS[modeChoice]}
+            </span>
+            <ChevronDownIcon size={11} className="text-slate-400" />
           </button>
           {modeMenuOpen && (
             <>
@@ -337,72 +359,11 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
           )}
         </div>
 
-        {/* 日付（fixture 由来・モードで窓幅が変わる） */}
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm">
+        {/* 日付（compact M/D・右寄せ） */}
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/70">
           <CalendarMiniIcon size={13} className="text-slate-400" />
-          {session.header.dateLabel}
+          {compactDate}
         </span>
-
-        {/* 天気（fixture 由来） */}
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm">
-          {session.header.weather.icon === "sun" ? (
-            <SunIcon size={13} className="text-amber-400" />
-          ) : (
-            <CloudSunIcon size={13} className="text-sky-400" />
-          )}
-          <span className="font-bold">{session.header.weather.high}℃</span>
-          <span className="text-slate-400">{session.header.weather.low}℃</span>
-        </span>
-
-        {/* 右側: ペアアバター / メニュー */}
-        <div className="ml-auto flex items-center gap-2.5">
-          <div className="flex items-start gap-1.5">
-            {headerParticipants.map((participant) => (
-              <span key={participant.id} className="flex flex-col items-center gap-0.5">
-                <span
-                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br text-[11px] font-bold text-white shadow-sm ring-2 ring-white ${AVATAR_TONE[participant.tone]}`}
-                >
-                  {participant.initial}
-                </span>
-                <span className="text-[9px] font-medium leading-none text-slate-500">
-                  {participant.name}
-                </span>
-              </span>
-            ))}
-          </div>
-          <div className="relative self-start">
-            <button
-              type="button"
-              onClick={() => setInfoOpen((v) => !v)}
-              aria-haspopup="dialog"
-              aria-expanded={infoOpen}
-              aria-label="セッション情報"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-slate-700"
-            >
-              <DotsIcon size={14} />
-            </button>
-            {infoOpen && (
-              <>
-                <button
-                  type="button"
-                  aria-label="閉じる"
-                  onClick={() => setInfoOpen(false)}
-                  className="fixed inset-0 z-10 cursor-default"
-                  tabIndex={-1}
-                />
-                <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-3 text-[11px] leading-relaxed text-slate-500 shadow-lg">
-                  <p className="inline-flex items-center gap-1 font-bold text-slate-700">
-                    <SparkleIcon size={11} className="text-violet-400" />
-                    CoAlter プランナー（プロトタイプ）
-                  </p>
-                  <p className="mt-1">
-                    fixture data で描画中。バックエンド・ペア read には未接続です。
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
       </header>
 
       {/* ── 本体: チャット全画面（背景・スタイルは現状のまま） + プランのフローティング overlay ──
@@ -435,10 +396,7 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
 
         {/* プランのフローティング overlay（各カードが面に浮かぶ・チャット見え隠れ） */}
         {planOpen && (
-          <CoAlterPlanOverlay
-            caption={session.header.dateLabel + " のプランを提案中"}
-            onClose={() => setPlanOpen(false)}
-          >
+          <CoAlterPlanOverlay onClose={() => setPlanOpen(false)}>
             <PlanIntelligencePanel
               session={session}
               selectedCandidateId={ui.selectedCandidateId}

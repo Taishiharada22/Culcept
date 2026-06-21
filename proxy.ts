@@ -74,6 +74,10 @@ const PUBLIC_PREFIXES = [
     "/public/",     // 静的アセット
     "/type/",       // アーキタイプ公開ページ（SNSシェア用ランディング）
     "/stargazer",   // 後ログイン型: 匿名セッションで利用可能（クライアント側で認証処理）
+    // (dev) 認証不要の UI プレビュー。**production では公開しない**（開発時の目視検証専用）。
+    ...(process.env.NODE_ENV !== "production"
+        ? ["/coalter-ui-preview", "/coalter-preview"]
+        : []),
 ];
 
 // 拡張子付きの静的ファイルを public 扱いにする

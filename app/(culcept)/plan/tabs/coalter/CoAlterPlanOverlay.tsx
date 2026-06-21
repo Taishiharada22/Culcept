@@ -36,8 +36,8 @@ export function CoAlterPlanOverlay({
   children,
 }: CoAlterPlanOverlayProps) {
   const ref = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState({ x: 14, y: 56 });
-  const [size, setSize] = useState({ w: 340, h: 468 });
+  const [pos, setPos] = useState({ x: 12, y: 44 });
+  const [size, setSize] = useState({ w: 348, h: 560 });
   const posRef = useRef(pos);
   posRef.current = pos;
   const sizeRef = useRef(size);
@@ -94,7 +94,7 @@ export function CoAlterPlanOverlay({
       ref={ref}
       role="dialog"
       aria-label="プランインテリジェンス"
-      className="absolute z-20 flex flex-col overflow-hidden rounded-3xl border border-white/60 bg-white/55 shadow-2xl shadow-slate-900/20 backdrop-blur-xl"
+      className="absolute z-20 flex flex-col overflow-hidden rounded-[26px] border border-white/70 bg-white/75 shadow-[0_24px_70px_-18px_rgba(15,23,42,0.4)] ring-1 ring-slate-900/5 backdrop-blur-2xl backdrop-saturate-150"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
     >
       {/* ── ドラッグヘッダ ── */}

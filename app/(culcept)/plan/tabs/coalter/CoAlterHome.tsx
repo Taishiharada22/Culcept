@@ -15,29 +15,26 @@ import {
   type CoAlterHomeConversation,
   type CoAlterHomeRecommendation,
 } from "./coalterHomeFixture";
+import { COALTER_PLAN_SESSION_FIXTURES } from "./coalterPlanSessionFixture";
 import { RoutePreviewMap } from "./RoutePreviewMap";
 import {
   CalendarMiniIcon,
-  CheckIcon,
   ChevronRightIcon,
-  DotsIcon,
   SparkleIcon,
   WalkIcon,
 } from "./coalterIcons";
 
+// 柔らかいトーン（home.png のアバターは写真。資産無しのため淡いグラデで近づける）。
 const AVATAR_TONE: Record<CoAlterAvatarTone, string> = {
-  sky: "from-sky-400 to-indigo-400",
-  rose: "from-rose-300 to-pink-400",
-  violet: "from-violet-400 to-fuchsia-400",
-  emerald: "from-emerald-300 to-teal-400",
-  amber: "from-amber-300 to-orange-400",
+  sky: "from-sky-300 to-indigo-300",
+  rose: "from-rose-200 to-pink-300",
+  violet: "from-violet-300 to-fuchsia-300",
+  emerald: "from-emerald-200 to-teal-300",
+  amber: "from-amber-200 to-orange-300",
 };
 
-const REC_ACCENT: Record<CoAlterHomeRecommendation["accent"], string> = {
-  violet: "from-violet-50 to-indigo-50/60 text-violet-600",
-  sky: "from-sky-50 to-cyan-50/60 text-sky-600",
-  emerald: "from-emerald-50 to-teal-50/60 text-emerald-600",
-};
+// おすすめカードのサムネイル用ルート（既存 daily fixture を流用＝mini-map が描ける）。
+const DAILY = COALTER_PLAN_SESSION_FIXTURES.daily;
 
 export interface CoAlterHomeProps {
   readonly onOpenConversation: (conversation: CoAlterHomeConversation) => void;
@@ -49,18 +46,21 @@ export function CoAlterHome({ onOpenConversation }: CoAlterHomeProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-[680px] flex-col gap-5 px-3 pb-6 pt-1 sm:px-5">
-      {/* ── ヘッダ ── */}
+      {/* ── ヘッダ（home.png 準拠: ホーム + 設定/メンバー/招待） ── */}
       <header className="flex items-center justify-between pt-1">
-        <span className="inline-flex items-center gap-2 rounded-full bg-white px-3.5 py-2 text-sm font-bold text-slate-800 shadow-sm ring-1 ring-slate-200/70">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[13px] font-bold text-slate-800 shadow-sm ring-1 ring-slate-200/70">
           <HomeGlyph />
           ホーム
         </span>
         <div className="flex items-center gap-2">
           <HeaderIconButton label="設定">
-            <DotsIcon size={16} />
+            <GearGlyph />
           </HeaderIconButton>
-          <HeaderIconButton label="メンバー">
-            <span className="text-[13px]">👤</span>
+          <HeaderIconButton label="プロフィール">
+            <PersonGlyph />
+          </HeaderIconButton>
+          <HeaderIconButton label="メンバーを招待">
+            <PersonAddGlyph />
           </HeaderIconButton>
         </div>
       </header>
@@ -117,15 +117,15 @@ export function CoAlterHome({ onOpenConversation }: CoAlterHomeProps) {
           {recommendations.map((rec) => (
             <div
               key={rec.id}
-              className="flex flex-col gap-2 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200/70"
+              className="flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70"
             >
-              <span
-                className={`inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br ${REC_ACCENT[rec.accent]}`}
-              >
-                <RecIcon icon={rec.icon} />
-              </span>
-              <span className="text-[11px] font-bold leading-tight text-slate-800">{rec.label}</span>
-              <span className="text-[10px] leading-snug text-slate-400">{rec.caption}</span>
+              <div className="h-14 overflow-hidden">
+                <RecThumbnail icon={rec.icon} />
+              </div>
+              <div className="flex flex-col gap-0.5 p-2.5 pt-2">
+                <span className="text-[11px] font-bold leading-tight text-slate-800">{rec.label}</span>
+                <span className="text-[10px] leading-snug text-slate-400">{rec.caption}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -188,13 +188,62 @@ function HeaderIconButton({ label, children }: { label: string; children: React.
   );
 }
 
-function RecIcon({ icon }: { icon: CoAlterHomeRecommendation["icon"] }) {
-  switch (icon) {
-    case "create":
-      return <SparkleIcon size={15} />;
-    case "candidates":
-      return <CalendarMiniIcon size={15} />;
-    case "confirm":
-      return <CheckIcon size={15} />;
+function GearGlyph() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+    </svg>
+  );
+}
+
+function PersonGlyph() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </svg>
+  );
+}
+
+function PersonAddGlyph() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="9" cy="8" r="3.6" />
+      <path d="M3 20a6.2 6.2 0 0 1 12 0" />
+      <path d="M19 8v6M16 11h6" />
+    </svg>
+  );
+}
+
+/** おすすめカードのサムネイル（map / map / calendar）。home.png の小プレビュー相当。 */
+function RecThumbnail({ icon }: { icon: CoAlterHomeRecommendation["icon"] }) {
+  if (icon === "confirm") {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-emerald-50 to-teal-50">
+        <CalendarGridGlyph />
+      </div>
+    );
   }
+  const nodes =
+    icon === "create" ? DAILY.candidates[0].route.nodes : DAILY.candidates[2].route.nodes;
+  return <RoutePreviewMap nodes={nodes} variant="mini" />;
+}
+
+function CalendarGridGlyph() {
+  return (
+    <svg width={52} height={40} viewBox="0 0 52 40" fill="none" aria-hidden>
+      <rect x="6" y="6" width="40" height="30" rx="4" fill="#ffffff" stroke="#cbd5e1" strokeWidth="1.4" />
+      <path d="M6 14 H46" stroke="#cbd5e1" strokeWidth="1.4" />
+      <path d="M16 4 V9 M36 4 V9" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" />
+      <g fill="#cdd6e3">
+        <rect x="11" y="18" width="6" height="4" rx="1" />
+        <rect x="23" y="18" width="6" height="4" rx="1" />
+        <rect x="35" y="18" width="6" height="4" rx="1" />
+        <rect x="11" y="26" width="6" height="4" rx="1" />
+        <rect x="23" y="26" width="6" height="4" rx="1" fill="#34d399" />
+        <rect x="35" y="26" width="6" height="4" rx="1" />
+      </g>
+    </svg>
+  );
 }

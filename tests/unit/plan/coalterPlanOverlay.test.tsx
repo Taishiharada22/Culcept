@@ -36,11 +36,10 @@ function renderFloatingPanel(showHeader: boolean): string {
 describe("CoAlterPlanOverlay (Talk floating plan)", () => {
   it("overlay は title・閉じる・ドラッグ/リサイズ注記・子を描画する", () => {
     const html = renderToStaticMarkup(
-      createElement(
-        CoAlterPlanOverlay,
-        { onClose: () => {} },
-        createElement("div", null, "プラン中身ダミー"),
-      ),
+      createElement(CoAlterPlanOverlay, {
+        onClose: () => {},
+        children: createElement("div", null, "プラン中身ダミー"),
+      }),
     );
     expect(html).toContain("プランインテリジェンス");
     expect(html).toContain("ドラッグして移動・リサイズできます");
@@ -50,20 +49,22 @@ describe("CoAlterPlanOverlay (Talk floating plan)", () => {
     expect(html).toContain("backdrop-blur");
   });
 
-  it("PlanIntelligencePanel surface=floating は地を透過し中身を描く（白パネルにしない）", () => {
+  it("PlanIntelligencePanel surface=floating は地を透過し compact 構図を描く（白パネルにしない）", () => {
     const html = renderFloatingPanel(false);
     // 透明地（bg-transparent）で frost は overlay 側
     expect(html).toContain("bg-transparent");
-    // 候補プランなど中身は描画される
+    // talk.png 準拠の compact 構図: 横3列 stat（着予定）/ 共有コンディション / 候補プラン横スクロール
+    expect(html).toContain("着予定");
     expect(html).toContain("共有コンディション");
     expect(html).toContain("候補プラン");
+    expect(html).toContain("すべてのプランを見る");
   });
 
-  it("showHeader=false でパネル内タイトルを出さない（overlay 側に一本化）", () => {
-    const withHeader = renderFloatingPanel(true);
-    const withoutHeader = renderFloatingPanel(false);
-    // showHeader=true のときだけパネル内ヘッダ領域が hidden 解除（@min-[120px]:flex）になる
-    expect(withHeader.includes("@min-[120px]:flex")).toBe(true);
-    expect(withoutHeader.includes("@min-[120px]:flex")).toBe(false);
+  it("floating（compact）は solid 専用の『おすすめの調整』セクションを描かない（overlay 用の軽量構図）", () => {
+    const floatingHtml = renderFloatingPanel(false);
+    // 「おすすめの調整」は solid レイアウト専用。overlay の compact では出さない。
+    expect(floatingHtml.includes("おすすめの調整")).toBe(false);
+    // パネル内に旧 @container ヘッダ機構（@min-[120px]:flex）も持たない（ヘッダは overlay 側に一本化）。
+    expect(floatingHtml.includes("@min-[120px]:flex")).toBe(false);
   });
 });
