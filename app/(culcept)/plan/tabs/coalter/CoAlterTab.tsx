@@ -60,6 +60,8 @@ import {
 } from "./coalterIcons";
 import { PlanIntelligencePanel } from "./PlanIntelligencePanel";
 import { CoAlterChatPanel } from "./CoAlterChatPanel";
+// CoAlter タブの入口ホーム（会話一覧）。タブは Home で始まり、会話を選ぶと Talk へ（CEO 2026-06-21）。
+import { CoAlterHome } from "./CoAlterHome";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -111,6 +113,8 @@ export interface CoAlterTabProps {
 }
 
 export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
+  // 画面: Home（会話一覧・入口） ⇄ Talk（チャット＋プラン）。タブは Home で始まる。
+  const [view, setView] = useState<"home" | "talk">("home");
   // モード未選択（null）の間も daily の内容を仮表示する（reference の「モードを選ぶ」状態）
   const [modeChoice, setModeChoice] = useState<CoAlterPlanMode | null>(null);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
@@ -386,10 +390,24 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     ? ""
     : " transition-[width,height] duration-200 ease-out";
 
+  // ── 入口は Home（会話一覧）。会話を選ぶと Talk へ。全 hooks の後に分岐（hooks 規則順守） ──
+  if (view === "home") {
+    return <CoAlterHome onOpenConversation={() => setView("talk")} />;
+  }
+
   return (
     <div className="mx-auto flex max-w-[1480px] flex-col px-3 pb-2 sm:px-5">
-      {/* ── タブ内ヘッダ: モード選択 / 日付 / 天気 / ペアアバター / メニュー ── */}
+      {/* ── タブ内ヘッダ: 戻る / モード選択 / 日付 / 天気 / ペアアバター / メニュー ── */}
       <header className="flex flex-wrap items-center gap-2 py-2.5">
+        {/* Home（会話一覧）へ戻る */}
+        <button
+          type="button"
+          onClick={() => setView("home")}
+          aria-label="ホームに戻る"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:text-slate-700"
+        >
+          <ChevronRightIcon size={16} className="rotate-180" />
+        </button>
         {/* モード選択（白系デザイン・CEO 必須指定） */}
         <div className="relative">
           <button
