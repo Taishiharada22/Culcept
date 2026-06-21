@@ -34,7 +34,7 @@ function renderFloatingPanel(showHeader: boolean): string {
 }
 
 describe("CoAlterPlanOverlay (Talk floating plan)", () => {
-  it("overlay は title・閉じる・ドラッグ/リサイズ注記・子を描画する", () => {
+  it("overlay は容器を完全透過にし、title・閉じる・子を描画する（CEO 2026-06-21: 透過率100%）", () => {
     const html = renderToStaticMarkup(
       createElement(CoAlterPlanOverlay, {
         onClose: () => {},
@@ -42,11 +42,13 @@ describe("CoAlterPlanOverlay (Talk floating plan)", () => {
       }),
     );
     expect(html).toContain("プランインテリジェンス");
-    expect(html).toContain("ドラッグして移動・リサイズできます");
     expect(html).toContain("プランを閉じる"); // close aria-label
     expect(html).toContain("プラン中身ダミー");
-    // フロスト面（背景透過）であること
-    expect(html).toContain("backdrop-blur");
+    // 容器は **完全透過**（白いフロスト面を持たない）。各枠が直接チャットに浮かぶ。
+    expect(html).toContain("bg-transparent");
+    // 旧フロスト/注記は撤去済み（CEO 指示）。
+    expect(html.includes("backdrop-blur")).toBe(false);
+    expect(html.includes("ドラッグして移動・リサイズできます")).toBe(false);
   });
 
   it("PlanIntelligencePanel surface=floating は地を透過し compact 構図を描く（白パネルにしない）", () => {

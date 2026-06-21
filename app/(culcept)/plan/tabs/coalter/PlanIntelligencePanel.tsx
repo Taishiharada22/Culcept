@@ -103,9 +103,9 @@ export function PlanIntelligencePanel({
     return (
       <section
         aria-label="プランインテリジェンス"
-        className="flex h-full min-h-0 flex-col overflow-hidden bg-transparent"
+        className="flex h-full min-h-0 flex-col bg-transparent"
       >
-        <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto overscroll-contain px-3 pb-2 pt-0.5">
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-1 pb-2 pt-0.5">
           {/* ── 地図（浮かぶ白カード） ── */}
           <div className="h-28 overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_rgba(15,23,42,0.08)] ring-1 ring-white/80">
             <RoutePreviewMap
@@ -139,7 +139,9 @@ export function PlanIntelligencePanel({
 
           {/* ── 共有コンディション ── */}
           <div>
-            <h3 className="px-0.5 text-[11px] font-bold text-slate-700">共有コンディション</h3>
+            <h3 className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+              共有コンディション
+            </h3>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {session.conditions.map((condition) => (
                 <ConditionChip key={condition.id} condition={condition} size="sm" />
@@ -149,14 +151,16 @@ export function PlanIntelligencePanel({
 
           {/* ── 候補プラン（横スクロール・各カードが浮かぶ） ── */}
           <div>
-            <div className="flex items-center justify-between px-0.5">
-              <h3 className="text-[11px] font-bold text-slate-700">候補プラン</h3>
-              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-violet-500">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                候補プラン
+              </h3>
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-medium text-violet-500 shadow-sm ring-1 ring-slate-200/60">
                 すべてのプランを見る
                 <ChevronRightIcon size={10} />
               </span>
             </div>
-            <div className="-mx-3 mt-1.5 flex gap-2 overflow-x-auto px-3 pb-1">
+            <div className="-mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1 pb-1">
               {session.candidates.map((candidate) => (
                 <FloatingCandidateCard
                   key={candidate.id}

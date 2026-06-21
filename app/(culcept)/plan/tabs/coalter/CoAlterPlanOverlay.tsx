@@ -90,17 +90,19 @@ export function CoAlterPlanOverlay({
   };
 
   return (
+    // 容器は **完全透過**（背景なし）。各プラン枠（ヘッダ/地図/stat/候補）が
+    // チャットの上に直接「浮かび上がる」（CEO 2026-06-21: 透過率 100% 指定）。
     <div
       ref={ref}
       role="dialog"
       aria-label="プランインテリジェンス"
-      className="absolute z-20 flex flex-col overflow-hidden rounded-[26px] border border-white/70 bg-white/75 shadow-[0_24px_70px_-18px_rgba(15,23,42,0.4)] ring-1 ring-slate-900/5 backdrop-blur-2xl backdrop-saturate-150"
+      className="absolute z-20 flex flex-col gap-2 bg-transparent"
       style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
     >
-      {/* ── ドラッグヘッダ ── */}
+      {/* ── ドラッグヘッダ（浮かぶ白ピル） ── */}
       <div
         onPointerDown={startDrag}
-        className="flex shrink-0 cursor-grab touch-none items-center justify-between gap-2 px-4 pb-2 pt-3 active:cursor-grabbing"
+        className="flex shrink-0 cursor-grab touch-none items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 shadow-[0_6px_22px_rgba(15,23,42,0.14)] ring-1 ring-slate-200/60 active:cursor-grabbing"
       >
         <span className="inline-flex min-w-0 items-center gap-2">
           <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-indigo-500 text-[12px] text-white shadow-sm">
@@ -116,28 +118,23 @@ export function CoAlterPlanOverlay({
           data-overlay-close
           onClick={onClose}
           aria-label="プランを閉じる"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/70 text-slate-500 shadow-sm ring-1 ring-slate-200/70 transition-colors hover:text-slate-700"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-500 shadow-sm ring-1 ring-slate-200/70 transition-colors hover:text-slate-700"
         >
           <CloseIcon size={11} />
         </button>
       </div>
 
-      {/* ── 中身（PlanIntelligencePanel・各カードが浮かぶ） ── */}
+      {/* ── 中身（透明背景に各カードが浮かぶ） ── */}
       <div className="min-h-0 flex-1">{children}</div>
 
-      {/* ── 注記 ── */}
-      <div className="shrink-0 px-4 pb-2 pt-0.5">
-        <span className="text-[10px] text-slate-400">ドラッグして移動・リサイズできます</span>
-      </div>
-
-      {/* ── リサイズハンドル（右下） ── */}
+      {/* ── リサイズハンドル（右下・小さな白グラバー） ── */}
       <div
         onPointerDown={startResize}
         role="separator"
         aria-label="サイズ変更"
-        className="absolute bottom-1 right-1 flex h-6 w-6 cursor-se-resize touch-none items-end justify-end p-1"
+        className="absolute -bottom-1 -right-1 flex h-7 w-7 cursor-se-resize touch-none items-center justify-center rounded-full bg-white text-slate-400 shadow-md ring-1 ring-slate-200/70"
       >
-        <span className="block h-3 w-3 rounded-br-md border-b-2 border-r-2 border-slate-400/70" />
+        <span className="block h-2.5 w-2.5 rounded-br-[3px] border-b-2 border-r-2 border-slate-400/80" />
       </div>
     </div>
   );
