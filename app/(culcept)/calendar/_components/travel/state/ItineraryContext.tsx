@@ -9,7 +9,8 @@
 import * as React from "react";
 import type { LocationItem, ScheduleItem, TripDay } from "../../../_lib/travel/types";
 import { locationItemToScheduleItem } from "../../../_lib/travel/itineraryConvert";
-import { readAddedEntries, writeAddedEntries, type StoredAddedEntry } from "../../../_lib/travel/travelLocalStore";
+// E-1: localStorage 直呼びをやめ、TravelPersonalStore 境界経由（既定は localStorage を Promise でラップ・挙動不変）。
+import { getTravelPersonalStore, type StoredAddedEntry } from "../../../_lib/travel/repository";
 
 type AddedEntry = StoredAddedEntry;
 
@@ -27,20 +28,31 @@ const ItineraryContext = React.createContext<ItineraryContextValue | null>(null)
 export function TravelItineraryProvider({ children }: { children: React.ReactNode }) {
   const [added, setAdded] = React.useState<AddedEntry[]>([]);
 
-  // localStorage から復元（client-only。SSR/hydration mismatch を避けるため mount 後 effect で）。
+  // store から復元（client-only。SSR/hydration mismatch を避けるため mount 後 effect で）。
+  // 既定 store=localStorage は即解決。unmount 後は cancelled guard で setState を抑止。
   React.useEffect(() => {
-    const stored = readAddedEntries();
-    if (stored.length) setAdded(stored);
+    let cancelled = false;
+    void getTravelPersonalStore()
+      .readAddedEntries()
+      .then((stored) => {
+        if (!cancelled && stored.length) setAdded(stored);
+      })
+      .catch(() => {
+        /* fail-soft（復元失敗は空のまま） */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // 変更時 persist（初回 mount の空 [] で既存データを上書きしないよう skip-first）。
+  // 変更時 persist（初回 mount の空 [] で既存データを上書きしないよう skip-first）。fire-and-forget。
   const firstPersist = React.useRef(true);
   React.useEffect(() => {
     if (firstPersist.current) {
       firstPersist.current = false;
       return;
     }
-    writeAddedEntries(added);
+    void getTravelPersonalStore().writeAddedEntries(added).catch(() => {});
   }, [added]);
 
   const addToItinerary = React.useCallback((item: LocationItem): boolean => {
