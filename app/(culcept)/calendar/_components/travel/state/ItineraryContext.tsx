@@ -9,11 +9,9 @@
 import * as React from "react";
 import type { LocationItem, ScheduleItem, TripDay } from "../../../_lib/travel/types";
 import { locationItemToScheduleItem } from "../../../_lib/travel/itineraryConvert";
+import { readAddedEntries, writeAddedEntries, type StoredAddedEntry } from "../../../_lib/travel/travelLocalStore";
 
-interface AddedEntry {
-  sourceId: string;
-  item: ScheduleItem;
-}
+type AddedEntry = StoredAddedEntry;
 
 interface ItineraryContextValue {
   addedItems: ScheduleItem[];
@@ -28,6 +26,22 @@ const ItineraryContext = React.createContext<ItineraryContextValue | null>(null)
 
 export function TravelItineraryProvider({ children }: { children: React.ReactNode }) {
   const [added, setAdded] = React.useState<AddedEntry[]>([]);
+
+  // localStorage から復元（client-only。SSR/hydration mismatch を避けるため mount 後 effect で）。
+  React.useEffect(() => {
+    const stored = readAddedEntries();
+    if (stored.length) setAdded(stored);
+  }, []);
+
+  // 変更時 persist（初回 mount の空 [] で既存データを上書きしないよう skip-first）。
+  const firstPersist = React.useRef(true);
+  React.useEffect(() => {
+    if (firstPersist.current) {
+      firstPersist.current = false;
+      return;
+    }
+    writeAddedEntries(added);
+  }, [added]);
 
   const addToItinerary = React.useCallback((item: LocationItem): boolean => {
     let ok = false;
