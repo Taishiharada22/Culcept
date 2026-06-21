@@ -611,6 +611,18 @@ export const PLAN_FLAGS = {
    *   **`/talk` thread を session root にしない**（sessionId は plan_coalter session・thread 由来でない）。
    */
   coalterDevSessionId: (process.env.NEXT_PUBLIC_PLAN_COALTER_DEV_SESSION_ID ?? "").trim(),
+
+  /**
+   * UX-6a: Travel **personalization enrichment** の read-only dev preview（fixture 性格で proposal が変わるのを観測）。
+   *   true  : /plan/dev-travel-personalization が **fixture PlanParams/TravelTraits → M2 soft preference → enrich** の
+   *           baseline vs personalized proposal を read-only 比較表示（engine は fixture 入力で実行）。
+   *   false : Disabled 表示（**本番デフォルト**・render しない）。
+   *
+   * env: PLAN_TRAVEL_PERSONALIZATION_PREVIEW=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。default OFF。
+   * 制約: **fixture 入力のみ**（snapshotReader/DB/Supabase/real user data 非接触）・**read-only**・
+   *   no API/fetch/送信/realtime・**本番 `/plan` 体験に非接触**・action button なし。production caller は本 preview 経路を使わない。
+   */
+  travelPersonalizationPreview: process.env.PLAN_TRAVEL_PERSONALIZATION_PREVIEW === "true",
 } as const;
 
 /**
