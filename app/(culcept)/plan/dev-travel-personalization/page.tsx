@@ -20,6 +20,7 @@ import type { DerivedValue, PlanParams, TravelTraitKeyV0, TravelTraitsV0 } from 
 import type { M2TravelSoftPreference } from "@/lib/shared/travel/m2-soft-enrichment-types";
 import type { TravelPlanDisplayInput } from "@/lib/shared/travel/travel-plan-display-adapter-types";
 import type { SessionSurfaceEvent } from "@/lib/shared/travel/travel-session-binding-types";
+import { ConsentPanel } from "./ConsentPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +110,8 @@ export default function DevTravelPersonalizationPage() {
       <p className="mt-1 text-[12px] text-gray-500">
         同じ目的地・日程（京都・2026-07-01）で、性格だけを変えた時に proposal の説明がどう変わるかを fixture で比較（DB 非接触）。
       </p>
+      {/* UX-6b-2a: consent トグル + gate 状態（local-only・既定 OFF・gate 許可でも snapshotReader 未実行＝6b-2b へ）。 */}
+      <ConsentPanel realReadFlag={PLAN_FLAGS.travelPersonalizationRealRead} />
       <div className="mt-4 space-y-3">
         {rows.map((row) => (
           <div key={row.label} className="rounded-lg border border-gray-200 bg-white/60 p-3" data-testid="travel-personalization-row">
