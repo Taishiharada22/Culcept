@@ -1,5 +1,12 @@
 # Phase C — Travel / Location Notes / Calendar Supabase Schema Plan（docs-only）
 
+> **改訂 C-1（2026-06-20・docs-only hardening）**: DB 化前の堅牢化パッチ。
+> ① `travel_days` unique を `(trip_id, date)` に（同一日 複数 trip 許容）＋Calendar primary-day 選択設計。
+> ② 全テーブル案に `user_id`（RLS owner-only 前提）を明記。
+> ③ `location_notes` を `contributor_type`（投稿者属性）/ `source_type`（情報由来）に分離。
+> ④ public/shared は Phase G まで未解禁を明確化（Phase D は policy テストのみ・実データは private 中心）。
+> ⑤ Calendar 実データ接続案の表現を厳密化（既存 CalendarTab 導線の data source 差し替えであり新規接続ではない）。
+
 - **日付**: 2026-06-20
 - **担当**: Build Unit（設計）／ **承認**: CEO
 - **種別**: **docs-only**。本書では **migration 作成・適用、SQL 実行、seed、DB 書込、Supabase db push、production/staging 接続・deploy、push** を一切行わない。
@@ -15,7 +22,7 @@
 
 ### 共通規約
 - `id uuid primary key default gen_random_uuid()`
-- `user_id uuid not null references auth.users(id) on delete cascade`（所有者）
+- `user_id uuid not null references auth.users(id) on delete cascade`（所有者）。**全テーブル（join/トグル系含む）に必須**＝RLS owner-only の前提。各テーブル案にも明示する（C-1 改訂）。
 - `created_at timestamptz not null default now()` / `updated_at timestamptz not null default now()`（trigger で自動更新）
 - **soft delete**: ユーザー実体（trips/days/itinerary_items/reservations/location_notes/photos/memories）は `deleted_at timestamptz`（同期・取り消し対応）。**join/トグル系（saves / note_to_itinerary / movement_legs）は hard delete**（状態がトグルで自明・履歴不要）。
 - 全テーブル **RLS 有効**（§2）。
@@ -37,6 +44,8 @@
 ### 1.2 `travel_days`（TripDay 正本）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | RLS owner-only |
 | trip_id | uuid not null references travel_trips(id) on delete cascade | |
 | date | date not null | |
 | day_index | int not null | 1.. |
@@ -45,13 +54,16 @@
 | weather | jsonb | {icon,tempMax,tempMin,current} |
 | hero_photo_id | uuid references travel_photos(id) on delete set null | nullable |
 | walking | jsonb | {steps, distanceKm} |
-- unique: `(user_id, date)`（Calendar が日付で一意に引く）。
-- index: `(trip_id, day_index)`。
+- **unique: `(trip_id, date)`**（C-1 改訂）。`(user_id, date)` は採らない＝**同一ユーザーが同じ日に複数 trip を持つケースを潰さない**（出張＋私的旅行の重複日など）。1日1旅行に制限する場合は別途 `unique(user_id, date)` を**明示的な制約として**追加するが、**現時点は複数 trip 許容（より安全）**を既定とする。
+- index: `(trip_id, day_index)`, `(user_id, date)`（Calendar lookup 用・非 unique）。
+- **Calendar lookup / primary day 選択**: Calendar は `user_id + date` で **候補 day を複数取得し得る**前提とし、`getTravelDayForDate(userId, date)` が **primary day を 1 件選ぶ**（選択規則の既定: ① `trip.status='active'` を優先 → ② `trip.start_date` 昇順 → ③ `created_at` 昇順 の安定順）。候補 0 件 → null（通常日）。将来「その日の複数旅行」を見せる UI が要れば候補配列も返せる拡張余地を残す。
 - **day_phase（before/during/after）は保存しない**＝読み取り時に `date` と today から導出。
 
 ### 1.3 `travel_itinerary_items`（ScheduleItem 正本）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | RLS owner-only |
 | day_id | uuid not null references travel_days(id) on delete cascade | |
 | start_time / end_time | text | 空=時刻未定枠 |
 | name | text not null | |
@@ -71,6 +83,8 @@
 ### 1.4 `travel_movement_legs`（MoveLeg 正本・hard delete）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | **RLS owner-only に必須（hard delete でも明示）** |
 | day_id | uuid not null references travel_days(id) on delete cascade | |
 | time | text | |
 | endpoint_kind | text | depart/arrive |
@@ -84,6 +98,8 @@
 ### 1.5 `travel_reservations`（Reservation 正本）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | RLS owner-only |
 | trip_id | uuid not null references travel_trips(id) on delete cascade | |
 | day_id | uuid references travel_days(id) on delete set null | nullable |
 | category | text not null | 宿泊/食事/交通/体験 |
@@ -101,12 +117,15 @@
 ### 1.6 `location_notes`（LocationItem 正本）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | 投稿者＝所有者・RLS owner-only |
 | kind | text not null | trip/spot |
 | prefecture | text not null | |
 | title / area_label / description / genre / hours / price_level | text | |
 | classification | text not null | classic/hidden/standard |
-| source_type | text not null | local/traveler/book/sns/search/self_memo（§2） |
-| author | jsonb | {name,source,roleLabel} |
+| contributor_type | text not null default 'self' | **投稿者属性**: local（地元民）/ traveler（旅行者）/ self（自分）（C-1 分離） |
+| source_type | text not null default 'self_memo' | **情報由来**: self_memo / firsthand（現地体験）/ book / sns / search（C-1 分離・§2.2） |
+| author | jsonb | {name, roleLabel}（表示名・肩書。属性は contributor_type が正本） |
 | theme_keys / tags / stops / match_reasons | text[] | |
 | rating | numeric(2,1) default 0 / rating_count int default 0 | |
 | duration_label / tagline / why_special / why_hidden | text | |
@@ -130,6 +149,8 @@
 ### 1.9 `travel_photos`（TravelPhoto 正本）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | RLS owner-only |
 | source | text not null | auto/user/placeholder（既存 enum） |
 | storage_path | text | Supabase Storage（user アップロード時） |
 | url | text | 外部/署名URL |
@@ -144,6 +165,8 @@
 ### 1.10 `travel_memories`（MemoriesNote＋旅行後）
 | col | type | 備考 |
 |---|---|---|
+| id | uuid pk | 共通 |
+| user_id | uuid not null references auth.users(id) on delete cascade | RLS owner-only |
 | trip_id | uuid references travel_trips(id) on delete cascade | |
 | day_id | uuid references travel_days(id) on delete set null | nullable |
 | text | text | |
@@ -178,10 +201,15 @@ service_role 非前提・cross-user 不可。
     OR (status = 'published' AND moderation_status = 'approved' AND deleted_at is null)
   );
   ```
-  → これが**唯一の非 owner-only 読取経路**。Match/王道/穴場 等で他者ノートを見せる公開 feed の土台。**Phase G（共有解禁）まで published を作らない＝実質 private のみ**で運用。
-- status / source_type の扱い:
-  - `draft`: 編集中・本人のみ。`private`: 確定・本人のみ（既定）。`published`: moderation approved で公開可視。`hidden`: 本人が非表示（公開しない）。`reported`: 通報され公開停止（select は owner のみ／審査対象）。
-  - `self_memo`: check 制約で published 不可（自分メモは常に owner-only）。`book/sns/search/local/traveler`: 出典明示で published 可（source trust は §7・**security ではなく表示/ランキング用メタ**）。
+  → これが**唯一の非 owner-only 読取経路**。Match/王道/穴場 等で他者ノートを見せる公開 feed の土台。
+- **解禁ゲート（C-1 明確化）**:
+  - **Phase D（local dry-run）**: 上記 select policy を**書く・テストするのみ**（他者の private/draft が読めないこと／published+approved だけが cross-user で見えることを local Supabase で検証）。**実 published 行は作らない**（テストフィクスチャを除き、production 相当の公開データは生成しない）。
+  - **Phase G（共有解禁）**: published を実際に生成し公開 feed を有効化。moderation/report/公開 feed UI もこのゲート。**それまでは実質 private のみ**で運用。
+- 投稿者属性 / 情報由来 の扱い（C-1 分離・いずれも **security ではなく表示/ランキング用メタ**）:
+  - **`contributor_type`（投稿者属性）**: local（地元民）/ traveler（旅行者）/ self（自分）。誰の視点かを表示（地元民バッジ等）。RLS は user_id でのみ判定し、contributor_type は権限に**関与しない**。
+  - **`source_type`（情報由来）**: self_memo / firsthand / book / sns / search。出典の信頼差は §7（表示/ランキング）で扱う。
+  - status × source_type: `draft`=編集中・本人のみ／`private`=確定・本人のみ（既定）／`published`=moderation approved で公開可視／`hidden`=本人が非表示／`reported`=通報され公開停止（select は owner のみ・審査対象）。
+  - `self_memo`: check 制約で published 不可（自分メモは常に owner-only）。Phase D 最小は **private / self_memo＋contributor self|local|traveler** に閉じ、`book/sns/search` 由来・published は Phase G 以降。
 
 ### 2.3 save / itinerary add の権限
 - `location_note_saves` / `location_note_to_itinerary` は **owner-only**（自分の保存・追加履歴）。
@@ -228,7 +256,7 @@ travelTripDay = useMemo(() => {
   return getTravelDayForDate(userId, selectedDate);         // ← fixture を実データ lookup に差し替え
 }, [userId, selectedDate]);                                  // {trip, day} | null
 ```
-- `getTravelDayForDate(userId, date)`: `travel_days`（unique(user_id,date)）＋親 `travel_trips` を合成して `{trip, day} | null` を返す DataSource。
+- `getTravelDayForDate(userId, date)`: `travel_days`（`(user_id, date)` index・**非 unique**＝同一日に複数 trip 可）＋親 `travel_trips` を合成し、§1.2 の **primary day 選択規則**（① `trip.status='active'` → ② `start_date` 昇順 → ③ `created_at` 昇順）で **1 件**に確定して `{trip, day} | null` を返す DataSource。複数旅行を見せる UI が要れば候補配列版を追加（§1.2）。
 - **旅行データがない日 → null → Travel UI を出さない**（現在の通常日と同一・退行ゼロ）。
 - **旅行データがある日だけ TravelDayDetail を開く**（現挙動と同型）。
 
