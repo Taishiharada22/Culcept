@@ -385,6 +385,18 @@ export const PLAN_FLAGS = {
   travelProjectionPreview: process.env.PLAN_TRAVEL_PROJECTION_PREVIEW === "true",
 
   /**
+   * UX-6a: Travel **personalization enrichment** の read-only dev preview（fixture 性格で proposal が変わるのを観測）。
+   *   true  : /plan/dev-travel-personalization が **fixture PlanParams/TravelTraits → M2 soft preference → enrich** の
+   *           baseline vs personalized proposal を read-only 比較表示（engine は fixture 入力で実行）。
+   *   false : Disabled 表示（**本番デフォルト**・render しない）。
+   *
+   * env: PLAN_TRAVEL_PERSONALIZATION_PREVIEW=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。default OFF。
+   * 制約: **fixture 入力のみ**（snapshotReader/DB/Supabase/real user data 非接触）・**read-only**・
+   *   no API/fetch/送信/realtime・**本番 `/plan` 体験に非接触**・action button なし。production caller は本 preview 経路を使わない。
+   */
+  travelPersonalizationPreview: process.env.PLAN_TRAVEL_PERSONALIZATION_PREVIEW === "true",
+
+  /**
    * B2-disp A: production `/plan` travel live gate flag（**server-only・default OFF・NEXT_PUBLIC なし**）。
    *   設計: docs/t11-production-plan-travel-live-gate-design.md §4。
    *   制約: 単独では何も有効化しない。live gate 合成は `isPlanTravelLiveAllowed`

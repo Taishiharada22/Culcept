@@ -32,6 +32,9 @@ import { buildPlanIntelligenceProjection } from "./plan-intelligence-projection"
 import { deriveCoAlterProjectionCues } from "./coalter-projection-consume";
 import { extractGeneratedLinkDestination } from "./generated-link-destination";
 import { prepareTravelExternalLinkHrefModels } from "./travel-external-link-preparation";
+import { mapM2SoftEnrichmentToSlots } from "./m2-soft-enrichment";
+import { mergeM2SoftEnrichmentIntoReadyTravelInput } from "./m2-soft-enrichment-merge";
+import type { M2TravelSoftPreference } from "./m2-soft-enrichment-types";
 import type { TravelInputProviderGate } from "./travel-input-provider-types";
 import type { PrereqAsk, TravelPlanDisplayInput, TravelPlanDisplayResult } from "./travel-plan-display-adapter-types";
 
@@ -44,7 +47,11 @@ export function buildTravelPlanDisplayResult(
   gate: TravelInputProviderGate,
   // ★ C-E: additive optional。absent/false → external links を産まない（従来挙動 byte 等価）。
   //   true は **server gate** が決める（adapter は env/client flag を読まない）。
-  options?: { includeExternalLinks?: boolean },
+  // ★ UX-6a: `softPersonalization` additive optional。**absent → engine 入力 byte 等価**（従来挙動）。
+  //   提供時のみ、**ready engine 入力に M2 由来 soft slot を enrich**（pace/soft_preference 等）して
+  //   personalization を proposal に反映する。**注入のみ（caller が flag 配下で渡す・DB/M2 runtime/snapshotReader は呼ばない）**。
+  //   explicit 優先・hard key 非追加は merge helper が担保。owner は self（participantIds[0]）。
+  options?: { includeExternalLinks?: boolean; softPersonalization?: M2TravelSoftPreference },
 ): TravelPlanDisplayResult {
   // ⓪ session source 不在（payload 自体が無い）→ unavailable（engine を呼ばず fail-closed）。
   if (!input || typeof input !== "object" || !Array.isArray(input.events) || !Array.isArray(input.participantIds)) {
@@ -68,8 +75,20 @@ export function buildTravelPlanDisplayResult(
     return { status: "invalid" }; // 構造違反理由は server-only
   }
 
+  // ★ UX-6a: ready engine 入力に M2 soft personalization を enrich（注入時のみ・absent は byte 等価）。
+  //   private soft slot の owner = self（participantIds[0]）。explicit 優先・hard key 非追加は merge が担保。
+  let engineInput = provided.input;
+  const softPref = options?.softPersonalization;
+  const selfId = provided.input.participantIds[0];
+  if (softPref && typeof selfId === "string" && selfId.length > 0) {
+    const m2Slots = mapM2SoftEnrichmentToSlots(softPref, { participantId: selfId });
+    if (m2Slots.length > 0) {
+      engineInput = mergeM2SoftEnrichmentIntoReadyTravelInput(provided.input, m2Slots);
+    }
+  }
+
   // ③ ready のみ engine を実行 → display chain（authoritative は server 内に留め client へ返さない）
-  const output = runTravelPlanEngine(provided.input);
+  const output = runTravelPlanEngine(engineInput);
   const viewerId = input.viewerId;
   const packet = toDisplayPacket(output, viewerId); // DisplayPacketForClient（authority 無を assert）
   const projection = buildPlanIntelligenceProjection({ packet, ...(viewerId !== undefined ? { viewerId } : {}) });

@@ -126,13 +126,16 @@ describe("3. adapter source-contract", () => {
       }
     }
   });
-  it("fetch/API/DB/Supabase/M2/route-weather-place/外部/app/UI を import/呼出しない", () => {
+  it("fetch/API/DB/Supabase/M2 runtime/route-weather-place/外部/app/UI を import/呼出しない", () => {
     for (const src of [SRC, TYPES]) {
       expect(src).not.toMatch(/\bfetch\(/);
       expect(src).not.toMatch(/supabase/i);
       expect(src).not.toMatch(/\/api\//);
       expect(src).not.toMatch(/googleapis|maps|weather/i);
-      expect(src).not.toMatch(/m2|personalization|useCoAlter|\/talk/i);
+      expect(src).not.toMatch(/useCoAlter|\/talk/i);
+      // ★ UX-6a: **注入** soft personalization の pure enrich（m2-soft-enrichment / merge）は許可。
+      //   禁止は **M2 runtime / DB read**（snapshotReader / snapshot 由来 derive を adapter が呼ばない）。
+      expect(src).not.toMatch(/snapshotReader|getPersonalizationSnapshot|getPairPersonalizationContext|derivePlanParams|deriveTravelTraits/);
       expect(src).not.toMatch(/from ["']next/);
       expect(src).not.toMatch(/from ["']react/);
       expect(src).not.toMatch(/from ["'][^"']*(components|app\/)/i);
