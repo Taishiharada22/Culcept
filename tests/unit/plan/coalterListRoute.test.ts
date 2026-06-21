@@ -15,8 +15,9 @@ describe("CoAlter list (GET) handler", () => {
   beforeEach(() => vi.stubEnv("PLAN_COALTER_SEND_LOCAL", "true"));
   afterEach(() => vi.unstubAllEnvs());
 
-  it("flag OFF → 404", async () => {
+  it("flag OFF（read/send 両方 OFF）→ 404", async () => {
     vi.stubEnv("PLAN_COALTER_SEND_LOCAL", "false");
+    vi.stubEnv("PLAN_COALTER_READ_LOCAL", "false");
     const mock = createMockSupabaseClient();
     mock.setAuthUser({ id: "u-a" });
     const res = await handleCoAlterList("sess-1", { supabase: mock.asSupabaseClient() });
@@ -53,5 +54,43 @@ describe("CoAlter list (GET) handler", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.messages).toEqual([]);
+  });
+});
+
+/**
+ * UX-5a-1: read/send gate 分離。GET は **read ∨ send** で許可（read-only 先行解禁）。
+ */
+describe("CoAlter list (GET) — UX-5a-1 read gate separation", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("read ON / send OFF → GET は許可（404 を通過し 401＝認証段階へ）", async () => {
+    vi.stubEnv("PLAN_COALTER_READ_LOCAL", "true");
+    vi.stubEnv("PLAN_COALTER_SEND_LOCAL", "false");
+    const mock = createMockSupabaseClient(); // 未認証
+    const res = await handleCoAlterList("sess-1", { supabase: mock.asSupabaseClient() });
+    expect(res.status).toBe(401); // 404 ではない＝read gate を通過
+  });
+
+  it("read ON / send OFF + 認証 member → 200 + messages", async () => {
+    vi.stubEnv("PLAN_COALTER_READ_LOCAL", "true");
+    vi.stubEnv("PLAN_COALTER_SEND_LOCAL", "false");
+    const mock = createMockSupabaseClient();
+    mock.setAuthUser({ id: "u-a" });
+    await mock.from(MESSAGES).insert({
+      id: "m-1", session_id: "sess-1", author_kind: "participant", author_user_id: "u-a",
+      kind: "chat", visibility: "shared", body: "read のみ", client_message_id: null, created_at: "2026-06-13T00:00:00Z",
+    }).select("*").single();
+    const res = await handleCoAlterList("sess-1", { supabase: mock.asSupabaseClient() });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.messages).toHaveLength(1);
+  });
+
+  it("read OFF / send ON → GET は許可（send-refetch を壊さない）", async () => {
+    vi.stubEnv("PLAN_COALTER_READ_LOCAL", "false");
+    vi.stubEnv("PLAN_COALTER_SEND_LOCAL", "true");
+    const mock = createMockSupabaseClient(); // 未認証
+    const res = await handleCoAlterList("sess-1", { supabase: mock.asSupabaseClient() });
+    expect(res.status).toBe(401); // 404 ではない＝send でも read 可
   });
 });

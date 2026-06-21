@@ -470,23 +470,34 @@ export const PLAN_FLAGS = {
   coalterSendLocal: process.env.PLAN_COALTER_SEND_LOCAL === "true",
 
   /**
-   * CoAlter **本文を実 session message に接続**（read + send・**client gate・default OFF**）。
-   *   true  : `coalterDevSessionId` がある時、本文を GET /api/coalter/sessions/:id/messages から読み、
-   *           送信は POST（同 route）。失敗/未認証/session 未束縛 → fixture へ fail-closed。
+   * UX-5a-1: CoAlter **本文の live read** gate（GET /api/coalter/sessions/:id/messages・**client gate・default OFF**）。
+   *   true  : `coalterDevSessionId` がある時、本文を GET から **read-only** で読む（送信は別 flag `coalterSendMessages`）。
+   *           失敗/未認証/session 未束縛 → fixture へ fail-closed。
    *   false : fixture のまま（**本番デフォルト**・fetch 0・現行 UI 完全不変）。
    *
-   * env: NEXT_PUBLIC_PLAN_COALTER_LIVE_MESSAGES=true（client tab 内分岐のため NEXT_PUBLIC_）。
-   * 正本: docs/coalter-send-route-preflight.md / docs/coalter-plan-session-message-schema-rls-design.md。
-   * 制約: **local only**（route 側 server gate `PLAN_COALTER_SEND_LOCAL` と AND で初めて live）。
+   * env: NEXT_PUBLIC_PLAN_COALTER_READ_MESSAGES=true（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 正本: docs/coalter-send-route-preflight.md（UX-5a-1 read/send flag separation）。
+   * 制約: **read のみ**。route 側 server read gate `PLAN_COALTER_READ_LOCAL`（または send gate）と AND で初めて live read。
    *   raw userId を UI に出さない（未解決 author は中立ラベル）。read receipt/realtime/typing/useCoAlter なし。
    *   thread を session root にしない・thread から session identity を推論しない。
    */
-  coalterLiveMessages: process.env.NEXT_PUBLIC_PLAN_COALTER_LIVE_MESSAGES === "true",
+  coalterReadMessages: process.env.NEXT_PUBLIC_PLAN_COALTER_READ_MESSAGES === "true",
+
+  /**
+   * UX-5a-1: CoAlter **本文の live send** gate（POST /api/coalter/sessions/:id/messages・**client gate・default OFF**）。
+   *   true  : live read 中（`coalterReadMessages`+sessionId+live state）に送信を **実 send route** へ回す。
+   *   false : 送信は **local echo のまま**（**本番デフォルト**・POST 0・現行挙動）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_SEND_MESSAGES=true（client tab 内分岐のため NEXT_PUBLIC_）。
+   * 制約: **send のみ**（read は `coalterReadMessages`）。**client send flag 単独では永続しない**
+   *   （server `PLAN_COALTER_SEND_LOCAL` OFF なら POST 404＝write は絶対に開かない）。read receipt/realtime/typing/useCoAlter なし。
+   */
+  coalterSendMessages: process.env.NEXT_PUBLIC_PLAN_COALTER_SEND_MESSAGES === "true",
 
   /**
    * CoAlter live 本文の対象 sessionId（**dev/local 注入専用・default 空**・product strategy ではない）。
-   *   - 空（既定）: live 対象なし＝coalterLiveMessages が ON でも fixture のまま（fetch 0）
-   *   - 非空 ∧ coalterLiveMessages=true: その sessionId の messages を読む/送る。
+   *   - 空（既定）: live 対象なし＝coalterReadMessages が ON でも fixture のまま（fetch 0）
+   *   - 非空 ∧ coalterReadMessages=true: その sessionId の messages を read-only で読む（送信は coalterSendMessages）。
    *
    * env: NEXT_PUBLIC_PLAN_COALTER_DEV_SESSION_ID=<uuid>（client 読みのため NEXT_PUBLIC_）。
    * 制約: **session 作成は production 未実装**（本 env は local 検証用の明示注入のみ・production 未設定＝空）。
@@ -566,4 +577,13 @@ export const PLAN_FLAGS = {
  */
 export function planCoAlterSendLocalEnabled(): boolean {
   return process.env.PLAN_COALTER_SEND_LOCAL === "true";
+}
+
+/**
+ * UX-5a-1: CoAlter local-only **read** route の **request 時**評価（GET handler 用・default OFF）。
+ * read は send から独立した gate（`PLAN_COALTER_READ_LOCAL`）。GET は read ∨ send で許可
+ * （send 可能なら自分の送信を読み返せる必要があるため＝send-refetch を壊さない）。POST は send のみ。
+ */
+export function planCoAlterReadLocalEnabled(): boolean {
+  return process.env.PLAN_COALTER_READ_LOCAL === "true";
 }

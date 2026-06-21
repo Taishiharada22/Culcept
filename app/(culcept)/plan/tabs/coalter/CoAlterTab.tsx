@@ -186,10 +186,11 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
   // 本文は fixture session ＝ local echo 可（legacy live read-only の "none" 経路は撤去済み）。
   const canLocalEcho = true;
 
-  // ── local-only live 本文（read+send）。flag OFF / sessionId 無 / 未認証 / 失敗 → fixture へ fail-closed ──
-  //   server gate（PLAN_COALTER_SEND_LOCAL）と AND で初めて 200 が返る。raw userId は UI に出さない。
+  // ── local-only live 本文 **read**（UX-5a-1: read flag で gate・send とは独立）。
+  //   flag OFF / sessionId 無 / 未認証 / 失敗 → fixture へ fail-closed。
+  //   server read gate（PLAN_COALTER_READ_LOCAL ∨ SEND_LOCAL）と AND で初めて 200。raw userId は UI に出さない。
   const liveSession = useCoAlterLiveSession({
-    enabled: PLAN_FLAGS.coalterLiveMessages,
+    enabled: PLAN_FLAGS.coalterReadMessages,
     sessionId: PLAN_FLAGS.coalterDevSessionId || null,
   });
   const liveParticipants = buildLiveParticipants(
@@ -239,10 +240,11 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     patchUi(session.id, ui, { sentMessages: [...ui.sentMessages, message] });
   };
 
-  // 送信ルーティング: live 本文なら実 send route（POST→refetch）、それ以外は従来 local echo。
+  // 送信ルーティング（UX-5a-1: send flag で gate）: **live read 中 ∧ send flag ON** のときだけ実 send route
+  //   （POST→refetch）。それ以外（send flag OFF / 非 live）は従来 local echo＝write を開かない。
   //   client は author/userId/source を送らない（送信主体は server stamp・hook が body+clientMessageId のみ送る）。
   const handleSendUnified = (text: string) => {
-    if (bodySelection.isLive) {
+    if (bodySelection.isLive && PLAN_FLAGS.coalterSendMessages) {
       void liveSession.send(text);
     } else {
       handleSend(text);

@@ -18,7 +18,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { planCoAlterSendLocalEnabled } from "@/lib/plan/featureFlags";
+import { planCoAlterReadLocalEnabled, planCoAlterSendLocalEnabled } from "@/lib/plan/featureFlags";
 import { stampServerAuthContext } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionMessageRepository";
 import { createDbBackedSessionMessageStore } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionMessageStore";
 import { createSupabaseSessionMessagePort } from "./coalterSessionMessageSupabasePort";
@@ -43,7 +43,9 @@ export interface CoAlterSendDeps {
 
 /**
  * GET /api/coalter/sessions/:sessionId/messages の本体（read・user-RLS）。
- *   - local-only gate（OFF→404）→ auth.getUser（無→401）→ store.listSessionMessages。
+ *   - UX-5a-1: **read gate（`PLAN_COALTER_READ_LOCAL`）∨ send gate（`PLAN_COALTER_SEND_LOCAL`）**で許可
+ *     （read-only 先行解禁を可能にしつつ、send 有効時の send→refetch も壊さない）。両 OFF→404。
+ *   - → auth.getUser（無→401）→ store.listSessionMessages。
  *   - **RLS が読める message のみ**返す（非 member は空＝fail-closed・membership は DB が判定）。
  *   - read receipt を付けない・`/talk` を触らない・realtime なし。
  */
@@ -51,7 +53,7 @@ export async function handleCoAlterList(
   sessionId: string,
   deps: CoAlterSendDeps,
 ): Promise<NextResponse> {
-  if (!planCoAlterSendLocalEnabled()) {
+  if (!planCoAlterReadLocalEnabled() && !planCoAlterSendLocalEnabled()) {
     return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }
   const {

@@ -53,6 +53,15 @@ describe("CoAlter local-only send handler", () => {
     expect(res.status).toBe(404);
   });
 
+  it("UX-5a-1: read ON / send OFF → POST は 404（read flag では write が開かない）", async () => {
+    vi.stubEnv("PLAN_COALTER_SEND_LOCAL", "false");
+    vi.stubEnv("PLAN_COALTER_READ_LOCAL", "true"); // read だけ ON
+    const mock = newMock();
+    mock.setAuthUser({ id: "u-a" });
+    const res = await handleCoAlterSend(makeReq({ body: "hi" }), "sess-1", { supabase: mock.asSupabaseClient() });
+    expect(res.status).toBe(404); // send gate のみが POST を開く
+  });
+
   it("無認証 → 401", async () => {
     const mock = newMock(); // setAuthUser しない＝user null
     const res = await handleCoAlterSend(makeReq({ body: "hi" }), "sess-1", { supabase: mock.asSupabaseClient() });
