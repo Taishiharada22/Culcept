@@ -9,6 +9,7 @@ import * as React from "react";
 import { motion } from "framer-motion";
 import type { LocationItem, LocationNotesData } from "../../../_lib/travel/types";
 import { getLocationNotes } from "../../../_lib/travel/locationNotesData";
+import { readSavedIds, writeSavedIds, readUserNotes, writeUserNotes } from "../../../_lib/travel/travelLocalStore";
 import { ConciergeHeader } from "../concierge/primitives";
 import { Bell } from "../concierge/icons";
 import { useTravelItinerary } from "../state/ItineraryContext";
@@ -31,6 +32,34 @@ export default function LocationNotesScreen({ onClose, onToast }: { onClose: () 
   const [savedIds, setSavedIds] = React.useState<Set<string>>(new Set());
   const [userItems, setUserItems] = React.useState<LocationItem[]>([]);
   const [detailItem, setDetailItem] = React.useState<LocationItem | null>(null);
+
+  // savedIds / userItems を localStorage から lazy init（mount 後 hydrate＝SSR mismatch 回避）。flag OFF 時は本画面が mount されない。
+  React.useEffect(() => {
+    const ids = readSavedIds();
+    if (ids.length > 0) setSavedIds(new Set(ids));
+  }, []);
+  React.useEffect(() => {
+    const items = readUserNotes();
+    if (items.length > 0) setUserItems(items);
+  }, []);
+
+  // 変更時 persist（hydrate 直後の初回 skip で上書きレース防止）。
+  const savedReady = React.useRef(false);
+  React.useEffect(() => {
+    if (!savedReady.current) {
+      savedReady.current = true;
+      return;
+    }
+    writeSavedIds([...savedIds]);
+  }, [savedIds]);
+  const notesReady = React.useRef(false);
+  React.useEffect(() => {
+    if (!notesReady.current) {
+      notesReady.current = true;
+      return;
+    }
+    writeUserNotes(userItems);
+  }, [userItems]);
 
   const { addToItinerary: addItin, hasAdded } = useTravelItinerary();
 

@@ -9,6 +9,7 @@
 import * as React from "react";
 import type { LocationItem, ScheduleItem, TripDay } from "../../../_lib/travel/types";
 import { locationItemToScheduleItem } from "../../../_lib/travel/itineraryConvert";
+import { readItinerary, writeItinerary } from "../../../_lib/travel/travelLocalStore";
 
 interface AddedEntry {
   sourceId: string;
@@ -28,6 +29,22 @@ const ItineraryContext = React.createContext<ItineraryContextValue | null>(null)
 
 export function TravelItineraryProvider({ children }: { children: React.ReactNode }) {
   const [added, setAdded] = React.useState<AddedEntry[]>([]);
+
+  // localStorage から lazy init（mount 後に hydrate＝SSR hydration mismatch を避ける）。flag OFF 時は本 Provider 自体が mount されない。
+  React.useEffect(() => {
+    const stored = readItinerary();
+    if (stored.length > 0) setAdded(stored);
+  }, []);
+
+  // 変更時 persist（hydrate 直後の初回は skip し、storage の上書きレースを防ぐ）。
+  const persistReady = React.useRef(false);
+  React.useEffect(() => {
+    if (!persistReady.current) {
+      persistReady.current = true;
+      return;
+    }
+    writeItinerary(added);
+  }, [added]);
 
   const addToItinerary = React.useCallback((item: LocationItem): boolean => {
     let ok = false;
