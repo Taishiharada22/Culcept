@@ -8,8 +8,9 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import type { LocationItem, LocationNotesData } from "../../../_lib/travel/types";
-import { getLocationNotes } from "../../../_lib/travel/locationNotesData";
-import { readSavedIds, writeSavedIds, readUserNotes, writeUserNotes } from "../../../_lib/travel/travelLocalStore";
+// E-1: fixture/localStorage 直呼びをやめ、repository 境界経由（既定は fixture/localStorage・挙動不変）。
+import { EMPTY_LOCATION_NOTES_DATA } from "../../../_lib/travel/locationNotesData";
+import { getLocationNotesRepository, getTravelPersonalStore } from "../../../_lib/travel/repository";
 import { ConciergeHeader } from "../concierge/primitives";
 import { Bell } from "../concierge/icons";
 import { useTravelItinerary } from "../state/ItineraryContext";
@@ -26,41 +27,58 @@ import { LocationDetailSheet } from "./LocationDetailSheet";
 import type { LocationViewProps } from "./viewTypes";
 
 export default function LocationNotesScreen({ onClose, onToast }: { onClose: () => void; onToast: (msg: string) => void }) {
-  const base = getLocationNotes("京都府"); // 都道府県候補等の不変メタ参照
-  const [prefecture, setPrefecture] = React.useState(base.defaultPrefecture);
+  const [prefecture, setPrefecture] = React.useState(EMPTY_LOCATION_NOTES_DATA.defaultPrefecture);
   const [tab, setTab] = React.useState<LocationTab>("match");
   const [savedIds, setSavedIds] = React.useState<Set<string>>(new Set());
   const [userItems, setUserItems] = React.useState<LocationItem[]>([]);
   const [detailItem, setDetailItem] = React.useState<LocationItem | null>(null);
+  // E-1: 都道府県別データは repository から async ロード（既定 fixture は即解決）。
+  //   初期は空メタ（都道府県ピッカーは出るが内容は空）→ ロード後に内容が入る。
+  const [baseData, setBaseData] = React.useState<LocationNotesData>(EMPTY_LOCATION_NOTES_DATA);
 
-  // localStorage 復元（client-only・mount 後 effect で SSR/hydration mismatch 回避）。
+  // 個人データ（保存/投稿ノート）を store から復元（client-only・mount 後 effect で hydration mismatch 回避）。
   React.useEffect(() => {
-    const ids = readSavedIds();
-    if (ids.length) setSavedIds(new Set(ids));
-    const notes = readUserNotes();
-    if (notes.length) setUserItems(notes);
+    let cancelled = false;
+    const store = getTravelPersonalStore();
+    void Promise.all([store.readSavedIds(), store.readUserNotes()])
+      .then(([ids, notes]) => {
+        if (cancelled) return;
+        if (ids.length) setSavedIds(new Set(ids));
+        if (notes.length) setUserItems(notes);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
-  // 変更時 persist（初回 mount の空状態で既存データを上書きしないよう skip-first）。
+  // 都道府県別データを repository から取得（prefecture 変更で再取得・stale は cancelled guard で破棄）。
+  React.useEffect(() => {
+    let cancelled = false;
+    void getLocationNotesRepository()
+      .getLocationNotes(prefecture)
+      .then((d) => { if (!cancelled) setBaseData(d); })
+      .catch(() => { if (!cancelled) setBaseData(EMPTY_LOCATION_NOTES_DATA); });
+    return () => { cancelled = true; };
+  }, [prefecture]);
+
+  // 変更時 persist（初回 mount の空状態で既存データを上書きしないよう skip-first）。fire-and-forget。
   const savedFirst = React.useRef(true);
   React.useEffect(() => {
     if (savedFirst.current) { savedFirst.current = false; return; }
-    writeSavedIds([...savedIds]);
+    void getTravelPersonalStore().writeSavedIds([...savedIds]).catch(() => {});
   }, [savedIds]);
   const notesFirst = React.useRef(true);
   React.useEffect(() => {
     if (notesFirst.current) { notesFirst.current = false; return; }
-    writeUserNotes(userItems);
+    void getTravelPersonalStore().writeUserNotes(userItems).catch(() => {});
   }, [userItems]);
 
   const { addToItinerary: addItin, hasAdded } = useTravelItinerary();
 
-  // prefecture 絞り込み＋ユーザー追加分マージ
+  // baseData（repository）＋ユーザー追加分マージ
   const data: LocationNotesData = React.useMemo(() => {
-    const d = getLocationNotes(prefecture);
     const mine = userItems.filter((it) => it.prefecture === prefecture);
-    return { ...d, items: [...mine, ...d.items] };
-  }, [prefecture, userItems]);
+    return { ...baseData, items: [...mine, ...baseData.items] };
+  }, [baseData, userItems, prefecture]);
 
   const toggleSave = React.useCallback((id: string) => {
     setSavedIds((prev) => {

@@ -593,22 +593,29 @@ export const KYOTO_LOCATION_NOTES: LocationNotesData = {
   items: [...TRIPS, ...SPOTS],
 };
 
+/**
+ * 都道府県候補等の不変メタは保ちつつ、全コンテンツセクションを空にした shape。
+ * - getLocationNotes の「データ未整備の都道府県」分岐の正本。
+ * - Phase E-1: LocationNotesScreen の async ロード前 初期 state（都道府県ピッカーは出るが内容は空）。
+ */
+export const EMPTY_LOCATION_NOTES_DATA: LocationNotesData = {
+  ...KYOTO_LOCATION_NOTES,
+  items: [],
+  themes: [],
+  areaChips: [],
+  preferenceChips: [],
+  matchReasons: [],
+  infoSources: [],
+  hiddenHints: [],
+};
+
 /** 都道府県でデータを絞り込む（都道府県セレクタ反映用）。 */
 export function getLocationNotes(prefecture: string): LocationNotesData {
   const items = KYOTO_LOCATION_NOTES.items.filter((it) => it.prefecture === prefecture);
   // データ未整備の都道府県は全セクションを空に（選択した都道府県に内容が追従＝honesty。
   // 京都のテーマ/エリア/好みを他県に残さない）。
   if (items.length === 0) {
-    return {
-      ...KYOTO_LOCATION_NOTES,
-      items: [],
-      themes: [],
-      areaChips: [],
-      preferenceChips: [],
-      matchReasons: [],
-      infoSources: [],
-      hiddenHints: [],
-    };
+    return EMPTY_LOCATION_NOTES_DATA;
   }
   return { ...KYOTO_LOCATION_NOTES, items };
 }
