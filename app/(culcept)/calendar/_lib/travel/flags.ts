@@ -20,3 +20,14 @@ export function isTravelDayDetailEnabled(): boolean {
 export function isTravelMapLiveEnabled(): boolean {
   return process.env.NEXT_PUBLIC_PLAN_TRAVEL_MAP_LIVE_ENABLED === "true";
 }
+
+/**
+ * Phase E-0: Travel データの取得先を Supabase repository に切り替えるか。
+ * OFF（既定）→ FixtureTravelRepository（従来の fixture を Promise で返す・挙動不変）。
+ * ON          → SupabaseTravelRepository（owner-scoped query・RLS）。E-0 時点では **未実装の skeleton**
+ *               （getTripDay は NOT_IMPLEMENTED を投げる）。実装と点火は別 GO。
+ * client（CalendarTab）到達のため NEXT_PUBLIC_。env 未設定＝OFF＝fixture 経路＝既存挙動完全不変。
+ */
+export function isTravelSupabaseRepoEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_PLAN_TRAVEL_SUPABASE_REPO_ENABLED === "true";
+}
