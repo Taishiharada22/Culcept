@@ -120,7 +120,8 @@ import type { MonthGridViewProps } from "../components/MonthGridView";
 import { resolveShiftAnchorChip } from "@/lib/plan/shift/shiftAnchorChip";
 // UX-3b: travel day detail（fixture・flag ON ∧ 旅行日 6/24-26 のみ）。/calendar 配下の資産を /plan から import。
 import TravelDayDetail from "../../calendar/_components/travel/TravelDayDetail";
-import { getSampleTripDay, SAMPLE_KYOTO_TRIP } from "../../calendar/_lib/travel/sampleTrip";
+// E-0: fixture 直 import をやめ、TravelRepository 境界経由で取得（既定は fixture を Promise で返す・挙動不変）。
+import { getTravelRepository, type TripDayResult } from "../../calendar/_lib/travel/repository";
 import { isTravelDayDetailEnabled } from "../../calendar/_lib/travel/flags";
 import { Map as TravelMapGlyph, ChevronRight as TravelChevron } from "../../calendar/_components/travel/concierge/icons";
 
@@ -201,10 +202,27 @@ export function CalendarTab({
   // UX-3b: travel day detail overlay 開閉 + 旅行日判定（fixture・flag ON ∧ SAMPLE_KYOTO_TRIP 6/24-26 のみ）。
   //   flag OFF or 旅行日でない通常日 → travelTripDay=null → ボタン非表示＝既存 CalendarTab 完全不変。
   const [travelOpen, setTravelOpen] = useState(false);
-  const travelTripDay = useMemo(() => {
-    if (!isTravelDayDetailEnabled()) return null;
-    if (selectedDate < SAMPLE_KYOTO_TRIP.startDate || selectedDate > SAMPLE_KYOTO_TRIP.endDate) return null;
-    return getSampleTripDay(selectedDate);
+  // E-0: 旅行日詳細は TravelRepository（境界）から async 取得（既定実装は fixture を Promise で返すだけ）。
+  //   flag OFF → 取得せず null（詳細ボタン非表示＝既存挙動不変）。期間外の通常日も repository が null を返す。
+  //   selectedDate 変更で再取得、stale 応答は cancelled guard で破棄。実データ化（Supabase 実装）は別 GO。
+  const [travelTripDay, setTravelTripDay] = useState<TripDayResult | null>(null);
+  useEffect(() => {
+    if (!isTravelDayDetailEnabled()) {
+      setTravelTripDay(null);
+      return;
+    }
+    let cancelled = false;
+    void getTravelRepository()
+      .getTripDay(selectedDate)
+      .then((result) => {
+        if (!cancelled) setTravelTripDay(result);
+      })
+      .catch(() => {
+        if (!cancelled) setTravelTripDay(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDate]);
   // M3-a: week ⇄ month view（既定 week）。本コミットでは body は week strip のみ
   // （viewMode が month でも month grid は描画しない）。MonthGridView 接続は M3-b。
