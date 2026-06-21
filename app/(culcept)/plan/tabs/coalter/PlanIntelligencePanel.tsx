@@ -134,6 +134,8 @@ export function PlanIntelligencePanel({
               icon={<CheckIcon size={11} className="text-violet-500" />}
               label={session.statLabels.slack}
               value={slack.label}
+              barGradient={slack.bar}
+              barRatio={slack.ratio}
             />
           </div>
 
@@ -173,6 +175,25 @@ export function PlanIntelligencePanel({
               ))}
             </div>
           </div>
+
+          {/* ── おすすめの調整（理想画像どおり・適用は local state のみ） ── */}
+          {visibleAdjustments.length > 0 && (
+            <div>
+              <h3 className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                おすすめの調整
+              </h3>
+              <div className="-mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1 pb-1">
+                {visibleAdjustments.map((adjustment) => (
+                  <FloatingAdjustmentCard
+                    key={adjustment.id}
+                    adjustment={adjustment}
+                    isApplied={appliedAdjustmentIds.has(adjustment.id)}
+                    onToggle={() => onToggleAdjustment(adjustment.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </section>
     );
@@ -352,12 +373,17 @@ function FloatingStat({
   value,
   sub,
   divided,
+  barGradient,
+  barRatio,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   sub?: string;
   divided?: boolean;
+  /** 予定の余裕など、視覚ゲージを出す stat 用（グラデ + 充填率） */
+  barGradient?: string;
+  barRatio?: number;
 }) {
   return (
     <div className={`px-2.5 ${divided ? "border-l border-slate-100" : ""}`}>
@@ -368,7 +394,16 @@ function FloatingStat({
       <p className="mt-1 truncate text-[15px] font-bold leading-none tracking-tight text-slate-900">
         {value}
       </p>
-      {sub && <p className="mt-1 truncate text-[10px] text-slate-400">{sub}</p>}
+      {barGradient && typeof barRatio === "number" ? (
+        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${barGradient}`}
+            style={{ width: `${Math.round(barRatio * 100)}%` }}
+          />
+        </div>
+      ) : (
+        sub && <p className="mt-1 truncate text-[10px] text-slate-400">{sub}</p>
+      )}
     </div>
   );
 }
@@ -436,6 +471,46 @@ function FloatingCandidateCard({
         </span>
       </div>
     </button>
+  );
+}
+
+function FloatingAdjustmentCard({
+  adjustment,
+  isApplied,
+  onToggle,
+}: {
+  adjustment: AdjustmentSuggestionFixture;
+  isApplied: boolean;
+  onToggle: () => void;
+}) {
+  const iconMeta = ADJUSTMENT_ICON_META[adjustment.icon];
+  return (
+    <div className="flex w-[190px] shrink-0 flex-col rounded-2xl bg-white p-2.5 shadow-[0_4px_16px_rgba(15,23,42,0.08)] ring-1 ring-white/80">
+      <div className="flex items-start gap-2">
+        <span
+          className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconMeta.tile}`}
+        >
+          {iconMeta.render(14)}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold leading-snug text-slate-900">{adjustment.label}</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{adjustment.detail}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={isApplied}
+        className={`mt-2 inline-flex items-center justify-center gap-1 rounded-lg py-1 text-[11px] font-medium transition-colors ${
+          isApplied
+            ? "bg-violet-600 text-white"
+            : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+        }`}
+      >
+        {isApplied && <CheckIcon size={11} />}
+        {isApplied ? "適用済み" : "適用"}
+      </button>
+    </div>
   );
 }
 

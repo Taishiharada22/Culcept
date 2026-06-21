@@ -59,6 +59,8 @@ import { CoAlterChatPanel } from "./CoAlterChatPanel";
 import { CoAlterHome } from "./CoAlterHome";
 // プランは Talk 上に浮かぶフローティング overlay（ドラッグ/リサイズ・透過）（CEO 2026-06-21）。
 import { CoAlterPlanOverlay } from "./CoAlterPlanOverlay";
+// Home/Talk の Apple 風背景（プラン overlay は不変・CEO 2026-06-21）。
+import { CoAlterBackdrop } from "./CoAlterBackdrop";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -273,7 +275,9 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
   const partner = headerParticipants[1] ?? headerParticipants[0];
 
   return (
-    <div className="mx-auto flex max-w-[1480px] flex-col px-3 pb-2 sm:px-5">
+    <div className="relative min-h-screen">
+      <CoAlterBackdrop />
+      <div className="mx-auto flex max-w-[1480px] flex-col px-3 pb-2 sm:px-5">
       {/* ── タブ内ヘッダ（talk.png 準拠・1行）: 戻る / 会話相手 / モード / 日付 ── */}
       <header className="flex items-center gap-2 py-2">
         {/* Home（会話一覧）へ戻る */}
@@ -423,6 +427,7 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
             予定を確認
           </button>
         )}
+      </div>
       </div>
     </div>
   );

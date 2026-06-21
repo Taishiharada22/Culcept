@@ -16,6 +16,7 @@ import {
   type CoAlterHomeRecommendation,
 } from "./coalterHomeFixture";
 import { COALTER_PLAN_SESSION_FIXTURES } from "./coalterPlanSessionFixture";
+import { CoAlterBackdrop } from "./CoAlterBackdrop";
 import { RoutePreviewMap } from "./RoutePreviewMap";
 import {
   CalendarMiniIcon,
@@ -45,7 +46,9 @@ export function CoAlterHome({ onOpenConversation }: CoAlterHomeProps) {
   const c = recent.candidate;
 
   return (
-    <div className="mx-auto flex w-full max-w-[680px] flex-col gap-5 px-3 pb-6 pt-1 sm:px-5">
+    <div className="relative min-h-screen">
+      <CoAlterBackdrop />
+      <div className="mx-auto flex w-full max-w-[680px] flex-col gap-5 px-3 pb-6 pt-1 sm:px-5">
       {/* ── ヘッダ（home.png 準拠: ホーム + 設定/メンバー/招待） ── */}
       <header className="flex items-center justify-between pt-1">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[13px] font-bold text-slate-800 shadow-sm ring-1 ring-slate-200/70">
@@ -161,6 +164,7 @@ export function CoAlterHome({ onOpenConversation }: CoAlterHomeProps) {
           <ChevronRightIcon size={14} className="shrink-0 text-slate-300" />
         </div>
       </section>
+      </div>
     </div>
   );
 }

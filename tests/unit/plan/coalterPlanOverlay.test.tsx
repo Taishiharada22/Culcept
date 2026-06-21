@@ -62,11 +62,15 @@ describe("CoAlterPlanOverlay (Talk floating plan)", () => {
     expect(html).toContain("すべてのプランを見る");
   });
 
-  it("floating（compact）は solid 専用の『おすすめの調整』セクションを描かない（overlay 用の軽量構図）", () => {
+  it("floating（compact）は 予定の余裕ゲージ と おすすめの調整 を描く（理想画像準拠・CEO 2026-06-21）", () => {
     const floatingHtml = renderFloatingPanel(false);
-    // 「おすすめの調整」は solid レイアウト専用。overlay の compact では出さない。
-    expect(floatingHtml.includes("おすすめの調整")).toBe(false);
-    // パネル内に旧 @container ヘッダ機構（@min-[120px]:flex）も持たない（ヘッダは overlay 側に一本化）。
+    // 予定の余裕は視覚ゲージ付き（label + グラデバー）。
+    expect(floatingHtml).toContain("予定の余裕");
+    expect(floatingHtml).toContain("bg-gradient-to-r");
+    // おすすめの調整セクション（適用ボタン付き）を overlay にも描く。
+    expect(floatingHtml).toContain("おすすめの調整");
+    expect(floatingHtml).toContain("適用");
+    // パネル内に旧 @container ヘッダ機構（@min-[120px]:flex）は持たない（ヘッダは overlay 側に一本化）。
     expect(floatingHtml.includes("@min-[120px]:flex")).toBe(false);
   });
 });
