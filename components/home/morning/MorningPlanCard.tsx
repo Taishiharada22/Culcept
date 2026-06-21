@@ -1202,6 +1202,31 @@ export default function MorningPlanCard({
           />
         )}
 
+        {/*
+          CEO/GPT 2026-05-03 PR #75: travel edge row (= 「08:00 東京駅 → 渋谷」)
+            - plan.travelEdges (= max 1 で開始) を読み、 最初の edge を render
+            - 「XからYへ」 構文を予定 event ではなく **移動区間** として表現
+            - 最小 UI: 絵文字 + 時刻 + origin → destination の 1 行
+            - segmentDepartureTime が無い場合は時刻なしで表示
+            - travelEdges 不在時は何も render しない (= byte-diff zero)
+        */}
+        {plan.travelEdges && plan.travelEdges.length > 0 && (
+          <div
+            className="flex items-center gap-2 text-[14px] text-gray-700 px-2 py-1.5 my-1 rounded-md bg-blue-50/50 border border-blue-100"
+            data-testid="travel-edge-row"
+          >
+            <span aria-hidden>🚃</span>
+            {plan.travelEdges[0].segmentDepartureTime && (
+              <span className="font-medium tabular-nums">
+                {plan.travelEdges[0].segmentDepartureTime}
+              </span>
+            )}
+            <span>{plan.travelEdges[0].segmentOrigin.label}</span>
+            <span aria-hidden className="text-gray-400">→</span>
+            <span>{plan.travelEdges[0].segmentDestination.label}</span>
+          </div>
+        )}
+
         {/* アイテムリスト */}
         <div className="space-y-0.5">
           {(() => {

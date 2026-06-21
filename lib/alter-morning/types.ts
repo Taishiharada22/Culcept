@@ -508,6 +508,55 @@ export interface PlanItem {
  */
 export type MorningPlanStatus = "confirmed" | "needs_answer" | "provisional";
 
+/**
+ * CEO/GPT 2026-05-03 PR #75 (= from-to travel edge):
+ *
+ * 「明日8時東京駅から渋谷へ」 等の発話で表現される **移動区間** の
+ * 構造化データ。 plan-level journeyOrigin **ではない** (= segment 単位)。
+ *
+ * 重要 (= CEO 規律):
+ *   - segmentOrigin: 移動区間の出発地点 (= 「東京駅」)。 day-level journeyOrigin に
+ *     即昇格しない。 journeyOrigin は別 hierarchy (= explicit / strong prior /
+ *     previous_day / resolver) で決定。
+ *   - segmentDestination: 移動区間の到着地点 (= 「渋谷」)。 destination event の
+ *     where に **即詰めない** (= 通常 event ではなく travel-only destination)。
+ *   - segmentDepartureTime: 出発時刻 HH:MM (= 「8時」)。 destination の予定時刻
+ *     **ではない** (= Y event.startTime に絶対詰めない)。
+ *
+ * 用途:
+ *   - reconciler が LLM 出力 events から travel 由来の誤生成 (= X event 重複、
+ *     Y event with departureTime as startTime) を削除し、 travel edge として
+ *     構造化保持
+ *   - MorningPlanCard が plan-level metadata として読み、 travel row を render
+ *     (例: 「🚃 08:00 東京駅 → 渋谷」)
+ */
+export interface TravelEdge {
+  segmentOrigin: {
+    /** 出発地点 label (= 「東京駅」、 「自宅」 等) */
+    label: string;
+    /** classifyLabel 結果 (= public_poi_proper_noun / generic_category / 等) */
+    classification:
+      | "public_poi_proper_noun"
+      | "generic_category"
+      | "private_semantic"
+      | "ambiguous_or_demonstrative";
+  };
+  segmentDestination: {
+    label: string;
+    classification:
+      | "public_poi_proper_noun"
+      | "generic_category"
+      | "private_semantic"
+      | "ambiguous_or_demonstrative";
+  };
+  /** 出発時刻 HH:MM (optional)。 destination の予定時刻ではない */
+  segmentDepartureTime?: string;
+  /** 元 utterance の matched span (= debug / trace) */
+  matchedSpan: string;
+  /** 抽出 turn (= turnIndex) */
+  sourceTurnIndex?: number;
+}
+
 export interface MorningPlan {
   date: string; // YYYY-MM-DD
   items: PlanItem[];
@@ -555,6 +604,21 @@ export interface MorningPlan {
    * flag OFF 時は field 自体を plan に含めない（conditional spread、byte-diff ゼロ保証）。
    */
   transportSegments?: TransportSegment[];
+
+  /**
+   * CEO/GPT 2026-05-03 PR #75: from-to travel edges (= 「XからYへ」 構文の構造化保持)。
+   *
+   * 配列で max 1 で開始 (= 今回 PR scope)。 将来 「自宅 → 東京駅 → 渋谷」 「東京駅 → 渋谷 → 新宿」
+   * 等の複数移動対応を考慮し、 配列構造で導入。
+   *
+   * 不変条件 (= CEO 規律):
+   *   - 本 PR では travelEdges.length <= 1 (= validator/test で固定)
+   *   - travelEdges が存在する場合、 regular events 全部削除されても plan は **有効扱い**
+   *   - travelEdges 由来の event は items に重複生成しない (= reconciler が削除)
+   *   - segmentOrigin は journeyOrigin に即昇格しない (= day-origin signal は別 hierarchy)
+   *   - segmentDepartureTime を Y event.startTime に詰めない (= startTime 残らない)
+   */
+  travelEdges?: TravelEdge[];
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // CEO 2026-04-28: Journey 構造（anchor → ... → endpoint）の plan-level metadata

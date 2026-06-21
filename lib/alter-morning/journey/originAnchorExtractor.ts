@@ -37,33 +37,41 @@ import type { JourneyAnchorState } from "./anchorState";
 import { classifyLabel } from "../search/labelClassification";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Origin extraction patterns (= 4 構文)
+// Day-origin signal patterns (= CEO/GPT 2026-05-03 PR #75 C 案)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 4 構文の regex。
+ * CEO/GPT 2026-05-03 PR #75 C 案 訂正:
  *
- * - capturing group 1: 抽出対象の label 候補 (= temporal prefix 含む可能性あり、後段 strip 必要)
- * - 文字 set `[^、。「」『』\n！？!?]` で句読点・改行・括弧のみ delimiter
- *   (= 内部空白を許容し、「Shibuya Stream」 等の英文固有名を catch)
- * - 長さ 2-40 chars
+ * 旧 (PR #73): bare 「Xから」 を catch して journeyOrigin に extract
+ *   → 「明日8時東京駅から渋谷へ」 で「東京駅」 が **過剰に journeyOrigin 昇格**
+ *   → CEO 規律違反 (= 「XからY」 だけでは journeyOrigin に固定しない)
  *
- * 構文 1 (= 「から」 系): XからY、Xから出発、Xから行く、Xから出かける
- *   「から」 直後の文字列まで catch (= post-から は呼ばない)
- * 構文 2 (= 「を出/出発/出る」 系): Xを出てY、Xを出発してY
- * 構文 3 (= 「発で/発の」 系): X発でY、X発のY
+ * 新 (本 PR): 明示 day-origin signal のみ catch:
+ *   - 「Xから一日を始める」「Xから1日を始める」「Xから今日を始める」
+ *   - 「Xからスタート」
+ *   - 「Xを出発地にして」「Xを起点に」「Xを始点に」
+ *   - 「X集合で...そのまま」 (= 集合 + 直接移動)
+ *
+ * これらが catch された X だけを journeyOrigin に extract する。
+ * 単純 「XからY」 は travel edge (= fromToTravelEdgeReconciler) で扱う。
+ *
+ * 構文 (= regex 3 種):
+ *   1. 「Xから(一日|1日|今日|スタート|始)」
+ *   2. 「Xを(出発地|起点|始点)に」
+ *   3. 「X集合で.{0,10}(そのまま|直接|連れて)」
  */
-const ORIGIN_PATTERN_FROM =
-  /(?:^|[、。「『\n])([^、。「」『』\n！？!?]{2,40}?)から/;
-const ORIGIN_PATTERN_OUT =
-  /(?:^|[、。「『\n])([^、。「」『』\n！？!?]{2,40}?)を(?:出る|出て|出発|でる|でて|発って|発つ)/;
-const ORIGIN_PATTERN_HATSU =
-  /(?:^|[、。「『\n])([^、。「」『』\n！？!?]{2,40}?)発(?:で|の|から)/;
+const DAY_ORIGIN_PATTERN_FROM_START =
+  /(?:^|[、。「『\n])([^、。「」『』\n！？!?]{2,40}?)から(?:一日|1日|今日|スタート|始)/;
+const DAY_ORIGIN_PATTERN_AS_START =
+  /(?:^|[、。「『\n])([^、。「」『』\n！？!?]{2,40}?)を(?:出発地|起点|始点)に/;
+const DAY_ORIGIN_PATTERN_GATHER_DIRECT =
+  /(?:^|[、。「『\n])([^、。「」『』\n！？!?]{2,40}?)集合で.{0,10}(?:そのまま|直接|連れて)/;
 
 const ORIGIN_PATTERNS: ReadonlyArray<RegExp> = [
-  ORIGIN_PATTERN_FROM,
-  ORIGIN_PATTERN_OUT,
-  ORIGIN_PATTERN_HATSU,
+  DAY_ORIGIN_PATTERN_FROM_START,
+  DAY_ORIGIN_PATTERN_AS_START,
+  DAY_ORIGIN_PATTERN_GATHER_DIRECT,
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
