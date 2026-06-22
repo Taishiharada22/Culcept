@@ -17,6 +17,7 @@
  */
 import type { PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
 import { opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
+import { sanitizeContextSnapshot, type PostVisitContextSnapshot } from "./postVisitContext";
 
 /** ★flag（dormant・default OFF・production hard block）。OFF で store/UI とも no-op。 */
 export const POST_VISIT_CHECK_ENABLED = false;
@@ -99,6 +100,18 @@ export interface PostVisitObservation {
   readonly dwellSignal: DwellSignal | null;
   /** 観測時刻（ms・recency 判定用。GPS/dwell ではない）。呼び出し側が渡す。 */
   readonly at: number;
+  /**
+   * ★Stage 4-A: 観測時の文脈スナップショット（coarse/nullable/redacted）。**optional＝後方互換**。
+   * 既存観測（これが無い）も完全に読める。purpose(lens)/trigger は top-level にあるため重複しない。
+   * 将来の複合融合エンジンの教師データ。Fit-Arc は当面これを使わない。
+   */
+  readonly contextSnapshot?: PostVisitContextSnapshot;
+}
+
+/** contextSnapshot を **必ず持つ** 観測（将来の Context Fit 学習が filter する narrowed 型）。 */
+export type ContextFitObservation = PostVisitObservation & { readonly contextSnapshot: PostVisitContextSnapshot };
+export function hasContextSnapshot(o: PostVisitObservation): o is ContextFitObservation {
+  return o.contextSnapshot != null;
 }
 
 export interface BuildObservationInput {
@@ -111,6 +124,8 @@ export interface BuildObservationInput {
   readonly reasonChips?: readonly ReasonChipKey[];
   readonly dwellSignal?: DwellSignal | null;
   readonly at: number;
+  /** ★Stage 4-A: 観測時の文脈（coarse のみ）。未指定 → contextSnapshot なし（後方互換）。 */
+  readonly contextSnapshot?: PostVisitContextSnapshot | null;
 }
 
 /**
@@ -122,6 +137,8 @@ export interface BuildObservationInput {
 export function buildPostVisitObservation(input: BuildObservationInput): PostVisitObservation {
   const placeKey = opaquePlaceKey(input.placeDescriptor) ?? "p_unknown";
   const reasonChips = (input.reasonChips ?? []).filter((c): c is ReasonChipKey => REASON_CHIP_SET.has(c));
+  // ★contextSnapshot は redaction firewall を通す（不正/PII は落ちる・無ければ付けない＝後方互換）
+  const contextSnapshot = input.contextSnapshot != null ? sanitizeContextSnapshot(input.contextSnapshot) : null;
   return {
     v: 1,
     placeKey,
@@ -131,8 +148,9 @@ export function buildPostVisitObservation(input: BuildObservationInput): PostVis
     reasonChips,
     dwellSignal: input.dwellSignal ?? null,
     at: input.at,
+    ...(contextSnapshot ? { contextSnapshot } : {}), // optional＝存在時のみ付与
   };
 }
 
 /** ★store/シリアライズ用の **whitelist**（これ以外のキーは永続化しない＝redaction の defense-in-depth）。 */
-export const PERSISTED_OBSERVATION_KEYS = ["v", "placeKey", "lens", "trigger", "response", "reasonChips", "dwellSignal", "at"] as const;
+export const PERSISTED_OBSERVATION_KEYS = ["v", "placeKey", "lens", "trigger", "response", "reasonChips", "dwellSignal", "at", "contextSnapshot"] as const;

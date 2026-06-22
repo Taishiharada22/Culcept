@@ -106,6 +106,19 @@ export function LocationDetailSheet({
               placeDescriptor={`${item.title} ${item.areaLabel}`}
               isDiscoveryDomain
               onRecorded={() => setFitArcVersion((v) => v + 1)}
+              /* ★Stage 4-A: provenance のみ最小 snapshot（travel item は構造化文脈を持たないため他は null・honest） */
+              contextSnapshot={{
+                v: 1,
+                sourceSurface: "location_detail",
+                timeOfDay: null,
+                dayType: null,
+                gapBucket: null,
+                weatherKind: null,
+                fatigue: null,
+                companion: null,
+                mobilityLoad: null,
+                locationCategory: null,
+              }}
             />
 
             {/* sticky CTA */}

@@ -13,6 +13,14 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { parseCanonicalLocationText } from "@/lib/shared/canonicalLocationText";
 import { opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
 import { shouldElicit } from "./postVisitElicitation";
+import {
+  timeOfDayBucketFromHour,
+  dayTypeBucketFromDow,
+  gapBucketFromMinutes,
+  companionBucketFromCount,
+  locationCategoryBucket,
+  type PostVisitContextSnapshot,
+} from "./postVisitContext";
 
 /** 経過済みとして扱う最大過去窓（古すぎる予定は聞かない）。 */
 export const PAST_ANCHOR_RECENT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -144,4 +152,65 @@ export function selectPostVisitAnchorForDay(
     }
   }
   return best ? { anchor: best.anchor, flags: best.flags } : null;
+}
+
+// ── Stage 4-A: 経過 anchor → 文脈スナップショット（coarse/redacted のみ）──
+
+/** HH:mm または ISO 文字列から hour(0-23) を取る（pure・失敗で null）。 */
+function hourFromTime(time: string | undefined): number | null {
+  if (!time) return null;
+  const m = /(\d{1,2}):(\d{2})/.exec(time);
+  if (!m) return null;
+  const h = Number(m[1]);
+  return Number.isFinite(h) && h >= 0 && h <= 23 ? h : null;
+}
+
+/** YYYY-MM-DD → 曜日(0=日..6=土)。pure・失敗で null。 */
+function dowFromDate(dateYmd: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateYmd);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const dow = d.getDay();
+  return Number.isFinite(dow) ? dow : null;
+}
+
+/**
+ * 同日 anchor 群の中で、対象 anchor の終了から **次の予定開始までの分**（pure・無ければ null）。
+ *   ★exact 分を返すが、buildContextSnapshotFromAnchor が即 bucket 化するため exact は永続化されない。
+ */
+export function gapMinutesToNextAnchor(dayAnchors: readonly ExternalAnchor[], anchor: ExternalAnchor): number | null {
+  const end = anchorEndTimestamp(anchor);
+  if (end == null) return null;
+  let nextStart: number | null = null;
+  for (const a of dayAnchors) {
+    if (a.id === anchor.id || a.anchorKind !== "one_off") continue;
+    const start = toLocalTimestamp(a.date, a.startTime);
+    if (start == null || start < end) continue; // 終了より後に始まる予定のみ
+    if (nextStart == null || start < nextStart) nextStart = start;
+  }
+  return nextStart == null ? null : Math.round((nextStart - end) / 60000);
+}
+
+/**
+ * 経過 anchor → contextSnapshot（pure・**coarse/nullable/redacted のみ**）。
+ *   - gapMinutesToNext は呼び出し側が前後 anchor から算出して渡す（**exact は即 bucket 化して捨てる**）。
+ *   - weatherKind/fatigue/mobilityLoad は本 stage では信号源が無いため null（捏造しない）。
+ *   - companions は **有無だけ**（相手名は使わない）。locationText 原文・住所・GPS・正確な滞在分は一切使わない。
+ */
+export function buildContextSnapshotFromAnchor(
+  anchor: ExternalAnchor,
+  gapMinutesToNext: number | null,
+): PostVisitContextSnapshot {
+  return {
+    v: 1,
+    sourceSurface: "calendar_past_anchor",
+    timeOfDay: timeOfDayBucketFromHour(hourFromTime(anchor.startTime)),
+    dayType: anchor.anchorKind === "one_off" ? dayTypeBucketFromDow(dowFromDate(anchor.date)) : null,
+    gapBucket: gapBucketFromMinutes(gapMinutesToNext),
+    weatherKind: null, // 過去の実天気は持たない
+    fatigue: null,     // calendar surface に live fatigue 信号が無い
+    companion: companionBucketFromCount(anchor.companions?.length ?? null), // 有無のみ・相手名は使わない
+    mobilityLoad: null, // 4-A では信号未配線
+    locationCategory: locationCategoryBucket(anchor.locationCategory ?? null),
+  };
 }

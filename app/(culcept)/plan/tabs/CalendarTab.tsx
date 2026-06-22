@@ -52,7 +52,7 @@ import { DayGraphTimeline } from "../components/DayGraphTimeline";
 // ★評価OS Stage 3-B/3-C: 経過済み×場所付き予定に控えめ post-visit 答え合わせ（選択日で最大1件・flag OFF で null＝DOM 不変・local shadow only）
 import { PostVisitCheckCard } from "../components/PostVisitCheckCard";
 import { isPostVisitCheckEnabled } from "@/lib/plan/postVisit/postVisitObservation";
-import { selectPostVisitAnchorForDay } from "@/lib/plan/postVisit/postVisitAnchorContext";
+import { selectPostVisitAnchorForDay, buildContextSnapshotFromAnchor, gapMinutesToNextAnchor } from "@/lib/plan/postVisit/postVisitAnchorContext";
 import { lastSkipAt, lastElicitAtForPlace } from "@/lib/plan/postVisit/postVisitStore";
 import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
 import { useCalendarTabFeasibilityDisplay } from "./_useCalendarTabFeasibilityDisplay";
@@ -252,6 +252,13 @@ export function CalendarTab({
         lastSkippedAt: (k) => lastSkipAt(k),
         lastSimilarElicitAt: (k) => lastElicitAtForPlace(k),
       })
+    : null;
+  // ★Stage 4-A: 選ばれた anchor の文脈スナップショット（coarse/redacted）。回答時に観測へ付与。
+  const selectedPostVisitContext = selectedPostVisit
+    ? buildContextSnapshotFromAnchor(
+        selectedPostVisit.anchor,
+        gapMinutesToNextAnchor(selectedDayAnchors, selectedPostVisit.anchor),
+      )
     : null;
   // SR #216 D3: 選択日の休み/希望休 badge（anchor list と別レイヤー）
   const selectedDayIndicator = dayIndicatorByIso?.get(selectedDate);
@@ -1065,6 +1072,7 @@ export function CalendarTab({
                         isHomeOrWork={postVisitFlags.isHomeOrWork}
                         isHabitual={postVisitFlags.isHabitual}
                         hideMirror
+                        contextSnapshot={selectedPostVisitContext ?? undefined}
                       />
                     </div>
                   )}
