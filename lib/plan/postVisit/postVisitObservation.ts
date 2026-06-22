@@ -19,10 +19,15 @@ import type { PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
 import { opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
 import { sanitizeContextSnapshot, type PostVisitContextSnapshot } from "./postVisitContext";
 
-/** ★flag（dormant・default OFF・production hard block）。OFF で store/UI とも no-op。 */
+/**
+ * ★flag（dormant・default OFF・production hard block）。OFF で store/UI とも no-op。
+ *   dev/dogfood は **source 編集不要**: 環境変数 `NEXT_PUBLIC_ANEURASYNC_POST_VISIT_DOGFOOD=1` で dev session のみ点火可。
+ *   production は env が立っていても必ず false。
+ */
 export const POST_VISIT_CHECK_ENABLED = false;
 export function isPostVisitCheckEnabled(): boolean {
-  return POST_VISIT_CHECK_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  if (process.env.NODE_ENV === "production") return false; // ★production hard block（env でも必ず false）
+  return POST_VISIT_CHECK_ENABLED || process.env.NEXT_PUBLIC_ANEURASYNC_POST_VISIT_DOGFOOD === "1";
 }
 
 // ── 1-tap 答え合わせの回答（4択・星でない）──
