@@ -17,6 +17,7 @@ import type { CancelWeatherEvidence, ReadinessPolicy, ReadinessState } from "./r
 import type { NextAction, PlanDecisionPacket } from "./packet-types";
 import type { ProposalInputError } from "./proposal-types";
 import type { ProposalFitInput } from "./fit-decision-adapter-types";
+import type { SharedProposalDisplay } from "./shared-proposal-view";
 
 export interface TravelPlanEngineInput {
   /** 正規化済み slot（T2C normalizer 出力。正規化は本 facade の上流の責務） */
@@ -67,4 +68,10 @@ export interface TravelPlanEngineOutput {
   viewer: PlanDecisionPacket | null;
   diagnostics: EngineDiagnostics;
   inputError: ProposalInputError | null;
+  /**
+   * ★ C6-A-1: display-safe 候補/却下ビュー（additive・optional・private 非搭載）。
+   *   候補カード表示用。packet は候補を「決定」へ畳み込むため別途必要。
+   *   既存 output 構築箇所（mock/test）を壊さないよう optional。engine.ts は必ず set する。
+   */
+  proposalsDisplay?: SharedProposalDisplay;
 }

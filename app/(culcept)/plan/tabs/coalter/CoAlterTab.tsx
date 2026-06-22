@@ -64,6 +64,9 @@ import { CoAlterBackdrop } from "./CoAlterBackdrop";
 // C5-E: CoAlter 非永続 preview（server 生成・DB 保存なし・flag OFF 既定）。
 import { useCoAlterPreview } from "@/app/(culcept)/plan/coalter-runtime/useCoAlterPreview";
 import { CoAlterPreviewBlock } from "./CoAlterPreviewBlock";
+// C6-A-1: CoAlter proposal engine live（flag ON 時のみ・engine 駆動の合意形成知性・flag OFF 既定）。
+import { useCoAlterPlanIntelligence } from "@/app/(culcept)/plan/coalter-runtime/useCoAlterPlanIntelligence";
+import { PlanIntelligenceLivePanel } from "./PlanIntelligenceLivePanel";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -212,6 +215,10 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     enabled: PLAN_FLAGS.coalterBrainPreviewClient,
     sessionId: PLAN_FLAGS.coalterDevSessionId || null,
   });
+
+  // ── C6-A-1: CoAlter proposal engine live（flag ON 時のみ・engine 駆動の合意形成知性） ──
+  //   flag OFF / fetch 前 / 失敗 → vm=null → 従来 fixture パネルのまま（fail-closed・fetch 0）。
+  const planIntelligence = useCoAlterPlanIntelligence(mode);
 
   // ── handlers（すべて local state のみ） ──
   const handleSelectCandidate = (candidateId: string) =>
@@ -411,18 +418,24 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
         {/* プランのフローティング overlay（各カードが面に浮かぶ・チャット見え隠れ） */}
         {planOpen && (
           <CoAlterPlanOverlay onClose={() => setPlanOpen(false)}>
-            <PlanIntelligencePanel
-              session={session}
-              selectedCandidateId={ui.selectedCandidateId}
-              onSelectCandidate={handleSelectCandidate}
-              appliedAdjustmentIds={appliedSet}
-              onToggleAdjustment={handleToggleAdjustment}
-              confirmedCandidateId={ui.confirmedCandidateId}
-              onCollapse={() => setPlanOpen(false)}
-              onExpand={() => {}}
-              surface="floating"
-              showHeader={false}
-            />
+            {/* C6-A-1: flag ON ∧ live VM あり → engine 駆動の合意形成知性パネル。
+              * それ以外（flag OFF / fetch 前 / 失敗）→ 従来 fixture パネル（不変・fail-closed）。 */}
+            {PLAN_FLAGS.coalterEngineLive && planIntelligence.vm ? (
+              <PlanIntelligenceLivePanel vm={planIntelligence.vm} />
+            ) : (
+              <PlanIntelligencePanel
+                session={session}
+                selectedCandidateId={ui.selectedCandidateId}
+                onSelectCandidate={handleSelectCandidate}
+                appliedAdjustmentIds={appliedSet}
+                onToggleAdjustment={handleToggleAdjustment}
+                confirmedCandidateId={ui.confirmedCandidateId}
+                onCollapse={() => setPlanOpen(false)}
+                onExpand={() => {}}
+                surface="floating"
+                showHeader={false}
+              />
+            )}
           </CoAlterPlanOverlay>
         )}
 

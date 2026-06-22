@@ -656,6 +656,18 @@ export const PLAN_FLAGS = {
    * env: NEXT_PUBLIC_PLAN_COALTER_BRAIN_PREVIEW=true。制約: 表示のみ・保存しない・GET only。
    */
   coalterBrainPreviewClient: process.env.NEXT_PUBLIC_PLAN_COALTER_BRAIN_PREVIEW === "true",
+
+  /**
+   * C6-A-1: CoAlter **proposal engine live** の client/route gate（**合意形成知性を engine 駆動で表示**・default OFF）。
+   *   true  : /plan CoAlter の Plan Intelligence パネルが GET /api/plan/coalter/intelligence を読み、
+   *           runTravelPlanEngine の display-safe 出力（角度別提案 / 2 人適合 / なぜ / 却下理由 / 不確実性）を表示。
+   *   false : Disabled（**本番デフォルト**・従来 fixture カードのまま・fetch 0）。
+   *
+   * env: NEXT_PUBLIC_PLAN_COALTER_ENGINE_LIVE=true（client 分岐 + route の 404 gate 両用のため NEXT_PUBLIC_）。
+   * 制約: **fixture 入力のみ**（DB write / personalization runtime なし）・engine は server に留め client へ
+   *   display-safe payload のみ返す・距離/地図/時刻は solver 未実装のため算出しない（捏造しない）。
+   */
+  coalterEngineLive: process.env.NEXT_PUBLIC_PLAN_COALTER_ENGINE_LIVE === "true",
 } as const;
 
 /**

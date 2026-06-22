@@ -21,6 +21,7 @@ import { assessReadiness } from "./readiness-core";
 import { planContingencies } from "./contingency-core";
 import { buildPlanDecisionPacket, buildSharedPacketView, buildViewerPacketView, type BuildPacketInput } from "./packet-core";
 import { deriveProposalFitSummaries } from "./fit-decision-adapter";
+import { toSharedProposalDisplay } from "./shared-proposal-view";
 import type { EngineDiagnostics, TravelPlanEngineInput, TravelPlanEngineOutput } from "./engine-types";
 import type { PlanDecisionPacket } from "./packet-types";
 
@@ -73,5 +74,7 @@ export function runTravelPlanEngine(input: TravelPlanEngineInput): TravelPlanEng
     executionAuthority: authoritative.executionAuthority,
   };
 
-  return { authoritative, shared, viewer, diagnostics, inputError: authoritative.inputError };
+  // ★ C6-A-1: display-safe 候補/却下ビューを additive 付与（UI は engine output のみ consume）。
+  //   private（forParticipant / private soft / private 違反）は toSharedProposalDisplay が除去済。
+  return { authoritative, shared, viewer, diagnostics, inputError: authoritative.inputError, proposalsDisplay: toSharedProposalDisplay(result) };
 }

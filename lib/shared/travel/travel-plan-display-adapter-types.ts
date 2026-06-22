@@ -20,6 +20,7 @@ import type { CoAlterProjectionCue } from "./coalter-projection-consume-types";
 import type { TravelInputPrerequisite } from "./travel-input-provider-types";
 import type { TravelSessionBindingInput } from "./travel-session-binding-types";
 import type { SafeTravelLinkHrefModel } from "./safe-link-href-types";
+import type { SharedProposalDisplay } from "./shared-proposal-view";
 
 /**
  * production-safe な構造化入力 payload。
@@ -45,6 +46,12 @@ export interface TravelPlanDisplayPayload {
    *   - **not-ready / unavailable / invalid には存在し得ない**（それらは `display` payload を運ばない＝型で保証）。
    */
   externalLinks?: SafeTravelLinkHrefModel[];
+  /**
+   * ★ C6-A-1: display-safe 候補/却下ビュー（additive・optional）。
+   *   候補カード（3案）表示用。engine output の proposalsDisplay をそのまま運ぶ（private 非搭載・brand 不要）。
+   *   not-ready / unavailable / invalid には存在しない（display payload を運ぶ ready のみ）。
+   */
+  proposalsDisplay?: SharedProposalDisplay;
 }
 
 /** not-ready 時に「何を聞くか」だけを伝える中立 ask（provenance / 診断を含まない）。 */

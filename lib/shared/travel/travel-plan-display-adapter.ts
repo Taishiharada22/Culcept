@@ -100,8 +100,8 @@ export function buildTravelPlanDisplayResult(
     const dest = extractGeneratedLinkDestination(provided.input.slots);
     const externalLinks = prepareTravelExternalLinkHrefModels(dest ? { destination: dest } : {});
     if (externalLinks.length > 0) {
-      return { status: "ready", display: { packet, projection, cues, externalLinks } };
+      return { status: "ready", display: { packet, projection, cues, externalLinks, proposalsDisplay: output.proposalsDisplay } };
     }
   }
-  return { status: "ready", display: { packet, projection, cues } };
+  return { status: "ready", display: { packet, projection, cues, proposalsDisplay: output.proposalsDisplay } };
 }

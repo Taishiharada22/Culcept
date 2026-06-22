@@ -17,6 +17,9 @@
 // 契約準拠の型（contract draft §3 スケッチに対応）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+import type { BudgetBand, Pace } from "@/lib/shared/travel/core-types";
+import type { DescriptorKey, MobilityToleranceValue, TimeWindowValue } from "@/lib/shared/travel/slot-types";
+
 export type CoAlterPlanMode = "daily" | "travel";
 
 export type SharedConditionKind =
@@ -37,7 +40,22 @@ export interface SharedConditionFixture {
   readonly source: "chat" | "profile_prior" | "correction_memory";
   /** M5 説明プライバシー: private はチャット要約に出さない */
   readonly visibility: "shared" | "private";
+  /**
+   * C6-A-1: engine 入力用の構造化 hint（additive・optional）。
+   *   label の意訳 parse を避け、condition の engine 意図を fixture 作者が明示する。
+   *   `coalterSessionToTravelEvents` が `SessionSurfaceEvent` へ写像（severity→red_line/soft_preference）。
+   *   hint 不在の condition は engine に渡さない（honest: 扱えない意味を捏造しない）。
+   */
+  readonly engineHint?: CoAlterConditionEngineHint;
 }
+
+/** condition → engine slot 入力の hint（C6-A-1・travel core 値型を再利用・runtime 依存なし）。 */
+export type CoAlterConditionEngineHint =
+  | { readonly slot: "mobility_tolerance"; readonly value: MobilityToleranceValue }
+  | { readonly slot: "time_window"; readonly value: TimeWindowValue }
+  | { readonly slot: "budget_band"; readonly value: BudgetBand }
+  | { readonly slot: "pace"; readonly value: Pace }
+  | { readonly slot: "descriptor"; readonly descriptorKey: DescriptorKey; readonly descriptorValue: string };
 
 /** 地図描画用の正規化ノード（viewBox 0-100 × 0-64 座標。UI 専権） */
 export interface RouteNodeFixture {
@@ -118,6 +136,12 @@ export interface CoAlterPlanSessionFixture {
   readonly window:
     | { readonly date: string }
     | { readonly start: string; readonly end: string; readonly nights: 1 | 2 };
+  /**
+   * C6-A-1: 行き先エリア（engine の destination_area hard 前提に供給）。
+   *   CoAlter は「行き先は決まり、何をするかを 2 人で詰める」段階の demo。
+   *   未指定なら engine は not_ready_missing（destination を聞く）になる。
+   */
+  readonly destinationArea?: string;
   readonly stage: "understanding" | "curating" | "resolving" | "confirmed";
   readonly conditions: readonly SharedConditionFixture[];
   readonly candidates: readonly PlanCandidateFixture[];
@@ -159,12 +183,13 @@ const DAILY_SESSION: CoAlterPlanSessionFixture = {
   pairStateId: "fixture-pair",
   mode: "daily",
   window: { date: "2026-06-14" },
+  destinationArea: "都内エリア",
   stage: "curating",
   conditions: [
-    { id: "c-mobility", label: "移動は軽め", kind: "mobility", severity: "soft", source: "chat", visibility: "shared" },
-    { id: "c-time", label: "20:00 まで", kind: "time", severity: "hard", source: "chat", visibility: "shared" },
-    { id: "c-place", label: "会話しやすい場所", kind: "place_quality", severity: "soft", source: "chat", visibility: "shared" },
-    { id: "c-budget", label: "予算：ミディアム", kind: "budget", severity: "preference", source: "profile_prior", visibility: "shared" },
+    { id: "c-mobility", label: "移動は軽め", kind: "mobility", severity: "soft", source: "chat", visibility: "shared", engineHint: { slot: "mobility_tolerance", value: { maxWalkKm: 3 } } },
+    { id: "c-time", label: "20:00 まで", kind: "time", severity: "hard", source: "chat", visibility: "shared", engineHint: { slot: "time_window", value: { returnByMin: 1200 } } },
+    { id: "c-place", label: "会話しやすい場所", kind: "place_quality", severity: "soft", source: "chat", visibility: "shared", engineHint: { slot: "descriptor", descriptorKey: "scene", descriptorValue: "conversational" } },
+    { id: "c-budget", label: "予算：ミディアム", kind: "budget", severity: "preference", source: "profile_prior", visibility: "shared", engineHint: { slot: "budget_band", value: { lo: 5000, hi: 15000, confidence: 0.6, currency: "JPY" } } },
   ],
   candidates: [
     {
@@ -296,12 +321,13 @@ const TRAVEL_SESSION: CoAlterPlanSessionFixture = {
   pairStateId: "fixture-pair",
   mode: "travel",
   window: { start: "2026-06-20", end: "2026-06-21", nights: 1 },
+  destinationArea: "箱根",
   stage: "curating",
   conditions: [
-    { id: "t-onsen", label: "温泉のある宿", kind: "place_quality", severity: "hard", source: "chat", visibility: "shared" },
-    { id: "t-move", label: "移動は2時間まで", kind: "mobility", severity: "soft", source: "chat", visibility: "shared" },
-    { id: "t-pace", label: "2日目はゆっくり出発", kind: "pace", severity: "soft", source: "chat", visibility: "shared" },
-    { id: "t-budget", label: "予算：2人で4万円台", kind: "budget", severity: "preference", source: "profile_prior", visibility: "shared" },
+    { id: "t-onsen", label: "温泉のある宿", kind: "place_quality", severity: "hard", source: "chat", visibility: "shared", engineHint: { slot: "descriptor", descriptorKey: "require", descriptorValue: "onsen" } },
+    { id: "t-move", label: "移動は2時間まで", kind: "mobility", severity: "soft", source: "chat", visibility: "shared", engineHint: { slot: "mobility_tolerance", value: { maxWalkKm: 5 } } },
+    { id: "t-pace", label: "2日目はゆっくり出発", kind: "pace", severity: "soft", source: "chat", visibility: "shared", engineHint: { slot: "pace", value: "slow" } },
+    { id: "t-budget", label: "予算：2人で4万円台", kind: "budget", severity: "preference", source: "profile_prior", visibility: "shared", engineHint: { slot: "budget_band", value: { lo: 40000, hi: 49999, confidence: 0.6, currency: "JPY" } } },
   ],
   candidates: [
     {
