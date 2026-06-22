@@ -6,6 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import type { LocationItem } from "../types";
+import type { StoredAddedEntry } from "../travelLocalStore";
 
 /** 保存集合の差分（重複は除去）。writeSavedIds の reconcile に使う。 */
 export function diffSaveIds(
@@ -63,5 +64,44 @@ export function buildUserNoteInsertRow(item: LocationItem, uid: string): Record<
     hours: item.hours ?? null,
     price_level: item.priceLevel ?? null,
     photo_id: null, // 写真アップロードしない（捏造写真なし）
+  };
+}
+
+// ── 旅程追加 write（E-3C-3）─────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** DB の uuid として扱える文字列か（fixture/`user-<ts>` id を弾く）。 */
+export function isUuidLike(v: string | undefined | null): boolean {
+  return typeof v === "string" && UUID_RE.test(v);
+}
+
+/**
+ * DB write 可能な added entry か。
+ * - dayId が uuid（自分の day・所有確認は store 側で RLS select）
+ * - sourceId が uuid（location_notes の FK・fixture id は不可＝捏造しない）
+ */
+export function isWritableAddedEntry(e: StoredAddedEntry): boolean {
+  return isUuidLike(e.dayId) && isUuidLike(e.sourceId);
+}
+
+/** added entry → travel_itinerary_items insert 行（source_kind='user_added'・写真/時刻なし）。 */
+export function buildItineraryItemInsertRow(
+  e: StoredAddedEntry,
+  uid: string,
+  sortOrder: number
+): Record<string, unknown> {
+  return {
+    user_id: uid,
+    day_id: e.dayId,
+    name: e.item.name,
+    subtitle: e.item.subtitle ?? null,
+    description: e.item.description ?? null,
+    address: e.item.address ?? null,
+    categories: e.item.categories ?? [],
+    start_time: null, // 時刻未定（後から編集）
+    photo_id: null, // 写真アップロードしない
+    source_kind: "user_added",
+    source_location_note_id: e.sourceId,
+    sort_order: sortOrder,
   };
 }

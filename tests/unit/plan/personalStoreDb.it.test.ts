@@ -15,6 +15,7 @@ import { describe, it, expect } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseTravelPersonalStore } from "@/app/(culcept)/calendar/_lib/travel/repository/supabaseTravelPersonalStore";
 import type { LocationItem } from "@/app/(culcept)/calendar/_lib/travel/types";
+import type { StoredAddedEntry } from "@/app/(culcept)/calendar/_lib/travel/travelLocalStore";
 
 const LOCAL_URL = "http://127.0.0.1:54321";
 const LOCAL_ANON =
@@ -173,5 +174,103 @@ d("SupabaseTravelPersonalStore — local DB write", () => {
     // userA（owner）は自分の private を save 可
     const { error: aErr } = await a.from("location_note_saves").insert({ user_id: uidA, location_note_id: id("priv") });
     expect(aErr).toBeNull();
+  }, 60000);
+});
+
+// ── E-3C-3: 旅程追加 write（travel_itinerary_items + location_note_to_itinerary）──
+function addedEntry(sourceId: string, dayId: string | undefined): StoredAddedEntry {
+  const e: StoredAddedEntry = {
+    sourceId,
+    item: { id: `added-${sourceId}`, startTime: "", name: "追加スポット", subtitle: "東山", categories: ["寺社"], photo: null },
+  };
+  if (dayId) e.dayId = dayId;
+  return e;
+}
+
+d("SupabaseTravelPersonalStore.writeAddedEntries — local DB itinerary write", () => {
+  async function seedTripDay(client: SupabaseClient, uid: string, stamp: number) {
+    const { data: trip } = await client
+      .from("travel_trips")
+      .insert({ user_id: uid, title: `trip-${stamp}`, start_date: "2026-06-24", end_date: "2026-06-26", status: "active" })
+      .select()
+      .single();
+    const { data: day } = await client
+      .from("travel_days")
+      .insert({ user_id: uid, trip_id: (trip as { id: string }).id, date: "2026-06-24", day_index: 1 })
+      .select()
+      .single();
+    return { tripId: (trip as { id: string }).id, dayId: (day as { id: string }).id };
+  }
+  async function ownNote(client: SupabaseClient, uid: string, title: string, status = "published", mod = "approved", extra: Record<string, unknown> = {}) {
+    const { data } = await client
+      .from("location_notes")
+      .insert({ user_id: uid, kind: "spot", prefecture: "京都府", title, status, moderation_status: mod, contributor_type: "local", source_type: "firsthand", ...extra })
+      .select()
+      .single();
+    return (data as { id: string }).id;
+  }
+
+  it("自分の day に own note を追加→items + link 両方作成・duplicate は no-op", async () => {
+    const stamp = Date.now();
+    const { client, uid } = await signUpUser(`itin-a-${stamp}@example.com`);
+    const { dayId } = await seedTripDay(client, uid, stamp);
+    const noteId = await ownNote(client, uid, `pub-${stamp}`);
+
+    const store = new SupabaseTravelPersonalStore(client);
+    await store.writeAddedEntries([addedEntry(noteId, dayId)]);
+
+    const { data: items } = await client.from("travel_itinerary_items").select("*").eq("day_id", dayId).eq("source_location_note_id", noteId);
+    expect(items).toHaveLength(1);
+    expect((items as { source_kind: string }[])[0].source_kind).toBe("user_added");
+    const { data: links } = await client.from("location_note_to_itinerary").select("*").eq("day_id", dayId).eq("location_note_id", noteId);
+    expect(links).toHaveLength(1);
+
+    // duplicate → no-op（依然 1 件）
+    await store.writeAddedEntries([addedEntry(noteId, dayId)]);
+    const { data: items2 } = await client.from("travel_itinerary_items").select("id").eq("day_id", dayId).eq("source_location_note_id", noteId);
+    expect(items2).toHaveLength(1);
+
+    // readAddedEntries は [] （getTripDay 側が source・二重表示回避）
+    expect(await store.readAddedEntries()).toEqual([]);
+  }, 60000);
+
+  it("context 不足 / 非 uuid sourceId は skip（捏造保存しない）", async () => {
+    const stamp = Date.now();
+    const { client, uid } = await signUpUser(`itin-skip-${stamp}@example.com`);
+    const { dayId } = await seedTripDay(client, uid, stamp);
+    const store = new SupabaseTravelPersonalStore(client);
+
+    await store.writeAddedEntries([
+      addedEntry(`kyoto-fixture-${stamp}`, dayId), // 非 uuid sourceId → skip
+      addedEntry("00000000-0000-4000-8000-000000000999", undefined), // dayId 無し → skip
+    ]);
+    const { data: items } = await client.from("travel_itinerary_items").select("id").eq("day_id", dayId);
+    expect(items).toHaveLength(0);
+  }, 60000);
+
+  it("RLS: userB は userA の day に追加できない / userA private note を link できない", async () => {
+    const stamp = Date.now();
+    const { client: a, uid: uidA } = await signUpUser(`itin-rlsa-${stamp}@example.com`);
+    const { dayId: dayA } = await seedTripDay(a, uidA, stamp);
+    const privNoteA = await ownNote(a, uidA, `secret-${stamp}`, "private", "none", { contributor_type: "self", source_type: "self_memo" });
+
+    // userB: 自分の note + 自分の day を持つが、A の day に書こうとする
+    const { client: b, uid: uidB } = await signUpUser(`itin-rlsb-${stamp}@example.com`);
+    const bNote = await ownNote(b, uidB, `b-pub-${stamp}`);
+    const storeB = new SupabaseTravelPersonalStore(b);
+
+    // B が A の day に追加 → app guard（day 所有 select 0件）で skip＝書かれない
+    await storeB.writeAddedEntries([addedEntry(bNote, dayA)]);
+    const { data: onADay } = await a.from("travel_itinerary_items").select("id").eq("day_id", dayA);
+    expect(onADay ?? []).toHaveLength(0); // A の day に B の item は無い
+
+    // B が A の private note を直接 link しようとする → hardened policy で拒否
+    const { dayId: dayB } = await seedTripDay(b, uidB, stamp + 1);
+    const { error: linkErr } = await b.from("location_note_to_itinerary").insert({ user_id: uidB, location_note_id: privNoteA, day_id: dayB });
+    expect(linkErr).not.toBeNull(); // ❌ 他人の private note を link 不可
+
+    // B が A の day_id を指す item を直接 insert しようとする → hardened policy で拒否
+    const { error: itemErr } = await b.from("travel_itinerary_items").insert({ user_id: uidB, day_id: dayA, name: "x", source_kind: "user_added" });
+    expect(itemErr).not.toBeNull(); // ❌ 他人の day へ書込不可
   }, 60000);
 });
