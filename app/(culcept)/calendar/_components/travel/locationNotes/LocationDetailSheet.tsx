@@ -10,6 +10,8 @@ import { T, BottomSheet, GOLD_GRADIENT } from "../concierge/primitives";
 import { PhotoSlot } from "../PhotoSlot";
 import { MapPin, Plus, Heart, Check, Clock } from "../concierge/icons";
 import { Rating, AuthorLine, SourceBadge, ClassChip, MetaChip } from "./cards";
+// ★評価OS Stage 0-B: post-visit 答え合わせ（flag OFF で null＝DOM 不変・local shadow only・Fit-Arc なし）
+import { PostVisitCheckCard } from "@/app/(culcept)/plan/components/PostVisitCheckCard";
 
 const CLASS_LABEL: Record<LocationItem["classification"], string> = { classic: "王道", hidden: "穴場", standard: "定番" };
 
@@ -89,6 +91,13 @@ export function LocationDetailSheet({
                 ))}
               </div>
             )}
+
+            {/* ★post-visit 答え合わせ（flag OFF では null＝既存挙動完全不変。place 記述子は内部で hash 化） */}
+            <PostVisitCheckCard
+              key={item.id}
+              placeDescriptor={`${item.title} ${item.areaLabel}`}
+              isDiscoveryDomain
+            />
 
             {/* sticky CTA */}
             <div className="sticky bottom-0 -mx-5 mt-5 flex gap-2 px-5 pb-1 pt-3" style={{ background: `linear-gradient(to top, ${T.bg} 75%, transparent)` }}>
