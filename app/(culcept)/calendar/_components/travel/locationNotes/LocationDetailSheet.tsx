@@ -10,8 +10,9 @@ import { T, BottomSheet, GOLD_GRADIENT } from "../concierge/primitives";
 import { PhotoSlot } from "../PhotoSlot";
 import { MapPin, Plus, Heart, Check, Clock } from "../concierge/icons";
 import { Rating, AuthorLine, SourceBadge, ClassChip, MetaChip } from "./cards";
-// ★評価OS Stage 0-B: post-visit 答え合わせ（flag OFF で null＝DOM 不変・local shadow only・Fit-Arc なし）
+// ★評価OS: post-visit 答え合わせ（Stage 0-B）+ Fit-Arc readout（Stage 1-B）。いずれも flag OFF で null＝DOM 不変・local shadow only。
 import { PostVisitCheckCard } from "@/app/(culcept)/plan/components/PostVisitCheckCard";
+import { PlaceFitArcReadout } from "@/app/(culcept)/plan/components/PlaceFitArcReadout";
 
 const CLASS_LABEL: Record<LocationItem["classification"], string> = { classic: "王道", hidden: "穴場", standard: "定番" };
 
@@ -30,6 +31,8 @@ export function LocationDetailSheet({
   onToggleSave: () => void;
   onAddToItinerary: () => void;
 }) {
+  // ★Stage 1-B: 答え合わせ保存 → FitArcReadout 再読込のための version（flag OFF では描画されず無影響）
+  const [fitArcVersion, setFitArcVersion] = React.useState(0);
   return (
     <BottomSheet open={!!item} onClose={onClose}>
       {item && (
@@ -92,11 +95,17 @@ export function LocationDetailSheet({
               </div>
             )}
 
-            {/* ★post-visit 答え合わせ（flag OFF では null＝既存挙動完全不変。place 記述子は内部で hash 化） */}
+            {/* ★Fit-Arc readout（観測あり時のみ意味・不足なら empty/「まだ観測不足」。flag OFF で null＝DOM 不変） */}
+            <div className="mt-4 flex justify-center">
+              <PlaceFitArcReadout placeDescriptor={`${item.title} ${item.areaLabel}`} refreshSignal={fitArcVersion} />
+            </div>
+
+            {/* ★post-visit 答え合わせ（flag OFF では null＝既存挙動完全不変。place 記述子は内部で hash 化）。保存後に上の readout を再読込 */}
             <PostVisitCheckCard
               key={item.id}
               placeDescriptor={`${item.title} ${item.areaLabel}`}
               isDiscoveryDomain
+              onRecorded={() => setFitArcVersion((v) => v + 1)}
             />
 
             {/* sticky CTA */}
