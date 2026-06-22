@@ -615,6 +615,15 @@ export const PLAN_FLAGS = {
   coalterBrainPreview: process.env.PLAN_COALTER_BRAIN_PREVIEW === "true",
 
   /**
+   * C5-E: CoAlter 非永続 preview の **client UI gate**（CoAlterTab の preview ブロック表示用・default OFF）。
+   *   CoAlterTab は "use client" のため server-only `coalterBrainPreview`（非 NEXT_PUBLIC）は client で常に false。
+   *   client から preview ブロックを出すには **NEXT_PUBLIC_** 版が必要（route handler の server gate
+   *   `PLAN_COALTER_BRAIN_PREVIEW` とは別軸・両方 ON で初めて UI から live preview が取れる）。
+   * env: NEXT_PUBLIC_PLAN_COALTER_BRAIN_PREVIEW=true。制約: 表示のみ・保存しない・GET only。
+   */
+  coalterBrainPreviewClient: process.env.NEXT_PUBLIC_PLAN_COALTER_BRAIN_PREVIEW === "true",
+
+  /**
    * CoAlter live 本文の対象 sessionId（**dev/local 注入専用・default 空**・product strategy ではない）。
    *   - 空（既定）: live 対象なし＝coalterReadMessages が ON でも fixture のまま（fetch 0）
    *   - 非空 ∧ coalterReadMessages=true: その sessionId の messages を read-only で読む（送信は coalterSendMessages）。

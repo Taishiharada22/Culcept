@@ -209,7 +209,8 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
 
   // ── C5-E: CoAlter 非永続 preview（flag OFF 既定・on-demand 生成・DB 保存なし・既存 read/send 不干渉） ──
   const coalterPreview = useCoAlterPreview({
-    enabled: PLAN_FLAGS.coalterBrainPreview,
+    // ★ client gate は NEXT_PUBLIC 版（server-only coalterBrainPreview は client で常に false）。
+    enabled: PLAN_FLAGS.coalterBrainPreviewClient,
     sessionId: PLAN_FLAGS.coalterDevSessionId || null,
   });
 
@@ -608,8 +609,8 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
           </button>
         )}
 
-        {/* C5-E: CoAlter 非永続 preview（flag OFF 既定 → 非表示・absolute で split layout 非干渉・DB 保存なし） */}
-        {PLAN_FLAGS.coalterBrainPreview && (
+        {/* C5-E: CoAlter 非永続 preview（client flag OFF 既定 → 非表示・absolute で split layout 非干渉・DB 保存なし） */}
+        {PLAN_FLAGS.coalterBrainPreviewClient && (
           <div
             className="absolute right-2 top-2 z-10 max-w-[62%] rounded-lg border border-violet-200 bg-white/90 p-2 text-[11px] shadow-md"
             data-testid="coalter-brain-preview-block"
