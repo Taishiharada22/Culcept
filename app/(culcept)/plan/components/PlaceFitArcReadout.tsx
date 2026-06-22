@@ -22,9 +22,11 @@ export interface PlaceFitArcReadoutProps {
   /** PostVisitCheckCard 保存時に bump → 再読込（答え合わせ後に readout 更新）。 */
   readonly refreshSignal?: number;
   readonly size?: number;
+  /** ヘッダ表示（③比較ではセクション側で枠組みを出すため false にできる・default true）。 */
+  readonly showHeader?: boolean;
 }
 
-export function PlaceFitArcReadout({ placeDescriptor, refreshSignal = 0, size = 88 }: PlaceFitArcReadoutProps) {
+export function PlaceFitArcReadout({ placeDescriptor, refreshSignal = 0, size = 88, showHeader = true }: PlaceFitArcReadoutProps) {
   const [observations, setObservations] = React.useState<PostVisitObservation[]>([]);
 
   // client-only に読む（SSR は []＝flag ON でも初期は insufficient と一致＝hydration mismatch なし）
@@ -35,5 +37,5 @@ export function PlaceFitArcReadout({ placeDescriptor, refreshSignal = 0, size = 
   }, [placeDescriptor, refreshSignal]);
 
   if (!isFitArcReadoutEnabled()) return null; // ★flag OFF / production → DOM 不変
-  return <FitArcReadout observations={observations} size={size} />;
+  return <FitArcReadout observations={observations} size={size} showHeader={showHeader} />;
 }
