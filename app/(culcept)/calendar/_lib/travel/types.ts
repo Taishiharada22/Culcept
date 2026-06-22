@@ -246,8 +246,12 @@ export interface TripDay {
   schedule: ScheduleItem[];
   reservations: Reservation[];
   reservationStats: ReservationStats;
-  meal: MealSuggestion;
-  budget: DayBudget;
+  // E-2: meal/budget は「生成 / 要・別設計」フィールド。fixture では常に提供されるが、
+  //   DB 経路（SupabaseTravelRepository）では当面 undefined（推薦エンジン / 予算+支出明細 は別フェーズ）。
+  //   consumer は未提供時に honest な空状態を出す（捏造しない）。
+  //   docs/travel-tripday-data-classification-e2-plan.md
+  meal?: MealSuggestion;
+  budget?: DayBudget;
   walking: { steps: number; distanceKm: number };
   move: DayMove;
   memories: MemoriesNote;

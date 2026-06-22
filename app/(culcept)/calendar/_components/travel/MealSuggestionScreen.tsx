@@ -31,8 +31,21 @@ function Rating({ value, count }: { value: number; count: number }) {
 
 export default function MealSuggestionScreen({ trip, day, onClose, onOpenMap }: TravelScreenProps) {
   const [filter, setFilter] = React.useState<"すべて" | MealAltCategory>("すべて");
-  const { pick } = day.meal;
-  const alts = filter === "すべて" ? day.meal.alternatives : day.meal.alternatives.filter((a) => a.category === filter);
+  // E-2 honest optional: DB 経路で meal 未提供なら捏造せず空状態（推薦エンジンは別フェーズ）。
+  if (!day.meal) {
+    return (
+      <div className="min-h-full">
+        <ConciergeHeader title="Meal Suggestion" latinTitle subLabel="食のおすすめ" onBack={onClose} />
+        <div className="px-5 py-16 text-center text-[13px]" style={{ color: T.ink3 }}>
+          この日の食のおすすめはまだありません。
+        </div>
+      </div>
+    );
+  }
+  // 早期 return 後の narrowed const（closure 内でも undefined にならないよう束縛）
+  const meal = day.meal;
+  const { pick } = meal;
+  const alts = filter === "すべて" ? meal.alternatives : meal.alternatives.filter((a) => a.category === filter);
 
   const infoCols = [
     { icon: <TransportIcon mode="walk" size={16} />, label: "徒歩", value: pick.walkText.replace("徒歩 ", "") },
@@ -160,9 +173,9 @@ export default function MealSuggestionScreen({ trip, day, onClose, onOpenMap }: 
         <ConciergeCard className="p-3">
           <div className="mb-2 flex items-center justify-between">
             <div>
-              <SectionLabel en="Nearby Area" ja={day.meal.areaLabel} />
+              <SectionLabel en="Nearby Area" ja={meal.areaLabel} />
             </div>
-            <button onClick={() => onOpenMap({ title: day.meal.areaLabel })} className="rounded-lg border px-3 py-1.5 text-[11px] font-medium" style={{ borderColor: T.border, background: T.cardAlt, color: T.ink2 }}>
+            <button onClick={() => onOpenMap({ title: meal.areaLabel })} className="rounded-lg border px-3 py-1.5 text-[11px] font-medium" style={{ borderColor: T.border, background: T.cardAlt, color: T.ink2 }}>
               エリアを表示
             </button>
           </div>
