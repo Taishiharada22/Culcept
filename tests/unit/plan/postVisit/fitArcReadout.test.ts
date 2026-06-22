@@ -87,4 +87,12 @@ describe("UI 配線 import smoke", () => {
     const mod = await import("@/app/(culcept)/plan/components/FitArcReadout");
     expect(typeof mod.FitArcReadout).toBe("function");
   });
+  it("★PlaceFitArcReadout(connected) が解決・export される", async () => {
+    const mod = await import("@/app/(culcept)/plan/components/PlaceFitArcReadout");
+    expect(typeof mod.PlaceFitArcReadout).toBe("function");
+  });
+  it("★LocationDetailSheet が解決（FitArc 配線を含む）", async () => {
+    const mod = await import("@/app/(culcept)/calendar/_components/travel/locationNotes/LocationDetailSheet");
+    expect(typeof mod.LocationDetailSheet).toBe("function");
+  });
 });
