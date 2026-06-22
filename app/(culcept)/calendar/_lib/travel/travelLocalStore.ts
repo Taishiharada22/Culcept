@@ -66,6 +66,11 @@ export function normalizePhotoForStore(photo: TravelPhoto | null): TravelPhoto |
 export interface StoredAddedEntry {
   sourceId: string;
   item: ScheduleItem;
+  // E-3C: DB write（travel_itinerary_items / location_note_to_itinerary）用の day/trip 文脈。
+  //   optional＝fixture/旧 localStorage（context 無し）と後方互換。値がある時のみ付与・永続。
+  dayId?: string;
+  tripId?: string;
+  sourceDate?: string;
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -81,16 +86,27 @@ export function readAddedEntries(): StoredAddedEntry[] {
     if (!isObj(e) || typeof e.sourceId !== "string" || !isObj(e.item)) continue;
     const item = e.item as unknown as ScheduleItem;
     if (typeof item.id !== "string" || typeof item.name !== "string") continue;
-    out.push({ sourceId: e.sourceId, item: { ...item, photo: normalizePhotoForStore(item.photo ?? null) } });
+    const entry: StoredAddedEntry = { sourceId: e.sourceId, item: { ...item, photo: normalizePhotoForStore(item.photo ?? null) } };
+    // E-3C: day/trip 文脈は string の時のみ復元（旧 shape は欠落＝後方互換）。
+    if (typeof e.dayId === "string") entry.dayId = e.dayId;
+    if (typeof e.tripId === "string") entry.tripId = e.tripId;
+    if (typeof e.sourceDate === "string") entry.sourceDate = e.sourceDate;
+    out.push(entry);
   }
   return out;
 }
 
-/** 旅程追加を保存（写真正規化）。 */
+/** 旅程追加を保存（写真正規化・day/trip 文脈があれば付与）。 */
 export function writeAddedEntries(entries: StoredAddedEntry[]): void {
   writeJSON(
     TRAVEL_LS_KEYS.itinerary,
-    entries.map((e) => ({ sourceId: e.sourceId, item: { ...e.item, photo: normalizePhotoForStore(e.item.photo ?? null) } })),
+    entries.map((e) => ({
+      sourceId: e.sourceId,
+      item: { ...e.item, photo: normalizePhotoForStore(e.item.photo ?? null) },
+      ...(e.dayId ? { dayId: e.dayId } : {}),
+      ...(e.tripId ? { tripId: e.tripId } : {}),
+      ...(e.sourceDate ? { sourceDate: e.sourceDate } : {}),
+    })),
   );
 }
 
