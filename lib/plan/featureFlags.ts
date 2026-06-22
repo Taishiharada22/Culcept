@@ -667,3 +667,13 @@ export function planCoAlterSendLocalEnabled(): boolean {
 export function planCoAlterReadLocalEnabled(): boolean {
   return process.env.PLAN_COALTER_READ_LOCAL === "true";
 }
+
+/**
+ * C5-E: CoAlter **非永続 brain preview** route の **request 時**評価（preview handler 用・default OFF）。
+ * `PLAN_COALTER_BRAIN_PREVIEW` が ON の時だけ、session の participant message から
+ * **server 生成の CoAlter preview** を返す（**DB write/insert/permanent なし**）。
+ * read（participant message 取得）は user-RLS。client から CoAlter body は受け取らない。
+ */
+export function planCoAlterBrainPreviewEnabled(): boolean {
+  return process.env.PLAN_COALTER_BRAIN_PREVIEW === "true";
+}

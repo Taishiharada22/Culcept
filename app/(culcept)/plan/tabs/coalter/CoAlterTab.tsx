@@ -43,6 +43,8 @@ import {
 import { buildSessionParticipantsFromFixture } from "./coalterPlanSessionContract";
 // local-only live wiring（runtime に隔離＝UI tab folder は /api/coalter を直接持たない）。
 import { useCoAlterLiveSession } from "@/app/(culcept)/plan/coalter-runtime/useCoAlterLiveSession";
+// C5-E: CoAlter 非永続 preview（server 生成・DB 保存なし・flag OFF 既定）。
+import { useCoAlterPreview } from "@/app/(culcept)/plan/coalter-runtime/useCoAlterPreview";
 import {
   buildLiveParticipants,
   selectCoAlterBody,
@@ -203,6 +205,12 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
     liveParticipants,
     fixtureMessages: fixtureBodyMessages,
     fixtureParticipants: fixtureSessionParticipants,
+  });
+
+  // ── C5-E: CoAlter 非永続 preview（flag OFF 既定・on-demand 生成・DB 保存なし・既存 read/send 不干渉） ──
+  const coalterPreview = useCoAlterPreview({
+    enabled: PLAN_FLAGS.coalterBrainPreview,
+    sessionId: PLAN_FLAGS.coalterDevSessionId || null,
   });
 
   // ── handlers（すべて local state のみ） ──
@@ -598,6 +606,35 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
             プランを開く
             <ChevronRightIcon size={11} className="text-violet-400" />
           </button>
+        )}
+
+        {/* C5-E: CoAlter 非永続 preview（flag OFF 既定 → 非表示・absolute で split layout 非干渉・DB 保存なし） */}
+        {PLAN_FLAGS.coalterBrainPreview && (
+          <div
+            className="absolute right-2 top-2 z-10 max-w-[62%] rounded-lg border border-violet-200 bg-white/90 p-2 text-[11px] shadow-md"
+            data-testid="coalter-brain-preview-block"
+          >
+            <button
+              type="button"
+              onClick={coalterPreview.generate}
+              className="font-bold text-violet-700"
+              data-testid="coalter-preview-generate"
+            >
+              CoAlter プレビュー生成
+            </button>
+            {coalterPreview.state === "loading" && <p className="text-gray-400">生成中…</p>}
+            {coalterPreview.state === "ready" && coalterPreview.preview && (
+              <p className="mt-1 text-gray-800" data-testid="coalter-preview-text">
+                CoAlter: {coalterPreview.preview.previewText}
+              </p>
+            )}
+            {coalterPreview.state === "insufficient" && (
+              <p className="mt-1 text-gray-400">（会話がまだ足りません）</p>
+            )}
+            {coalterPreview.state === "unavailable" && (
+              <p className="mt-1 text-gray-400">（preview を取得できません）</p>
+            )}
+          </div>
         )}
       </div>
     </div>
