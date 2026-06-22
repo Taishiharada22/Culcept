@@ -235,6 +235,8 @@ export interface DayWeather {
 
 /** 旅の1日（全6画面の正本）。 */
 export interface TripDay {
+  /** travel_days.id（DB 経路で surface）。fixture では undefined。旅程追加 write の day_id 解決に使う（E-3C）。 */
+  id?: string;
   date: string; // YYYY-MM-DD
   dayIndex: number; // 1
   weekdayLabel: string; // 火

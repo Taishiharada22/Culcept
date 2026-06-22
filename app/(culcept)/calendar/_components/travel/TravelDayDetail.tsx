@@ -102,7 +102,7 @@ export default function TravelDayDetail({
       className="fixed inset-0 z-50 flex flex-col"
       style={{ background: T.bg }}
     >
-      <TravelItineraryProvider>
+      <TravelItineraryProvider currentTripId={trip.id} currentDayId={day.id} currentDate={day.date}>
       <div className="flex-1 overflow-y-auto overscroll-contain">
         {/* 画面切替は keyed remount の fade-in のみ（AnimatePresence mode="wait" は exit が stuck し得るため不使用）。 */}
         <motion.div
