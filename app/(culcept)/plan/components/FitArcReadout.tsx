@@ -20,18 +20,22 @@ export interface FitArcReadoutProps {
   /** 対象（placeKey/lens/state）で filter 済みの Stage 0 観測。 */
   readonly observations: readonly PostVisitObservation[];
   readonly size?: number;
+  /** ヘッダ「あなたへの適合」を出すか（③比較ではセクション側で枠組みを出すため false にできる・default true）。 */
+  readonly showHeader?: boolean;
 }
 
-export function FitArcReadout({ observations, size = 88 }: FitArcReadoutProps) {
+export function FitArcReadout({ observations, size = 88, showHeader = true }: FitArcReadoutProps) {
   if (!isFitArcReadoutEnabled()) return null; // ★flag OFF / production → DOM 不変
   const r = buildFitArcReadout(observations);
   const muted = r.state === "insufficient";
   return (
     <div data-testid="fit-arc" data-state={r.state} className="inline-flex flex-col items-center gap-1.5">
       {/* ★ヘッダ：一目で「世間の評価」でなく「あなたへの適合」だと分かる */}
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold tracking-wide text-purple-700/80">
-        <span aria-hidden>🧭</span>{r.subtitle}
-      </span>
+      {showHeader && (
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold tracking-wide text-purple-700/80">
+          <span aria-hidden>🧭</span>{r.subtitle}
+        </span>
+      )}
       <FitRing readout={r} size={size} />
       {/* ★evidence 件数チップ（常に表示・構造的に削れない）。de Langhe の「件数無視アンカー」を防ぐ。 */}
       <span data-testid="fit-arc-count" className={`rounded-full px-2 py-0.5 text-[10px] ${muted ? "bg-slate-100 text-slate-400" : "bg-purple-50 text-purple-600 ring-1 ring-purple-100"}`}>
