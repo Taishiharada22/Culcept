@@ -5,11 +5,7 @@
       "name": "dev",
       "runtimeExecutable": "/usr/local/bin/node",
       "runtimeArgs": ["/usr/local/bin/npx", "next", "dev", "--port", "3000"],
-      "env": {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "TURBOPACK_ROOT": "/Users/haradataishi/Culcept",
-        "NEXT_PUBLIC_PLAN_COALTER_TAB_ENABLED": "true"
-      },
+      "env": { "PATH": "/usr/local/bin:/usr/bin:/bin" },
       "port": 3000,
       "autoPort": true
     }
