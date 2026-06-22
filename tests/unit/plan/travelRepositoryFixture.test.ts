@@ -14,11 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { SAMPLE_KYOTO_TRIP } from "@/app/(culcept)/calendar/_lib/travel/sampleTrip";
 import { FixtureTravelRepository } from "@/app/(culcept)/calendar/_lib/travel/repository/fixtureTravelRepository";
-import { SupabaseTravelRepository } from "@/app/(culcept)/calendar/_lib/travel/repository/supabaseTravelRepository";
-import {
-  getTravelRepository,
-  TravelRepositoryNotImplementedError,
-} from "@/app/(culcept)/calendar/_lib/travel/repository";
+import { getTravelRepository } from "@/app/(culcept)/calendar/_lib/travel/repository";
 
 describe("FixtureTravelRepository.getTripDay", () => {
   const repo = new FixtureTravelRepository();
@@ -60,11 +56,5 @@ describe("getTravelRepository() factory", () => {
   });
 });
 
-describe("SupabaseTravelRepository（skeleton）", () => {
-  it("getTripDay は NotImplemented を throw（実DB接続なし）", async () => {
-    const repo = new SupabaseTravelRepository();
-    await expect(repo.getTripDay("2026-06-24")).rejects.toBeInstanceOf(
-      TravelRepositoryNotImplementedError
-    );
-  });
-});
+// SupabaseTravelRepository.getTripDay は E-2 で実装済。
+// pure 組み立ては tripDayAssembler.test.ts、実DB round-trip は travelGetTripDayDb.it.test.ts（opt-in）が担保。
