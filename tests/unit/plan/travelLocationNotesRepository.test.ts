@@ -14,11 +14,9 @@
 import { describe, it, expect } from "vitest";
 import { FixtureLocationNotesRepository } from "@/app/(culcept)/calendar/_lib/travel/repository/fixtureLocationNotesRepository";
 import { LocalStorageTravelPersonalStore } from "@/app/(culcept)/calendar/_lib/travel/repository/localStorageTravelPersonalStore";
-import { SupabaseTravelPersonalStore } from "@/app/(culcept)/calendar/_lib/travel/repository/supabaseTravelPersonalStore";
 import {
   getLocationNotesRepository,
   getTravelPersonalStore,
-  TravelRepositoryNotImplementedError,
 } from "@/app/(culcept)/calendar/_lib/travel/repository";
 
 describe("FixtureLocationNotesRepository.getLocationNotes", () => {
@@ -65,11 +63,5 @@ describe("LocalStorageTravelPersonalStore（node＝SSR 相当・window なし）
 });
 
 // 注: SupabaseLocationNotesRepository.getLocationNotes / SupabaseTravelPersonalStore の
-// saved・userNotes は E-3A/E-3B で実装済。実DB は *.it.test.ts（opt-in）が担保。
-describe("Supabase PersonalStore — 旅程追加のみ API gap（day_id 不在）で NotImplemented throw", () => {
-  it("readAddedEntries / writeAddedEntries は NotImplemented（day_id 不在の API gap）", async () => {
-    const s = new SupabaseTravelPersonalStore();
-    await expect(s.readAddedEntries()).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
-    await expect(s.writeAddedEntries([])).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
-  });
-});
+// saved・userNotes（E-3A/E-3B）・旅程追加 added（E-3C-3）は実装済。
+// pure helper は personalStoreWrite.test.ts、実DB は *.it.test.ts（opt-in）が担保。
