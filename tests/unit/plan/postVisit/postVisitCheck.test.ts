@@ -213,6 +213,17 @@ describe("store — redaction（禁止情報が保存されない）", () => {
   });
 });
 
+describe("UI 配線 import smoke（module 解決・mount 可能）", () => {
+  it("★PostVisitCheckCard が解決・export される", async () => {
+    const mod = await import("@/app/(culcept)/plan/components/PostVisitCheckCard");
+    expect(typeof mod.PostVisitCheckCard).toBe("function");
+  });
+  it("★LocationDetailSheet が解決（PostVisitCheckCard import を含む）", async () => {
+    const mod = await import("@/app/(culcept)/calendar/_components/travel/locationNotes/LocationDetailSheet");
+    expect(typeof mod.LocationDetailSheet).toBe("function");
+  });
+});
+
 describe("store — flag OFF で既存挙動不変 / SSR safe", () => {
   function mockLS() {
     const store: Record<string, string> = {};
