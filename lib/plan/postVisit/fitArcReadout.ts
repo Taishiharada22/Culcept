@@ -10,10 +10,15 @@
  */
 import type { PostVisitObservation, PostVisitResponse } from "./postVisitObservation";
 
-/** ★flag（dormant・default OFF・production hard block）。OFF で UI は null＝DOM 不変。 */
+/**
+ * ★flag（dormant・default OFF・production hard block）。OFF で UI は null＝DOM 不変。
+ *   dev/dogfood は **source 編集不要**: 環境変数 `NEXT_PUBLIC_ANEURASYNC_FIT_ARC_DOGFOOD=1` で dev session のみ点火可。
+ *   production は env が立っていても必ず false。
+ */
 export const FIT_ARC_READOUT_ENABLED = false;
 export function isFitArcReadoutEnabled(): boolean {
-  return FIT_ARC_READOUT_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  if (process.env.NODE_ENV === "production") return false; // ★production hard block（env でも必ず false）
+  return FIT_ARC_READOUT_ENABLED || process.env.NEXT_PUBLIC_ANEURASYNC_FIT_ARC_DOGFOOD === "1";
 }
 
 export type FitArcState = "insufficient" | "tentative" | "observed";
