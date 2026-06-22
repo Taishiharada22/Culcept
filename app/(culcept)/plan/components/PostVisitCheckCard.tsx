@@ -19,6 +19,7 @@ import {
   type DwellSignal,
 } from "@/lib/plan/postVisit/postVisitObservation";
 import type { PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
+import type { PostVisitContextSnapshot } from "@/lib/plan/postVisit/postVisitContext";
 import { shouldElicit, buildPostVisitPrompt, type ElicitContext } from "@/lib/plan/postVisit/postVisitElicitation";
 import {
   recordPostVisitObservation,
@@ -52,6 +53,8 @@ export interface PostVisitCheckCardProps {
   readonly onRecorded?: () => void;
   /** ★Stage 3-B: 汎用「観測の鏡」を出さない（Calendar timeline で複数 anchor に同じ鏡が並ぶのを防ぐ）。 */
   readonly hideMirror?: boolean;
+  /** ★Stage 4-A: 観測時の文脈（coarse/redacted）。回答保存時に観測へ付与。未指定なら付かない（後方互換）。 */
+  readonly contextSnapshot?: PostVisitContextSnapshot;
 }
 
 type Phase = "hidden" | "prompt" | "answered";
@@ -118,6 +121,7 @@ export function PostVisitCheckCard(props: PostVisitCheckCardProps) {
         reasonChips: chips,
         dwellSignal: props.dwellSignal ?? null,
         at: Date.now(),
+        contextSnapshot: props.contextSnapshot ?? null, // ★Stage 4-A: 文脈を観測に付与（redaction firewall 通過）
       }),
     );
     if (!props.hideMirror) setMirror(buildObservationMirror(loadPostVisitObservations()));

@@ -18,6 +18,7 @@ import {
   type DwellSignal,
   type SuppressReason,
 } from "./postVisitObservation";
+import { sanitizeContextSnapshot } from "./postVisitContext";
 
 export const POST_VISIT_OBS_KEY = "aneurasync.postvisit.v1";
 
@@ -76,7 +77,7 @@ function writeEnvelope(env: Envelope): void {
 }
 
 const RESPONSE_SET: ReadonlySet<string> = new Set<PostVisitResponse>(["keep", "conditional", "not_today", "no_more"]);
-const TRIGGER_SET: ReadonlySet<string> = new Set<PostVisitTrigger>(["lens_proposed", "first_visit", "important_plan", "discovery_domain", "early_leave", "long_stay"]);
+const TRIGGER_SET: ReadonlySet<string> = new Set<PostVisitTrigger>(["lens_proposed", "first_visit", "important_plan", "discovery_domain", "early_leave", "long_stay", "past_plan"]);
 const DWELL_SET: ReadonlySet<string> = new Set<DwellSignal>(["early", "long", "asplanned"]);
 const REASON_SET: ReadonlySet<string> = new Set<ReasonChipKey>(["content_good", "calm", "crowded", "felt_pricey", "was_tired", "service", "solo", "with_someone", "ok_noon", "not_night", "rain_inconvenient", "commute_tiring", "other"]);
 
@@ -92,6 +93,8 @@ function sanitizeObservation(raw: unknown): PostVisitObservation | null {
   const response = typeof o.response === "string" && RESPONSE_SET.has(o.response) ? (o.response as PostVisitResponse) : null;
   const reasonChips = Array.isArray(o.reasonChips) ? o.reasonChips.filter((c): c is ReasonChipKey => typeof c === "string" && REASON_SET.has(c)) : [];
   const dwellSignal = typeof o.dwellSignal === "string" && DWELL_SET.has(o.dwellSignal) ? (o.dwellSignal as DwellSignal) : null;
+  // ★Stage 4-A: contextSnapshot も redaction firewall(sanitizeContextSnapshot)を通す。無効/不在は付けない（後方互換）
+  const contextSnapshot = o.contextSnapshot != null ? sanitizeContextSnapshot(o.contextSnapshot) : null;
   // ★whitelist のキーだけで再構築（PERSISTED_OBSERVATION_KEYS 準拠）
   void PERSISTED_OBSERVATION_KEYS;
   return {
@@ -103,6 +106,7 @@ function sanitizeObservation(raw: unknown): PostVisitObservation | null {
     reasonChips,
     dwellSignal,
     at: o.at,
+    ...(contextSnapshot ? { contextSnapshot } : {}),
   };
 }
 
