@@ -8,7 +8,7 @@
 
 import * as React from "react";
 import type { LocationItem, ScheduleItem, TripDay } from "../../../_lib/travel/types";
-import { locationItemToScheduleItem } from "../../../_lib/travel/itineraryConvert";
+import { buildAddedEntry } from "../../../_lib/travel/itineraryConvert";
 // E-1: localStorage 直呼びをやめ、TravelPersonalStore 境界経由（既定は localStorage を Promise でラップ・挙動不変）。
 import { getTravelPersonalStore, type StoredAddedEntry } from "../../../_lib/travel/repository";
 
@@ -25,7 +25,19 @@ interface ItineraryContextValue {
 
 const ItineraryContext = React.createContext<ItineraryContextValue | null>(null);
 
-export function TravelItineraryProvider({ children }: { children: React.ReactNode }) {
+export function TravelItineraryProvider({
+  children,
+  // E-3C: 旅程追加 write 用の現在文脈（optional）。fixture では day 識別子が無く undefined のまま許容。
+  //   public hook signature（addToItinerary(item)）は不変＝consumer は引数を増やさない。
+  currentTripId,
+  currentDayId,
+  currentDate,
+}: {
+  children: React.ReactNode;
+  currentTripId?: string;
+  currentDayId?: string;
+  currentDate?: string;
+}) {
   const [added, setAdded] = React.useState<AddedEntry[]>([]);
 
   // store から復元（client-only。SSR/hydration mismatch を避けるため mount 後 effect で）。
@@ -63,10 +75,11 @@ export function TravelItineraryProvider({ children }: { children: React.ReactNod
         return prev;
       }
       ok = true;
-      return [...prev, { sourceId: item.id, item: locationItemToScheduleItem(item) }];
+      // E-3C: current 文脈があれば day/trip を載せる（DB write 用）。無ければ従来どおり。
+      return [...prev, buildAddedEntry(item, { dayId: currentDayId, tripId: currentTripId, sourceDate: currentDate })];
     });
     return ok;
-  }, []);
+  }, [currentDayId, currentTripId, currentDate]);
 
   const removeAdded = React.useCallback((sourceId: string) => {
     setAdded((prev) => prev.filter((a) => a.sourceId !== sourceId));
