@@ -139,6 +139,20 @@ export interface RejectedVM {
   reason: string;
 }
 
+/**
+ * S2 — personalization readout（**additive・optional**）。
+ *   self の観測軸が proposal 順位に反映されたこと（engine 注入）＋ 2 人の噛み合わせ（説明レイヤ）。
+ *   `demo` は **観測の出自**（preview の demo 軸 = true / 実データ = false）。UI が誤認防止に表示する。
+ */
+export interface PersonalizationReadoutVM {
+  /** true = preview 用 demo 軸（実データではない）。UI にバッジ表示する。 */
+  demo: boolean;
+  /** viewer 本人の傾向（confidence 十分な軸のみ・空可）。 */
+  selfReadout: string[];
+  /** 2 人の一致 / 差（両者とも confidence 十分な軸のみ・空可）。 */
+  pairReadout: string[];
+}
+
 export interface PlanIntelligenceLiveReadyVM {
   status: "ready";
   candidates: CandidateVM[];
@@ -154,6 +168,8 @@ export interface PlanIntelligenceLiveReadyVM {
   rejected: RejectedVM[];
   /** ★ honest: 距離/経路/到着時刻は solver 未実装＝場所確定後に算出（捏造しない） */
   physical: { resolved: false; note: string };
+  /** ★ S2 additive: personalization 反映の readout（注入時のみ・absent は S1 と byte 等価）。 */
+  personalization?: PersonalizationReadoutVM;
 }
 
 export type PlanIntelligenceLiveVM =
@@ -197,8 +213,13 @@ function rejectReason(view: RejectedAngleView): string {
 /**
  * travel display 結果 → Plan Intelligence Live VM。決定論・副作用なし。
  *   ready → 候補/決定/質問/確認/リスク/却下/物理未確定。not-ready → 何を聞くか。それ以外 → unavailable。
+ *   @param options.personalization S2 additive。提供時のみ ready VM に readout を載せる
+ *     （absent → S1 と byte 等価・既存呼び出しは無改修で通る）。
  */
-export function buildPlanIntelligenceLiveVM(result: TravelPlanDisplayResult): PlanIntelligenceLiveVM {
+export function buildPlanIntelligenceLiveVM(
+  result: TravelPlanDisplayResult,
+  options?: { personalization?: PersonalizationReadoutVM },
+): PlanIntelligenceLiveVM {
   if (result.status === "not_ready_missing" || result.status === "not_ready_unconfirmed") {
     return {
       status: "needs_input",
@@ -213,7 +234,7 @@ export function buildPlanIntelligenceLiveVM(result: TravelPlanDisplayResult): Pl
   const display = proposalsDisplay ?? { proposals: [], rejected: [], inputError: null };
   const recommendedId = projection.answer.recommendedProposalId;
 
-  return {
+  const vm: PlanIntelligenceLiveReadyVM = {
     status: "ready",
     candidates: display.proposals.map((p) => candidateVM(p, recommendedId)),
     decision: {
@@ -227,4 +248,10 @@ export function buildPlanIntelligenceLiveVM(result: TravelPlanDisplayResult): Pl
     rejected: display.rejected.map((r) => ({ angle: r.angle, angleLabel: ANGLE_JA[r.angle], reason: rejectReason(r) })),
     physical: { resolved: false, note: PHYSICAL_NOTE },
   };
+  // ★ S2: personalization 提供時のみ載せる（self/pair とも空配列なら readout は省く＝中身がある時だけ）。
+  const personalization = options?.personalization;
+  if (personalization && (personalization.selfReadout.length > 0 || personalization.pairReadout.length > 0)) {
+    vm.personalization = personalization;
+  }
+  return vm;
 }

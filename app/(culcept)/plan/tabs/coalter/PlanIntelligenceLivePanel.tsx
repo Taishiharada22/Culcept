@@ -16,6 +16,7 @@
 import type { FitLabel } from "@/lib/shared/travel/proposal-types";
 import type {
   CandidateVM,
+  PersonalizationReadoutVM,
   PlanIntelligenceLiveReadyVM,
   PlanIntelligenceLiveVM,
 } from "./planIntelligenceLiveViewModel";
@@ -79,6 +80,39 @@ function LiveCandidateCard({ c }: { c: CandidateVM }) {
   );
 }
 
+function PersonalizationCard({ p }: { p: PersonalizationReadoutVM }) {
+  return (
+    <div className={`${CARD} p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className={CHIP}>あなたの観測</span>
+        {p.demo && (
+          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-200/60">
+            デモ
+          </span>
+        )}
+      </div>
+      {p.selfReadout.length > 0 && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
+          あなたは<span className="font-bold text-violet-600">{p.selfReadout.join("・")}</span>
+        </p>
+      )}
+      {p.pairReadout.length > 0 && (
+        <div className="mt-2 border-t border-slate-100 pt-2">
+          <span className="text-[10px] font-bold text-slate-400">お二人の噛み合わせ</span>
+          <ul className="mt-1 space-y-1">
+            {p.pairReadout.map((line, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-600">
+                <ChevronRightIcon size={11} className="mt-0.5 shrink-0 text-rose-300" />
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
   return (
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-1 pb-2 pt-0.5">
@@ -90,6 +124,9 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
         </div>
         {vm.decision.why && <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{vm.decision.why}</p>}
       </div>
+
+      {/* あなたの観測 + 2 人の噛み合わせ（S2 personalization・demo 明示） */}
+      {vm.personalization && <PersonalizationCard p={vm.personalization} />}
 
       {/* 候補プラン（角度別・横スクロール） */}
       <div>

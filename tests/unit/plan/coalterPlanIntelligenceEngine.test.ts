@@ -53,7 +53,7 @@ describe("C6-A-1 CoAlter proposal engine live（fixture→events→engine→VM�
     const display = result.display.proposalsDisplay;
     expect(display).toBeDefined();
     for (const p of display?.proposals ?? []) {
-      const rec = p as Record<string, unknown>;
+      const rec = p as unknown as Record<string, unknown>;
       expect(rec.forParticipant).toBeUndefined(); // 本人 private 説明は構造的に存在しない
       expect(rec.rationale).toBeUndefined(); // raw ViewerScopedRationale も持たない（whyShared のみ）
       expect(typeof p.whyShared).toBe("string");
@@ -68,7 +68,7 @@ describe("C6-A-1 CoAlter proposal engine live（fixture→events→engine→VM�
     expect(vm.physical.resolved).toBe(false);
     expect(vm.physical.note.length).toBeGreaterThan(0);
     for (const c of vm.candidates) {
-      const rec = c as Record<string, unknown>;
+      const rec = c as unknown as Record<string, unknown>;
       expect(rec.walkKm).toBeUndefined();
       expect(rec.returnEta).toBeUndefined();
       expect(rec.route).toBeUndefined();

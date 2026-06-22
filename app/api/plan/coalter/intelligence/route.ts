@@ -1,15 +1,20 @@
 /**
- * GET /api/plan/coalter/intelligence — C6-A-1 CoAlter proposal engine live（**server・fixture 入力・display-safe**）
+ * GET /api/plan/coalter/intelligence — CoAlter proposal engine live（**server・fixture 入力・display-safe**）
  *
  * 役割: CoAlter fixture session を travel engine に通し、**合意形成知性**（角度別提案 / 2 人適合 /
  *   なぜ / 却下理由 / 不確実性 / 確認 / 質問）の display-safe ViewModel を返す。
  *   engine は **server に留める**（private slot を扱う）。client へは VM（display-safe）のみ返す。
  *
+ *   S2: さらに **demo personalization**（self の観測軸）を engine に注入し、提案順位を本人傾向で
+ *   パーソナライズする＋ 2 人の噛み合わせ（説明レイヤ）を載せる。
+ *
  * 厳守（production 安全）:
  *   - flag OFF（本番既定 `NEXT_PUBLIC_PLAN_COALTER_ENGINE_LIVE` 未設定）→ **404 inert**（live 経路を出さない）。
- *   - **fixture 入力のみ**（DB / Supabase / personalization runtime / fetch / 外部 API なし）。**書き込みゼロ**。
- *   - gate = `{ fixtureAllowed: false }`（production-like）。events は構造化 surface 由来なので通る
- *     （dev_fixture provenance ではない）。
+ *   - **fixture 入力のみ**（DB / Supabase / snapshotReader / personalization runtime / fetch / 外部 API なし）。**書き込みゼロ**。
+ *     personalization は **demo 軸 fixture** を pure derive に通すだけ（実 DB の軸 read には踏み込まない＝M2-B 不可侵）。
+ *   - self 軸のみ engine scoring（adapter が owner=participantIds[0] に限定）。partner 軸は説明レイヤ専用。
+ *   - VM は personalization を `demo: true` 付きで返す（live 実データと誤認させない）。
+ *   - gate = `{ fixtureAllowed: false }`（production-like）。events は構造化 surface 由来なので通る。
  *   - 距離 / 経路 / 時刻は engine が持たない（solver 未実装）→ VM は物理未確定を明示（捏造しない）。
  */
 
@@ -17,11 +22,15 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
+import { derivePlanParams, deriveTravelTraits } from "@/lib/shared/personalization/derive";
+import { mapPersonalizationToM2SoftPreference } from "@/lib/shared/travel/personalization-to-m2-soft-preference";
 import {
   COALTER_PLAN_SESSION_FIXTURES,
   type CoAlterPlanMode,
 } from "@/app/(culcept)/plan/tabs/coalter/coalterPlanSessionFixture";
+import { COALTER_DEMO_PERSONALIZATION } from "@/app/(culcept)/plan/tabs/coalter/coalterPersonalizationFixture";
 import { coalterSessionToTravelEvents } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionToTravelEvents";
+import { buildCoAlterPairTraitReadout } from "@/app/(culcept)/plan/tabs/coalter/coalterPairTraitReadout";
 import { buildPlanIntelligenceLiveVM } from "@/app/(culcept)/plan/tabs/coalter/planIntelligenceLiveViewModel";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +45,23 @@ export async function GET(req: NextRequest) {
   const modeParam = req.nextUrl.searchParams.get("mode");
   const mode: CoAlterPlanMode = modeParam === "travel" ? "travel" : "daily";
 
-  // fixture session → 構造化 events → engine（server pure・DB/書き込みなし）→ display-safe VM。
+  // fixture session → 構造化 events（server pure・DB/書き込みなし）。
   const session = COALTER_PLAN_SESSION_FIXTURES[mode];
   const events = coalterSessionToTravelEvents(session);
-  const result = buildTravelPlanDisplayResult(events, { fixtureAllowed: false });
-  const vm = buildPlanIntelligenceLiveVM(result);
+
+  // S2: demo personalization。self 軸 → pure derive → bounded soft preference → engine 注入（順位に効く）。
+  //   demo 軸 fixture を pure 関数に通すだけ（snapshotReader/DB/runtime なし）。
+  const demo = COALTER_DEMO_PERSONALIZATION[mode];
+  const selfPlanParams = derivePlanParams(demo.self);
+  const selfTravelTraits = deriveTravelTraits(demo.self);
+  const softPersonalization = mapPersonalizationToM2SoftPreference(selfPlanParams, selfTravelTraits);
+
+  const result = buildTravelPlanDisplayResult(events, { fixtureAllowed: false }, { softPersonalization });
+
+  // self + partner の demo 軸 → 2 人の噛み合わせ readout（説明レイヤ・engine 順位には入らない）。
+  const partnerName = session.participants[1]?.name ?? "お相手";
+  const readout = buildCoAlterPairTraitReadout(demo.self, demo.partner, partnerName);
+  const vm = buildPlanIntelligenceLiveVM(result, { personalization: { demo: true, ...readout } });
 
   return NextResponse.json({ vm });
 }
