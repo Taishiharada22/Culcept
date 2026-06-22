@@ -8,8 +8,7 @@ const withNextIntl = createNextIntlPlugin();
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     turbopack: {
-        // worktree では node_modules が main dir にあるため TURBOPACK_ROOT で上書き可能
-        root: process.env.TURBOPACK_ROOT ?? path.join(__dirname),
+        root: path.join(__dirname),
     },
     images: {
         qualities: [75, 90, 95],
