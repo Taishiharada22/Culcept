@@ -25,13 +25,22 @@ export interface FitArcReadoutProps {
 export function FitArcReadout({ observations, size = 88 }: FitArcReadoutProps) {
   if (!isFitArcReadoutEnabled()) return null; // ★flag OFF / production → DOM 不変
   const r = buildFitArcReadout(observations);
+  const muted = r.state === "insufficient";
   return (
-    <div data-testid="fit-arc" data-state={r.state} className="inline-flex flex-col items-center gap-1">
+    <div data-testid="fit-arc" data-state={r.state} className="inline-flex flex-col items-center gap-1.5">
+      {/* ★ヘッダ：一目で「世間の評価」でなく「あなたへの適合」だと分かる */}
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold tracking-wide text-purple-700/80">
+        <span aria-hidden>🧭</span>{r.subtitle}
+      </span>
       <FitRing readout={r} size={size} />
       {/* ★evidence 件数チップ（常に表示・構造的に削れない）。de Langhe の「件数無視アンカー」を防ぐ。 */}
-      <span data-testid="fit-arc-count" className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">観測 {r.observationCount} 件</span>
-      <span className="text-[10px] text-slate-400">{r.subtitle}</span>
-      <span data-testid="fit-arc-label" className="text-[10.5px] leading-snug text-purple-700">{r.label}</span>
+      <span data-testid="fit-arc-count" className={`rounded-full px-2 py-0.5 text-[10px] ${muted ? "bg-slate-100 text-slate-400" : "bg-purple-50 text-purple-600 ring-1 ring-purple-100"}`}>
+        観測 {r.observationCount} 件
+      </span>
+      {/* ★state ごとの honest 文（observed=落ち着いた紫 / tentative=薄紫 / insufficient=温かいグレー） */}
+      <span data-testid="fit-arc-label" className={`max-w-[170px] text-center text-[10.5px] leading-snug ${muted ? "text-slate-400" : r.state === "tentative" ? "text-purple-400" : "text-purple-700"}`}>
+        {r.label}
+      </span>
     </div>
   );
 }
