@@ -24,15 +24,17 @@ describe("flag — dormant / default OFF / production hard block", () => {
 });
 
 describe("buildFitArcReadout — 観測不足では断定しない", () => {
-  it("★観測ゼロ → insufficient / empty / 値なし(null) / 「推測しません」", () => {
+  it("★観測ゼロ → insufficient / empty / 値なし(null) / honest かつ温かい前向き文言（断定しない）", () => {
     const r = buildFitArcReadout([]);
     expect(r.state).toBe("insufficient");
     expect(r.arcStyle).toBe("empty");
-    expect(r.fillRatio).toBeNull();
+    expect(r.fillRatio).toBeNull(); // ★値を出さない＝推測しない
     expect(r.fillPercent).toBeNull();
     expect(r.observationCount).toBe(0);
-    expect(r.label).toContain("観測不足");
-    expect(r.label).toContain("推測しません");
+    expect(r.label).toContain("答え合わせ"); // 答え合わせに繋がる前向き文言
+    expect(r.label).toContain("見えてきます");
+    // ★断定/数値を含まない（観測不足で高精度に見せない）
+    expect(r.label).not.toMatch(/\d+%|適合度|高い|低い/);
   });
   it("★未回答(null)は適合に寄与せず・回答ゼロなら insufficient", () => {
     const r = buildFitArcReadout([obs(null), obs(null)]);
