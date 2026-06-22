@@ -64,16 +64,12 @@ describe("LocalStorageTravelPersonalStore（node＝SSR 相当・window なし）
   });
 });
 
-// 注: SupabaseLocationNotesRepository.getLocationNotes は E-3A で read-only 実装済。
-// pure mapper は locationNoteMapper.test.ts、実DB可視性は locationNotesRepositoryDb.it.test.ts（opt-in）が担保。
-describe("Supabase PersonalStore skeleton（write 未実装＝NotImplemented throw・実DB接続なし）", () => {
-  it("SupabaseTravelPersonalStore の read/write 全系", async () => {
+// 注: SupabaseLocationNotesRepository.getLocationNotes / SupabaseTravelPersonalStore の
+// saved・userNotes は E-3A/E-3B で実装済。実DB は *.it.test.ts（opt-in）が担保。
+describe("Supabase PersonalStore — 旅程追加のみ API gap（day_id 不在）で NotImplemented throw", () => {
+  it("readAddedEntries / writeAddedEntries は NotImplemented（day_id 不在の API gap）", async () => {
     const s = new SupabaseTravelPersonalStore();
     await expect(s.readAddedEntries()).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
     await expect(s.writeAddedEntries([])).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
-    await expect(s.readSavedIds()).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
-    await expect(s.writeSavedIds([])).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
-    await expect(s.readUserNotes()).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
-    await expect(s.writeUserNotes([])).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
   });
 });
