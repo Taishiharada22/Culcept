@@ -47,6 +47,8 @@ export interface PostVisitCheckCardProps {
   readonly isHomeOrWork?: boolean;
   readonly isHabitual?: boolean;
   readonly isHighFatigue?: boolean;
+  /** ★Stage 1-B: 観測を保存/skip した直後に呼ぶ（FitArcReadout を再読込させる）。 */
+  readonly onRecorded?: () => void;
 }
 
 type Phase = "hidden" | "prompt" | "answered";
@@ -116,12 +118,14 @@ export function PostVisitCheckCard(props: PostVisitCheckCardProps) {
     );
     setMirror(buildObservationMirror(loadPostVisitObservations()));
     setPhase("answered");
+    props.onRecorded?.(); // ★保存後に readout を再読込
   };
 
   const skip = () => {
     recordPostVisitSkip(opaquePlaceKey(props.placeDescriptor) ?? "p_unknown", Date.now()); // ★skip 後は suppress が効く
     setMirror(buildObservationMirror(loadPostVisitObservations()));
     setPhase("answered");
+    props.onRecorded?.();
   };
 
   if (phase === "hidden") return null; // ★flag OFF / 未 hydrate → 何も出さない（DOM 不変）
