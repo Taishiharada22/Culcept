@@ -132,22 +132,46 @@ d("SupabaseTravelPersonalStore — local DB write", () => {
     expect(await storeB.readUserNotes()).toEqual([]); // A の private note は見えない
   }, 40000);
 
-  it("probe: userB が userA の private note を save できるか（FK vs RLS）", async () => {
+  // ── E-3B-1: saves INSERT policy hardening の RLS 検証 ──
+  it("save-insert RLS: 他人は public(published+approved+未削除)のみ save 可・他は不可／自分は private も可", async () => {
     const stamp = Date.now();
-    const { client: a, uid: uidA } = await signUpUser(`ps-pa-${stamp}@example.com`);
-    const { data: privNote } = await a
-      .from("location_notes")
-      .insert({ user_id: uidA, kind: "spot", prefecture: "京都府", title: `secret-${stamp}`, status: "private", moderation_status: "none", contributor_type: "self", source_type: "self_memo" })
-      .select()
-      .single();
-    const privId = (privNote as { id: string }).id;
+    const { client: a, uid: uidA } = await signUpUser(`ps-rls-a-${stamp}@example.com`);
 
-    const { client: b, uid: uidB } = await signUpUser(`ps-pb-${stamp}@example.com`);
-    const { error } = await b.from("location_note_saves").insert({ user_id: uidB, location_note_id: privId });
-    // 観測結果を記録（FK は RLS をバイパスし得る＝insert 成功の可能性あり）。
-    // 成功しても B は当該 note 本文を read 不可（content leak なし）。詳細は docs E-3B「RLS/FK 考察」。
-    // eslint-disable-next-line no-console
-    console.log(`[E-3B probe] cross-user private-note save error: ${error ? error.code ?? error.message : "null(=insert succeeded)"}`);
-    expect(true).toBe(true);
-  }, 40000);
+    // userA が各 status の note を作成
+    const mk = (title: string, status: string, mod: string, extra: Record<string, unknown> = {}) =>
+      ({ user_id: uidA, kind: "spot", prefecture: "京都府", title: `${title}-${stamp}`, status, moderation_status: mod, contributor_type: "local", source_type: "firsthand", ...extra });
+    const { data: rows } = await a
+      .from("location_notes")
+      .insert([
+        mk("pub-approved", "published", "approved"),
+        mk("pub-pending", "published", "pending"),
+        mk("priv", "private", "none"),
+        mk("draft", "draft", "none"),
+        mk("reported", "reported", "approved"),
+        mk("pub-approved-deleted", "published", "approved", { deleted_at: new Date(stamp).toISOString() }),
+        { ...mk("selfmemo-priv", "private", "none"), source_type: "self_memo", contributor_type: "self" },
+      ])
+      .select();
+    const byTitle = new Map((rows as { id: string; title: string }[]).map((r) => [r.title, r.id]));
+    const id = (t: string) => byTitle.get(`${t}-${stamp}`)!;
+
+    // userB（他人）の save 可否
+    const { client: b, uid: uidB } = await signUpUser(`ps-rls-b-${stamp}@example.com`);
+    const bTry = async (noteId: string) => {
+      const { error } = await b.from("location_note_saves").insert({ user_id: uidB, location_note_id: noteId });
+      if (!error) await b.from("location_note_saves").delete().eq("location_note_id", noteId); // cleanup
+      return error;
+    };
+    expect(await bTry(id("pub-approved"))).toBeNull(); // ✅ public は save 可
+    expect(await bTry(id("pub-pending"))).not.toBeNull(); // ❌ 未approved
+    expect(await bTry(id("priv"))).not.toBeNull(); // ❌ 他人の private
+    expect(await bTry(id("draft"))).not.toBeNull(); // ❌ draft
+    expect(await bTry(id("reported"))).not.toBeNull(); // ❌ reported
+    expect(await bTry(id("pub-approved-deleted"))).not.toBeNull(); // ❌ deleted
+    expect(await bTry(id("selfmemo-priv"))).not.toBeNull(); // ❌ 他人の self_memo private
+
+    // userA（owner）は自分の private を save 可
+    const { error: aErr } = await a.from("location_note_saves").insert({ user_id: uidA, location_note_id: id("priv") });
+    expect(aErr).toBeNull();
+  }, 60000);
 });
