@@ -11,6 +11,8 @@
  */
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { parseCanonicalLocationText } from "@/lib/shared/canonicalLocationText";
+import { opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
+import { shouldElicit } from "./postVisitElicitation";
 
 /** 経過済みとして扱う最大過去窓（古すぎる予定は聞かない）。 */
 export const PAST_ANCHOR_RECENT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -36,15 +38,22 @@ function toLocalTimestamp(dateYmd: string, time: string | undefined): number | n
 }
 
 /**
+ * 予定の終了 timestamp（pure）。one_off のみ（recurring は null＝対象外）。endTime 無ければ startTime。
+ */
+export function anchorEndTimestamp(anchor: ExternalAnchor): number | null {
+  if (anchor.anchorKind !== "one_off") return null;
+  return toLocalTimestamp(anchor.date, anchor.endTime ?? anchor.startTime);
+}
+
+/**
  * 「経過済み × 場所付き」判定（pure）。
  *   - one_off のみ対象（recurring=日常は habitual で suppress 対象・終了時刻判定も複雑なので除外）。
  *   - locationText 非空（場所がある）。
  *   - 予定終了（endTime 無ければ startTime）が now 以前、かつ直近窓内。
  */
 export function isPastAnchorWithPlace(anchor: ExternalAnchor, now: number): boolean {
-  if (anchor.anchorKind !== "one_off") return false;
   if (!anchor.locationText || anchor.locationText.trim().length === 0) return false;
-  const end = toLocalTimestamp(anchor.date, anchor.endTime ?? anchor.startTime);
+  const end = anchorEndTimestamp(anchor);
   if (end == null) return false;
   return end <= now && now - end <= PAST_ANCHOR_RECENT_WINDOW_MS;
 }
@@ -77,4 +86,62 @@ export function deriveAnchorElicitFlags(anchor: ExternalAnchor): AnchorElicitFla
     isHomeOrWork: cat === "home" || cat === "office" || cat === "school",
     isHabitual: cat === "transit",
   };
+}
+
+// ── Stage 3-C: one-per-day guard（選択日で最大1件だけ聞く）──
+
+/** store 由来の per-placeKey signal を注入する（helper は localStorage I/O しない＝pure 維持）。 */
+export interface PostVisitDaySignals {
+  readonly lastSkippedAt: (placeKey: string) => number | null;
+  readonly lastSimilarElicitAt: (placeKey: string) => number | null;
+}
+
+export interface SelectedPostVisitAnchor {
+  readonly anchor: ExternalAnchor;
+  /** そのまま PostVisitCheckCard に渡せる導出フラグ（再計算不要）。 */
+  readonly flags: AnchorElicitFlags;
+}
+
+/**
+ * 選択日の anchor 群から、答え合わせを出す **最大1件** を選ぶ（pure）。
+ *   選定ルール（全て満たす中から）:
+ *     1. 経過済み 2. 場所付き 3. one_off（recurring 除外） 4. sensitiveCategory 無し（明示除外）
+ *     5. 非suppress（shouldElicit が elicit=true＝home/work/habitual/after_skip/recent_same を除外）
+ *     6. その中で **より最近終了した予定** を優先（同点は anchor.id 安定）。
+ *   1件も無ければ null。store I/O は signals 経由で注入（pure）。
+ */
+export function selectPostVisitAnchorForDay(
+  anchors: readonly ExternalAnchor[],
+  now: number,
+  signals: PostVisitDaySignals,
+): SelectedPostVisitAnchor | null {
+  let best: { anchor: ExternalAnchor; flags: AnchorElicitFlags; endTs: number } | null = null;
+  for (const anchor of anchors) {
+    if (!isPastAnchorWithPlace(anchor, now)) continue; // 経過×場所×one_off×窓内
+    const flags = deriveAnchorElicitFlags(anchor);
+    if (flags.isSensitive) continue; // ★sensitive は明示除外（suppress でも落ちるが念のため）
+    const placeKey = opaquePlaceKey(flags.placeDescriptor) ?? "p_unknown";
+    const decision = shouldElicit({
+      isLensProposed: false,
+      isFirstVisit: false,
+      isImportantPlan: flags.isImportantPlan,
+      isDiscoveryDomain: flags.isDiscoveryDomain,
+      isPastPlan: flags.isPastPlan,
+      dwellSignal: null,
+      isSensitive: flags.isSensitive,
+      isHomeOrWork: flags.isHomeOrWork,
+      isHabitual: flags.isHabitual,
+      isHighFatigue: false,
+      lastSkippedAt: signals.lastSkippedAt(placeKey),
+      lastSimilarElicitAt: signals.lastSimilarElicitAt(placeKey),
+      now,
+    });
+    if (!decision.elicit) continue; // suppress / no-trigger 除外
+    const endTs = anchorEndTimestamp(anchor) ?? 0;
+    // ★より最近終了を優先（endTs 大）。同点は id 昇順で安定。
+    if (best == null || endTs > best.endTs || (endTs === best.endTs && anchor.id < best.anchor.id)) {
+      best = { anchor, flags, endTs };
+    }
+  }
+  return best ? { anchor: best.anchor, flags: best.flags } : null;
 }

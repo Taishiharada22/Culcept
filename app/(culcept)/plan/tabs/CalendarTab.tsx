@@ -49,10 +49,11 @@ import {
 import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
-// ★評価OS Stage 3-B: 経過済み×場所付き予定に控えめ post-visit 答え合わせ（flag OFF で null＝DOM 不変・local shadow only）
+// ★評価OS Stage 3-B/3-C: 経過済み×場所付き予定に控えめ post-visit 答え合わせ（選択日で最大1件・flag OFF で null＝DOM 不変・local shadow only）
 import { PostVisitCheckCard } from "../components/PostVisitCheckCard";
 import { isPostVisitCheckEnabled } from "@/lib/plan/postVisit/postVisitObservation";
-import { isPastAnchorWithPlace, deriveAnchorElicitFlags } from "@/lib/plan/postVisit/postVisitAnchorContext";
+import { selectPostVisitAnchorForDay } from "@/lib/plan/postVisit/postVisitAnchorContext";
+import { lastSkipAt, lastElicitAtForPlace } from "@/lib/plan/postVisit/postVisitStore";
 import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
 import { useCalendarTabFeasibilityDisplay } from "./_useCalendarTabFeasibilityDisplay";
 import {
@@ -244,6 +245,14 @@ export function CalendarTab({
     () => anchorsForDay(anchors, selectedDateObj),
     [anchors, selectedDateObj],
   );
+  // ★Stage 3-C: one-per-day guard — 選択日の eligible 過去 anchor から答え合わせ対象を **最大1件** 選ぶ。
+  //   flag OFF では isPostVisitCheckEnabled() 短絡で何も評価しない（Date.now()/store も触らず＝CalendarTab DOM 不変）。
+  const selectedPostVisit = isPostVisitCheckEnabled()
+    ? selectPostVisitAnchorForDay(selectedDayAnchors, Date.now(), {
+        lastSkippedAt: (k) => lastSkipAt(k),
+        lastSimilarElicitAt: (k) => lastElicitAtForPlace(k),
+      })
+    : null;
   // SR #216 D3: 選択日の休み/希望休 badge（anchor list と別レイヤー）
   const selectedDayIndicator = dayIndicatorByIso?.get(selectedDate);
 
@@ -947,10 +956,10 @@ export function CalendarTab({
               // Phase 2-F: Compact density (primary only)、title に fullLabel
               const { primary: locationPrimary, fullLabel: locationFullLabel } =
                 formatLocationDisplayParts(anchor);
-              // ★Stage 3-B: 経過済み×場所付きなら答え合わせフラグを導出（flag OFF では評価しても描画しない）
+              // ★Stage 3-C: 選択日で選ばれた **1件のみ** 答え合わせを出す（選定済みフラグを再利用）。
               const postVisitFlags =
-                isPostVisitCheckEnabled() && isPastAnchorWithPlace(anchor, Date.now())
-                  ? deriveAnchorElicitFlags(anchor)
+                selectedPostVisit && anchor.id === selectedPostVisit.anchor.id
+                  ? selectedPostVisit.flags
                   : null;
               return (
                 <li
