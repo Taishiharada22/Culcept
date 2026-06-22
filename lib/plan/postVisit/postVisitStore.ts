@@ -16,6 +16,7 @@ import {
   type ReasonChipKey,
   type PostVisitTrigger,
   type DwellSignal,
+  type SuppressReason,
 } from "./postVisitObservation";
 
 export const POST_VISIT_OBS_KEY = "aneurasync.postvisit.v1";
@@ -24,12 +25,17 @@ const SCHEMA_VERSION = 1;
 const MAX_OBSERVATIONS = 500; // ローカル上限（古いものから捨てる）
 const MAX_ELICIT_LOG = 100;
 
-/** elicit/skip の最小ログ（suppress の after_skip / recent_same を derive するため）。 */
+/** elicit funnel の最小ログ（suppress derive + dogfood 計測用）。 */
+export type ElicitOutcome = "shown" | "answered" | "skipped" | "suppressed" | "mirror_shown";
 export interface ElicitEvent {
   readonly placeKey: string;
   readonly at: number;
-  readonly outcome: "answered" | "skipped";
+  readonly outcome: ElicitOutcome;
+  /** outcome="suppressed" の時だけ：どの理由で抑止したか（dogfood で「効きすぎ」を見る）。 */
+  readonly suppressReason?: SuppressReason;
 }
+const ELICIT_OUTCOMES: ReadonlySet<string> = new Set<ElicitOutcome>(["shown", "answered", "skipped", "suppressed", "mirror_shown"]);
+const SUPPRESS_REASONS: ReadonlySet<string> = new Set<SuppressReason>(["sensitive", "home_work", "habitual", "high_fatigue", "after_skip", "recent_same"]);
 
 interface Envelope {
   v: number;
@@ -111,7 +117,10 @@ export function redactForPersistence(raw: unknown): PostVisitObservation | null 
 function isElicitEvent(raw: unknown): raw is ElicitEvent {
   if (raw == null || typeof raw !== "object") return false;
   const e = raw as Record<string, unknown>;
-  return typeof e.placeKey === "string" && typeof e.at === "number" && (e.outcome === "answered" || e.outcome === "skipped");
+  if (typeof e.placeKey !== "string" || typeof e.at !== "number") return false;
+  if (typeof e.outcome !== "string" || !ELICIT_OUTCOMES.has(e.outcome)) return false;
+  if (e.suppressReason !== undefined && !(typeof e.suppressReason === "string" && SUPPRESS_REASONS.has(e.suppressReason))) return false;
+  return true;
 }
 
 // ── public API（全て flag OFF / SSR で no-op）──
@@ -153,4 +162,30 @@ export function lastElicitAtForPlace(placeKey: string): number | null {
   if (!isPostVisitCheckEnabled()) return null;
   const log = readEnvelope().elicitLog.filter((e) => e.placeKey === placeKey);
   return log.length ? Math.max(...log.map((e) => e.at)) : null;
+}
+
+// ── dogfood 計測用の funnel イベント記録（flag OFF / SSR → no-op・全て local-only・PII なし）──
+function appendElicitEvent(ev: ElicitEvent): void {
+  if (!isPostVisitCheckEnabled()) return;
+  const env = readEnvelope();
+  const elicitLog = [...env.elicitLog, ev].slice(-MAX_ELICIT_LOG);
+  writeEnvelope({ ...env, v: SCHEMA_VERSION, elicitLog });
+}
+/** prompt を実表示した（funnel の分母）。 */
+export function recordPromptShown(placeKey: string, at: number): void {
+  appendElicitEvent({ placeKey, at, outcome: "shown" });
+}
+/** suppress で表示しなかった（どの理由かも記録・「効きすぎ」検知用）。 */
+export function recordPromptSuppressed(placeKey: string, reason: SuppressReason, at: number): void {
+  if (!SUPPRESS_REASONS.has(reason)) return;
+  appendElicitEvent({ placeKey, at, outcome: "suppressed", suppressReason: reason });
+}
+/** 観測の鏡を実表示した（mirror activation 計数用）。 */
+export function recordMirrorShown(placeKey: string, at: number): void {
+  appendElicitEvent({ placeKey, at, outcome: "mirror_shown" });
+}
+/** funnel ログを読む（dogfood 計測の入力・flag OFF / SSR → []）。 */
+export function loadElicitLog(): ElicitEvent[] {
+  if (!isPostVisitCheckEnabled()) return [];
+  return readEnvelope().elicitLog;
 }
