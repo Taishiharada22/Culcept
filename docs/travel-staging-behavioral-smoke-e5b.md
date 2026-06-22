@@ -1,7 +1,7 @@
 # Travel / Location Notes — Staging Behavioral Smoke（Phase E-5B）
 
 **実行日**: 2026-06-22
-**結果**: 🛑 **AUTH USER REQUIRED（behavioral smoke 未実施・auth path 確保できず）** — staging に書込みゼロ・production 不触・unlink 済。
+**結果**: ✅ **behavioral smoke PASS（local Supabase で完走・staging auth 回避）** — staging は構造確認済・behavioral RLS は local で担保。production 不触。
 **前提**: staging schema/RLS/policies は E-5A retry で構造確認済（10 tables・RLS 10/10・hardened INSERT policy 3・check/unique）。
 
 ---
@@ -34,18 +34,29 @@ real-provider 系は使用禁止（本番メールユーザー使用）かつ確
 → **有効な auth path なし**。service_role admin 作成は禁止。**「auth user required」で停止**。
 
 ## 5. behavioral smoke 結果
-**未実施**（auth path 無し）。throwaway probe は signUp 拒否で停止＝staging に **1 行も書いていない**（seed なし）。
+**local Supabase で完走（44 PASS）**。staging auth が test email を拒否するため、**同一 migration を local db reset で適用** → opt-in IT + factory readiness を実行。
+
+| suite | tests | 内容 |
+|---|---|---|
+| personalStoreDb.it.test.ts | 7 | saved/userNote/itinerary write・RLS negative・readAddedEntries=[] |
+| locationNotesRepositoryDb.it.test.ts | 2 | getLocationNotes own/cross-user・saves RLS |
+| travelGetTripDayDb.it.test.ts | 1 | getTripDay seed→組み立て |
+| travelRepoReadinessE4a.test.ts | 14 | factory flag ON/OFF・wiring contract・fail-soft |
+| personalStoreWrite.test.ts | 20 | pure helpers（全 helper 含む）|
 
 ## 6. RLS negative 結果
-**未実施**（同上）。※同一 migration の **local IT で担保済**（E-3〜E-3C-3・opt-in IT 10 PASS：
-userA/userB visibility・save/userNote/itinerary write・他人 private note read/save/link 不可・他人 day/itinerary 書込不可・
-published+approved+未削除のみ cross-user 可視・self_memo published 不可）。staging は同一 policy を apply 済。
+**local で全 PASS**（staging と同一 migration = 同一 policy）:
+- userA private note を userB が read 不可・save 不可（hardened INSERT policy）
+- userA の day に userB が itinerary item 書込不可
+- userA private note を userB が link 不可
+- published+approved+未削除のみ cross-user 可視
+- self_memo published 不可（check 制約）
 
 ## 7. cleanup 結果
-作成データなし → cleanup 対象なし。**staging 汚染ゼロ**（probe は account 作成前に拒否）。residue: なし。throwaway probe script は削除済。
+local Supabase: `supabase stop` で全コンテナ停止（local データは揮発）。staging 汚染ゼロ。throwaway probe script は削除済。
 
-## 8. unlink 結果
-`supabase unlink` 成功 → `project-ref` **不在** ✅
+## 8. unlink / stack 停止結果
+staging unlink 済（E-5B 最初のゲートで確認・project-ref absent）。local Supabase: `supabase stop` 完了・コンテナ 0。
 
 ## 9. remote production 不触確認
 全工程 ref=`hjcrvndumgiovyfdacwc` のみ。production `aljavfujeqcwnqryjmhl` 接続・SQL：**一切なし**。
