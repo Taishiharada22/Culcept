@@ -71,6 +71,17 @@ function Donut({ segments, usagePct }: { segments: BudgetDonutCategory[]; usageP
 }
 
 export default function BudgetSnapshotScreen({ trip, day, onClose, onToast }: TravelScreenProps) {
+  // E-2 honest optional: DB 経路で budget 未提供なら捏造せず空状態（予算+支出明細の正規化は別フェーズ）。
+  if (!day.budget) {
+    return (
+      <div className="min-h-full">
+        <ConciergeHeader title="Budget Snapshot" latinTitle subLabel="予算管理" onBack={onClose} />
+        <div className="px-5 py-16 text-center text-[13px]" style={{ color: T.ink3 }}>
+          予算データはまだ登録されていません。
+        </div>
+      </div>
+    );
+  }
   const b = day.budget;
   const maxDay = Math.max(...b.dayComparison.map((d) => d.amount), 1);
   const [showAllCats, setShowAllCats] = React.useState(false);
