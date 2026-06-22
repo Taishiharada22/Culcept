@@ -133,7 +133,8 @@ export interface TripDayRows {
   memory: MemoryRow | null;
 }
 
-function mapPhoto(row: PhotoRow | undefined): TravelPhoto | null {
+/** PhotoRow → TravelPhoto（捏造なし・null は blank）。Location Notes mapper でも再利用。 */
+export function mapPhotoRow(row: PhotoRow | undefined | null): TravelPhoto | null {
   if (!row) return null;
   const photo: TravelPhoto = { source: row.source as TravelPhotoSource };
   if (row.url) photo.url = row.url;
@@ -143,6 +144,7 @@ function mapPhoto(row: PhotoRow | undefined): TravelPhoto | null {
   if (row.captured_at) photo.capturedAt = row.captured_at;
   return photo;
 }
+const mapPhoto = mapPhotoRow;
 
 function mapItem(row: ItineraryItemRow, photoById: Map<string, PhotoRow>): ScheduleItem {
   const item: ScheduleItem = {

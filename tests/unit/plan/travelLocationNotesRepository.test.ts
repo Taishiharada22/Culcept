@@ -14,7 +14,6 @@
 import { describe, it, expect } from "vitest";
 import { FixtureLocationNotesRepository } from "@/app/(culcept)/calendar/_lib/travel/repository/fixtureLocationNotesRepository";
 import { LocalStorageTravelPersonalStore } from "@/app/(culcept)/calendar/_lib/travel/repository/localStorageTravelPersonalStore";
-import { SupabaseLocationNotesRepository } from "@/app/(culcept)/calendar/_lib/travel/repository/supabaseLocationNotesRepository";
 import { SupabaseTravelPersonalStore } from "@/app/(culcept)/calendar/_lib/travel/repository/supabaseTravelPersonalStore";
 import {
   getLocationNotesRepository,
@@ -65,13 +64,9 @@ describe("LocalStorageTravelPersonalStore（node＝SSR 相当・window なし）
   });
 });
 
-describe("Supabase skeleton（全メソッド NotImplemented throw・実DB接続なし）", () => {
-  it("SupabaseLocationNotesRepository.getLocationNotes", async () => {
-    await expect(new SupabaseLocationNotesRepository().getLocationNotes("京都府")).rejects.toBeInstanceOf(
-      TravelRepositoryNotImplementedError
-    );
-  });
-
+// 注: SupabaseLocationNotesRepository.getLocationNotes は E-3A で read-only 実装済。
+// pure mapper は locationNoteMapper.test.ts、実DB可視性は locationNotesRepositoryDb.it.test.ts（opt-in）が担保。
+describe("Supabase PersonalStore skeleton（write 未実装＝NotImplemented throw・実DB接続なし）", () => {
   it("SupabaseTravelPersonalStore の read/write 全系", async () => {
     const s = new SupabaseTravelPersonalStore();
     await expect(s.readAddedEntries()).rejects.toBeInstanceOf(TravelRepositoryNotImplementedError);
