@@ -42,6 +42,7 @@ export interface PostVisitCheckCardProps {
   readonly isFirstVisit?: boolean;
   readonly isImportantPlan?: boolean;
   readonly isDiscoveryDomain?: boolean;
+  readonly isPastPlan?: boolean;
   readonly dwellSignal?: DwellSignal | null;
   readonly isSensitive?: boolean;
   readonly isHomeOrWork?: boolean;
@@ -49,6 +50,8 @@ export interface PostVisitCheckCardProps {
   readonly isHighFatigue?: boolean;
   /** ★Stage 1-B: 観測を保存/skip した直後に呼ぶ（FitArcReadout を再読込させる）。 */
   readonly onRecorded?: () => void;
+  /** ★Stage 3-B: 汎用「観測の鏡」を出さない（Calendar timeline で複数 anchor に同じ鏡が並ぶのを防ぐ）。 */
+  readonly hideMirror?: boolean;
 }
 
 type Phase = "hidden" | "prompt" | "answered";
@@ -69,6 +72,7 @@ export function PostVisitCheckCard(props: PostVisitCheckCardProps) {
       isFirstVisit: !!props.isFirstVisit,
       isImportantPlan: !!props.isImportantPlan,
       isDiscoveryDomain: !!props.isDiscoveryDomain,
+      isPastPlan: !!props.isPastPlan,
       dwellSignal: props.dwellSignal ?? null,
       isSensitive: !!props.isSensitive,
       isHomeOrWork: !!props.isHomeOrWork,
@@ -79,7 +83,7 @@ export function PostVisitCheckCard(props: PostVisitCheckCardProps) {
       now: Date.now(),
     };
     const d = shouldElicit(ctx);
-    setMirror(buildObservationMirror(loadPostVisitObservations())); // 既存観測の鏡（薄ければ null）
+    if (!props.hideMirror) setMirror(buildObservationMirror(loadPostVisitObservations())); // 既存観測の鏡（薄ければ null・hideMirror で抑止）
     if (d.elicit && d.trigger) {
       recordPromptShown(placeKey, ctx.now); // ★dogfood funnel: 表示（分母）
       setTrigger(d.trigger);
@@ -116,14 +120,14 @@ export function PostVisitCheckCard(props: PostVisitCheckCardProps) {
         at: Date.now(),
       }),
     );
-    setMirror(buildObservationMirror(loadPostVisitObservations()));
+    if (!props.hideMirror) setMirror(buildObservationMirror(loadPostVisitObservations()));
     setPhase("answered");
     props.onRecorded?.(); // ★保存後に readout を再読込
   };
 
   const skip = () => {
     recordPostVisitSkip(opaquePlaceKey(props.placeDescriptor) ?? "p_unknown", Date.now()); // ★skip 後は suppress が効く
-    setMirror(buildObservationMirror(loadPostVisitObservations()));
+    if (!props.hideMirror) setMirror(buildObservationMirror(loadPostVisitObservations()));
     setPhase("answered");
     props.onRecorded?.();
   };

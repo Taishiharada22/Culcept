@@ -66,7 +66,8 @@ export type PostVisitTrigger =
   | "important_plan"   // 重要予定
   | "discovery_domain" // 旅行/食/観光/Location Notes 由来
   | "early_leave"      // 予定より早く離れた可能性
-  | "long_stay";       // 予定より長く滞在した可能性
+  | "long_stay"        // 予定より長く滞在した可能性
+  | "past_plan";       // 経過した場所付き予定（Calendar 主フロー・最低優先度）
 export type SuppressReason =
   | "sensitive"     // sensitive category
   | "home_work"     // 自宅/職場

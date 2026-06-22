@@ -32,6 +32,7 @@ export interface ElicitContext {
   readonly isFirstVisit: boolean;     // 初訪問
   readonly isImportantPlan: boolean;  // 重要予定
   readonly isDiscoveryDomain: boolean;// 旅行/食/観光/Location Notes 由来の行動
+  readonly isPastPlan?: boolean;      // 経過した場所付き予定（Calendar 主フロー・最低優先度 trigger）
   readonly dwellSignal: DwellSignal | null; // early/long → trigger（正確な分でなく粗い signal）
   // ── suppress signals ──
   readonly isSensitive: boolean;      // sensitive category（医療/宗教/住所 等）
@@ -68,6 +69,7 @@ function firstTrigger(ctx: ElicitContext): PostVisitTrigger | null {
   if (ctx.dwellSignal === "long") return "long_stay";
   if (ctx.isFirstVisit) return "first_visit";
   if (ctx.isDiscoveryDomain) return "discovery_domain";
+  if (ctx.isPastPlan) return "past_plan";  // ★最低優先度（他の情報量が無い経過予定の catch-all）
   return null;
 }
 
@@ -104,6 +106,7 @@ const QUESTION_BY_TRIGGER: Record<PostVisitTrigger, string> = {
   long_stay: "この場所、次も候補に残す？",
   first_visit: "はじめての場所でした。次も候補に残す？",
   discovery_domain: "この場所、次の似た予定でも候補に残す？",
+  past_plan: "この前の予定の場所、次も候補に残す？",
 };
 
 /** trigger（と任意の lens）から prompt を組む（pure）。reason chips は固定・star 表示なし。 */
