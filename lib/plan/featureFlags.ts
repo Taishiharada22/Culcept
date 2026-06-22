@@ -635,6 +635,27 @@ export const PLAN_FLAGS = {
    *   **consent gate（UX-6b-2 必須）なしでは real read しない**・companions(pair) は HOLD・staging re-link 後のみ。
    */
   travelPersonalizationRealRead: process.env.PLAN_TRAVEL_PERSONALIZATION_REAL_READ === "true",
+
+  /**
+   * C4: CoAlter **brain preview** の read-only dev gate（**fixture 会話で脳 preview を観測するだけ**・default OFF）。
+   *   true  : /plan/dev-coalter-brain-preview が fixture New-session messages → `buildCoAlterBrainPreview`
+   *           （Legacy 脳の DB 非依存決定論コア `analyzeConversation` 再利用）の **preview を read-only 表示**。
+   *   false : Disabled（**本番デフォルト**・render しない）。
+   *
+   * env: PLAN_COALTER_BRAIN_PREVIEW=true（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   * 制約: **保存しない**（DB/Supabase/insert なし）・**`runCoAlterPipeline` 本体を呼ばない**・LLM/外部なし・
+   *   send/write は別 flag（本 flag は preview のみ・read-only）・bounded surface のみ（raw 内部 signal 非露出）。
+   */
+  coalterBrainPreview: process.env.PLAN_COALTER_BRAIN_PREVIEW === "true",
+
+  /**
+   * C5-E: CoAlter 非永続 preview の **client UI gate**（CoAlterTab の preview ブロック表示用・default OFF）。
+   *   CoAlterTab は "use client" のため server-only `coalterBrainPreview`（非 NEXT_PUBLIC）は client で常に false。
+   *   client から preview ブロックを出すには **NEXT_PUBLIC_** 版が必要（route handler の server gate
+   *   `PLAN_COALTER_BRAIN_PREVIEW` とは別軸・両方 ON で初めて UI から live preview が取れる）。
+   * env: NEXT_PUBLIC_PLAN_COALTER_BRAIN_PREVIEW=true。制約: 表示のみ・保存しない・GET only。
+   */
+  coalterBrainPreviewClient: process.env.NEXT_PUBLIC_PLAN_COALTER_BRAIN_PREVIEW === "true",
 } as const;
 
 /**
@@ -653,4 +674,14 @@ export function planCoAlterSendLocalEnabled(): boolean {
  */
 export function planCoAlterReadLocalEnabled(): boolean {
   return process.env.PLAN_COALTER_READ_LOCAL === "true";
+}
+
+/**
+ * C5-E: CoAlter **非永続 brain preview** route の **request 時**評価（preview handler 用・default OFF）。
+ * `PLAN_COALTER_BRAIN_PREVIEW` が ON の時だけ、session の participant message から
+ * **server 生成の CoAlter preview** を返す（**DB write/insert/permanent なし**）。
+ * read（participant message 取得）は user-RLS。client から CoAlter body は受け取らない。
+ */
+export function planCoAlterBrainPreviewEnabled(): boolean {
+  return process.env.PLAN_COALTER_BRAIN_PREVIEW === "true";
 }

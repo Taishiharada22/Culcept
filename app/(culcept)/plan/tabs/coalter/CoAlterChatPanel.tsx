@@ -133,7 +133,7 @@ export function CoAlterChatPanel({
   return (
     <section
       aria-label="ふたりと CoAlter のチャット"
-      className="@container relative flex h-full min-h-0 flex-col rounded-3xl border border-slate-200/70 bg-white p-3 shadow-sm @md:p-4"
+      className="@container relative flex h-full min-h-0 flex-col px-0.5 @md:px-1"
     >
       {/* 装飾スパークル（pointer-events なし） */}
       <SparkleIcon

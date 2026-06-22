@@ -59,10 +59,12 @@ describe("CoAlter live wiring", () => {
     expect(html).not.toContain("user-unknown-abc");
   });
 
-  it("CoAlterTab は flag OFF（既定）で fixture 本文を描画（live 未起動・現行不変）", () => {
+  it("CoAlterTab は既定で Home（会話一覧）を描画する（タブの入口＝ホーム・CEO 2026-06-21）", () => {
     const html = renderToStaticMarkup(<CoAlterTab viewerUserId="viewer-1" />);
-    // fixture session の本文が出る（live は SSR で effect 走らず未起動）
-    expect(html).toContain("おふたりの希望をまとめました");
+    // 入口は Home（会話一覧）。チャット始まりにしない。
+    expect(html).toContain("ホーム");
+    expect(html).toContain("Aya");
+    expect(html).toContain("おすすめ");
     // viewerUserId（raw）は UI に出ない
     expect(html).not.toContain("viewer-1");
   });

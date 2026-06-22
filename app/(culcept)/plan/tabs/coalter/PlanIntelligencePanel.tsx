@@ -65,6 +65,15 @@ export interface PlanIntelligencePanelProps {
   readonly onCollapse: () => void;
   /** ドック状態（ピンチで極小化）からタップで既定幅へ戻す */
   readonly onExpand: () => void;
+  /**
+   * 面の見せ方（CEO 2026-06-21）:
+   *   - "solid"（既定）= 白いパネル（従来）。
+   *   - "floating" = **地（背景）を透過**し、各情報カードがフロスト気味に浮かぶ。
+   *     チャットが隙間から自然に見え隠れする overlay 用。中身/構成は不変・容器の chrome のみ。
+   */
+  readonly surface?: "solid" | "floating";
+  /** overlay が自前のヘッダ（ドラッグ/閉じる）を持つ場合、パネル内ヘッダを隠す（既定 true）。 */
+  readonly showHeader?: boolean;
 }
 
 export function PlanIntelligencePanel({
@@ -76,7 +85,10 @@ export function PlanIntelligencePanel({
   confirmedCandidateId,
   onCollapse,
   onExpand,
+  surface = "solid",
+  showHeader = true,
 }: PlanIntelligencePanelProps) {
+  const floating = surface === "floating";
   const selected =
     session.candidates.find((c) => c.id === selectedCandidateId) ?? session.candidates[0];
   const appliedAdjustments = session.adjustments.filter((a) => appliedAdjustmentIds.has(a.id));
@@ -84,10 +96,118 @@ export function PlanIntelligencePanel({
   const slack = SLACK_META[selected.stats.slack];
   const visibleAdjustments = session.adjustments.filter((a) => a.appliesTo === selected.id);
 
+  // ── floating（Talk overlay・mobile 固定幅）= talk.png 準拠の **コンパクト構図** ──
+  //   地図 → 横3列 stat → 共有コンディション chips → 候補プラン横スクロール。
+  //   各枠は白カードとして overlay のフロスト面に「浮かび上がる」（CEO 2026-06-21）。
+  if (floating) {
+    return (
+      <section
+        aria-label="プランインテリジェンス"
+        className="flex h-full min-h-0 flex-col bg-transparent"
+      >
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-1 pb-2 pt-0.5">
+          {/* ── 地図（浮かぶ白カード） ── */}
+          <div className="h-28 overflow-hidden rounded-2xl bg-white shadow-[0_4px_16px_rgba(15,23,42,0.08)] ring-1 ring-white/80">
+            <RoutePreviewMap
+              nodes={selected.route.nodes}
+              variant="hero"
+              areaLabels={session.areaLabels}
+            />
+          </div>
+
+          {/* ── 横3列の stat（移動 / 着予定 / 予定の余裕） ── */}
+          <div className="grid grid-cols-3 rounded-2xl bg-white py-2.5 shadow-[0_4px_16px_rgba(15,23,42,0.08)] ring-1 ring-white/80">
+            <FloatingStat
+              icon={<WalkIcon size={11} className="text-emerald-500" />}
+              label="移動"
+              value={`${display.walkKm.toFixed(1)} km`}
+              sub={session.statLabels.distanceSub}
+            />
+            <FloatingStat
+              divided
+              icon={<ClockIcon size={11} className="text-sky-500" />}
+              label="着予定"
+              value={`${display.returnEta}着`}
+            />
+            <FloatingStat
+              divided
+              icon={<CheckIcon size={11} className="text-violet-500" />}
+              label={session.statLabels.slack}
+              value={slack.label}
+              barGradient={slack.bar}
+              barRatio={slack.ratio}
+            />
+          </div>
+
+          {/* ── 共有コンディション ── */}
+          <div>
+            <h3 className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+              共有コンディション
+            </h3>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {session.conditions.map((condition) => (
+                <ConditionChip key={condition.id} condition={condition} size="sm" />
+              ))}
+            </div>
+          </div>
+
+          {/* ── 候補プラン（横スクロール・各カードが浮かぶ） ── */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                候補プラン
+              </h3>
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-white px-2.5 py-1 text-[10px] font-medium text-violet-500 shadow-sm ring-1 ring-slate-200/60">
+                すべてのプランを見る
+                <ChevronRightIcon size={10} />
+              </span>
+            </div>
+            <div className="-mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1 pb-1">
+              {session.candidates.map((candidate) => (
+                <FloatingCandidateCard
+                  key={candidate.id}
+                  candidate={candidate}
+                  isSelected={candidate.id === selected.id}
+                  isConfirmed={candidate.id === confirmedCandidateId}
+                  appliedAdjustments={appliedAdjustments}
+                  onSelect={() => onSelectCandidate(candidate.id)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* ── おすすめの調整（理想画像どおり・適用は local state のみ） ── */}
+          {visibleAdjustments.length > 0 && (
+            <div>
+              <h3 className="inline-flex rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/60">
+                おすすめの調整
+              </h3>
+              <div className="-mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1 pb-1">
+                {visibleAdjustments.map((adjustment) => (
+                  <FloatingAdjustmentCard
+                    key={adjustment.id}
+                    adjustment={adjustment}
+                    isApplied={appliedAdjustmentIds.has(adjustment.id)}
+                    onToggle={() => onToggleAdjustment(adjustment.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section
       aria-label="プランインテリジェンス"
-      className="@container flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200/70 bg-white shadow-sm"
+      className={`@container flex h-full min-h-0 flex-col overflow-hidden rounded-3xl ${
+        floating
+          ? // 地は透明（フロストは overlay が提供）。白い各カードが overlay のフロスト面に浮かぶ。
+            "bg-transparent"
+          : "border border-slate-200/70 bg-white shadow-sm"
+      }`}
     >
       {/* ── ドック面（ピンチで極小化した時のみ・タップで既定幅へ復帰） ── */}
       <button
@@ -102,8 +222,8 @@ export function PlanIntelligencePanel({
         <span className="text-[10px] font-bold text-slate-600">プラン</span>
       </button>
 
-      {/* ── パネルヘッダ（pinned）: タイトル + たたむ ── */}
-      <div className="hidden shrink-0 items-center justify-between gap-2 px-3.5 pb-1 pt-3 @min-[120px]:flex @xl:px-5 @xl:pt-4">
+      {/* ── パネルヘッダ（pinned）: タイトル + たたむ。overlay 時は showHeader=false で非表示 ── */}
+      <div className={`${showHeader ? "hidden @min-[120px]:flex" : "hidden"} shrink-0 items-center justify-between gap-2 px-3.5 pb-1 pt-3 @xl:px-5 @xl:pt-4`}>
         <h2 className="min-w-0 truncate text-[13px] font-bold text-slate-900 @xl:text-sm">
           プランインテリジェンス
         </h2>
@@ -244,6 +364,155 @@ function ConditionChip({
 
 // チャット側の要約 block と共用（同一 session の2射影）
 export { ConditionChip };
+
+// ── floating overlay 専用の compact 部品（talk.png 準拠） ──
+
+function FloatingStat({
+  icon,
+  label,
+  value,
+  sub,
+  divided,
+  barGradient,
+  barRatio,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  divided?: boolean;
+  /** 予定の余裕など、視覚ゲージを出す stat 用（グラデ + 充填率） */
+  barGradient?: string;
+  barRatio?: number;
+}) {
+  return (
+    <div className={`px-2.5 ${divided ? "border-l border-slate-100" : ""}`}>
+      <p className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
+        {icon}
+        <span className="truncate">{label}</span>
+      </p>
+      <p className="mt-1 truncate text-[15px] font-bold leading-none tracking-tight text-slate-900">
+        {value}
+      </p>
+      {barGradient && typeof barRatio === "number" ? (
+        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${barGradient}`}
+            style={{ width: `${Math.round(barRatio * 100)}%` }}
+          />
+        </div>
+      ) : (
+        sub && <p className="mt-1 truncate text-[10px] text-slate-400">{sub}</p>
+      )}
+    </div>
+  );
+}
+
+function FloatingCandidateCard({
+  candidate,
+  isSelected,
+  isConfirmed,
+  appliedAdjustments,
+  onSelect,
+}: {
+  candidate: PlanCandidateFixture;
+  isSelected: boolean;
+  isConfirmed: boolean;
+  appliedAdjustments: readonly AdjustmentSuggestionFixture[];
+  onSelect: () => void;
+}) {
+  const display = deriveDisplayStats(candidate, appliedAdjustments);
+  return (
+    <button
+      type="button"
+      aria-pressed={isSelected}
+      onClick={onSelect}
+      className={`relative w-[150px] shrink-0 rounded-2xl bg-white p-2 text-left shadow-[0_4px_16px_rgba(15,23,42,0.08)] transition-all ${
+        isSelected ? "ring-2 ring-violet-300" : "ring-1 ring-white/80 hover:ring-slate-200"
+      }`}
+    >
+      <div className="h-16 overflow-hidden rounded-xl ring-1 ring-slate-100">
+        <RoutePreviewMap nodes={candidate.route.nodes} variant="mini" />
+      </div>
+      {candidate.recommended && (
+        <span className="absolute left-3 top-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm">
+          おすすめ
+        </span>
+      )}
+      {isConfirmed && (
+        <span className="absolute right-3 top-3 inline-flex items-center gap-0.5 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm">
+          <CheckIcon size={9} />
+          進行中
+        </span>
+      )}
+      <p className="mt-1.5 truncate text-[11px] font-bold leading-snug text-slate-900">
+        {candidate.title}
+      </p>
+      <div className="mt-1 flex gap-1">
+        <span className="truncate rounded-full bg-violet-100/80 px-1.5 py-0.5 text-[9px] font-medium text-violet-700">
+          {candidate.tags[0]}
+        </span>
+        <span className="truncate rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-600">
+          {candidate.tags[1]}
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2 text-[10px] text-slate-500">
+        <span className="inline-flex items-center gap-0.5">
+          <WalkIcon size={10} className="text-slate-400" />
+          {display.walkKm.toFixed(1)}km
+        </span>
+        <span className="inline-flex items-center text-slate-600">
+          <YenIcon size={9} className="text-slate-400" />
+          {"¥".repeat(candidate.stats.budgetBand)}
+        </span>
+        <span className="inline-flex items-center gap-0.5">
+          <ClockIcon size={10} className="text-slate-400" />
+          {display.returnEta}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function FloatingAdjustmentCard({
+  adjustment,
+  isApplied,
+  onToggle,
+}: {
+  adjustment: AdjustmentSuggestionFixture;
+  isApplied: boolean;
+  onToggle: () => void;
+}) {
+  const iconMeta = ADJUSTMENT_ICON_META[adjustment.icon];
+  return (
+    <div className="flex w-[190px] shrink-0 flex-col rounded-2xl bg-white p-2.5 shadow-[0_4px_16px_rgba(15,23,42,0.08)] ring-1 ring-white/80">
+      <div className="flex items-start gap-2">
+        <span
+          className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${iconMeta.tile}`}
+        >
+          {iconMeta.render(14)}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold leading-snug text-slate-900">{adjustment.label}</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-slate-500">{adjustment.detail}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={isApplied}
+        className={`mt-2 inline-flex items-center justify-center gap-1 rounded-lg py-1 text-[11px] font-medium transition-colors ${
+          isApplied
+            ? "bg-violet-600 text-white"
+            : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+        }`}
+      >
+        {isApplied && <CheckIcon size={11} />}
+        {isApplied ? "適用済み" : "適用"}
+      </button>
+    </div>
+  );
+}
 
 function CandidateCard({
   candidate,
