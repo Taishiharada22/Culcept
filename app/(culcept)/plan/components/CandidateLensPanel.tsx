@@ -39,8 +39,10 @@ import { isCandidateLensPrefObsEnabled, recordPreferenceObservation, opaquePlace
 // ★P4-d: Place Details enrichment（写真/営業時間・flag OFF で完全不変・dev-only・②③ 開封時のみ lazy fetch）。
 import { usePlaceDetailsEnrichment } from "./usePlaceDetailsEnrichment";
 import { isPlaceDetailsUiEnabled, type EnrichmentResolution } from "@/lib/plan/candidateLens/placeDetailsEnrichment";
-// ★評価OS Stage 1-C: ②詳細のみに Fit-Arc readout（flag OFF で null＝DOM 不変・ranking/comparison 不変・②のみ）
+// ★評価OS: ②詳細(Stage 1-C) + ③比較の「もう一つの見方」(Stage 1-D)に Fit-Arc readout。
+//   flag OFF で null＝DOM 不変・ranking/winner/comparison logic 不変・比較表には入れない・winner の根拠にしない。
 import { PlaceFitArcReadout } from "./PlaceFitArcReadout";
+import { isFitArcReadoutEnabled } from "@/lib/plan/postVisit/fitArcReadout";
 
 export interface CandidateLensPanelProps {
   readonly candidates: readonly LensCandidate[];
@@ -512,6 +514,26 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
                 <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-black/5">
                   <p className="text-[12.5px] font-bold text-slate-500">甲乙つけがたい</p>
                   <p className="mt-1 text-[13px] leading-relaxed text-slate-500">表示できる差では優劣がつきませんでした。好みで選んでも大丈夫そうです。</p>
+                </div>
+              )}
+
+              {/* ★Stage 1-D: もう一つの見方（Fit-Arc）。メイン「おすすめ」/winner とは **分離した補助**・比較表には入れない・
+                  winner / highlight / comparison logic の根拠にしない（表示専用）。観測不足は empty・少数は仮説・件数チップ必須。
+                  flag OFF では非描画＝③比較 DOM 不変。 */}
+              {isFitArcReadoutEnabled() && (
+                <div data-testid="lens-another-view" className="mt-4 rounded-2xl bg-slate-50 px-3.5 py-3 ring-1 ring-black/5">
+                  <p className="text-[12.5px] font-bold text-slate-600">もう一つの見方</p>
+                  <p className="mt-0.5 text-[10.5px] leading-snug text-slate-400">過去の答え合わせにもとづく「あなたへの適合」です。上の「おすすめ」とは別の参考表示で、勝敗には使いません。</p>
+                  <div className="mt-2.5 flex items-start justify-around gap-3">
+                    <div className="flex flex-col items-center gap-1">
+                      <PlaceFitArcReadout placeDescriptor={`${left.name} ${left.address ?? ""}`} size={70} showHeader={false} />
+                      <span className="max-w-[100px] truncate text-[10px] text-slate-500">{left.name}</span>
+                    </div>
+                    <div className="flex flex-col items-center gap-1">
+                      <PlaceFitArcReadout placeDescriptor={`${right.name} ${right.address ?? ""}`} size={70} showHeader={false} />
+                      <span className="max-w-[100px] truncate text-[10px] text-slate-500">{right.name}</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
