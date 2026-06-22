@@ -60,6 +60,10 @@
      AND (ln.user_id=auth.uid() OR (ln.status='published' AND ln.moderation_status='approved' AND ln.deleted_at IS NULL))))`
   - 本 E-3B では **policy 変更（migration）は実施せず**、知見を報告（停止条件に従い CEO 判断を仰ぐ）。
     flag OFF・dormant のため production 影響なし。
+  - ✅ **E-3B-1（解消済・local 検証）**: migration `20260621100300_harden_location_note_saves_insert.sql` で
+    INSERT policy を「自分の note（未削除）OR published+approved+未削除」に限定。local db reset 適用＋IT で
+    他人の private/draft/reported/pending/deleted は save 不可・public のみ可・自分の private は可を実証
+    （select/delete owner-only・unique は不変・remote 非接触）。
 
 ## 8. fixture fallback / flag default OFF
 - `flags.ts` 未変更（default OFF）・`repository/index.ts` factory 未変更 → `getTravelPersonalStore()` は flag OFF で
