@@ -39,6 +39,8 @@ import { isCandidateLensPrefObsEnabled, recordPreferenceObservation, opaquePlace
 // ★P4-d: Place Details enrichment（写真/営業時間・flag OFF で完全不変・dev-only・②③ 開封時のみ lazy fetch）。
 import { usePlaceDetailsEnrichment } from "./usePlaceDetailsEnrichment";
 import { isPlaceDetailsUiEnabled, type EnrichmentResolution } from "@/lib/plan/candidateLens/placeDetailsEnrichment";
+// ★評価OS Stage 1-C: ②詳細のみに Fit-Arc readout（flag OFF で null＝DOM 不変・ranking/comparison 不変・②のみ）
+import { PlaceFitArcReadout } from "./PlaceFitArcReadout";
 
 export interface CandidateLensPanelProps {
   readonly candidates: readonly LensCandidate[];
@@ -346,6 +348,12 @@ export function CandidateLensPanel({ candidates, title, gapMinutes, affinityReas
         )}
 
         <ChipRow view={v} />
+
+        {/* ★Stage 1-C: この人・この目的・この状態への適合 readout（観測あり時のみ意味。flag OFF で null＝②詳細 DOM 不変・
+            ranking/winner/highlight/comparison logic には一切触れない・件数チップ必須）。同 placeDescriptor→opaque key で照合。 */}
+        <div className="mt-3 flex justify-center">
+          <PlaceFitArcReadout placeDescriptor={`${v.name} ${v.address ?? ""}`} size={76} />
+        </div>
 
         {/* なぜここをおすすめ？（★理想画像どおり ✓ 付きチェックリスト・honest 項目のみ・捏造しない） */}
         <div className="mt-3 rounded-2xl bg-purple-50/70 px-3.5 py-3">
