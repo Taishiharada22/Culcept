@@ -49,6 +49,10 @@ import {
 import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
+// ★評価OS Stage 3-B: 経過済み×場所付き予定に控えめ post-visit 答え合わせ（flag OFF で null＝DOM 不変・local shadow only）
+import { PostVisitCheckCard } from "../components/PostVisitCheckCard";
+import { isPostVisitCheckEnabled } from "@/lib/plan/postVisit/postVisitObservation";
+import { isPastAnchorWithPlace, deriveAnchorElicitFlags } from "@/lib/plan/postVisit/postVisitAnchorContext";
 import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
 import { useCalendarTabFeasibilityDisplay } from "./_useCalendarTabFeasibilityDisplay";
 import {
@@ -943,6 +947,11 @@ export function CalendarTab({
               // Phase 2-F: Compact density (primary only)、title に fullLabel
               const { primary: locationPrimary, fullLabel: locationFullLabel } =
                 formatLocationDisplayParts(anchor);
+              // ★Stage 3-B: 経過済み×場所付きなら答え合わせフラグを導出（flag OFF では評価しても描画しない）
+              const postVisitFlags =
+                isPostVisitCheckEnabled() && isPastAnchorWithPlace(anchor, Date.now())
+                  ? deriveAnchorElicitFlags(anchor)
+                  : null;
               return (
                 <li
                   key={anchor.id}
@@ -1029,6 +1038,26 @@ export function CalendarTab({
                         />
                       )}
                     </p>
+                  )}
+                  {/* ★Stage 3-B: 経過済み×場所付き×非suppress の答え合わせ（suppress/no-trigger は内部で null）。
+                      row クリックで anchor 詳細に飛ばないよう stopPropagation。hideMirror で timeline の鏡重複を防ぐ。 */}
+                  {postVisitFlags && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      data-testid={`plan-calendar-anchor-${anchor.id}-postvisit`}
+                    >
+                      <PostVisitCheckCard
+                        placeDescriptor={postVisitFlags.placeDescriptor}
+                        isPastPlan
+                        isImportantPlan={postVisitFlags.isImportantPlan}
+                        isDiscoveryDomain={postVisitFlags.isDiscoveryDomain}
+                        isSensitive={postVisitFlags.isSensitive}
+                        isHomeOrWork={postVisitFlags.isHomeOrWork}
+                        isHabitual={postVisitFlags.isHabitual}
+                        hideMirror
+                      />
+                    </div>
                   )}
                 </li>
               );
