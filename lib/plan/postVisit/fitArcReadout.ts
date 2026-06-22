@@ -60,13 +60,14 @@ export function buildFitArcReadout(observations: readonly PostVisitObservation[]
     (o): o is PostVisitObservation & { response: PostVisitResponse } => o.response != null,
   );
   const count = answered.length;
-  const subtitle = "あなたへの適合"; // ★他者平均でなく本人適合
+  const subtitle = "あなたへの適合"; // ★他者平均でなく本人適合（一目で「世間評価でない」と分かるヘッダ）
 
   if (count < FIT_ARC_TENTATIVE_MIN) {
     return {
       state: "insufficient", arcStyle: "empty",
       fillRatio: null, fillPercent: null, observationCount: count,
-      label: "まだ観測不足（推測しません）", subtitle, tentative: true,
+      // ★honest だが冷たすぎない・答え合わせに繋がる前向き文言（値は出さない＝推測しない）
+      label: "答え合わせが増えると、ここに見えてきます", subtitle, tentative: true,
     };
   }
 
@@ -77,12 +78,14 @@ export function buildFitArcReadout(observations: readonly PostVisitObservation[]
     return {
       state: "tentative", arcStyle: "dashed",
       fillRatio, fillPercent, observationCount: count,
-      label: `観測 ${count} 件・まだ仮説です`, subtitle, tentative: true,
+      // ★少数＝まだ仮説（あなたの観測であることも明示）
+      label: `あなたの観測 ${count} 件・まだ仮説です`, subtitle, tentative: true,
     };
   }
   return {
     state: "observed", arcStyle: "solid",
     fillRatio, fillPercent, observationCount: count,
-    label: `あなたの観測 ${count} 件から`, subtitle, tentative: false,
+    // ★3件以上＝観測にもとづく（断定でなく「傾向」）
+    label: `あなたの観測 ${count} 件にもとづく傾向`, subtitle, tentative: false,
   };
 }
