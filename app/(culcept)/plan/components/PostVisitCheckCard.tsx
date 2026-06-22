@@ -26,6 +26,9 @@ import {
   loadPostVisitObservations,
   lastSkipAt,
   lastElicitAtForPlace,
+  recordPromptShown,
+  recordPromptSuppressed,
+  recordMirrorShown,
 } from "@/lib/plan/postVisit/postVisitStore";
 import { buildObservationMirror, type MirrorReflection } from "@/lib/plan/postVisit/postVisitMirror";
 import { opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
@@ -76,13 +79,24 @@ export function PostVisitCheckCard(props: PostVisitCheckCardProps) {
     const d = shouldElicit(ctx);
     setMirror(buildObservationMirror(loadPostVisitObservations())); // 既存観測の鏡（薄ければ null）
     if (d.elicit && d.trigger) {
+      recordPromptShown(placeKey, ctx.now); // ★dogfood funnel: 表示（分母）
       setTrigger(d.trigger);
       setPhase("prompt");
     } else {
+      if (d.suppressedBy) recordPromptSuppressed(placeKey, d.suppressedBy, ctx.now); // ★抑止（効きすぎ検知）
       setPhase("answered"); // 聞かない＝prompt は出さず、鏡があれば表示／無ければ null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ★dogfood funnel: 観測の鏡を実表示した回数を1度だけ記録（mirror activation）。
+  const mirrorLogged = React.useRef(false);
+  React.useEffect(() => {
+    if (mirror && !mirrorLogged.current) {
+      mirrorLogged.current = true;
+      recordMirrorShown(opaquePlaceKey(props.placeDescriptor) ?? "p_unknown", Date.now());
+    }
+  }, [mirror, props.placeDescriptor]);
 
   const toggleChip = (c: ReasonChipKey) =>
     setChips((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
