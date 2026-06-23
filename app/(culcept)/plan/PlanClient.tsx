@@ -129,6 +129,7 @@ import { MapTab } from "./tabs/MapTab";
 import { AlterTab } from "./tabs/AlterTab";
 // UX-2b: CoAlter（ふたりのプラン）タブ — fixture-only UI プロトタイプ・anchors fetch と独立に描画。
 import { CoAlterTab } from "./tabs/coalter/CoAlterTab";
+import type { RealityOsSurfaceDisplayV0 } from "@/lib/plan/realityPipeline/realityOsSurfacePresenter";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
 import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken, type LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 import { LifeOpsMomentCard } from "./LifeOpsMomentCard";
@@ -266,6 +267,11 @@ export interface PlanClientProps {
    * self を推論せず server 値から取るために渡す。表示には使わない（raw userId 非表示）。
    */
   viewerUserId?: string;
+  /**
+   * P3-9-wire: Reality OS dormant seam。server（page.tsx）が realityOsSurfaceProd ON 時のみ
+   * fixture-backed redacted 表示VM を渡す。**default OFF → undefined → CoAlter 非描画・既存挙動不変**。
+   */
+  realityOsSurface?: RealityOsSurfaceDisplayV0;
 }
 
 export default function PlanClient({
@@ -288,6 +294,7 @@ export default function PlanClient({
   dayStateStorageEnabled = false,
   coalterPlanTabEnabled = false,
   viewerUserId,
+  realityOsSurface,
 }: PlanClientProps = {}) {
   const isPane = displayMode === "pane";
 
@@ -1053,7 +1060,7 @@ export default function PlanClient({
       >
         {/* UX-2b: CoAlter タブは fixture-only（anchors fetch の loading/error/empty/ok に依存しない・viewerUserId のみ）。
           * coalterPlanTabEnabled OFF（既定）では visibleTabs に "coalter" 無し→ activeTab に成り得ず inert。 */}
-        {activeTab === "coalter" && <CoAlterTab viewerUserId={viewerUserId} />}
+        {activeTab === "coalter" && <CoAlterTab viewerUserId={viewerUserId} realityOsSurface={realityOsSurface} />}
         {activeTab !== "coalter" && state.kind === "loading" && <LoadingState />}
         {activeTab !== "coalter" && state.kind === "error" && (
           <ErrorState

@@ -24,6 +24,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { supabaseServer } from "@/lib/supabase/server";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import { buildRealityOsSurfaceFixtureDisplay } from "@/lib/plan/realityPipeline/realityOsSurfaceFixture";
 import { resolveShiftDraftVlmInputMode } from "@/lib/plan/shift/shiftDraftVlmInputMode";
 import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
@@ -125,6 +126,10 @@ export default async function PlanPage({
   //    S3A-2-2-1: shiftDraftLiveEnabled も同方式（server-only flag → boolean prop）。
   //    S-save-2: shiftImportSaveEnabled（= PLAN_SHIFT_IMPORT_SAVE）も同方式。server で読み prop で渡す
   //    （client 直読み禁止）。OFF（本番既定）で保存 dormant＝確認画面の保存ボタン無効・action 未呼出。
+  // P3-9-wire: Reality OS dormant seam。flag ON 時のみ fixture-backed redacted 表示VM を build。
+  //   default OFF → undefined → CoAlter で完全非描画（既存挙動不変・real user assets/DB/fetch なし）。
+  const realityOsSurface = PLAN_FLAGS.realityOsSurfaceProd ? buildRealityOsSurfaceFixtureDisplay() : undefined;
+
   return (
     <PlanClient
       composeTimelineEnabled={PLAN_FLAGS.composeTimelineEnabled}
@@ -147,6 +152,7 @@ export default async function PlanPage({
       dayStateStorageEnabled={PLAN_FLAGS.dayStateStorageEnabled}
       coalterPlanTabEnabled={PLAN_FLAGS.coalterPlanTabEnabled}
       viewerUserId={auth.user.id}
+      realityOsSurface={realityOsSurface}
     />
   );
 }
