@@ -71,7 +71,11 @@ backups/
 .claude/scheduled_tasks.lock
 
 # Supabase CLI linked project metadata (local runtime)
+# 注意: 過去に supabase/.temp/project-ref が production ref (aljavfujeqcwnqryjmhl) のまま
+#       tracked で commit されており、fresh checkout で CLI が production-linked になる事故源だった。
+#       2026-06-23 に git rm --cached で tracking 解除。これらは local runtime artifact ゆえ commit 禁止。
 supabase/.temp/
+supabase/.branches/
 
 # Stage 2.3 variant quality review 一時出力 (CEO 厳守: commit しない、PII 含む可能性)
 .tmp/
