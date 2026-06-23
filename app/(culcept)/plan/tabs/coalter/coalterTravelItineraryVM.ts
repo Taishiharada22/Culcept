@@ -16,6 +16,8 @@ import type {
   TravelItineraryGeneratorOutput,
   TravelItineraryFeasibilityNoteCode,
 } from "@/lib/coalter/travel/itinerary";
+// ★ server/display preparation only（UI は呼ばない）。本 VM builder は route から server 実行される。
+import { prepareTravelExternalLinkHrefModels } from "@/lib/shared/travel/travel-external-link-preparation";
 import type {
   TravelActivityType,
   TravelAnchorLevel,
@@ -77,6 +79,8 @@ export interface ItineraryNodeVM {
   anchor: boolean;
   /** 体力負荷 1..5 */
   fatigue: number;
+  /** ★ M3: 予約直前リンク（Maps/safe・非権威・外部 handoff）。confirmed(anchor) 場所のみ生成され得る。 */
+  links: { label: string; href: string }[];
 }
 
 export interface ItineraryDayVM {
@@ -174,6 +178,14 @@ export function buildCoAlterTravelItineraryVM(
             activityLabel: ACTIVITY_JA[n.activityType] ?? n.activityType,
             anchor: n.anchorLevel === ("anchor" satisfies TravelAnchorLevel),
             fatigue: n.fatigueLoad,
+            // ★ M3: 予約直前リンク。anchor=確定 shared 場所のみ eligible（既存 ladder が gate）。
+            links: prepareTravelExternalLinkHrefModels({
+              entity: {
+                label: placeLabels[n.placeId] ?? n.placeId,
+                confirmed: n.anchorLevel === ("anchor" satisfies TravelAnchorLevel),
+                visibility: "shared",
+              },
+            }).map((m) => ({ label: m.label, href: m.handoffUrl })),
           },
         })),
       ),

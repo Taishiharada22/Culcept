@@ -232,6 +232,17 @@ function ItineraryCandidateBlock({ c }: { c: ItineraryCandidateVM }) {
                 ) : (
                   <span className="shrink-0 rounded-full bg-slate-200 px-1.5 text-[9px] text-slate-500">調整可</span>
                 )}
+                {n.links.map((lk, li) => (
+                  <a
+                    key={li}
+                    href={lk.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 rounded-full bg-sky-50 px-1.5 text-[9px] font-bold text-sky-600 ring-1 ring-sky-200/70 hover:bg-sky-100"
+                  >
+                    🗺 {lk.label}
+                  </a>
+                ))}
               </li>
             ))}
           </ol>

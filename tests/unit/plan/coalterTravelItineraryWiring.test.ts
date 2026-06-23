@@ -46,6 +46,22 @@ describe("C6-A 既存 solver 配線（demo seeds → generateTravelItineraries �
     }
   });
 
+  it("M3: 確定(anchor)場所に予約直前リンク（Maps/safe・href あり）が付く", () => {
+    const out = generateTravelItineraries(COALTER_DEMO_TRAVEL_SEEDS);
+    const vm = buildCoAlterTravelItineraryVM(out, COALTER_DEMO_PLACE_LABELS);
+    expect(vm).not.toBeNull();
+    if (!vm) return;
+    const allNodes = vm.candidates.flatMap((c) => c.days.flatMap((d) => d.nodes));
+    const withLinks = allNodes.filter((n) => n.links.length > 0);
+    expect(withLinks.length).toBeGreaterThan(0); // 確定場所にリンクが出る
+    for (const n of withLinks) {
+      for (const lk of n.links) {
+        expect(lk.label.length).toBeGreaterThan(0);
+        expect(lk.href).toMatch(/^https?:\/\//); // 外部 handoff URL
+      }
+    }
+  });
+
   it("honesty: rankedCandidates 空 → VM null（カード非表示の根拠）", () => {
     const empty = generateTravelItineraries({ intentOutput: COALTER_DEMO_TRAVEL_SEEDS.intentOutput, destinationSeeds: [] });
     expect(buildCoAlterTravelItineraryVM(empty, COALTER_DEMO_PLACE_LABELS)).toBeNull();
