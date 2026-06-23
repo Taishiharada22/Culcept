@@ -43,6 +43,7 @@ import {
   COALTER_DEMO_PLACE_LABELS,
 } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelSeedFixture";
 import { buildCoAlterTravelItineraryVM } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelItineraryVM";
+import { buildCoAlterSolverIntentOverride } from "@/app/(culcept)/plan/tabs/coalter/coalterSolverPersonalization";
 import { buildPlanIntelligenceLiveVM } from "@/app/(culcept)/plan/tabs/coalter/planIntelligenceLiveViewModel";
 
 export const dynamic = "force-dynamic";
@@ -88,14 +89,27 @@ export async function GET(req: NextRequest) {
   const timeline = COALTER_DEMO_TIMELINE[mode];
   const moment = buildCoAlterMomentSurface(timeline.moments, timeline.nowMin, demo.self, demo.partner, partnerName);
 
-  // C6-A: travel mode のみ、既存 solver（generateTravelItineraries・無改修）に demo seeds を渡して
+  // C6-A/C6-B: travel mode のみ、既存 solver（generateTravelItineraries・無改修）に demo seeds を渡して
   //   具体行程を解く → display-safe VM。daily は overnight 行程対象外 → null。書込/外部 API なし。
+  //   C6-B: ペアの観測軸（demo）→ intent override（pace/同行/予算/詰め込み上限）で **行程をパーソナライズ**。
+  const intentOverride = buildCoAlterSolverIntentOverride(demo.self, demo.partner);
+  const personalizedSeeds = {
+    ...COALTER_DEMO_TRAVEL_SEEDS,
+    intentOutput: {
+      ...COALTER_DEMO_TRAVEL_SEEDS.intentOutput,
+      ...(intentOverride.fatigueSignals ? { fatigueSignals: intentOverride.fatigueSignals } : {}),
+      ...(intentOverride.budgetSignals ? { budgetSignals: intentOverride.budgetSignals } : {}),
+    },
+    ...(intentOverride.pairTogethernessOverride
+      ? { pairTogethernessOverride: intentOverride.pairTogethernessOverride }
+      : {}),
+    ...(intentOverride.cognitiveLoadCeilingPerDay !== undefined
+      ? { cognitiveLoadCeilingPerDay: intentOverride.cognitiveLoadCeilingPerDay }
+      : {}),
+  };
   const travelItinerary =
     mode === "travel"
-      ? buildCoAlterTravelItineraryVM(
-          generateTravelItineraries(COALTER_DEMO_TRAVEL_SEEDS),
-          COALTER_DEMO_PLACE_LABELS,
-        )
+      ? buildCoAlterTravelItineraryVM(generateTravelItineraries(personalizedSeeds), COALTER_DEMO_PLACE_LABELS)
       : null;
 
   const vm = buildPlanIntelligenceLiveVM(result, {
