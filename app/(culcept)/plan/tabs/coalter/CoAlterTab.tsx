@@ -67,6 +67,7 @@ import { CoAlterPreviewBlock } from "./CoAlterPreviewBlock";
 // C6-A-1: CoAlter proposal engine live（flag ON 時のみ・engine 駆動の合意形成知性・flag OFF 既定）。
 import { useCoAlterPlanIntelligence } from "@/app/(culcept)/plan/coalter-runtime/useCoAlterPlanIntelligence";
 import { PlanIntelligenceLivePanel } from "./PlanIntelligenceLivePanel";
+import type { RealityOsSurfaceDisplayV0 } from "@/lib/plan/realityPipeline/realityOsSurfacePresenter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -101,9 +102,14 @@ export interface CoAlterTabProps {
    * 表示には使わない（raw userId を UI に出さない）。
    */
   readonly viewerUserId?: string;
+  /**
+   * P3-9-wire: Reality OS dormant seam（optional・fixture-backed redacted 表示VM）。
+   * server flag OFF 既定では未指定→ PlanIntelligenceLivePanel で完全非描画。
+   */
+  readonly realityOsSurface?: RealityOsSurfaceDisplayV0;
 }
 
-export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
+export function CoAlterTab({ viewerUserId, realityOsSurface }: CoAlterTabProps = {}) {
   // 画面: Home（会話一覧・入口） ⇄ Talk（チャット＋プラン）。タブは Home で始まる。
   const [view, setView] = useState<"home" | "talk">("home");
   // プラン overlay の開閉（Talk 上に浮かぶ）。既定 open（talk.png 準拠）・✕で閉じ・「予定を確認」で再表示。
@@ -421,7 +427,7 @@ export function CoAlterTab({ viewerUserId }: CoAlterTabProps = {}) {
             {/* C6-A-1: flag ON ∧ live VM あり → engine 駆動の合意形成知性パネル。
               * それ以外（flag OFF / fetch 前 / 失敗）→ 従来 fixture パネル（不変・fail-closed）。 */}
             {PLAN_FLAGS.coalterEngineLive && planIntelligence.vm ? (
-              <PlanIntelligenceLivePanel vm={planIntelligence.vm} />
+              <PlanIntelligenceLivePanel vm={planIntelligence.vm} realityOsSurface={realityOsSurface} />
             ) : (
               <PlanIntelligencePanel
                 session={session}
