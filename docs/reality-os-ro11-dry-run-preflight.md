@@ -4,6 +4,7 @@
 - **branch**: `claude/task-store-migration-rebase-20260621`（base = local main `bcf84157c`）
 - **状態**: docs-only。**実行�していない**（local Supabase start / migration apply / SQL / DB 接続なし）。本 doc は dry-run 実行前の条件・手順・停止条件を固定する preflight。
 - **scope**: Canonical Task Store Migration / RO-11 のみ。CoAlter / Origin / Travel / root asset / UI / RO 残 pure kernel は扱わない。
+- **裁定反映**: 2026-06-21 CEO が残 3 論点（sql.draft 持ち込み / local synthetic test row / disk 再測定）を裁定（§12）。本 doc に反映済。**実 local dry-run は未実施・別 GO**。
 
 ---
 
@@ -48,9 +49,9 @@ local-only で canonical task migration の **dry-run** を行い、`canonical_t
 | local Supabase start 可否 | `supabase start` 成功 | 未実行（GO待ち） | ⏸ |
 | working tree clean | `.temp` 以外差分なし | clean | 🟢 |
 | supabase CLI | 利用可 | 2.75.0 | 🟢 |
-| sql.draft 所在 | dry-run 対象が参照可能 | **本branch不在**（旧RO `42ab074bc` に温存） | ⚠️ 要 carry 判断 |
+| sql.draft 所在 | dry-run 対象が参照可能 | **本branch不在**（旧RO `42ab074bc` に温存） | 🟢 裁定済（§12-a） |
 
-> ⚠️ **sql.draft は本 branch に未 carry**。dry-run 実行時に「sql.draft を本 worktree に持ち込む（docs/ として参照 or migration 昇格）」判断が要る。migration 昇格は別 GO。
+> ✅ **sql.draft 持ち込み方法は裁定済（§12-a）**: `supabase/migrations/` に置かず・migration 昇格せず、`42ab074bc` の sql.draft を **`/tmp` 等 git 管理外の scratch SQL** にコピーして local dry-run に使う。scratch は commit しない・hash/path/source を report 記録。
 
 ## 5. migration dry-run の対象
 
@@ -79,7 +80,8 @@ local-only で canonical task migration の **dry-run** を行い、`canonical_t
 - ✅ local DB の **CREATE TABLE / CREATE POLICY / CREATE FUNCTION / CREATE TRIGGER / DROP**（rollback rehearsal）
 - ✅ **read-only extraction 確認**（[E1]/[E2] SELECT・local の空 data に対し syntax/plan 検証）
 - ✅ rollback rehearsal（DROP + 再 apply 冪等確認）
-- ✅ projection roundtrip（DB行型 → `CanonicalTaskV0` → `projectCanonicalTaskToRealityNode` → `taskRealityNodeViolations=[]`。検証用の最小行が要る場合は **local-only の test row 可否を CEO に確認**＝§12 open）
+- ✅ **local synthetic test row の insert**（RLS smoke / projection / rollback rehearsal 用・**local-only 限定**・§12-b 裁定済）。remote/staging/production への INSERT は禁止。seed ではない。dry-run 後 DROP/rollback で消す。
+- ✅ projection roundtrip（DB行型 → `CanonicalTaskV0` → `projectCanonicalTaskToRealityNode` → `taskRealityNodeViolations=[]`）
 
 ## 8. dry-run で禁止される操作
 
@@ -95,15 +97,15 @@ local-only で canonical task migration の **dry-run** を行い、`canonical_t
 
 > 各 step は CEO GO 後に着手。1 つでも 🔴 停止条件に当たれば中断・報告。
 
-- [ ] **P0** 事前測定: `df -h /`（≥5GB）/ `docker info`（RUNNING）/ `cat supabase/.temp/project-ref`（空 or 非production）/ `git status`（clean）
-- [ ] **P1** sql.draft を本 worktree に **docs として** 用意（migration 昇格はしない・local apply 用の一時 .sql は local 専用で `supabase/migrations/` に置かない方法を別途確定）
-- [ ] **P2** `supabase start`（local stack 起動・**remote link しない**）→ 起動後 `supabase status` で local url 確認（127.0.0.1 系であること）
+- [ ] **P0** 事前測定: `df -h /`（≥5GB・**start 前 disk 記録**）/ `docker info`（RUNNING）/ `cat supabase/.temp/project-ref`（空 or 非production）/ `git status`（clean）
+- [ ] **P1** sql.draft を **`/tmp` 等 git 管理外の scratch SQL** にコピー（`git show 42ab074bc:docs/reality-os-ro10-canonical-task-migration.sql.draft > /tmp/ro11_canonical_tasks.sql`）。**`supabase/migrations/` に置かない・migration 昇格しない・scratch は commit しない**。report に hash/path/source branch を記録（§12-a）
+- [ ] **P2** `supabase start`（local stack 起動・**remote link しない**）→ 起動後 `supabase status` で local url 確認（127.0.0.1 系であること）→ **start 後 disk 再測定**（危険水準なら即停止・§12-c）
 - [ ] **P3** local DB に canonical_tasks `CREATE TABLE` + RLS + trigger 適用（**local のみ**）
 - [ ] **P4** migration-check 観点で RLS 漏れ / 破壊的変更 / 依存順序を確認
 - [ ] **P5** extraction [E2] audit を local で実行（real data なし → 0 件・SQL 健全性のみ）
 - [ ] **P6** two-pass [E3] の SQL 健全性確認（local・dangling=0 想定）
-- [ ] **P7** RLS smoke（local 2 user で a/b/c・**test row の local 投入可否は §12 で要確認**）
-- [ ] **P8** projection roundtrip 検証（最小行・§12 確認後）
+- [ ] **P7** RLS smoke（local 2 user で a/b/c・**local synthetic insert 許可済＝§12-b**。remote/staging/prod INSERT は禁止）
+- [ ] **P8** projection roundtrip 検証（local synthetic 最小行・§12-b 許可済）
 - [ ] **P9** rollback rehearsal（DROP TABLE/FUNCTION → 残留なし → 再 apply 冪等）
 - [ ] **P10** `supabase stop`（local stack 停止）→ disk 復元確認
 - [ ] **P11** 結果を §10 フォーマットで CEO 報告 → staging dry-run / production の GO 判断は別
@@ -113,7 +115,8 @@ local-only で canonical task migration の **dry-run** を行い、`canonical_t
 ```
 RO-11 local dry-run 結果（YYYY-MM-DD）
 - 環境: local Supabase url=127.0.0.1:xxxx / Docker=RUNNING / link=unlinked
-- P0 事前: disk=__Gi / docker=RUNNING / ref=空 / tree=clean
+- scratch SQL: path=/tmp/ro11_canonical_tasks.sql / sha=______ / source=42ab074bc:docs/reality-os-ro10-canonical-task-migration.sql.draft（§12-a）
+- P0 事前 disk=__Gi / P2 start後 disk=__Gi / docker=RUNNING / ref=空 / tree=clean
 - P3 schema: CREATE TABLE/RLS(4)/trigger = OK/NG
 - P5 extraction: total=0 / skipped_no_id=0 / skipped_no_text=0（local 空 data・syntax OK/NG）
 - P6 two-pass: dangling=0 / SQL OK/NG
@@ -132,13 +135,32 @@ RO-11 local dry-run 結果（YYYY-MM-DD）
 - **remote には一切触れていないため remote rollback は不要**（local-only の不変条件）。
 - 失敗原因が schema/RLS/extraction の論理であれば、sql.draft 改訂は **別 GO**（本 dry-run では改訂しない）。
 
-## 12. 次 GO（CEO 判断待ち）
+## 12. 残 3 論点の CEO 裁定（✅ 2026-06-21 確定）
 
-1. **本 preflight doc を commit**（docs-only）後、**実 local dry-run（§9 P0〜P11）へ進むか** を CEO 判断。
-2. **open 論点（dry-run 実行前に確定したい）**:
-   - (a) **sql.draft の持ち込み方法**: local apply 用の .sql を `supabase/migrations/` に置かず local 専用で扱う方法（migration 昇格は別 GO のため）。
-   - (b) **RLS smoke / projection 用の local test row**: local-only の synthetic insert を許可するか（§8「seed 本番投入」禁止とは別物だが、INSERT 系のため明示確認したい）。許可しない場合、RLS smoke は policy 作成確認まで＝完全 smoke は staging dry-run へ。
-   - (c) **local stack の disk 影響**: `supabase start` の image pull 後の実空き再測（現 5.2Gi）。
+実 local dry-run 前に確定が必要だった 3 論点は、以下のとおり CEO 裁定済み。
+
+### (a) sql.draft 持ち込み方法 — ✅ 裁定
+- `supabase/migrations/` には **置かない**。**migration 昇格しない**。
+- 参照元 = 旧RO branch `42ab074bc:docs/reality-os-ro10-canonical-task-migration.sql.draft`。
+- local dry-run 用には **`/tmp` 等 git 管理外の scratch SQL** としてコピーして使う。
+- **scratch SQL は commit しない**。
+- dry-run report に **hash / path / source branch** を記録する。
+
+### (b) local synthetic test row — ✅ 裁定
+- **local-only dry-run に限り許可**。
+- RLS smoke / projection 検証 / rollback rehearsal のための **synthetic insert を許可**。
+- **remote / staging / production への INSERT は禁止**。これは seed ではない。
+- dry-run 後に **DROP / rollback rehearsal で消す**。
+- **service_role / SECURITY DEFINER は引き続き禁止**。
+
+### (c) disk 再測定条件 — ✅ 裁定
+- `supabase start` の **前後で disk を再測定**。
+- start 後に空きが **危険水準なら即停止**。
+- **ENOSPC / Docker image pull failure / Supabase start failure** の場合は、その時点で停止して report。
+- **disk 確保のための削除操作は本セッションでは行わない**。
+
+### 次 GO
+- 本裁定を反映した preflight doc を commit（docs-only）後、**実 local dry-run（§9 P0〜P11）へ進むか** を CEO が別途明示 GO で判断。本 doc では実行しない。
 
 ---
 
