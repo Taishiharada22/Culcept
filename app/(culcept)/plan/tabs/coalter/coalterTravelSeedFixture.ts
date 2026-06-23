@@ -98,6 +98,27 @@ const EXPERIENCES: TravelExperienceSeed[] = [
     anchorLevel: "wander",
     compatibleTimeSlots: ["morning", "noon"],
   },
+  // ── 性格で採否が分かれる場所（universe を fit catalog と一致させる・C6-D）──
+  {
+    seedId: "nightlife",
+    placeIdCode: "hakone_nightlife_bar",
+    activityType: "experience",
+    defaultFatigueLoad: 3,
+    durationMinutes: 90,
+    budgetEstimate: budget(3000, 6000),
+    anchorLevel: "wander",
+    compatibleTimeSlots: ["evening", "night"],
+  },
+  {
+    seedId: "thrill",
+    placeIdCode: "hakone_thrill_activity",
+    activityType: "experience",
+    defaultFatigueLoad: 4,
+    durationMinutes: 120,
+    budgetEstimate: budget(4000, 8000),
+    anchorLevel: "wander",
+    compatibleTimeSlots: ["morning", "afternoon"],
+  },
 ];
 
 // ── lodging seeds（温泉宿・2 案で pareto 比較: 落ち着き宿 / 眺望宿） ──
@@ -127,6 +148,8 @@ const MOVES: TravelMoveSeed[] = [
   { seedId: "m_ashi", fromPlaceIdCode: "hakone_gora", toPlaceIdCode: "hakone_ashinoko", transport: "bus", durationMinutes: 35, costEstimate: budget(0, 700) },
   { seedId: "m_walk", fromPlaceIdCode: "hakone_ashinoko", toPlaceIdCode: "hakone_lakeside_walk", transport: "walk", durationMinutes: 5, costEstimate: budget(0, 0) },
   { seedId: "m_onsen", fromPlaceIdCode: "hakone_gora", toPlaceIdCode: "hakone_onsen_daytrip", transport: "walk", durationMinutes: 8, costEstimate: budget(0, 0) },
+  { seedId: "m_night", fromPlaceIdCode: "hakone_gora", toPlaceIdCode: "hakone_nightlife_bar", transport: "walk", durationMinutes: 12, costEstimate: budget(0, 0) },
+  { seedId: "m_thrill", fromPlaceIdCode: "hakone_gora", toPlaceIdCode: "hakone_thrill_activity", transport: "bus", durationMinutes: 25, costEstimate: budget(0, 600) },
 ];
 
 /** solver への完全な入力（無改修の generateTravelItineraries に渡す）。 */
@@ -153,4 +176,6 @@ export const COALTER_DEMO_PLACE_LABELS: Record<string, string> = {
   hakone_lakeside_walk: "湖畔の散策路",
   hakone_ryokan_calm: "強羅の落ち着いた温泉宿",
   hakone_ryokan_view: "眺望の温泉宿",
+  hakone_nightlife_bar: "夜のにぎやかなバー",
+  hakone_thrill_activity: "アクティブ体験（アスレチック）",
 };

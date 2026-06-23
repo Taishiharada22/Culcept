@@ -44,6 +44,10 @@ import {
 } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelSeedFixture";
 import { buildCoAlterTravelItineraryVM } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelItineraryVM";
 import { buildCoAlterSolverIntentOverride } from "@/app/(culcept)/plan/tabs/coalter/coalterSolverPersonalization";
+import { buildFitSubjectFromPair } from "@/app/(culcept)/plan/tabs/coalter/coalterFitBridge";
+import { selectFittingEntities } from "@/app/(culcept)/plan/tabs/coalter/coalterFitSelection";
+import { COALTER_DEMO_ENTITIES } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelEntityCatalog";
+import { buildPersonalizedTravelSeeds } from "@/app/(culcept)/plan/tabs/coalter/coalterPersonalizedSeeds";
 import { buildPlanIntelligenceLiveVM } from "@/app/(culcept)/plan/tabs/coalter/planIntelligenceLiveViewModel";
 
 export const dynamic = "force-dynamic";
@@ -89,28 +93,42 @@ export async function GET(req: NextRequest) {
   const timeline = COALTER_DEMO_TIMELINE[mode];
   const moment = buildCoAlterMomentSurface(timeline.moments, timeline.nowMin, demo.self, demo.partner, partnerName);
 
-  // C6-A/C6-B: travel mode のみ、既存 solver（generateTravelItineraries・無改修）に demo seeds を渡して
-  //   具体行程を解く → display-safe VM。daily は overnight 行程対象外 → null。書込/外部 API なし。
-  //   C6-B: ペアの観測軸（demo）→ intent override（pace/同行/予算/詰め込み上限）で **行程をパーソナライズ**。
-  const intentOverride = buildCoAlterSolverIntentOverride(demo.self, demo.partner);
-  const personalizedSeeds = {
-    ...COALTER_DEMO_TRAVEL_SEEDS,
-    intentOutput: {
-      ...COALTER_DEMO_TRAVEL_SEEDS.intentOutput,
-      ...(intentOverride.fatigueSignals ? { fatigueSignals: intentOverride.fatigueSignals } : {}),
-      ...(intentOverride.budgetSignals ? { budgetSignals: intentOverride.budgetSignals } : {}),
-    },
-    ...(intentOverride.pairTogethernessOverride
-      ? { pairTogethernessOverride: intentOverride.pairTogethernessOverride }
-      : {}),
-    ...(intentOverride.cognitiveLoadCeilingPerDay !== undefined
-      ? { cognitiveLoadCeilingPerDay: intentOverride.cognitiveLoadCeilingPerDay }
-      : {}),
-  };
-  const travelItinerary =
-    mode === "travel"
-      ? buildCoAlterTravelItineraryVM(generateTravelItineraries(personalizedSeeds), COALTER_DEMO_PLACE_LABELS)
-      : null;
+  // C6-A/B/C/D: travel mode のみ、既存 solver（generateTravelItineraries・無改修）で具体行程を解く
+  //   → display-safe VM。daily は overnight 行程対象外 → null。書込/外部 API なし。
+  //   C6-C/D: ペア性格で **場所を選別**（evaluateFit）→ seeds を絞る（calm→温泉/自然・bold→thrill）。
+  //   C6-B: さらに **行程の形**（pace/同行/予算/詰め込み上限）を intent override でパーソナライズ。
+  let travelItinerary = null;
+  if (mode === "travel") {
+    // ① 性格 fit で場所選別 → 採用 placeId 集合で seeds を絞る。
+    const fitSubject = buildFitSubjectFromPair(demo.self, demo.partner);
+    const fitting = selectFittingEntities(COALTER_DEMO_ENTITIES, fitSubject, {
+      tripMode: "travel",
+      tripIntent: "recovery",
+    });
+    const fittingIds = new Set(fitting.map((f) => f.placeRefId));
+    const placeFiltered = buildPersonalizedTravelSeeds(COALTER_DEMO_TRAVEL_SEEDS, fittingIds);
+
+    // ② 行程の形を intent override でパーソナライズ。
+    const intentOverride = buildCoAlterSolverIntentOverride(demo.self, demo.partner);
+    const personalizedSeeds = {
+      ...placeFiltered,
+      intentOutput: {
+        ...placeFiltered.intentOutput,
+        ...(intentOverride.fatigueSignals ? { fatigueSignals: intentOverride.fatigueSignals } : {}),
+        ...(intentOverride.budgetSignals ? { budgetSignals: intentOverride.budgetSignals } : {}),
+      },
+      ...(intentOverride.pairTogethernessOverride
+        ? { pairTogethernessOverride: intentOverride.pairTogethernessOverride }
+        : {}),
+      ...(intentOverride.cognitiveLoadCeilingPerDay !== undefined
+        ? { cognitiveLoadCeilingPerDay: intentOverride.cognitiveLoadCeilingPerDay }
+        : {}),
+    };
+    travelItinerary = buildCoAlterTravelItineraryVM(
+      generateTravelItineraries(personalizedSeeds),
+      COALTER_DEMO_PLACE_LABELS,
+    );
+  }
 
   const vm = buildPlanIntelligenceLiveVM(result, {
     personalization: { demo: true, ...readout },
