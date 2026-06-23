@@ -69,13 +69,14 @@ const TRAVEL_PARTNER = snapshot("demo-mio", {
 
 /**
  * Daily demo:
- *   - self（Kento）= 人と動くと回復（外向）＋ やや活発
- *   - partner（Mio）= 静かめ（内向）＋ 慎重
- *   → pair readout: 「対人の度合いは差（Kento 外向 / Mio 静かめ）→ 人混みは控えめに」
+ *   - self（Kento）= 人と動くと回復（外向）＋ 活発に消費するリズム
+ *   - partner（Mio）= 静かめ（内向）＋ 慎重 ＋ 静かに充電するリズム
+ *   → forecast: 対人の差（人の多さ）/ moment: 人気カフェで Mio 人疲れ
+ *   → rhythm（S3-3）: energy_rhythm がズレ（Kento 活発消費 / Mio 静か充電）→ interleave（山と谷を交互に）
  */
 const DAILY_SELF = snapshot("demo-kento", {
   introvert_vs_extrovert: ax(0.45, 0.6), //   +外向
-  energy_rhythm: ax(0.35, 0.55), //           +活発に消費 → density やや高
+  energy_rhythm: ax(0.35, 0.55), //           +活発に消費 → density やや高 + rhythm 活発側
   social_initiative: ax(0.4, 0.55), //        +自分から
 });
 
@@ -83,6 +84,7 @@ const DAILY_PARTNER = snapshot("demo-mio", {
   introvert_vs_extrovert: ax(-0.4, 0.6), //   -内向
   cautious_vs_bold: ax(-0.45, 0.6), //        -慎重
   stress_isolation_vs_social: ax(-0.35, 0.5), // -一人で回復
+  energy_rhythm: ax(-0.4, 0.55), //           -静かに充電 → rhythm 静か側（pace は単独源泉で floor 未満＝forecast 不変）
 });
 
 export const COALTER_DEMO_PERSONALIZATION: Record<CoAlterPlanMode, CoAlterDemoPersonalization> = {

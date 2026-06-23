@@ -21,6 +21,7 @@ import type {
   PersonalizationReadoutVM,
   PlanIntelligenceLiveReadyVM,
   PlanIntelligenceLiveVM,
+  RhythmFitVM,
 } from "./planIntelligenceLiveViewModel";
 import { CheckIcon, ChevronRightIcon } from "./coalterIcons";
 
@@ -146,6 +147,28 @@ function ConflictForecastCard({ f }: { f: ConflictForecastVM }) {
   );
 }
 
+const RHYTHM_TONE: Record<RhythmFitVM["kind"], string> = {
+  calm: "border-emerald-300",
+  active: "border-orange-300",
+  interleave: "border-indigo-300",
+};
+
+function RhythmFitCard({ r }: { r: RhythmFitVM }) {
+  return (
+    <div className={`${CARD} border-l-4 ${RHYTHM_TONE[r.kind]} p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className={CHIP}>一日のリズム</span>
+        {r.demo && (
+          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-200/60">
+            デモ
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-slate-700">{r.shape}</p>
+    </div>
+  );
+}
+
 function MomentSurfaceCard({ m }: { m: MomentSurfaceVM }) {
   return (
     <div className={`${CARD} border-l-4 border-sky-300 p-3`}>
@@ -183,6 +206,9 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
 
       {/* 先にすり合わせたい点（S3-1 衝突先回り・摩擦順・橋渡し付き・demo 明示） */}
       {vm.conflictForecast && <ConflictForecastCard f={vm.conflictForecast} />}
+
+      {/* 一日のリズム（S3-3 二人に合う一日のかたち・構成的提案・demo 明示） */}
+      {vm.rhythmFit && <RhythmFitCard r={vm.rhythmFit} />}
 
       {/* 当日のサポート（S3-2 Moment surface・次の負荷を先回りケア・demo 明示） */}
       {vm.momentSurface && <MomentSurfaceCard m={vm.momentSurface} />}

@@ -177,6 +177,20 @@ export interface ConflictForecastVM {
 }
 
 /**
+ * S3-3 — 一日のリズム（**additive・optional**）。
+ *   2 人の energy_rhythm（充電↔消費）から、二人に合う一日の構成的なかたちを提案。
+ *   null（片側でも材料不足）→ VM に載せない（リズムを捏造しない＝honesty）。
+ */
+export interface RhythmFitVM {
+  /** true = preview 用 demo 軸。UI にバッジ表示する。 */
+  demo: boolean;
+  /** calm / active / interleave（UI の微差・任意）。 */
+  kind: "calm" | "active" | "interleave";
+  /** 二人に合う一日のかたちの一言（raw 値なし）。 */
+  shape: string;
+}
+
+/**
  * S3-2 — 当日 Moment surface（**additive・optional**）。
  *   進行中の当日、次の負荷 moment で消耗しそうな人を先回りするケアの一言。
  *   null（次の負荷なし／誰も confident に弱くない）→ VM に載せない（捏造しない＝honesty）。
@@ -211,6 +225,8 @@ export interface PlanIntelligenceLiveReadyVM {
   personalization?: PersonalizationReadoutVM;
   /** ★ S3-1 additive: 衝突先回り（items が 1 件以上の時のみ・absent は S2 と byte 等価）。 */
   conflictForecast?: ConflictForecastVM;
+  /** ★ S3-3 additive: 一日のリズム（材料十分な時のみ・absent は S3-1 と byte 等価）。 */
+  rhythmFit?: RhythmFitVM;
   /** ★ S3-2 additive: 当日 Moment surface（一言がある時のみ・absent は S3-1 と byte 等価）。 */
   momentSurface?: MomentSurfaceVM;
 }
@@ -267,6 +283,7 @@ export function buildPlanIntelligenceLiveVM(
   options?: {
     personalization?: PersonalizationReadoutVM;
     conflictForecast?: ConflictForecastVM;
+    rhythmFit?: RhythmFitVM | null;
     momentSurface?: MomentSurfaceVM | null;
   },
 ): PlanIntelligenceLiveVM {
@@ -307,6 +324,11 @@ export function buildPlanIntelligenceLiveVM(
   const conflictForecast = options?.conflictForecast;
   if (conflictForecast && conflictForecast.items.length > 0) {
     vm.conflictForecast = conflictForecast;
+  }
+  // ★ S3-3: rhythmFit は非 null の時のみ載せる（片側でも材料不足 → 省く＝honesty）。
+  const rhythmFit = options?.rhythmFit;
+  if (rhythmFit) {
+    vm.rhythmFit = rhythmFit;
   }
   // ★ S3-2: momentSurface は非 null の時のみ載せる（次の負荷なし／誰も弱くない → 省く＝honesty）。
   const momentSurface = options?.momentSurface;
