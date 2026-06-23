@@ -1,0 +1,227 @@
+/**
+ * MovementRealityV0 — 予定間の移動を「現実ノード」として compile（RC2a-2）
+ *
+ * 正本: docs/reality-graph-state-model-addendum.md / RG0.6 §6 / RG0.6a §8 /
+ *       docs/reality-judgment-patch-rj02.md §8 / docs/reality-judgment-engine-rj0.md §0
+ *
+ * Department（RJ0.2 CEO 方針）: **Mobility 部署の最初の実体化**。
+ *   owning=Mobility / consulted=Plan,Context,Permission / blocking=Permission /
+ *   outputs=movementRequired/samePlacePossible/placeKnown/routeKnown/etaKnown/leaveByKnown/missingInputs/mobilityStatus。
+ *   runtime Department object は作らない（docs 責務契約のみ — CEO 指示）。
+ *
+ * 規律（RC1 EventRealityNode と同型）:
+ *  - pure（I/O・DB・localStorage・時刻 API・乱数なし）。新規 read / 保存 / UI 接続ゼロ
+ *  - ETA / route / 場所解決の供給が無いため routeKnown/etaKnown/leaveByKnown は常に false・
+ *    mobilityStatus は "unresolved"（fake ETA / fake leave-by 禁止 — RJ0.2 §8）
+ *  - **位置（currentLocation）は使わない**（位置非解禁）
+ *  - samePlacePossible は text 一致でなく**不一致**を inferred(≤0.4) で出す（emitted transition は
+ *    場所テキストが異なる or 不明の時のみ存在する — movementTransitions.shouldEmitMovementTransition）
+ *  - stable id = mv:<date>:<fromAnchorId>:<toAnchorId>（**direction-sensitive**: from→to の順序＝時刻順で確定）。
+ *    transitionBasis（fromNodeId->toNodeId）が source-transition の identity（kernel は transition に明示 id を
+ *    持たないため pair が自然 id）。**currentKernelGuarantee**: 同一 (from,to) ペアは線形連続ペア生成で同日最大 1 回
+ *    （同一 anchor は同日 graph に 1 回・dup skip 済み）。将来 kernel が transition 明示 id / 同一ペア複数区間を
+ *    導入したら、先に sourceTransitionId を足して mv id をそれに切替える（RC2a-1b §15）。配列 index は永久不使用。
+ *
+ * ── 意味論の不変条件（RC2a-2A・誤読防止の最重要事項） ──
+ *  **mv ノードの不在は「移動判断」ではない**。current DayGraph kernel が transition を発火しなかっただけ:
+ *   - 両端の場所テキストが同一 → transition なし。これは「物理的に同じ場所 confirmed」ではなく
+ *     「移動が必要な場所差が観測されない」。同名でも別店舗等は判別できていない（場所解決 RC4 前）
+ *   - 両端の場所テキスト欠落（undefined===undefined）→ transition なし。これは「移動不要」ではなく
+ *     **「移動判断に必要な場所情報が無い」**。movement impossible でも same place proof でもない
+ *  → **no movement node ≠ no movement risk**。場所欠落の signal は **event 側（ern.placeCertainty=unknown）**が
+ *    保持しており、RJ1 Feasibility / Risk はそこから「場所未設定だから判断不能」を別経路で拾う（mv 不在から
+ *    「移動リスクなし」を導出してはならない — 管制塔として致命的な誤読の構造的禁止）
+ */
+
+import type { DayGraph, EventNode, MovementTransition } from "@/lib/plan/dayGraph/dayGraphTypes";
+import type { MovementResolutionStatus } from "@/lib/plan/transport/transportTypes";
+import {
+  inferredAttribute,
+  realityAttributeViolations,
+  unknownAttribute,
+  type RealityAttribute,
+} from "./realityAttribute";
+import type { LeaveByUnresolvedReason } from "./eventRealityNode";
+
+/** derive version（RC2a-1b §4: 自分の version を export し manifest との一致を fixture で assert） */
+export const MOVEMENT_REALITY_COMPILE_VERSION = 0;
+
+/** 主観日境界 05:00（dayState/timeOfDay・RC1 と同一規約） */
+const SUBJECTIVE_DAY_START_HOUR = 5;
+
+function subjectiveDateOf(date: string, startHHMM: string): string {
+  const h = Number(startHHMM.slice(0, 2));
+  if (Number.isNaN(h) || h >= SUBJECTIVE_DAY_START_HOUR) return date;
+  const d = new Date(date + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+export interface MovementRealityV0 {
+  readonly schemaVersion: 0;
+  readonly movementRealityId: string; // mv:<date>:<fromAnchorId>:<toAnchorId>
+  readonly date: string;
+  readonly subjectiveDate: string;
+  readonly sourceRefs: {
+    readonly fromAnchorId: string;
+    readonly toAnchorId: string;
+    readonly fromNodeId: string;
+    readonly toNodeId: string;
+    readonly dayGraphSnapshotId: string;
+    /** transition の identity 基盤（将来 kernel が transition id を持ったら切替 — RC2a-1b §15） */
+    readonly transitionBasis: string; // `${fromNodeId}->${toNodeId}`
+  };
+  // ── 8 属性（全て RealityAttribute・unknown 正直） ──
+  readonly movementRequired: RealityAttribute<boolean>;
+  readonly samePlacePossible: RealityAttribute<boolean>;
+  readonly placeKnown: RealityAttribute<boolean>;
+  readonly routeKnown: RealityAttribute<boolean>;
+  readonly etaKnown: RealityAttribute<boolean>;
+  readonly leaveByKnown: RealityAttribute<boolean>;
+  readonly mobilityStatus: RealityAttribute<MovementResolutionStatus>;
+  readonly missingInputs: ReadonlyArray<LeaveByUnresolvedReason>;
+}
+
+export interface CompileMovementRealityInput {
+  date: string;
+  graph: DayGraph;
+}
+
+function compileOne(
+  t: MovementTransition,
+  input: CompileMovementRealityInput,
+  nodeById: ReadonlyMap<string, EventNode>,
+): MovementRealityV0 {
+  const fromNode = nodeById.get(t.fromNodeId);
+  const toNode = nodeById.get(t.toNodeId);
+  // EventNode.id は anchor.id 流用（dayGraphTypes 規約）。anchorId を正本にする
+  const fromAnchorId = fromNode?.anchorId ?? t.fromNodeId;
+  const toAnchorId = toNode?.anchorId ?? t.toNodeId;
+
+  // 場所テキストの可視性: sensitiveProximity なら redact 済み（undefined）= viewer から見えない
+  const fromLoc = t.fromLocationText;
+  const toLoc = t.toLocationText;
+  const bothPresent = fromLoc !== undefined && toLoc !== undefined;
+  const eitherHidden = t.sensitiveProximity || !bothPresent;
+
+  // movementRequired: 両端の場所が判る（= 異なる）なら移動は必要。不明なら断定しない（unknown）
+  const movementRequired: RealityAttribute<boolean> = bothPresent
+    ? inferredAttribute(true, 0.7, ["location_text_differs"], { source: "derived", displayPolicy: "visible" })
+    : unknownAttribute<boolean>({ evidenceRefs: ["location_hidden_or_missing"], displayPolicy: "hidden" });
+
+  // samePlacePossible: emitted transition は text 不一致 or 不明の時のみ存在。
+  //  両端判る → 別場所らしい（text 不一致は弱証拠ゆえ ≤0.4）/ 不明 → unknown（同一文字列で confirmed にしない — RG0.6a §8）
+  const samePlacePossible: RealityAttribute<boolean> = bothPresent
+    ? inferredAttribute(false, 0.4, ["location_text_differs_weak"], { source: "derived", displayPolicy: "debugOnly" })
+    : unknownAttribute<boolean>({ evidenceRefs: ["location_hidden_or_missing"], displayPolicy: "hidden" });
+
+  // placeKnown: 両端の場所テキストが見える（= viewer-safe に判る）か。redact / 欠落は unknown
+  const placeKnown: RealityAttribute<boolean> = bothPresent
+    ? inferredAttribute(true, 0.6, ["both_location_text_present"], { source: "derived", displayPolicy: "debugOnly" })
+    : unknownAttribute<boolean>({ evidenceRefs: eitherHidden ? ["location_hidden_or_missing"] : [], displayPolicy: "hidden" });
+
+  // RD3d-P1: route/eta/leaveBy の意味論を capability 層の既存分離（routeShapeKnown / arrivalProjectionKnown）に整合。
+  //   routeKnown = **route shape known**（polyline/形状・display 用途）→ evidence は route_shape_source_*。
+  //   etaKnown   = **arrival projection / planning time basis known**（capability.arrivalProjectionKnown 相当）→ arrival_projection_source_*。
+  //   leaveByKnown は etaKnown（time basis）に依存する derived field（route shape には依存しない）。
+  //   供給が無いことを「判っている」= inferred false（捏造でなく欠測の明示）。time basis と route shape の evidence を混ぜない。
+  const knownFalse = (evidence: string): RealityAttribute<boolean> =>
+    inferredAttribute(false, 0.9, [evidence], { source: "derived", displayPolicy: "debugOnly" });
+  const routeKnown = knownFalse("route_shape_source_missing_v0"); // route shape semantic
+  const etaKnown = knownFalse("arrival_projection_source_missing_v0"); // arrival projection / time basis semantic
+  const leaveByKnown = knownFalse("arrival_projection_source_missing_v0"); // leaveBy は time basis 依存（shape 非依存）
+
+  const mobilityStatus = inferredAttribute<"unresolved" | "resolved">(
+    "unresolved",
+    0.9,
+    ["movement_timing_unresolved_3k"],
+    { source: "derived", displayPolicy: "visible" },
+  );
+
+  // missingInputs: ern.whyUnresolved と同一語彙・規約（先頭=主理由・eta_source_missing を落とさない）
+  const missingInputs: LeaveByUnresolvedReason[] = [];
+  if (!bothPresent) missingInputs.push("place_missing");
+  else missingInputs.push("route_missing");
+  missingInputs.push("eta_source_missing");
+
+  return {
+    schemaVersion: 0,
+    movementRealityId: `mv:${input.date}:${fromAnchorId}:${toAnchorId}`,
+    date: input.date,
+    subjectiveDate: subjectiveDateOf(input.date, fromNode?.startTime ?? "12:00"),
+    sourceRefs: {
+      fromAnchorId,
+      toAnchorId,
+      fromNodeId: t.fromNodeId,
+      toNodeId: t.toNodeId,
+      dayGraphSnapshotId: input.graph.snapshotId,
+      transitionBasis: `${t.fromNodeId}->${t.toNodeId}`,
+    },
+    movementRequired,
+    samePlacePossible,
+    placeKnown,
+    routeKnown,
+    etaKnown,
+    leaveByKnown,
+    mobilityStatus,
+    missingInputs,
+  };
+}
+
+export function compileMovementReality(input: CompileMovementRealityInput): MovementRealityV0[] {
+  const nodeById = new Map<string, EventNode>(
+    input.graph.nodes.filter((n): n is EventNode => n.kind === "event").map((n) => [n.id, n]),
+  );
+  const out = input.graph.transitions.map((t) => compileOne(t, input, nodeById));
+
+  // mv id 一意性 guard（RC2a-1b §15）: 線形連続ペア生成では重複は起きない構造だが、
+  // 将来 kernel が同一ペア複数 transition を導入したら検出して throw（index fallback で握り潰さない）
+  const seen = new Set<string>();
+  for (const m of out) {
+    if (seen.has(m.movementRealityId)) {
+      throw new Error(
+        `compileMovementReality: 同一 (from,to) ペアの transition が複数検出された（${m.movementRealityId}）。` +
+          `transition identity の導入が必要（RC2a-1b §15）`,
+      );
+    }
+    seen.add(m.movementRealityId);
+  }
+  return out;
+}
+
+/** 8 属性の INV-RC1 違反列挙（空 = 適合）。RC2a-2 fixture と将来の監査が使用 */
+const MV_ATTRIBUTE_KEYS = [
+  "movementRequired",
+  "samePlacePossible",
+  "placeKnown",
+  "routeKnown",
+  "etaKnown",
+  "leaveByKnown",
+  "mobilityStatus",
+] as const;
+
+export function movementRealityViolations(m: MovementRealityV0): string[] {
+  const out: string[] = [];
+  for (const key of MV_ATTRIBUTE_KEYS) {
+    out.push(...realityAttributeViolations(`${m.movementRealityId}.${key}`, m[key]));
+  }
+  // 供給前の不変条件（RJ0.2 §8）: route/eta/leaveBy は false・mobilityStatus は unresolved・missingInputs に eta_source_missing
+  if (m.routeKnown.value !== false) out.push(`${m.movementRealityId}.routeKnown: v0 は false のみ`);
+  if (m.etaKnown.value !== false) out.push(`${m.movementRealityId}.etaKnown: v0 は false のみ`);
+  // RD2f-mv: leaveByKnown を v0 hard-false から **derived-only / coherence / ladder**へ緩和。
+  // RD3d-P1: ladder を恒久版へ trim — **leaveByKnown ⟹ etaKnown のみ**（routeKnown を ladder から外す）。
+  //   出発時刻計算には arrival projection（time basis）が必須だが route shape は不要ゆえ、routeKnown=false でも
+  //   etaKnown=true なら leaveByKnown=true は許容される（user_confirmed/scheduled で shape なしに計算する道を開く）。
+  //   false は常に適合。true は etaKnown=true + internal-only displayPolicy を満たす時のみ。
+  //   cross-node coherence（true⟹対応 ern.leaveByComputed computed）は movementLeaveByKnownCoherenceViolations が別途検査。
+  //   ※ 本 slice では etaKnown は依然 false 固定（上記・real route/ETA 供給なし）ゆえ leaveByKnown=true は v0 で事実上不成立=inert。
+  if (m.leaveByKnown.value === true) {
+    if (m.etaKnown.value !== true) out.push(`${m.movementRealityId}.leaveByKnown: ladder 違反（etaKnown=false で leaveByKnown=true 不可・leaveByKnown⟹etaKnown）`);
+    if (m.leaveByKnown.displayPolicy === "visible") out.push(`${m.movementRealityId}.leaveByKnown: displayPolicy が internal-only でない（visible 禁止）`);
+  }
+  if (m.mobilityStatus.value !== "unresolved")
+    out.push(`${m.movementRealityId}.mobilityStatus: 3-K では unresolved のみ`);
+  if (!m.missingInputs.includes("eta_source_missing"))
+    out.push(`${m.movementRealityId}.missingInputs: eta_source_missing を落とさない`);
+  return out;
+}
