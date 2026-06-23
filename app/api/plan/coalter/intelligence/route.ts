@@ -37,6 +37,12 @@ import { COALTER_DEMO_FAIRNESS_LEDGER } from "@/app/(culcept)/plan/tabs/coalter/
 import { buildCoAlterRhythmFit } from "@/app/(culcept)/plan/tabs/coalter/coalterRhythmFit";
 import { buildCoAlterMomentSurface } from "@/app/(culcept)/plan/tabs/coalter/coalterMomentSurface";
 import { COALTER_DEMO_TIMELINE } from "@/app/(culcept)/plan/tabs/coalter/coalterMomentTimeline";
+import { generateTravelItineraries } from "@/lib/coalter/travel/itinerary";
+import {
+  COALTER_DEMO_TRAVEL_SEEDS,
+  COALTER_DEMO_PLACE_LABELS,
+} from "@/app/(culcept)/plan/tabs/coalter/coalterTravelSeedFixture";
+import { buildCoAlterTravelItineraryVM } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelItineraryVM";
 import { buildPlanIntelligenceLiveVM } from "@/app/(culcept)/plan/tabs/coalter/planIntelligenceLiveViewModel";
 
 export const dynamic = "force-dynamic";
@@ -82,12 +88,23 @@ export async function GET(req: NextRequest) {
   const timeline = COALTER_DEMO_TIMELINE[mode];
   const moment = buildCoAlterMomentSurface(timeline.moments, timeline.nowMin, demo.self, demo.partner, partnerName);
 
+  // C6-A: travel mode のみ、既存 solver（generateTravelItineraries・無改修）に demo seeds を渡して
+  //   具体行程を解く → display-safe VM。daily は overnight 行程対象外 → null。書込/外部 API なし。
+  const travelItinerary =
+    mode === "travel"
+      ? buildCoAlterTravelItineraryVM(
+          generateTravelItineraries(COALTER_DEMO_TRAVEL_SEEDS),
+          COALTER_DEMO_PLACE_LABELS,
+        )
+      : null;
+
   const vm = buildPlanIntelligenceLiveVM(result, {
     personalization: { demo: true, ...readout },
     fairnessNudge: fairness ? { demo: true, ...fairness } : null,
     conflictForecast: { demo: true, items: forecast.items },
     rhythmFit: rhythm ? { demo: true, ...rhythm } : null,
     momentSurface: moment ? { demo: true, ...moment } : null,
+    travelItinerary,
   });
 
   return NextResponse.json({ vm });

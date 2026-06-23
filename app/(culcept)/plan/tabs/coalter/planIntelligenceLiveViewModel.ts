@@ -19,6 +19,7 @@ import type { TravelSlotKey } from "@/lib/shared/travel/slot-types";
 import type { RejectedAngleView, SharedProposalView } from "@/lib/shared/travel/shared-proposal-view";
 import type { TravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter-types";
 import { formatBudgetYen } from "@/lib/shared/travel/budget-format";
+import type { TravelItineraryVM } from "./coalterTravelItineraryVM";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 日本語ラベル（UI 文言・未知 key は素通し）
@@ -246,6 +247,8 @@ export interface PlanIntelligenceLiveReadyVM {
   rhythmFit?: RhythmFitVM;
   /** ★ S3-2 additive: 当日 Moment surface（一言がある時のみ・absent は S3-1 と byte 等価）。 */
   momentSurface?: MomentSurfaceVM;
+  /** ★ C6-A additive: 既存 solver（generateTravelItineraries）由来の具体行程（travel mode・候補ありの時のみ）。 */
+  travelItinerary?: TravelItineraryVM;
 }
 
 export type PlanIntelligenceLiveVM =
@@ -303,6 +306,7 @@ export function buildPlanIntelligenceLiveVM(
     conflictForecast?: ConflictForecastVM;
     rhythmFit?: RhythmFitVM | null;
     momentSurface?: MomentSurfaceVM | null;
+    travelItinerary?: TravelItineraryVM | null;
   },
 ): PlanIntelligenceLiveVM {
   if (result.status === "not_ready_missing" || result.status === "not_ready_unconfirmed") {
@@ -357,6 +361,11 @@ export function buildPlanIntelligenceLiveVM(
   const momentSurface = options?.momentSurface;
   if (momentSurface) {
     vm.momentSurface = momentSurface;
+  }
+  // ★ C6-A: travelItinerary は非 null の時のみ載せる（travel mode で solver が候補を返した時だけ）。
+  const travelItinerary = options?.travelItinerary;
+  if (travelItinerary) {
+    vm.travelItinerary = travelItinerary;
   }
   return vm;
 }

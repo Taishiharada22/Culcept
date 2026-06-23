@@ -24,6 +24,7 @@ import type {
   PlanIntelligenceLiveVM,
   RhythmFitVM,
 } from "./planIntelligenceLiveViewModel";
+import type { ItineraryCandidateVM, TravelItineraryVM } from "./coalterTravelItineraryVM";
 import { CheckIcon, ChevronRightIcon } from "./coalterIcons";
 
 const CARD = "rounded-2xl bg-white shadow-[0_4px_16px_rgba(15,23,42,0.08)] ring-1 ring-white/80";
@@ -206,6 +207,70 @@ function MomentSurfaceCard({ m }: { m: MomentSurfaceVM }) {
   );
 }
 
+function ItineraryCandidateBlock({ c }: { c: ItineraryCandidateVM }) {
+  return (
+    <div className="rounded-xl bg-slate-50/80 p-2.5 ring-1 ring-slate-200/50">
+      <div className="flex items-center gap-1.5">
+        <span className="inline-flex rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">
+          案{c.rank}・{c.paretoLabel}
+        </span>
+        <span className="text-[10px] text-slate-400">{c.budgetLabel}</span>
+        <span className="ml-auto text-[10px] text-slate-400">{c.uncertaintyLabel}</span>
+      </div>
+      {c.synthesis && <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{c.synthesis}</p>}
+      {c.days.map((d, di) => (
+        <div key={di} className="mt-1.5">
+          <span className="text-[10px] font-bold text-slate-400">{d.dayLabel}</span>
+          <ol className="mt-0.5 space-y-1">
+            {d.nodes.map((n, i) => (
+              <li key={i} className="flex items-center gap-1.5 text-[11px] text-slate-600">
+                <span className="w-8 shrink-0 font-bold text-violet-500">{n.timeLabel}</span>
+                <span className="truncate">{n.placeLabel}</span>
+                <span className="shrink-0 text-[10px] text-slate-400">{n.activityLabel}</span>
+                {n.anchor ? (
+                  <span className="shrink-0 rounded-full bg-indigo-100 px-1.5 text-[9px] font-bold text-indigo-600">確定</span>
+                ) : (
+                  <span className="shrink-0 rounded-full bg-slate-200 px-1.5 text-[9px] text-slate-500">調整可</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+      {c.warnings.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {c.warnings.map((w, i) => (
+            <span key={i} className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700 ring-1 ring-amber-200/70">
+              {w}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TravelItineraryCard({ t }: { t: TravelItineraryVM }) {
+  return (
+    <div className={`${CARD} p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className={CHIP}>具体行程（試作）</span>
+        {t.demo && (
+          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-200/60">
+            デモ
+          </span>
+        )}
+      </div>
+      <div className="mt-2 space-y-2">
+        {t.candidates.map((c) => (
+          <ItineraryCandidateBlock key={c.rank} c={c} />
+        ))}
+      </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-slate-400">{t.note}</p>
+    </div>
+  );
+}
+
 function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
   return (
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-1 pb-2 pt-0.5">
@@ -244,6 +309,9 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
           )}
         </div>
       </div>
+
+      {/* 具体行程（C6-A・既存 solver 由来の時刻スロット付き行程・travel mode・demo 明示） */}
+      {vm.travelItinerary && <TravelItineraryCard t={vm.travelItinerary} />}
 
       {/* 決めるために（確認・質問） */}
       {(vm.confirmations.length > 0 || vm.questions.length > 0) && (
