@@ -21,6 +21,18 @@ export const PLAN_FLAGS = {
   planRouteLive: process.env.PLAN_ROUTE_LIVE === "true",
 
   /**
+   * Reality OS surface（protect/easy/push の current 比 shift）を CoAlter に出す dormant seam の gate。
+   *   true  : production-shaped seam が描画され得る（**このセッションでは ON にしない**）
+   *   false : 完全非描画（本番デフォルト・dormant）
+   *
+   * env: REALITY_OS_SURFACE_PROD=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   *
+   * P3-9: flag default OFF / fixture-backed / real user assets 非接続。点火（本番 ON）+ 実資産 + deploy は
+   *   CEO 明示 GO 案件（例外台帳）。flag OFF では prop が渡らず seam は描画されない。
+   */
+  realityOsSurfaceProd: process.env.REALITY_OS_SURFACE_PROD === "true",
+
+  /**
    * Home 横スワイプ統合を有効化するか（W1-Home-Swipe）。
    *   true  : Home が <HomeSwipeContainer> でラップされ、Plan pane が swipe で到達可能
    *   false : Home は従来通り単独 <AneurasyncHome />（本番デフォルト、CEO 補正 2026-05-19）

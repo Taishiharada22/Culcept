@@ -14,6 +14,8 @@
  */
 
 import type { FitLabel } from "@/lib/shared/travel/proposal-types";
+import type { RealityOsSurfaceDisplayV0 } from "@/lib/plan/realityPipeline/realityOsSurfacePresenter";
+import { RealityOsSurfacePanel } from "@/app/(culcept)/plan/components/realityOs/RealityOsSurfacePanel";
 import type {
   CandidateVM,
   ConflictForecastVM,
@@ -412,9 +414,21 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
   );
 }
 
-export function PlanIntelligenceLivePanel({ vm }: { vm: PlanIntelligenceLiveVM }) {
+export function PlanIntelligenceLivePanel({
+  vm,
+  realityOsSurface,
+}: {
+  vm: PlanIntelligenceLiveVM;
+  /**
+   * P3-9 dormant seam: Reality OS surface の **redacted 表示VM のみ**（optional・fixture-backed）。
+   *   `realityOsSurfaceProd` flag ON 時に server が渡す。**未指定（flag OFF 既定）→ 完全非描画**。
+   *   raw evidence/graph/ledger は持たない（presenter で既に落ちている）。
+   */
+  realityOsSurface?: RealityOsSurfaceDisplayV0;
+}) {
   return (
     <section aria-label="プランインテリジェンス" className="flex h-full min-h-0 flex-col bg-transparent">
+      {realityOsSurface && <RealityOsSurfacePanel display={realityOsSurface} />}
       {vm.status === "ready" && <ReadyView vm={vm} />}
       {vm.status === "needs_input" && (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-1 pb-2 pt-0.5">
