@@ -17,6 +17,7 @@ import type { FitLabel } from "@/lib/shared/travel/proposal-types";
 import type {
   CandidateVM,
   ConflictForecastVM,
+  MomentSurfaceVM,
   PersonalizationReadoutVM,
   PlanIntelligenceLiveReadyVM,
   PlanIntelligenceLiveVM,
@@ -145,6 +146,26 @@ function ConflictForecastCard({ f }: { f: ConflictForecastVM }) {
   );
 }
 
+function MomentSurfaceCard({ m }: { m: MomentSurfaceVM }) {
+  return (
+    <div className={`${CARD} border-l-4 border-sky-300 p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className={CHIP}>当日のサポート</span>
+        {m.demo && (
+          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-200/60">
+            デモ
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className="text-sm font-bold text-sky-500">{m.timeLabel}</span>
+        <span className="text-[11px] text-slate-500">{m.momentLabel}</span>
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-slate-700">{m.nudge}</p>
+    </div>
+  );
+}
+
 function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
   return (
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-1 pb-2 pt-0.5">
@@ -162,6 +183,9 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
 
       {/* 先にすり合わせたい点（S3-1 衝突先回り・摩擦順・橋渡し付き・demo 明示） */}
       {vm.conflictForecast && <ConflictForecastCard f={vm.conflictForecast} />}
+
+      {/* 当日のサポート（S3-2 Moment surface・次の負荷を先回りケア・demo 明示） */}
+      {vm.momentSurface && <MomentSurfaceCard m={vm.momentSurface} />}
 
       {/* 候補プラン（角度別・横スクロール） */}
       <div>

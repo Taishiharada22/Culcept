@@ -32,6 +32,8 @@ import { COALTER_DEMO_PERSONALIZATION } from "@/app/(culcept)/plan/tabs/coalter/
 import { coalterSessionToTravelEvents } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionToTravelEvents";
 import { buildCoAlterPairTraitReadout } from "@/app/(culcept)/plan/tabs/coalter/coalterPairTraitReadout";
 import { buildCoAlterConflictForecast } from "@/app/(culcept)/plan/tabs/coalter/coalterConflictForecast";
+import { buildCoAlterMomentSurface } from "@/app/(culcept)/plan/tabs/coalter/coalterMomentSurface";
+import { COALTER_DEMO_TIMELINE } from "@/app/(culcept)/plan/tabs/coalter/coalterMomentTimeline";
 import { buildPlanIntelligenceLiveVM } from "@/app/(culcept)/plan/tabs/coalter/planIntelligenceLiveViewModel";
 
 export const dynamic = "force-dynamic";
@@ -66,9 +68,15 @@ export async function GET(req: NextRequest) {
   // S3-1: 2 人が引っ張り合いやすい決定を摩擦順に検出 + 橋渡し（説明レイヤ・engine 順位には入らない）。
   const forecast = buildCoAlterConflictForecast(demo.self, demo.partner, partnerName);
 
+  // S3-2: 当日 demo タイムライン + 固定 nowMin で、次の負荷 moment の状態ケア一言を先回り。
+  //   demo timeline（Date.now なし）+ demo 軸を pure 関数に通すだけ（DB/runtime なし）。
+  const timeline = COALTER_DEMO_TIMELINE[mode];
+  const moment = buildCoAlterMomentSurface(timeline.moments, timeline.nowMin, demo.self, demo.partner, partnerName);
+
   const vm = buildPlanIntelligenceLiveVM(result, {
     personalization: { demo: true, ...readout },
     conflictForecast: { demo: true, items: forecast.items },
+    momentSurface: moment ? { demo: true, ...moment } : null,
   });
 
   return NextResponse.json({ vm });

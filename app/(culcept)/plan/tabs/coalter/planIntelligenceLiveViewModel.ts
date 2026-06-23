@@ -176,6 +176,22 @@ export interface ConflictForecastVM {
   items: ConflictForecastItemVM[];
 }
 
+/**
+ * S3-2 — 当日 Moment surface（**additive・optional**）。
+ *   進行中の当日、次の負荷 moment で消耗しそうな人を先回りするケアの一言。
+ *   null（次の負荷なし／誰も confident に弱くない）→ VM に載せない（捏造しない＝honesty）。
+ */
+export interface MomentSurfaceVM {
+  /** true = preview 用 demo 軸 + demo タイムライン。UI にバッジ表示する。 */
+  demo: boolean;
+  /** 対象 moment の時刻（例「14:00」）。 */
+  timeLabel: string;
+  /** 場面ラベル。 */
+  momentLabel: string;
+  /** ケアの一言（raw 値なし）。 */
+  nudge: string;
+}
+
 export interface PlanIntelligenceLiveReadyVM {
   status: "ready";
   candidates: CandidateVM[];
@@ -195,6 +211,8 @@ export interface PlanIntelligenceLiveReadyVM {
   personalization?: PersonalizationReadoutVM;
   /** ★ S3-1 additive: 衝突先回り（items が 1 件以上の時のみ・absent は S2 と byte 等価）。 */
   conflictForecast?: ConflictForecastVM;
+  /** ★ S3-2 additive: 当日 Moment surface（一言がある時のみ・absent は S3-1 と byte 等価）。 */
+  momentSurface?: MomentSurfaceVM;
 }
 
 export type PlanIntelligenceLiveVM =
@@ -242,10 +260,15 @@ function rejectReason(view: RejectedAngleView): string {
  *     （absent → S1 と byte 等価・既存呼び出しは無改修で通る）。
  *   @param options.conflictForecast S3-1 additive。items が 1 件以上の時のみ載せる
  *     （absent / 空 items → S2 と byte 等価）。
+ *   @param options.momentSurface S3-2 additive。非 null の時のみ載せる（absent → S3-1 と byte 等価）。
  */
 export function buildPlanIntelligenceLiveVM(
   result: TravelPlanDisplayResult,
-  options?: { personalization?: PersonalizationReadoutVM; conflictForecast?: ConflictForecastVM },
+  options?: {
+    personalization?: PersonalizationReadoutVM;
+    conflictForecast?: ConflictForecastVM;
+    momentSurface?: MomentSurfaceVM | null;
+  },
 ): PlanIntelligenceLiveVM {
   if (result.status === "not_ready_missing" || result.status === "not_ready_unconfirmed") {
     return {
@@ -284,6 +307,11 @@ export function buildPlanIntelligenceLiveVM(
   const conflictForecast = options?.conflictForecast;
   if (conflictForecast && conflictForecast.items.length > 0) {
     vm.conflictForecast = conflictForecast;
+  }
+  // ★ S3-2: momentSurface は非 null の時のみ載せる（次の負荷なし／誰も弱くない → 省く＝honesty）。
+  const momentSurface = options?.momentSurface;
+  if (momentSurface) {
+    vm.momentSurface = momentSurface;
   }
   return vm;
 }
