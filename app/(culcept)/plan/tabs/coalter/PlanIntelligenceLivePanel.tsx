@@ -272,11 +272,29 @@ function TravelItineraryCard({ t }: { t: TravelItineraryVM }) {
           </span>
         )}
       </div>
+      {t.readinessNote && (
+        <p className="mt-1.5 text-[11px] font-bold text-emerald-600">{t.readinessNote}</p>
+      )}
       <div className="mt-2 space-y-2">
         {t.candidates.map((c) => (
           <ItineraryCandidateBlock key={c.rank} c={c} />
         ))}
       </div>
+      {t.contingency && t.contingency.branches.length > 0 && (
+        <div className="mt-2 rounded-xl bg-sky-50/70 p-2.5 ring-1 ring-sky-200/50">
+          <span className="text-[10px] font-bold text-sky-600">当日の備え（事前分岐）</span>
+          <ul className="mt-1 space-y-1">
+            {t.contingency.branches.map((b, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-600">
+                <span className="shrink-0 rounded-full bg-white px-1.5 text-[10px] font-bold text-sky-600 ring-1 ring-sky-200/60">
+                  {b.trigger}
+                </span>
+                {b.advice}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="mt-2 text-[10px] leading-relaxed text-slate-400">{t.note}</p>
     </div>
   );

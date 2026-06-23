@@ -18,6 +18,7 @@ import type {
 } from "@/lib/coalter/travel/itinerary";
 // ★ server/display preparation only（UI は呼ばない）。本 VM builder は route から server 実行される。
 import { prepareTravelExternalLinkHrefModels } from "@/lib/shared/travel/travel-external-link-preparation";
+import { buildCoAlterDayContingency, type DayContingencyVM } from "./coalterDayContingency";
 import type {
   TravelActivityType,
   TravelAnchorLevel,
@@ -113,6 +114,10 @@ export interface TravelItineraryVM {
   candidates: ItineraryCandidateVM[];
   /** honest note（時刻はスロット目安・実経路で確定）。 */
   note: string;
+  /** ★ P2: 当日の備え（solver ネイティブ事前分岐・雨/疲れ/移動）。 */
+  contingency?: DayContingencyVM;
+  /** ★ P2: 提案の確度ひとこと（solver の uncertaintyLabel 由来）。 */
+  readinessNote?: string;
 }
 
 function budgetLabel(hi: number): string {
@@ -193,5 +198,15 @@ export function buildCoAlterTravelItineraryVM(
     };
   });
 
-  return { demo: true, candidates, note: NOTE };
+  // ★ P2: 当日の備え（事前分岐）+ 確度ひとこと（solver の事実から）。
+  const contingency = buildCoAlterDayContingency(output) ?? undefined;
+  const topUnc = output.rankedCandidates[0]?.uncertaintyLabel;
+  const readinessNote =
+    topUnc === "high_confidence" || topUnc === "mid_confidence"
+      ? "この内容で提案できます"
+      : topUnc
+        ? "もう少し情報があると、より確かにできます"
+        : undefined;
+
+  return { demo: true, candidates, note: NOTE, contingency, readinessNote };
 }
