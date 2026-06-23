@@ -28,7 +28,7 @@ import {
   COALTER_PLAN_SESSION_FIXTURES,
   type CoAlterPlanMode,
 } from "@/app/(culcept)/plan/tabs/coalter/coalterPlanSessionFixture";
-import { COALTER_DEMO_PERSONALIZATION } from "@/app/(culcept)/plan/tabs/coalter/coalterPersonalizationFixture";
+import { resolveCoAlterPersonalizationPair } from "@/app/(culcept)/plan/tabs/coalter/coalterPersonalizationResolver";
 import { coalterSessionToTravelEvents } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionToTravelEvents";
 import { buildCoAlterPairTraitReadout } from "@/app/(culcept)/plan/tabs/coalter/coalterPairTraitReadout";
 import { buildCoAlterConflictForecast } from "@/app/(culcept)/plan/tabs/coalter/coalterConflictForecast";
@@ -75,9 +75,13 @@ export async function GET(req: NextRequest) {
   const session = COALTER_PLAN_SESSION_FIXTURES[mode];
   const events = coalterSessionToTravelEvents(session);
 
-  // S2: demo personalization。self 軸 → pure derive → bounded soft preference → engine 注入（順位に効く）。
-  //   demo 軸 fixture を pure 関数に通すだけ（snapshotReader/DB/runtime なし）。
-  const demo = COALTER_DEMO_PERSONALIZATION[mode];
+  // S2/P4: personalization 源を resolver で 1 点集約（**実読み swap 点**）。self 軸 → pure derive →
+  //   bounded soft preference → engine 注入（順位に効く）。
+  //   ★ 実データ接続（#9・本番）: PLAN_FLAGS.coalterPersonalizationRealRead を gate に、auth client +
+  //     getPersonalizationSnapshot(viewer) を read して下の realSelf に渡すだけで全 downstream が実軸で動く
+  //     （partner は M2-B/RLS で demo 固定）。staging は軸なし→null→demo（挙動不変）。本 fetch は #9 の作業。
+  const realSelf = null; // ← #9 swap 点（実 fetch をここに）
+  const demo = resolveCoAlterPersonalizationPair(mode, { realSelf });
   const selfPlanParams = derivePlanParams(demo.self);
   const selfTravelTraits = deriveTravelTraits(demo.self);
   const softPersonalization = mapPersonalizationToM2SoftPreference(selfPlanParams, selfTravelTraits);

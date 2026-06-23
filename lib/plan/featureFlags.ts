@@ -668,6 +668,14 @@ export const PLAN_FLAGS = {
    *   display-safe payload のみ返す・距離/地図/時刻は solver 未実装のため算出しない（捏造しない）。
    */
   coalterEngineLive: process.env.NEXT_PUBLIC_PLAN_COALTER_ENGINE_LIVE === "true",
+
+  /**
+   * P4: CoAlter personalization の **実データ読み**（M2 snapshotReader 経由）。既定 false（demo 軸のまま）。
+   *   ON にすると route が viewer の実軸を read して self に注入する（partner は M2-B/RLS で demo 固定）。
+   *   ★ 実 fetch（auth client + getPersonalizationSnapshot）の配線は #9（本番接続）の作業。
+   *     本 flag は swap 点の gate として先に用意（staging は軸なし→null→demo fallback）。
+   */
+  coalterPersonalizationRealRead: process.env.PLAN_COALTER_PERSONALIZATION_REAL_READ === "true",
 } as const;
 
 /**
