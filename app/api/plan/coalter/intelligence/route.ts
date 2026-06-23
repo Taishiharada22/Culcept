@@ -32,6 +32,8 @@ import { COALTER_DEMO_PERSONALIZATION } from "@/app/(culcept)/plan/tabs/coalter/
 import { coalterSessionToTravelEvents } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionToTravelEvents";
 import { buildCoAlterPairTraitReadout } from "@/app/(culcept)/plan/tabs/coalter/coalterPairTraitReadout";
 import { buildCoAlterConflictForecast } from "@/app/(culcept)/plan/tabs/coalter/coalterConflictForecast";
+import { buildCoAlterFairnessNudge } from "@/app/(culcept)/plan/tabs/coalter/coalterFairnessNudge";
+import { COALTER_DEMO_FAIRNESS_LEDGER } from "@/app/(culcept)/plan/tabs/coalter/coalterFairnessFixture";
 import { buildCoAlterRhythmFit } from "@/app/(culcept)/plan/tabs/coalter/coalterRhythmFit";
 import { buildCoAlterMomentSurface } from "@/app/(culcept)/plan/tabs/coalter/coalterMomentSurface";
 import { COALTER_DEMO_TIMELINE } from "@/app/(culcept)/plan/tabs/coalter/coalterMomentTimeline";
@@ -66,6 +68,9 @@ export async function GET(req: NextRequest) {
   const partnerName = session.participants[1]?.name ?? "お相手";
   const readout = buildCoAlterPairTraitReadout(demo.self, demo.partner, partnerName);
 
+  // S4-1: 公平性台帳（demo・読み取りのみ・DB 書込なし）→ 「今回はどちらの番」。均衡/履歴なしは null。
+  const fairness = buildCoAlterFairnessNudge(COALTER_DEMO_FAIRNESS_LEDGER, partnerName);
+
   // S3-1: 2 人が引っ張り合いやすい決定を摩擦順に検出 + 橋渡し（説明レイヤ・engine 順位には入らない）。
   const forecast = buildCoAlterConflictForecast(demo.self, demo.partner, partnerName);
 
@@ -79,6 +84,7 @@ export async function GET(req: NextRequest) {
 
   const vm = buildPlanIntelligenceLiveVM(result, {
     personalization: { demo: true, ...readout },
+    fairnessNudge: fairness ? { demo: true, ...fairness } : null,
     conflictForecast: { demo: true, items: forecast.items },
     rhythmFit: rhythm ? { demo: true, ...rhythm } : null,
     momentSurface: moment ? { demo: true, ...moment } : null,

@@ -17,6 +17,7 @@ import type { FitLabel } from "@/lib/shared/travel/proposal-types";
 import type {
   CandidateVM,
   ConflictForecastVM,
+  FairnessNudgeVM,
   MomentSurfaceVM,
   PersonalizationReadoutVM,
   PlanIntelligenceLiveReadyVM,
@@ -79,6 +80,22 @@ function LiveCandidateCard({ c }: { c: CandidateVM }) {
       {c.missingLabels.length > 0 && (
         <div className="mt-1 text-[10px] text-amber-600">未定: {c.missingLabels.join("・")}</div>
       )}
+    </div>
+  );
+}
+
+function FairnessNudgeCard({ f }: { f: FairnessNudgeVM }) {
+  return (
+    <div className={`${CARD} border-l-4 border-amber-300 p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className={CHIP}>これまでの釣り合い</span>
+        {f.demo && (
+          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-200/60">
+            デモ
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-slate-700">{f.message}</p>
     </div>
   );
 }
@@ -200,6 +217,9 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
         </div>
         {vm.decision.why && <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{vm.decision.why}</p>}
       </div>
+
+      {/* これまでの釣り合い（S4-1 公平性・セッション横断・関係の時間軸・demo 明示） */}
+      {vm.fairnessNudge && <FairnessNudgeCard f={vm.fairnessNudge} />}
 
       {/* あなたの観測 + 2 人の一致点（S2 personalization・demo 明示） */}
       {vm.personalization && <PersonalizationCard p={vm.personalization} />}

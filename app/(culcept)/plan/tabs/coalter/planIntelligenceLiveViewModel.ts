@@ -177,6 +177,21 @@ export interface ConflictForecastVM {
 }
 
 /**
+ * S4-1 — これまでの釣り合い（公平性）（**additive・optional**）。
+ *   公平性台帳の直近の偏りから「今回はどちらの希望を立てるか」。セッション横断の唯一の軸。
+ *   null（おおむね均衡／履歴なし）→ VM に載せない（どちらの番とも捏造しない＝honesty）。
+ *   **読み取り表示のみ**（台帳への書込はしない）。
+ */
+export interface FairnessNudgeVM {
+  /** true = preview 用 demo 台帳。UI にバッジ表示する。 */
+  demo: boolean;
+  /** self=あなた寄り / partner=相手寄り（直近）。 */
+  leaning: "self" | "partner";
+  /** 釣り合いの一言（raw な bias 値なし）。 */
+  message: string;
+}
+
+/**
  * S3-3 — 一日のリズム（**additive・optional**）。
  *   2 人の energy_rhythm（充電↔消費）から、二人に合う一日の構成的なかたちを提案。
  *   null（片側でも材料不足）→ VM に載せない（リズムを捏造しない＝honesty）。
@@ -223,6 +238,8 @@ export interface PlanIntelligenceLiveReadyVM {
   physical: { resolved: false; note: string };
   /** ★ S2 additive: personalization 反映の readout（注入時のみ・absent は S1 と byte 等価）。 */
   personalization?: PersonalizationReadoutVM;
+  /** ★ S4-1 additive: これまでの釣り合い（均衡でない時のみ・absent は S3 と byte 等価・読み取りのみ）。 */
+  fairnessNudge?: FairnessNudgeVM;
   /** ★ S3-1 additive: 衝突先回り（items が 1 件以上の時のみ・absent は S2 と byte 等価）。 */
   conflictForecast?: ConflictForecastVM;
   /** ★ S3-3 additive: 一日のリズム（材料十分な時のみ・absent は S3-1 と byte 等価）。 */
@@ -282,6 +299,7 @@ export function buildPlanIntelligenceLiveVM(
   result: TravelPlanDisplayResult,
   options?: {
     personalization?: PersonalizationReadoutVM;
+    fairnessNudge?: FairnessNudgeVM | null;
     conflictForecast?: ConflictForecastVM;
     rhythmFit?: RhythmFitVM | null;
     momentSurface?: MomentSurfaceVM | null;
@@ -319,6 +337,11 @@ export function buildPlanIntelligenceLiveVM(
   const personalization = options?.personalization;
   if (personalization && (personalization.selfReadout.length > 0 || personalization.pairReadout.length > 0)) {
     vm.personalization = personalization;
+  }
+  // ★ S4-1: fairnessNudge は非 null の時のみ載せる（均衡／履歴なし → 省く＝honesty・読み取りのみ）。
+  const fairnessNudge = options?.fairnessNudge;
+  if (fairnessNudge) {
+    vm.fairnessNudge = fairnessNudge;
   }
   // ★ S3-1: conflictForecast は items が 1 件以上の時のみ載せる（摩擦ゼロ／材料不足は省く＝honesty）。
   const conflictForecast = options?.conflictForecast;
