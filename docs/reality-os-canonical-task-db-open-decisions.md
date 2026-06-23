@@ -3,6 +3,7 @@
 - **作成日**: 2026-06-21
 - **目的**: RO-9 / RO-10 / `sql.draft` で未確定/再確認の項目を、**CEO が裁定できる形**に集約。migration GO（`supabase/migrations/` 昇格）前の最終 gating doc。
 - **状態**: docs-only。実装・SQL 作成・migration 昇格・DB 接続は一切なし。
+- **裁定反映**: 2026-06-21 CEO が **全 13 項目を推奨案で採用**（本 doc に反映済）。ただし docs 上の裁定反映のみ。sql.draft 改訂 / migration 昇格 / supabase/migrations 追加 / DB 接続 / staging dry-run / local Supabase start は **未実施・別 GO**。
 - **出典**: 旧RO `42ab074bc` の `docs/reality-os-ro9-task-store-persistence-design.md` §11 / `docs/reality-os-ro10-canonical-task-migration-readiness.md` §12 / `docs/reality-os-ro10-canonical-task-migration.sql.draft`
 - **本セッションでは扱わない**: CoAlter / Origin / Travel / root asset / UI 配線 / RO 残 pure kernel 全般
 
@@ -28,7 +29,7 @@
 4. **反対案**: `plan_tasks`（plan ドメイン整合・短い）。ただし既存 `plan_seeds`（candidate seed＝別概念）と紛らわしい。
 5. **影響範囲**: table 名・全 RLS policy 名・index 名・trigger 関数名・将来 repository 層の symbol。
 6. **未決のまま進むリスク**: sql.draft が `canonical_tasks` で進んでおり、別名採用なら draft 書き直し＋RO-9/10 doc 整合修正が発生（migration apply 後の rename は重コスト）。
-7. **CEO 裁定**: ☐ `canonical_tasks` / ☐ `plan_tasks` / ☐ 他: ___________
+7. **CEO 裁定**: ☑ **`canonical_tasks`** / ☐ `plan_tasks` / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -40,7 +41,7 @@
 4. **反対案**: hard delete（ストレージ最小化）。ただし観測価値喪失と不可逆性が大きい。
 5. **影響範囲**: schema（`archived_at` 列）/ index `idx_canonical_tasks_user_active`（partial）/ UI 既定 query / privacy 削除要求対応（archive vs purge の区別が要る）。
 6. **未決のまま進むリスク**: 後から soft → hard 退避（archive データ消失）は不可逆。
-7. **CEO 裁定**: ☐ soft archive（推奨確認） / ☐ hard delete / ☐ 他
+7. **CEO 裁定**: ☑ **soft archive（`archived_at`）** / ☐ hard delete / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -52,7 +53,7 @@
 4. **反対案**: 1値固定（`daily_orbit` のみ）→ 後で CHECK 制約変更（重 migration）が要る。
 5. **影響範囲**: CHECK 制約 / `UNIQUE(user_id, source_kind, source_task_id)` の dedup 粒度 / 将来の入力経路設計。
 6. **未決のまま進むリスク**: 1値で固めると後の `manual`/`import` 追加が migration 化必要。3値固定なら additive で済む。
-7. **CEO 裁定**: ☐ 3値推奨 / ☐ 1値固定 / ☐ 他値追加: ___________
+7. **CEO 裁定**: ☑ **3値（`daily_orbit`/`manual`/`import`）** / ☐ 1値固定 / ☐ 他値追加 — ✅ 2026-06-21 採用
 
 ---
 
@@ -64,7 +65,7 @@
 4. **反対案**: `timetz`（tz 付き）。ただし `time` 列に tz を載せる場面は少なく、過設計。
 5. **影響範囲**: 列型 / projection 層の JST 合成 / 将来「tz 跨ぎ user」を扱う際の追加設計（v0 では非対応）。
 6. **未決のまま進むリスク**: tz 跨ぎ user（海外移動・JST 外居住）は将来課題として持ち越し。v0 で約束しすぎると後で削るほうが難しい。
-7. **CEO 裁定**: ☐ naive time（推奨確認） / ☐ timetz / ☐ 他
+7. **CEO 裁定**: ☑ **naive `time` + projection JST 合成** / ☐ timetz / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -76,7 +77,7 @@
 4. **反対案**: instance も永続（完了状態の per-instance 記録が容易）。だが正本問題と冪等 migration の難度が跳ね上がる。
 5. **影響範囲**: schema / migration extraction の複雑度 / per-instance 完了状態の表現方法（将来課題）。
 6. **未決のまま進むリスク**: per-instance 完了の表現が決まらないまま UI 設計に進むと、completed フラグの解釈が分裂する。
-7. **CEO 裁定**: ☐ 定義のみ（推奨確認） / ☐ instance も永続 / ☐ 他
+7. **CEO 裁定**: ☑ **定義のみ store（instance 非永続）** / ☐ instance も永続 / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -88,7 +89,7 @@
 4. **反対案**: 管理 job（service_role）で全 user 一括移送。速度は出るが RLS bypass のため CEO 安全則違反。
 5. **影響範囲**: migration 実行手順 / 失敗時 retry の粒度（user 単位） / 監査ログ。
 6. **未決のまま進むリスク**: service_role 経路を許す決定が紛れると、staging dry-run も production も RLS 検証が無意味化。
-7. **CEO 裁定**: ☐ owner batch + service_role 不使用（推奨確認） / ☐ 管理 job 許可 / ☐ 他
+7. **CEO 裁定**: ☑ **owner batch + service_role/SECURITY DEFINER 不使用** / ☐ 管理 job 許可 / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -100,7 +101,7 @@
 4. **反対案**: staging table（`canonical_tasks_import` 等）方式。隔離は強いが運用複雑。
 5. **影響範囲**: schema（一時列の有無）/ migration extraction SQL の構造 / DROP 漏れ時の schema 汚染。
 6. **未決のまま進むリスク**: dry-run 直前まで決まらないと dry-run checklist が組めない。
-7. **CEO 裁定**: ☐ 一時列（推奨） / ☐ staging table / ☐ 他
+7. **CEO 裁定**: ☑ **一時列 `_source_parent_id`（移行後 DROP）** / ☐ staging table / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -112,7 +113,7 @@
 4. **反対案**: 同セッションで合わせて決める → スコープ膨張・UI 配線禁止則違反。
 5. **影響範囲**: 別 GO セッションの責務範囲 / `source_kind='manual'` の活用タイミング。
 6. **未決のまま進むリスク**: scope 混線で「migration GO」と「UI GO」が同じ判断と誤認される。
-7. **CEO 裁定**: ☐ scope 外で明示分離（推奨） / ☐ 本セッションに取り込む
+7. **CEO 裁定**: ☑ **scope 外で明示分離（別 GO・今は扱わない）** / ☐ 本セッションに取り込む — ✅ 2026-06-21 採用
 
 ---
 
@@ -124,7 +125,7 @@
 4. **反対案**: 完了即時 archive / 7日後 archive 等。
 5. **影響範囲**: kernel/UI の表示 default / 観測データ滞留期間 / Archive 一覧 UX。
 6. **未決のまま進むリスク**: 自動化前提で UI 設計が進むと、後の方針変更で見え方が大きく変わる。
-7. **CEO 裁定**: ☐ v0 手動のみ（推奨） / ☐ 完了即時 archive / ☐ N日後 archive（N=___）/ ☐ 他
+7. **CEO 裁定**: ☑ **v0 手動 archive のみ（自動化なし）** / ☐ 完了即時 archive / ☐ N日後 archive / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -147,7 +148,7 @@
 4. **反対案**: 一部省略（時短）。だが冪等性 or RLS 抜けは production で復旧不可級。
 5. **影響範囲**: dry-run の所要時間 / production GO 判断材料 / 監査記録。
 6. **未決のまま進むリスク**: staging が緩いと production apply で初めて欠陥に出会う。
-7. **CEO 裁定**: ☐ 11 step 必須・順序固定（推奨確認） / ☐ 緩和（緩和項目: ___________）
+7. **CEO 裁定**: ☑ **11 step 必須・順序固定（production 前に必須）** / ☐ 緩和 — ✅ 2026-06-21 採用
 
 ---
 
@@ -162,7 +163,7 @@
 4. **反対案**: (a) のみで済ます（時短）。だが (b) 抜けは**他 user データ漏洩**、(c) 抜けは**production 直撃**。
 5. **影響範囲**: dry-run スクリプトの構成 / staging ユーザ 2 アカウント準備。
 6. **未決のまま進むリスク**: RLS の non-functional 部分（隔離・誤接続）が production まで残る。
-7. **CEO 裁定**: ☐ (a)(b)(c) 必須（推奨） / ☐ (a)(b) のみ / ☐ 他
+7. **CEO 裁定**: ☑ **(a) 自分 read 可 / (b) 他者 reject / (c) production-url reject 必須** / ☐ (a)(b) のみ / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
@@ -178,7 +179,7 @@
 4. **反対案**: (d) を省く。だが migration 中断時に再 run が壊れたら復旧手段が無い。
 5. **影響範囲**: rollback 手順書 / 中断時 SOP / 監査記録。
 6. **未決のまま進むリスク**: 中断時に「戻す/再開する」のどちらも手順未確定なら GO 判断不能。
-7. **CEO 裁定**: ☐ 4 点必須（推奨） / ☐ 緩和: ___________
+7. **CEO 裁定**: ☑ **DROP table + DROP function + 元データ不変 + 再apply冪等 の 4 点必須** / ☐ 緩和 — ✅ 2026-06-21 採用
 
 ---
 
@@ -196,30 +197,30 @@
 4. **反対案**: (e)(f) のみで省略（高速）。だが過去事故（production-link worktree 残存）の再発リスク。
 5. **影響範囲**: production apply の意思決定プロトコル / 監査ログ / CEO 承認形式。
 6. **未決のまま進むリスク**: gate が緩いと「staging OK→そのまま production」が起きて事故源化。
-7. **CEO 裁定**: ☐ 6 条件 AND（推奨） / ☐ (e)(f) のみ / ☐ 他: ___________
+7. **CEO 裁定**: ☑ **dry-run 全PASS + link 二重確認 + CEO 明示 GO + backup 後のみ（6 条件 AND）** / ☐ (e)(f) のみ / ☐ 他 — ✅ 2026-06-21 採用
 
 ---
 
-## まとめ: 未裁定一覧（13項目）
+## まとめ: 裁定一覧（13項目・✅ 2026-06-21 全採用）
 
-| # | 項目 | 種別 | 推奨案要約 |
+| # | 項目 | 種別 | 裁定（= 推奨案を採用） |
 |---|---|---|---|
-| 1 | table 名 | 🆕 | `canonical_tasks` |
-| 2 | soft archive | 🔁 | soft archive（archived_at） |
-| 3 | source_kind | 🆕 | 3値（daily_orbit/manual/import） |
-| 4 | due_time tz | 🔁 | naive time + projection JST 合成 |
-| 5 | recurring instance | 🔁 | 定義のみ store |
-| 6 | migration runner | 🆕 | owner batch + service_role 不使用 |
-| 7 | parentId two-pass | 🆕 | 一時列 `_source_parent_id`（DROP） |
-| 8 | task input UX | 📦 | scope 外（別 GO） |
-| 9 | archive 自動化 | 🆕 | v0 手動のみ |
-| 10 | staging dry-run | 🔁 | RO-10 §7 11 step 必須 |
-| 11 | RLS smoke | 🔁 | (a)(b)(c) 3 ケース必須 |
-| 12 | rollback rehearsal | 🔁 | 4 点必須 |
-| 13 | production apply gate | 🆕 | 6 条件 AND |
+| 1 | table 名 | 🆕 | ✅ `canonical_tasks` |
+| 2 | soft archive | 🔁 | ✅ soft archive（archived_at） |
+| 3 | source_kind | 🆕 | ✅ 3値（daily_orbit/manual/import） |
+| 4 | due_time tz | 🔁 | ✅ naive time + projection JST 合成 |
+| 5 | recurring instance | 🔁 | ✅ 定義のみ store（instance 非永続） |
+| 6 | migration runner | 🆕 | ✅ owner batch + service_role/SECURITY DEFINER 不使用 |
+| 7 | parentId two-pass | 🆕 | ✅ 一時列 `_source_parent_id`（移行後 DROP） |
+| 8 | task input UX | 📦 | ✅ scope 外（別 GO・今は扱わない） |
+| 9 | archive 自動化 | 🆕 | ✅ v0 手動のみ |
+| 10 | staging dry-run | 🔁 | ✅ RO-10 §7 11 step 必須・順序固定 |
+| 11 | RLS smoke | 🔁 | ✅ (a)自分read可 / (b)他者reject / (c)production-url reject 必須 |
+| 12 | rollback rehearsal | 🔁 | ✅ DROP + 元データ不変 + 再apply冪等 の 4 点必須 |
+| 13 | production apply gate | 🔁 | ✅ dry-run全PASS + link二重確認 + CEO明示GO + backup（6 条件 AND） |
 
-**migration 化前に必要な CEO 判断 = 全 13 項目の裁定欄記入。**
-裁定後の次段階 = `.sql.draft` を `supabase/migrations/<ts>_canonical_tasks.sql` へ昇格（**裁定 + CEO GO 後のみ**）。
+**全 13 項目 裁定済（2026-06-21 CEO 全採用）。** これは **docs 上の裁定反映のみ**。
+裁定後の次段階 = `.sql.draft` を `supabase/migrations/<ts>_canonical_tasks.sql` へ昇格（**別 GO・本 doc では実施しない**）。次の本セッション作業 = **RO-11 dry-run preflight（docs-only）**。
 
 ---
 
