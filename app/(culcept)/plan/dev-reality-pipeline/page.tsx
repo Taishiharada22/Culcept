@@ -42,6 +42,7 @@ import type { ContextSnapshot } from "@/lib/plan/context/contextModifier";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { RealityPipelinePreviewClient, type RealityPipelinePreviewMeta, type LifeOpsActionResultToken } from "./RealityPipelinePreviewClient";
 import { submitLifeOpsFeedbackAction } from "./actions";
+import { buildRealityOsPreviewDisplay } from "./realityOsPreviewFixture";
 
 /** A-4-c17/c18: redirect token の allowlist（URL 生値を表示系へ流さない）。 */
 const LIFEOPS_FB_TOKENS = new Set(["ok", "ok_done", "gate_off", "duplicate_cooldown", "insert_failed", "invalid", "denied"]);
@@ -160,6 +161,9 @@ export default async function DevRealityPipelinePage({
     else lifeOpsActionResult = lifeOpsActionResult ?? "invalid";
   }
 
+  // P3-6: Reality OS surface 観測（**dev fixture・redacted 表示VM のみ**・real user assets 非接続・gate 後のみ構築）。
+  const realityOsDisplay = buildRealityOsPreviewDisplay();
+
   return (
     <RealityPipelinePreviewClient
       envelope={envelope}
@@ -169,6 +173,7 @@ export default async function DevRealityPipelinePage({
       feedbackAction={submitLifeOpsFeedbackAction}
       lifeOpsActionResult={lifeOpsActionResult}
       pendingDone={pendingDone}
+      realityOsDisplay={realityOsDisplay}
     />
   );
 }
