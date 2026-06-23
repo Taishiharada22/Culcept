@@ -49,8 +49,9 @@ describe("1. ready → display-safe", () => {
     for (const f of ["\"server\"", "executionAuthority\":true", "TravelPlanEngineInput", "diagnostics", "provenance", "\"authoritative\":true"]) {
       expect(json).not.toContain(f);
     }
-    // 出力 payload は packet/projection/cues のみ
-    expect(Object.keys(r.display).sort()).toEqual(["cues", "packet", "projection"]);
+    // 出力 payload は display-safe な projection のみ（proposalsDisplay は S1 additive の SharedProposalView 射影＝
+    //   forParticipant/raw rationale を構造的に持たない・M5 leak 不能）。
+    expect(Object.keys(r.display).sort()).toEqual(["cues", "packet", "projection", "proposalsDisplay"]);
   });
   it("cues に execute/book/schedule/send action が無い（display cue のみ）", () => {
     const r = buildTravelPlanDisplayResult(input(READY_EVENTS), PROD);

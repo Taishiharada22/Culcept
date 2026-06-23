@@ -9,12 +9,14 @@
  * 厳守（純・決定論）:
  *   - solver / scoring engine / 場所検索 / 経路検索 / LLM / I/O なし。
  *   - 順序付けは「soft 一致数 → 角度固定順」の決定論ラベルのみ。
- *   - import は core-types / core-helpers / slot-types / proposal-types のみ（M2/CoAlter/TalkBridge 非依存）。
+ *   - import は core-types / core-helpers / slot-types / proposal-types / budget-format（純・無依存の表示整形）のみ
+ *     （M2/CoAlter/TalkBridge 非依存）。
  *   - ★ private 条件は候補 validity に影響してよいが、**shared rationale / shared 射影に漏らさない**（M5）。
  */
 
 import type { BudgetBand, Pace, UncertaintyLevel, Visibility } from "./core-types";
 import { validateParticipantsForMvp } from "./core-helpers";
+import { formatBudgetYen } from "./budget-format";
 import type { DateOrRangeValue, DescriptorKey, ExtractedSlot, MissingSlotQuestion, TravelSlotKey } from "./slot-types";
 import {
   MVP_MAX_PROPOSALS,
@@ -229,7 +231,7 @@ function buildRationale(angle: ProposalAngle, eff: EffectiveConditions, matches:
   // 解決スカラ条件
   const scalars: { f: ResolvedField<unknown> | null; shared: string; priv: string }[] = [
     { f: eff.destination, shared: `${eff.destination?.value} 方面`, priv: `行き先（${eff.destination?.value}）` },
-    { f: eff.budget, shared: `予算 ~${eff.budget?.value.hi}円`, priv: `予算 ~${eff.budget?.value.hi}円` },
+    { f: eff.budget, shared: `予算 ~${formatBudgetYen(eff.budget?.value.hi ?? 0)}`, priv: `予算 ~${formatBudgetYen(eff.budget?.value.hi ?? 0)}` },
     { f: eff.mobility, shared: "移動は控えめ", priv: "移動を控えめに" },
     { f: eff.timeWindow, shared: eff.timeWindow?.value.returnByMin !== undefined ? `${Math.floor((eff.timeWindow?.value.returnByMin ?? 0) / 60)}時帰宅` : "時間に配慮", priv: "帰宅時間に配慮" },
   ];

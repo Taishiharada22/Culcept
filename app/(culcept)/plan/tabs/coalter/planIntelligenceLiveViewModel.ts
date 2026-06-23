@@ -18,6 +18,7 @@ import type { NextAction } from "@/lib/shared/travel/packet-types";
 import type { TravelSlotKey } from "@/lib/shared/travel/slot-types";
 import type { RejectedAngleView, SharedProposalView } from "@/lib/shared/travel/shared-proposal-view";
 import type { TravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter-types";
+import { formatBudgetYen } from "@/lib/shared/travel/budget-format";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 日本語ラベル（UI 文言・未知 key は素通し）
@@ -149,8 +150,30 @@ export interface PersonalizationReadoutVM {
   demo: boolean;
   /** viewer 本人の傾向（confidence 十分な軸のみ・空可）。 */
   selfReadout: string[];
-  /** 2 人の一致 / 差（両者とも confidence 十分な軸のみ・空可）。 */
+  /** 2 人の一致点のみ（両者とも confidence 十分・同方向の軸・空可）。相違点は conflictForecast へ。 */
   pairReadout: string[];
+}
+
+/**
+ * S3-1 — 衝突先回り（**additive・optional**）。
+ *   2 人が引っ張り合いやすい決定を摩擦リスク順に・各々の橋渡し付きで出す。
+ *   `demo` は personalization と同様、観測の出自（preview demo 軸 = true）。
+ *   items は空可（摩擦なし／材料不足）→ 空なら VM に載せない（中身がある時だけ＝honesty）。
+ */
+export interface ConflictForecastItemVM {
+  /** どの決定で引っ張り合うか（例「行き先選び」）。 */
+  decisionLabel: string;
+  /** どちらがどちらへ寄るか（raw 値なし）。 */
+  tension: string;
+  /** 落としどころ。 */
+  bridge: string;
+}
+
+export interface ConflictForecastVM {
+  /** true = preview 用 demo 軸。UI にバッジ表示する。 */
+  demo: boolean;
+  /** 摩擦リスク降順・非空（空配列は builder が載せない）。 */
+  items: ConflictForecastItemVM[];
 }
 
 export interface PlanIntelligenceLiveReadyVM {
@@ -170,6 +193,8 @@ export interface PlanIntelligenceLiveReadyVM {
   physical: { resolved: false; note: string };
   /** ★ S2 additive: personalization 反映の readout（注入時のみ・absent は S1 と byte 等価）。 */
   personalization?: PersonalizationReadoutVM;
+  /** ★ S3-1 additive: 衝突先回り（items が 1 件以上の時のみ・absent は S2 と byte 等価）。 */
+  conflictForecast?: ConflictForecastVM;
 }
 
 export type PlanIntelligenceLiveVM =
@@ -199,7 +224,7 @@ function candidateVM(p: SharedProposalView, recommendedId: string | null): Candi
     uncertainty: p.uncertainty,
     uncertaintyLabel: UNCERTAINTY_JA[p.uncertainty],
     missingLabels: p.missingInputs.map((k) => SLOT_JA[k] ?? k),
-    budgetBandLabel: p.budgetBand ? `〜${p.budgetBand.hi}円` : null,
+    budgetBandLabel: p.budgetBand ? `〜${formatBudgetYen(p.budgetBand.hi)}` : null,
     recommended: p.candidateId === recommendedId,
   };
 }
@@ -215,10 +240,12 @@ function rejectReason(view: RejectedAngleView): string {
  *   ready → 候補/決定/質問/確認/リスク/却下/物理未確定。not-ready → 何を聞くか。それ以外 → unavailable。
  *   @param options.personalization S2 additive。提供時のみ ready VM に readout を載せる
  *     （absent → S1 と byte 等価・既存呼び出しは無改修で通る）。
+ *   @param options.conflictForecast S3-1 additive。items が 1 件以上の時のみ載せる
+ *     （absent / 空 items → S2 と byte 等価）。
  */
 export function buildPlanIntelligenceLiveVM(
   result: TravelPlanDisplayResult,
-  options?: { personalization?: PersonalizationReadoutVM },
+  options?: { personalization?: PersonalizationReadoutVM; conflictForecast?: ConflictForecastVM },
 ): PlanIntelligenceLiveVM {
   if (result.status === "not_ready_missing" || result.status === "not_ready_unconfirmed") {
     return {
@@ -252,6 +279,11 @@ export function buildPlanIntelligenceLiveVM(
   const personalization = options?.personalization;
   if (personalization && (personalization.selfReadout.length > 0 || personalization.pairReadout.length > 0)) {
     vm.personalization = personalization;
+  }
+  // ★ S3-1: conflictForecast は items が 1 件以上の時のみ載せる（摩擦ゼロ／材料不足は省く＝honesty）。
+  const conflictForecast = options?.conflictForecast;
+  if (conflictForecast && conflictForecast.items.length > 0) {
+    vm.conflictForecast = conflictForecast;
   }
   return vm;
 }

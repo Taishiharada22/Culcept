@@ -2,13 +2,13 @@
  * S2 — CoAlter 2 人の噛み合わせ readout（**pure・決定論・捏造なし**）
  *
  * 役割: self / partner の `PersonalizationSnapshot` を M2 PersonalizationPort の pure derive に通し、
- *   **2 人の傾向の一致 / 差**を短い日本語で読み上げる。CoAlter の「お二人の噛み合わせ」説明レイヤ専用。
+ *   **本人の傾向**と**2 人の一致点（共有する強み）**を短い日本語で読み上げる。
  *
- * 設計判断（なぜ engine でなく説明レイヤか）:
- *   - travel engine の proposal comparator は **angle/fit ベースで trait ベースではない**（調査確認）。
- *     partner の trait を順位計算へ深く統合するのは comparator 大改造＝S4 Conflict Pre-detection の領域。
- *   - S2 は外科的に：self 軸のみ engine scoring（adapter が owner=self に限定）、
- *     **partner との噛み合わせは順位を変えず説明だけ**に留める。
+ * S3-1 forecast との責務分離（**重複ゼロ**・2026-06-22 外科縮小）:
+ *   - 本モジュール（readout）= **一致点のみ**（「お二人とも〜方向」）＋ 本人の selfReadout。
+ *   - `coalterConflictForecast`（S3-1）= **相違点**を、決定にひも付け・ランク・橋渡し付きで出す。
+ *   → 一致は readout・差分は forecast。各カードが 1 つの問いに答える（フラットな混在リストを解消）。
+ *   - **旧 pairReadout の opposed（差）ブランチ + 焼き込み橋渡しは forecast へ移管した**（ここからは除去）。
  *
  * 厳守（honesty）:
  *   - **source !== "derived" / confidence < floor / neutral(deadzone 内) は語らない**（不確実を断定しない）。
@@ -83,28 +83,20 @@ export function buildCoAlterPairTraitReadout(
   if (s.novelty) selfReadout.push(s.novelty > 0 ? "新しい場所に前向き" : "定番に安心する方");
   if (s.social) selfReadout.push(s.social > 0 ? "人と動くと回復する方" : "静かめが落ち着く方");
 
-  // ── 2 人の噛み合わせ（両者とも語れる軸だけ）──
+  // ── 2 人の一致点のみ（共有する強み）。相違点は forecast の領域＝ここでは出さない ──
+  //   両者とも語れる軸 ∧ 同方向のときだけ「お二人とも〜」。差は coalterConflictForecast へ移管。
   const pairReadout: string[] = [];
 
-  if (s.pace && p.pace) {
-    if (s.pace === p.pace) pairReadout.push(`お二人とも${PACE_JA[s.pace]}方向`);
-    else pairReadout.push(`ペースに差（あなた=${PACE_JA[s.pace]}・${partnerName}=${PACE_JA[p.pace]}）`);
+  if (s.pace && p.pace && s.pace === p.pace) {
+    pairReadout.push(`お二人とも${PACE_JA[s.pace]}方向`);
   }
 
-  if (s.novelty && p.novelty) {
-    if (s.novelty === p.novelty) {
-      pairReadout.push(s.novelty > 0 ? "お二人とも新しい場所に前向き" : "お二人とも定番に安心");
-    } else {
-      const forward = s.novelty > 0 ? "あなた" : partnerName;
-      const classic = s.novelty > 0 ? partnerName : "あなた";
-      pairReadout.push(`新しさは${forward}が前向き・${classic}は定番に安心 → 定番を軸に少し新しさを混ぜる`);
-    }
+  if (s.novelty && p.novelty && s.novelty === p.novelty) {
+    pairReadout.push(s.novelty > 0 ? "お二人とも新しい場所に前向き" : "お二人とも定番に安心");
   }
 
-  if (s.social && p.social && s.social !== p.social) {
-    const outgoing = s.social > 0 ? "あなた" : partnerName;
-    const quiet = s.social > 0 ? partnerName : "あなた";
-    pairReadout.push(`対人は${outgoing}が人と動くと回復・${quiet}は静かめ → 人混みは控えめに`);
+  if (s.social && p.social && s.social === p.social) {
+    pairReadout.push(s.social > 0 ? "お二人とも人と動くと回復する方" : "お二人とも静かめが落ち着く方");
   }
 
   return { selfReadout, pairReadout };

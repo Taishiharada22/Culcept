@@ -43,9 +43,10 @@ export interface CoAlterDemoPersonalization {
 
 /**
  * Travel demo:
- *   - self（Kento）= 新しい場所に前向き（novelty 高）＋ 詰め込まずゆっくり（density 低）
- *   - partner（Mio）= 定番に安心（novelty 低・慎重）＋ ゆっくり（density 低）
- *   → pair readout: 「ペース/深さは一致（ゆっくり）」「新しさは差（Kento 前向き / Mio 定番）」
+ *   - self（Kento）= 新しい場所に前向き（novelty 高）＋ 詰め込まずゆっくり（density 低）＋ 即興で動きたい
+ *   - partner（Mio）= 定番に安心（novelty 低・慎重）＋ ゆっくり（density 低）＋ 事前に決めたい
+ *   → 一致点 readout: 「お二人ともゆっくり過ごす方向」（pace 同方向）
+ *   → forecast（摩擦・ランク 2 件）: ①行き先選び（新奇 vs 定番）②段取り（即興 vs 計画）
  *   → self soft preference: pace=slow（active 却下を補強）＋ novelty descriptor（新奇 angle に効く）
  */
 const TRAVEL_SELF = snapshot("demo-kento", {
@@ -54,6 +55,7 @@ const TRAVEL_SELF = snapshot("demo-kento", {
   change_embrace_vs_resist: ax(-0.4, 0.6), // -変化を歓迎（invert で novelty 寄与）
   quality_vs_quantity: ax(-0.4, 0.55), //     -質を深く → density 低 → pace slow
   energy_rhythm: ax(-0.3, 0.5), //            -静かに充電 → density 低
+  plan_vs_spontaneous: ax(0.5, 0.6), //       +即興で動きたい（段取り摩擦の self 側）
 });
 
 const TRAVEL_PARTNER = snapshot("demo-mio", {
@@ -62,6 +64,7 @@ const TRAVEL_PARTNER = snapshot("demo-mio", {
   cautious_vs_bold: ax(-0.6, 0.7), //         -慎重 → 安心圏（comfortVsAdventure 低）
   quality_vs_quantity: ax(-0.5, 0.6), //      -質を深く → ゆっくり
   energy_rhythm: ax(-0.4, 0.55), //           -静かに充電
+  plan_vs_spontaneous: ax(-0.5, 0.6), //      -事前に決めたい（段取り摩擦の partner 側）
 });
 
 /**

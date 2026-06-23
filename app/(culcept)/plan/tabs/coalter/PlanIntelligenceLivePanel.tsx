@@ -16,6 +16,7 @@
 import type { FitLabel } from "@/lib/shared/travel/proposal-types";
 import type {
   CandidateVM,
+  ConflictForecastVM,
   PersonalizationReadoutVM,
   PlanIntelligenceLiveReadyVM,
   PlanIntelligenceLiveVM,
@@ -113,6 +114,37 @@ function PersonalizationCard({ p }: { p: PersonalizationReadoutVM }) {
   );
 }
 
+function ConflictForecastCard({ f }: { f: ConflictForecastVM }) {
+  return (
+    <div className={`${CARD} p-3`}>
+      <div className="flex items-center gap-1.5">
+        <span className={CHIP}>先にすり合わせたい点</span>
+        {f.demo && (
+          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-200/60">
+            デモ
+          </span>
+        )}
+      </div>
+      <ul className="mt-2 space-y-2">
+        {f.items.map((item, i) => (
+          <li key={i} className="rounded-xl bg-slate-50/80 p-2.5 ring-1 ring-slate-200/50">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex rounded-full bg-gradient-to-r from-rose-400 to-orange-400 px-2 py-0.5 text-[10px] font-bold text-white">
+                {item.decisionLabel}
+              </span>
+              <span className="text-[11px] leading-relaxed text-slate-600">{item.tension}</span>
+            </div>
+            <div className="mt-1.5 flex items-start gap-1.5">
+              <CheckIcon size={11} className="mt-0.5 shrink-0 text-emerald-400" />
+              <span className="text-[11px] leading-relaxed text-slate-500">{item.bridge}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
   return (
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-1 pb-2 pt-0.5">
@@ -125,8 +157,11 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
         {vm.decision.why && <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{vm.decision.why}</p>}
       </div>
 
-      {/* あなたの観測 + 2 人の噛み合わせ（S2 personalization・demo 明示） */}
+      {/* あなたの観測 + 2 人の一致点（S2 personalization・demo 明示） */}
       {vm.personalization && <PersonalizationCard p={vm.personalization} />}
+
+      {/* 先にすり合わせたい点（S3-1 衝突先回り・摩擦順・橋渡し付き・demo 明示） */}
+      {vm.conflictForecast && <ConflictForecastCard f={vm.conflictForecast} />}
 
       {/* 候補プラン（角度別・横スクロール） */}
       <div>

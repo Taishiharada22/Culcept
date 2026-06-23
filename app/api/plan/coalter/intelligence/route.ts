@@ -31,6 +31,7 @@ import {
 import { COALTER_DEMO_PERSONALIZATION } from "@/app/(culcept)/plan/tabs/coalter/coalterPersonalizationFixture";
 import { coalterSessionToTravelEvents } from "@/app/(culcept)/plan/tabs/coalter/coalterSessionToTravelEvents";
 import { buildCoAlterPairTraitReadout } from "@/app/(culcept)/plan/tabs/coalter/coalterPairTraitReadout";
+import { buildCoAlterConflictForecast } from "@/app/(culcept)/plan/tabs/coalter/coalterConflictForecast";
 import { buildPlanIntelligenceLiveVM } from "@/app/(culcept)/plan/tabs/coalter/planIntelligenceLiveViewModel";
 
 export const dynamic = "force-dynamic";
@@ -58,10 +59,17 @@ export async function GET(req: NextRequest) {
 
   const result = buildTravelPlanDisplayResult(events, { fixtureAllowed: false }, { softPersonalization });
 
-  // self + partner の demo 軸 → 2 人の噛み合わせ readout（説明レイヤ・engine 順位には入らない）。
+  // self + partner の demo 軸 → 2 人の一致点 readout（説明レイヤ・engine 順位には入らない）。
   const partnerName = session.participants[1]?.name ?? "お相手";
   const readout = buildCoAlterPairTraitReadout(demo.self, demo.partner, partnerName);
-  const vm = buildPlanIntelligenceLiveVM(result, { personalization: { demo: true, ...readout } });
+
+  // S3-1: 2 人が引っ張り合いやすい決定を摩擦順に検出 + 橋渡し（説明レイヤ・engine 順位には入らない）。
+  const forecast = buildCoAlterConflictForecast(demo.self, demo.partner, partnerName);
+
+  const vm = buildPlanIntelligenceLiveVM(result, {
+    personalization: { demo: true, ...readout },
+    conflictForecast: { demo: true, items: forecast.items },
+  });
 
   return NextResponse.json({ vm });
 }
