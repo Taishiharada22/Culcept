@@ -96,3 +96,37 @@ export function buildCoAlterSolverIntentOverride(
 
   return out;
 }
+
+/**
+ * 2 つの intent override を **conservative に merge**（least-misery）。
+ *   fatigue/ceiling は **低い方**（より控えめ）、budget は **tight 優先**、togetherness は a を優先。
+ *   P3（後悔台帳）の reduce 系を personalization に重ねる用途。
+ */
+export function mergeIntentOverridesConservative(
+  a: CoAlterSolverIntentOverride,
+  b: CoAlterSolverIntentOverride,
+): CoAlterSolverIntentOverride {
+  const out: CoAlterSolverIntentOverride = {};
+
+  const aFat = a.fatigueSignals?.combined;
+  const bFat = b.fatigueSignals?.combined;
+  // min of two TravelFatigueLevel is itself a valid level（TS は number へ widen するので cast）。
+  const fat = (aFat !== undefined && bFat !== undefined ? Math.min(aFat, bFat) : (aFat ?? bFat)) as
+    | TravelFatigueLevel
+    | undefined;
+  if (fat !== undefined) out.fatigueSignals = { transitFatigue: fat, onSiteFatigue: fat, combined: fat };
+
+  const aCeil = a.cognitiveLoadCeilingPerDay;
+  const bCeil = b.cognitiveLoadCeilingPerDay;
+  const ceil = aCeil !== undefined && bCeil !== undefined ? Math.min(aCeil, bCeil) : (aCeil ?? bCeil);
+  if (ceil !== undefined) out.cognitiveLoadCeilingPerDay = ceil;
+
+  const budgets = [...(a.budgetSignals ?? []), ...(b.budgetSignals ?? [])];
+  if (budgets.includes("tight")) out.budgetSignals = ["tight"];
+  else if (budgets.length > 0) out.budgetSignals = a.budgetSignals ?? b.budgetSignals;
+
+  if (a.pairTogethernessOverride) out.pairTogethernessOverride = a.pairTogethernessOverride;
+  else if (b.pairTogethernessOverride) out.pairTogethernessOverride = b.pairTogethernessOverride;
+
+  return out;
+}

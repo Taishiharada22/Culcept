@@ -43,7 +43,16 @@ import {
   COALTER_DEMO_PLACE_LABELS,
 } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelSeedFixture";
 import { buildCoAlterTravelItineraryVM } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelItineraryVM";
-import { buildCoAlterSolverIntentOverride } from "@/app/(culcept)/plan/tabs/coalter/coalterSolverPersonalization";
+import {
+  buildCoAlterSolverIntentOverride,
+  mergeIntentOverridesConservative,
+} from "@/app/(culcept)/plan/tabs/coalter/coalterSolverPersonalization";
+import {
+  COALTER_DEMO_REGRET_LEDGER,
+  deriveNextTripConstraints,
+  regretReflectionLabels,
+  regretToIntentOverride,
+} from "@/app/(culcept)/plan/tabs/coalter/coalterRegretLedger";
 import { buildFitSubjectFromPair } from "@/app/(culcept)/plan/tabs/coalter/coalterFitBridge";
 import { selectFittingEntities } from "@/app/(culcept)/plan/tabs/coalter/coalterFitSelection";
 import { COALTER_DEMO_ENTITIES } from "@/app/(culcept)/plan/tabs/coalter/coalterTravelEntityCatalog";
@@ -109,7 +118,12 @@ export async function GET(req: NextRequest) {
     const placeFiltered = buildPersonalizedTravelSeeds(COALTER_DEMO_TRAVEL_SEEDS, fittingIds);
 
     // ② 行程の形を intent override でパーソナライズ。
-    const intentOverride = buildCoAlterSolverIntentOverride(demo.self, demo.partner);
+    //   P3: 後悔台帳（demo・read-only）→ 次回制約 → conservative に merge（前回の学びを反映）。
+    const regretConstraints = deriveNextTripConstraints(COALTER_DEMO_REGRET_LEDGER);
+    const intentOverride = mergeIntentOverridesConservative(
+      buildCoAlterSolverIntentOverride(demo.self, demo.partner),
+      regretToIntentOverride(regretConstraints),
+    );
     const personalizedSeeds = {
       ...placeFiltered,
       intentOutput: {
@@ -127,6 +141,7 @@ export async function GET(req: NextRequest) {
     travelItinerary = buildCoAlterTravelItineraryVM(
       generateTravelItineraries(personalizedSeeds),
       COALTER_DEMO_PLACE_LABELS,
+      { regretReflection: regretReflectionLabels(regretConstraints) },
     );
   }
 

@@ -118,6 +118,8 @@ export interface TravelItineraryVM {
   contingency?: DayContingencyVM;
   /** ★ P2: 提案の確度ひとこと（solver の uncertaintyLabel 由来）。 */
   readinessNote?: string;
+  /** ★ P3: 前回からの学び（後悔台帳→次回制約・今回反映した点）。 */
+  regretReflection?: string[];
 }
 
 function budgetLabel(hi: number): string {
@@ -152,6 +154,7 @@ function splitIntoDays(items: { isLodging: boolean; vm: ItineraryNodeVM }[]): It
 export function buildCoAlterTravelItineraryVM(
   output: TravelItineraryGeneratorOutput,
   placeLabels: Record<string, string>,
+  opts?: { regretReflection?: string[] },
 ): TravelItineraryVM | null {
   if (output.rankedCandidates.length === 0) return null;
 
@@ -208,5 +211,7 @@ export function buildCoAlterTravelItineraryVM(
         ? "もう少し情報があると、より確かにできます"
         : undefined;
 
-  return { demo: true, candidates, note: NOTE, contingency, readinessNote };
+  const regretReflection = opts?.regretReflection && opts.regretReflection.length > 0 ? opts.regretReflection : undefined;
+
+  return { demo: true, candidates, note: NOTE, contingency, readinessNote, regretReflection };
 }

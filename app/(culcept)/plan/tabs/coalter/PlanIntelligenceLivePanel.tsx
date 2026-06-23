@@ -275,6 +275,16 @@ function TravelItineraryCard({ t }: { t: TravelItineraryVM }) {
       {t.readinessNote && (
         <p className="mt-1.5 text-[11px] font-bold text-emerald-600">{t.readinessNote}</p>
       )}
+      {t.regretReflection && t.regretReflection.length > 0 && (
+        <div className="mt-1.5 rounded-xl bg-violet-50/70 p-2 ring-1 ring-violet-200/50">
+          <span className="text-[10px] font-bold text-violet-600">前回からの学び（今回反映）</span>
+          <ul className="mt-0.5 space-y-0.5">
+            {t.regretReflection.map((r, i) => (
+              <li key={i} className="text-[11px] leading-relaxed text-slate-600">・{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-2 space-y-2">
         {t.candidates.map((c) => (
           <ItineraryCandidateBlock key={c.rank} c={c} />
