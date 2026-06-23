@@ -14,6 +14,7 @@ import type { RealityPipelineEnvelope } from "@/lib/plan/reality/orchestration/r
 import type { ReflectionPreviewClientDto } from "@/lib/plan/reality/permission/reflection-preview-dto";
 import type { LifeOpsPreviewClientDto } from "@/lib/plan/reality/lifeops/lifeops-preview-compute";
 import type { RealityOsSurfaceDisplayV0 } from "@/lib/plan/realityPipeline/realityOsSurfacePresenter";
+import { RealityOsSurfacePanel } from "@/app/(culcept)/plan/components/realityOs/RealityOsSurfacePanel";
 
 /** envelope に無い count（page が WorldState/synthesis から渡す・fixture test が渡す）。 */
 export interface RealityPipelinePreviewMeta {
@@ -90,34 +91,7 @@ export function RealityPipelinePreviewClient({
         envelope の <b>要約のみ</b>を観測。<b>plan を書き換えない・通知しない・apply しない</b>。raw / 個人情報は表示しない。
       </p>
 
-      {realityOsDisplay && (
-        <section className="mt-3 rounded-xl border border-rose-200 bg-rose-50/40 px-4 py-3" data-testid="reality-os-surface">
-          <h2 className="text-sm font-bold text-rose-900">Reality OS surface（dev fixture・redacted 表示VM）</h2>
-          {realityOsDisplay.honestUnknownLabel && (
-            <p className="mt-1 text-[11px] text-rose-700" data-testid="reality-os-honest-unknown">
-              {realityOsDisplay.honestUnknownLabel}
-            </p>
-          )}
-          {realityOsDisplay.scenarios.length === 0 ? (
-            <p className="mt-2 text-[12px] text-gray-500">候補なし（proposalRoute が route を出していません）。</p>
-          ) : (
-            realityOsDisplay.scenarios.map((s) => (
-              <div key={s.scenarioId} className="mt-2 rounded-lg border border-rose-100 bg-white/60 px-3 py-2 text-[12px]" data-testid="reality-os-scenario">
-                <div className="font-bold text-rose-800">{s.kindLabel}</div>
-                <div className="mt-0.5 text-gray-700">成立: {s.feasibilityLabel} / 超過: {s.overrunLabel} / 崩れ: {s.collapseLabel}</div>
-                {s.minimalProgressText && <div className="mt-0.5 text-gray-700">最小前進: {s.minimalProgressText}</div>}
-                <div className="mt-0.5 text-[11px] text-gray-500">
-                  自律度: {s.permissionLabel} ・ 確信度: {s.confidenceBand} ・ {s.evidenceText}
-                  {s.diffSummaryText ? ` ・ 差分: ${s.diffSummaryText}` : ""}
-                </div>
-                {s.reasonText.length > 0 && (
-                  <div className="mt-0.5 text-[11px] text-gray-500">理由: {s.reasonText.join(" / ")}</div>
-                )}
-              </div>
-            ))
-          )}
-        </section>
-      )}
+      {realityOsDisplay && <RealityOsSurfacePanel display={realityOsDisplay} />}
 
       <section className="mt-3 rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3">
         <Row k="date" v={envelope.date} />
