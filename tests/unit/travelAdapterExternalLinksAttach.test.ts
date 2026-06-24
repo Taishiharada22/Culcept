@@ -26,10 +26,14 @@ const ready = (r: TravelPlanDisplayResult) => {
 };
 
 describe("1. option 既定 OFF → byte 等価", () => {
-  it("option 不在 → externalLinks 不在・従来 display 形（packet/projection/cues のみ）", () => {
+  it("option 不在 → externalLinks 不在（display は packet/projection/cues + 常設 proposalsDisplay）", () => {
     const r = ready(build(READY));
+    // 本テストの不変条件: includeExternalLinks 未指定なら externalLinks は display に載らない（旧挙動 byte 等価）。
     expect(r.display.externalLinks).toBeUndefined();
-    expect(Object.keys(r.display).sort()).toEqual(["cues", "packet", "projection"]);
+    // proposalsDisplay は CoAlter S1（commit f9ddec48c）で adapter が常時載せる正規 field（候補3案表示用・
+    //   travel-plan-display-adapter.ts:103/106 で両分岐とも付与）。旧 3 key 固定アサーションは追加前の stale。
+    //   externalLinks の不在さえ守られれば key 集合は packet/projection/cues + proposalsDisplay が正。
+    expect(Object.keys(r.display).sort()).toEqual(["cues", "packet", "projection", "proposalsDisplay"]);
   });
   it("option false → externalLinks 不在", () => {
     expect(ready(build(READY, { includeExternalLinks: false })).display.externalLinks).toBeUndefined();
