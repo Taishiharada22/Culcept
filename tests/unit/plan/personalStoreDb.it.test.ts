@@ -90,7 +90,7 @@ d("SupabaseTravelPersonalStore — local DB write", () => {
     expect(await store.readSavedIds()).toEqual([]);
   }, 40000);
 
-  it("userNotes: insert(private/self_memo/self) + bulk-replace + 往復", async () => {
+  it("userNotes: append-only insert(private/self_memo/self) + 非破壊 + 往復（E-6A）", async () => {
     const stamp = Date.now();
     const { client, uid } = await signUpUser(`ps-note-${stamp}@example.com`);
     const store = new SupabaseTravelPersonalStore(client);
@@ -108,10 +108,49 @@ d("SupabaseTravelPersonalStore — local DB write", () => {
       expect(r.photo_id).toBeNull();
     }
 
-    // bulk-replace: [A] のみ → B は消える・重複しない
+    // E-6A: 非破壊。[A] のみ再 write → B は消えない・A は dedup（重複しない）
     await store.writeUserNotes([note(`A-${stamp}`)]);
     read = await store.readUserNotes();
-    expect(read.map((n) => n.title)).toEqual([`A-${stamp}`]);
+    expect(read.map((n) => n.title).sort()).toEqual([`A-${stamp}`, `B-${stamp}`].sort());
+
+    // append-only: 新規 C を追加 → A/B は保持されたまま C が増える
+    await store.writeUserNotes([note(`C-${stamp}`)]);
+    read = await store.readUserNotes();
+    expect(read.map((n) => n.title).sort()).toEqual([`A-${stamp}`, `B-${stamp}`, `C-${stamp}`].sort());
+  }, 40000);
+
+  it("userNotes E-6A: own published(firsthand) は readUserNotes に出ず・writeUserNotes で delete/変換されない", async () => {
+    const stamp = Date.now();
+    const { client, uid } = await signUpUser(`ps-note-pub-${stamp}@example.com`);
+    const store = new SupabaseTravelPersonalStore(client);
+
+    // own published(firsthand) note を直接 seed（id を後で不変検証）
+    const { data: pub } = await client
+      .from("location_notes")
+      .insert({ user_id: uid, kind: "spot", prefecture: "京都府", title: `PUB-${stamp}`, status: "published", moderation_status: "approved", contributor_type: "local", source_type: "firsthand" })
+      .select("id")
+      .single();
+    const pubId = (pub as { id: string }).id;
+
+    // readUserNotes は self_memo のみ＝published は含まれない（round-trip 源を断つ）
+    expect((await store.readUserNotes()).map((n) => n.title)).not.toContain(`PUB-${stamp}`);
+
+    // user note 作成 + DB-read published を混ぜて writeUserNotes（UI round-trip 模擬）
+    await store.writeUserNotes([note(`mine-${stamp}`), { id: pubId, kind: "spot", prefecture: "京都府", title: `PUB-${stamp}`, classification: "standard", rating: 0, ratingCount: 0, photo: null } as never]);
+
+    // published は delete も変換もされず・id 不変・1 件のまま（重複なし）
+    const { data: pubRows } = await client
+      .from("location_notes")
+      .select("id,status,source_type")
+      .eq("user_id", uid)
+      .eq("title", `PUB-${stamp}`);
+    expect((pubRows ?? []).length).toBe(1);
+    expect((pubRows as { id: string; status: string; source_type: string }[])[0].id).toBe(pubId); // id churn なし
+    expect((pubRows as { id: string; status: string; source_type: string }[])[0].status).toBe("published"); // self_memo 化なし
+    expect((pubRows as { id: string; status: string; source_type: string }[])[0].source_type).toBe("firsthand");
+
+    // 新規 self_memo は作られている
+    expect((await store.readUserNotes()).map((n) => n.title)).toContain(`mine-${stamp}`);
   }, 40000);
 
   it("RLS negative: userB は userA の saves / userNotes を read 不可", async () => {
