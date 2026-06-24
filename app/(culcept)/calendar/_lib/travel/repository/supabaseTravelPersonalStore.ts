@@ -31,6 +31,7 @@ import {
   buildSaveRow,
   buildUserNoteInsertRow,
   isWritableAddedEntry,
+  isUuidLike,
   buildItineraryItemInsertRow,
 } from "./personalStoreWrite";
 
@@ -164,15 +165,22 @@ export class SupabaseTravelPersonalStore implements TravelPersonalStore {
   }
 
   // ── ＋投稿 / 自分メモ ─────────────────────────────────────────────────
+  // E-6A: **ユーザーが明示作成した self_memo/private ノートのみ**を返す（write scope と対称）。
+  //   旧実装は `eq("user_id", uid)` のみで own の published/firsthand も返していたため、
+  //   それが LocationNotesScreen の userItems に流入 → writeUserNotes へ round-trip され、
+  //   published を self_memo 化・delete/再作成・重複させていた（E-5C-2 検出の破壊バグ）。
+  //   own published は getLocationNotes（prefecture read 経路）で表示されるので read 対象から除外。
   async readUserNotes(): Promise<LocationItem[]> {
     const sb = await this.getClient();
     const uid = await this.uid(sb);
     if (!uid) return [];
-    // 自分の note のみ（owner）。published 他者分は read 対象外。
     const { data: notes, error } = await sb
       .from("location_notes")
       .select("*")
       .eq("user_id", uid)
+      .eq("contributor_type", "self")
+      .eq("source_type", "self_memo")
+      .eq("status", "private")
       .is("deleted_at", null);
     if (error || !notes || notes.length === 0) return [];
 
@@ -191,34 +199,41 @@ export class SupabaseTravelPersonalStore implements TravelPersonalStore {
   }
 
   /**
-   * 自分の投稿ノート（self/self_memo/private）を bulk-replace。
-   * no-loss 優先: insert(new) → 旧行 delete の順（非原子性は既知制約・docs 参照）。
+   * E-6A: **非破壊 append-only**。ユーザーが明示作成した新規 self_memo ノートのみ insert する。
+   * - delete は一切しない（旧 bulk-replace の delete+reinsert を撤廃＝published を消さない・id を変えない）。
+   * - 対象は **client id（非 uuid・AddView の `user-<ts>`）の note のみ**。
+   *   uuid id の note は DB-read 由来＝既永続なので skip（read→write round-trip を保存対象にしない）。
+   * - 既存 self_memo の title で dedup（再 write / StrictMode 二重発火でも重複生成しない）。
+   * - DB-read の published/classic/spot/trip note を self_memo/private へ変換しない（候補から除外済）。
+   * - 失敗は fail-soft（既存 store 方針）。localStorage 経路は別実装で従来どおり。
    */
   async writeUserNotes(notes: LocationItem[]): Promise<void> {
     const sb = await this.getClient();
     const uid = await this.uid(sb);
     if (!uid) throw new Error("writeUserNotes: not authenticated");
 
-    // 既存の「自分が posted した private/self_memo/self」行 id（置換対象スコープ）
+    // 追記対象 = ユーザー作成の新規ノートのみ（非 uuid id）。uuid id（DB-read）は既永続＝対象外。
+    const candidates = notes.filter((n) => !isUuidLike(n.id));
+    if (candidates.length === 0) return; // no-op（delete も insert もしない＝完全非破壊）
+
+    // 既存 self_memo の title で dedup（重複生成防止・冪等）。
     const { data: existingRows } = await sb
       .from("location_notes")
-      .select("id")
+      .select("title")
       .eq("user_id", uid)
       .eq("contributor_type", "self")
       .eq("source_type", "self_memo")
       .eq("status", "private")
       .is("deleted_at", null);
-    const oldIds = ((existingRows ?? []) as { id: string }[]).map((r) => r.id);
+    const existingTitles = new Set(
+      ((existingRows ?? []) as { title: string }[]).map((r) => r.title)
+    );
 
-    // 1) insert 新規（DB 採番 uuid・no-loss: 失敗しても旧は残る）
-    if (notes.length) {
-      const rows = notes.map((n) => buildUserNoteInsertRow(n, uid));
-      const { error: insErr } = await sb.from("location_notes").insert(rows);
-      if (insErr) throw insErr; // 旧行は無傷
-    }
-    // 2) 旧行 delete（RLS owner-only）。失敗時は重複のみ・次回収束。
-    if (oldIds.length) {
-      await sb.from("location_notes").delete().in("id", oldIds);
-    }
+    const fresh = candidates.filter((n) => !existingTitles.has(n.title));
+    if (fresh.length === 0) return; // 既に全て永続済み＝no-op
+
+    // append-only insert（DB 採番 uuid）。delete は一切なし。
+    const rows = fresh.map((n) => buildUserNoteInsertRow(n, uid));
+    await sb.from("location_notes").insert(rows);
   }
 }

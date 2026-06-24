@@ -74,10 +74,15 @@ export default function LocationNotesScreen({ onClose, onToast }: { onClose: () 
 
   const { addToItinerary: addItin, hasAdded } = useTravelItinerary();
 
-  // baseData（repository）＋ユーザー追加分マージ
+  // baseData（repository）＋ユーザー追加分マージ。
+  // E-6A: id で dedup。repo ON では getLocationNotes（RLS）が own private/self_memo も返すため、
+  //   readUserNotes 由来の userItems と id が重複し React duplicate-key になる。mine を優先して base から除外。
+  //   fixture/localStorage 経路は overlap が無いので挙動不変。
   const data: LocationNotesData = React.useMemo(() => {
     const mine = userItems.filter((it) => it.prefecture === prefecture);
-    return { ...baseData, items: [...mine, ...baseData.items] };
+    const mineIds = new Set(mine.map((m) => m.id));
+    const base = baseData.items.filter((it) => !mineIds.has(it.id));
+    return { ...baseData, items: [...mine, ...base] };
   }, [baseData, userItems, prefecture]);
 
   const toggleSave = React.useCallback((id: string) => {

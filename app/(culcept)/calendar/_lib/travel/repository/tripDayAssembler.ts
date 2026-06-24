@@ -238,6 +238,11 @@ export function assembleTripDayFromRows(rows: TripDayRows): TripDayResult {
   };
 
   const tripDay: TripDay = {
+    // E-6A: DB day 行 uuid を TripDay.id に載せる。これが currentDayId として
+    //   TravelItineraryProvider → buildAddedEntry に渡り、writeAddedEntries の
+    //   isWritableAddedEntry（dayId が uuid）を満たす。未設定だと itinerary add が
+    //   DB（travel_itinerary_items / location_note_to_itinerary）に到達しなかった（E-5C-2 検出）。
+    id: day.id,
     date: day.date,
     dayIndex: day.day_index,
     weekdayLabel: day.weekday_label ?? "",
