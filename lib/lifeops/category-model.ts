@@ -44,23 +44,42 @@ export type PreEventPrepCategoryId =
   | "ticket_hotel_check" // チケット・宿の確認
   | "belongings_check"; // 持ち物の確認
 
-/** 生活維持群（A.6 群 2・補充系）。消費ペースの補充周期を持つ（cyclic=true）。家事/ゴミ出し/不定期は後続。 */
+/** 生活維持群（A.6 群 2）。補充系(cadence) + 家事(cadence) + ゴミ出し(weekly recurring)。 */
 export type DailyUpkeepCategoryId =
-  | "groceries" // 食料品の買い物
-  | "daily_necessities"; // 日用品の補充
+  | "groceries" // 食料品の買い物（cadence）
+  | "daily_necessities" // 日用品の補充（cadence）
+  | "laundry" // 洗濯（cadence）
+  | "cleaning" // 掃除（cadence）
+  | "garbage"; // ゴミ出し（weekly recurring）
 
-/** お金・契約・事務群（A.6 群 4・期限もの）。期日からの逆算（deadline model）。recurring(家賃/クレカ/サブスク)は後続。 */
+/** お金・契約・事務群（A.6 群 4）。期限もの（deadline）+ 繰り返し（recurring 毎月）。 */
 export type MoneyAdminCategoryId =
-  | "license_renewal" // 免許の更新
-  | "passport_renewal" // パスポートの更新
-  | "tax_filing"; // 確定申告
+  | "license_renewal" // 免許の更新（deadline）
+  | "passport_renewal" // パスポートの更新（deadline）
+  | "tax_filing" // 確定申告（deadline）
+  | "rent" // 家賃の引き落とし（recurring 毎月）
+  | "card_payment" // カードの引き落とし（recurring 毎月）
+  | "subscription_review"; // サブスクの見直し（recurring 毎月）
+
+/** 成長・仕事・学習群（A.6 群 6・habit）。cadence でなく週目標/連続性（habit-model）。 */
+export type GrowthCategoryId =
+  | "workout" // 筋トレ
+  | "study" // 勉強
+  | "reading" // 読書
+  | "weekly_review" // 週次レビュー
+  | "skill_practice"; // スキル練習
+
+/** 人間関係群（A.6 群 5）。touchpoint 詳細は relationship-model（dueReason 側）＝カテゴリ爆発を防ぐ単一受け皿。 */
+export type RelationshipCategoryId = "relationship_care";
 
 /** L-1 で扱う全カテゴリ id（将来は他群の id を union 追加）。 */
 export type LifeOpsCategoryId =
   | BodyAppearanceCategoryId
   | PreEventPrepCategoryId
   | DailyUpkeepCategoryId
-  | MoneyAdminCategoryId;
+  | MoneyAdminCategoryId
+  | GrowthCategoryId
+  | RelationshipCategoryId;
 
 /**
  * 既定実行レベル上限の **ヒント**（A.5 L0–L5 の段階）。**正本ではない**:
@@ -130,6 +149,10 @@ const PRE_EVENT_PREP: readonly LifeOpsCategorySpec[] = [
 const DAILY_UPKEEP: readonly LifeOpsCategorySpec[] = [
   { id: "groceries", group: "daily_upkeep", label: "食料品の買い物", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "スーパー", mvp: false },
   { id: "daily_necessities", group: "daily_upkeep", label: "日用品の補充", cyclic: true, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: "ドラッグストア", mvp: false },
+  // 家事（通知/リマインド L1）。洗濯/掃除=cadence・ゴミ出し=weekly recurring。
+  { id: "laundry", group: "daily_upkeep", label: "洗濯", cyclic: true, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "cleaning", group: "daily_upkeep", label: "掃除", cyclic: true, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "garbage", group: "daily_upkeep", label: "ゴミ出し", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
 /**
@@ -140,10 +163,34 @@ const MONEY_ADMIN: readonly LifeOpsCategorySpec[] = [
   { id: "license_renewal", group: "money_admin", label: "免許の更新", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
   { id: "passport_renewal", group: "money_admin", label: "パスポートの更新", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
   { id: "tax_filing", group: "money_admin", label: "確定申告", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  // recurring（毎月・通知のみ L1）。引き落とし日/更新日は注入（実収集=CEO ゲート）。
+  { id: "rent", group: "money_admin", label: "家賃の引き落とし", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "card_payment", group: "money_admin", label: "カードの引き落とし", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "subscription_review", group: "money_admin", label: "サブスクの見直し", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+];
+
+/**
+ * 成長・仕事・学習群（A.6 群6・habit）。**habit-model 管理**（cadence でない＝cyclic=false）。L1（低圧・通知）。
+ *   neuron 枝（将来）: 各カテゴリに sub-topic/目的/難易度を持たせ、ユーザー状態認知で根拠付き提案へ。
+ */
+const GROWTH: readonly LifeOpsCategorySpec[] = [
+  { id: "workout", group: "growth", label: "筋トレ", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "study", group: "growth", label: "勉強", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "reading", group: "growth", label: "読書", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "weekly_review", group: "growth", label: "週次レビュー", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+  { id: "skill_practice", group: "growth", label: "スキル練習", cyclic: false, defaultMaxLevelHint: "L1", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
+];
+
+/**
+ * 人間関係群（A.6 群 5）。**単一受け皿カテゴリ**（touchpoint 25 種の詳細は relationship-model・dueReason 側）。
+ *   L2=suggest（permission 正本は assessRelationshipPermission＝確認必須・自動送信/購入等 blocked）。
+ */
+const RELATIONSHIP: readonly LifeOpsCategorySpec[] = [
+  { id: "relationship_care", group: "relationship", label: "人間関係", cyclic: false, defaultMaxLevelHint: "L2", typicalRiskFlags: [], placeQueryHint: null, mvp: false },
 ];
 
 /** 全カテゴリ（群横断・定義順）。 */
-const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN];
+const ALL_CATEGORIES: readonly LifeOpsCategorySpec[] = [...BODY_APPEARANCE, ...PRE_EVENT_PREP, ...DAILY_UPKEEP, ...MONEY_ADMIN, ...GROWTH, ...RELATIONSHIP];
 
 /** カテゴリ id → spec（正本辞書）。 */
 export const LIFE_OPS_CATEGORY_MODEL: Record<LifeOpsCategoryId, LifeOpsCategorySpec> = Object.fromEntries(

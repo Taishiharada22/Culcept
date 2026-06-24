@@ -126,9 +126,10 @@ describe("c33 — server action（⑦⑧⑨⑩⑪・static + pure）", () => {
     await readActiveStructuredRowsForDuplicateGuard(fake, "u", { master: true, write: true, supabaseUrl: STAGING_URL });
     expect(counter.queries).toBe(1); // staging+flags のみ
   });
-  it("★c34: cadence picker は L-2 spec 実在 5 組のみ（辞書 label+menu 名・value は cadenceKey 形式）", () => {
+  it("★c34: cadence picker は MVP cadence spec 実在分のみ（辞書 label+menu 名・value は cadenceKey 形式）", () => {
+    // listMvpCadences() を自動列挙する設計（A4-C 本体不変）。LifeOps 縦拡張で laundry/cleaning が追加されたため 7 組。
     expect(cadenceOpts.map((o) => o.value).sort()).toEqual(
-      ["beauty_salon:color", "beauty_salon:cut", "daily_necessities", "eyebrow", "groceries"].sort(),
+      ["beauty_salon:color", "beauty_salon:cut", "cleaning", "daily_necessities", "eyebrow", "groceries", "laundry"].sort(),
     );
     expect(cadenceOpts.find((o) => o.value === "beauty_salon:cut")!.label).toBe("美容院（カット）");
     expect(cadenceOpts.find((o) => o.value === "eyebrow")!.label).toBe("眉");

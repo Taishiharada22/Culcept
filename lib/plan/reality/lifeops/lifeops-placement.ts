@@ -68,12 +68,21 @@ export const DEFAULT_MAX_PLACEMENTS = Number.POSITIVE_INFINITY;
 /** cycle phase の緊急度（小さいほど先）。 */
 const PHASE_RANK: Record<string, number> = { well_beyond: 0, beyond_typical: 1, nearing: 2, within_typical: 3, unknown: 4 };
 
+/**
+ * recurring / habit / relationship（縦の新 DueReason）の production 前 **conservative placeholder** urgency。
+ * cycle 最下位（200+4=204）より大きい＝**最も非緊急**で配置。正式な優先度設計は別 increment。
+ * 詳細: docs/life-ops-new-duereason-conservative-placement.md
+ */
+const NEW_KIND_CONSERVATIVE_URGENCY = 300;
+
 /** §2: urgencyRank（昇順=先に配置）。deadline(overdue 最優先) < event_prep < cycle。compose の per-tier 着席順にも使う（export）。 */
 export function lifeOpsUrgencyRank(c: LifeOpsCandidate): number {
   const d = c.dueReason;
   if (d.kind === "deadline") return d.overdue ? -1000 : d.daysUntilDeadline;
   if (d.kind === "event_prep") return 100 + d.daysUntilEvent;
-  return 200 + (PHASE_RANK[d.phase] ?? 4);
+  if (d.kind === "cycle") return 200 + (PHASE_RANK[d.phase] ?? 4);
+  // recurring / habit / relationship: conservative placeholder（最も非緊急・既存3種の挙動は不変）。
+  return NEW_KIND_CONSERVATIVE_URGENCY;
 }
 
 /** §3: lane（既存信号のみ: kind / daysUntilEvent / cyclePhase / L-1 group / health_sensitive / phase）。pool cap の lane 多様性 floor にも使う（export）。 */
@@ -85,11 +94,15 @@ export function lifeOpsLaneOf(c: LifeOpsCandidate): LifeOpsPlanLane {
     if (d.cyclePhase !== undefined) return "push"; // 美容前倒し=未来価値
     return "easy"; // one-shot 準備・余裕あり
   }
-  // cycle: 生活/健康の防衛か、整える攻めか
-  const spec = LIFE_OPS_CATEGORY_MODEL[c.category];
-  const lifeOrHealth = spec.group === "daily_upkeep" || spec.typicalRiskFlags.includes("health_sensitive");
-  if (lifeOrHealth) return d.phase === "well_beyond" ? "protect" : "easy";
-  return "push";
+  if (d.kind === "cycle") {
+    // cycle: 生活/健康の防衛か、整える攻めか
+    const spec = LIFE_OPS_CATEGORY_MODEL[c.category];
+    const lifeOrHealth = spec.group === "daily_upkeep" || spec.typicalRiskFlags.includes("health_sensitive");
+    if (lifeOrHealth) return d.phase === "well_beyond" ? "protect" : "easy";
+    return "push";
+  }
+  // recurring / habit / relationship: conservative placeholder（easy lane・protect/push に昇格しない）。
+  return "easy";
 }
 
 /** §4: 必要窓（分）。外出は往復 buffer 込み・粗い見積り。 */
@@ -103,7 +116,9 @@ function laneReason(c: LifeOpsCandidate, lane: LifeOpsPlanLane): string {
   const d = c.dueReason;
   if (d.kind === "deadline") return d.overdue ? "deadline_overdue" : "deadline_near";
   if (d.kind === "event_prep") return d.daysUntilEvent <= 2 ? "event_prep_imminent" : d.cyclePhase !== undefined ? "event_prep_beauty_lead" : "event_prep_lead";
-  return lane === "protect" ? "cycle_life_protect" : lane === "easy" ? "cycle_upkeep" : "cycle_refresh";
+  if (d.kind === "cycle") return lane === "protect" ? "cycle_life_protect" : lane === "easy" ? "cycle_upkeep" : "cycle_refresh";
+  // recurring / habit / relationship: conservative placeholder reason（正式 semantics は別 increment）。
+  return "lifeops_conservative_fallback";
 }
 
 /**
