@@ -7,6 +7,8 @@
  *   **実データ非接続**（固定 fixture）・本配置（Home/横R2 への組込み）は別。Date.now 不使用（固定 now）。
  */
 
+import { notFound } from "next/navigation";
+
 import { collectLifeOpsCandidates, type LifeOpsInputs } from "@/lib/lifeops/candidate-collector";
 import { toLifeOpsCardViewModels } from "@/lib/lifeops/card-presenter";
 import { LifeOpsCardList } from "@/components/lifeops/LifeOpsCardList";
@@ -33,6 +35,8 @@ const FIXTURE: LifeOpsInputs = {
 const ITEMS = toLifeOpsCardViewModels(collectLifeOpsCandidates(FIXTURE, NOW));
 
 export default function LifeOpsPreviewPage() {
+  // B-4 production hard-block: nav 非登録の dev preview を本番で直叩き露出させない。dev/local のみ描画。
+  if (process.env.NODE_ENV === "production") notFound();
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50 px-5 py-10">
       <div className="mx-auto max-w-md">

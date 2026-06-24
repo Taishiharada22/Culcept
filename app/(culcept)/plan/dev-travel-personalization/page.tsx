@@ -13,6 +13,8 @@
  *   - engine は fixture 入力で実行するが authoritative/raw output は表示しない（projection の説明文のみ）。
  */
 
+import { notFound } from "next/navigation";
+
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
 import { mapPersonalizationToM2SoftPreference } from "@/lib/shared/travel/personalization-to-m2-soft-preference";
@@ -96,6 +98,8 @@ function Disabled() {
 }
 
 export default function DevTravelPersonalizationPage() {
+  // B-4 production hard-block: dev preview を本番で直叩き露出させない。flag gate は dev/local のみ有効。
+  if (process.env.NODE_ENV === "production") notFound();
   if (!PLAN_FLAGS.travelPersonalizationPreview) return <Disabled />;
 
   const rows: Row[] = [
