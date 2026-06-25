@@ -113,6 +113,36 @@ function isArchivedRoute(pathname: string): boolean {
     return ARCHIVED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
+// D-9（2026-06-25）: archive/separate の **API + cron route** を本番で 404 化。
+//   page gate（ARCHIVED_PREFIXES）と同 source-of-truth 思想。`/api/` は proxy 既定 public ゆえ、
+//   本リストを **isPublicRoute より前** に評価して塞ぐ。本線が依存しないことを grep 実証済（誤 404 なし）。
+//   除外（=残す）: 本線 api（plan/stargazer/calendar/coalter/origin/talk/genome-card/genome-connections/
+//     aneurasync/reality/weather/notifications/push/auth/alter-morning/my-style/messages/baseline/account/
+//     health/widget/orbiter/internal/ceo/admin/tour-states）。frozen identity（body-color/sns/personal-color/
+//     eye-profile）は D-9 scope 外＝非封じ込め（別判断）。outbound は素性不明ゆえ保守的に非封じ込め。
+const ARCHIVED_API_PREFIXES = [
+    // rendezvous（別 project 分離・API + 専用 cron route。本線 production では発火させない）
+    "/api/rendezvous",
+    "/api/cron/rendezvous-notification-dispatch",
+    "/api/cron/rendezvous-candidate-generation",
+    "/api/cron/rendezvous-anima-generation",
+    // fashion / commerce / drops / shops / dating（archive）
+    "/api/recommendations", "/api/tribes", "/api/avatar-fitting", "/api/watchlist",
+    "/api/wardrobe", "/api/visual-search", "/api/external-shop", "/api/try-on",
+    "/api/tags", "/api/swipe", "/api/stylist", "/api/style-profile", "/api/stripe",
+    "/api/shoe-width", "/api/search", "/api/reviews", "/api/report", "/api/price-alerts",
+    "/api/items", "/api/garment-profile", "/api/fit-color-score", "/api/discover",
+    "/api/checkout", "/api/bulk-actions", "/api/auto-pricing", "/api/follows",
+    "/api/uploads", "/api/ai-search", "/api/suggest",
+    // fashion/commerce cron route（vercel.json 非掲載だが route 存在＝呼ばれたら 404）
+    "/api/cron/precompute-recommendations", "/api/cron/expire-orders",
+    "/api/cron/ai-promotion-review", "/api/cron/body-color-pipeline",
+];
+
+function isArchivedApi(pathname: string): boolean {
+    return ARCHIVED_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
 // ---------------------------------------------------------------------------
 // Main proxy handler
 // ---------------------------------------------------------------------------
@@ -160,21 +190,23 @@ export async function proxy(req: NextRequest) {
         res.headers.set("X-RateLimit-Remaining", String(remaining));
     }
 
-    // パブリックルートはそのまま通す
-    if (isPublicRoute(req.nextUrl.pathname)) {
-        return res;
-    }
-
-    // Archived scope 封じ込め（D-7・本番のみ）: fashion/rendezvous の旧 route を 404 化。
-    //   認証判定より前＝未認証でも login に流さず not-found（archive の存在を露出しない）。
+    // Archived scope 封じ込め（D-7 page + D-9 api/cron・本番のみ）: fashion/rendezvous の旧 route/API を 404 化。
+    //   **public 判定より前**に評価（`/api/` は public 既定ゆえ、ここで塞がないと API が素通りする）。
+    //   認証判定よりも前＝未認証でも login に流さず not-found（archive の存在を露出しない）。
     //   未マッチ path への rewrite で App Router の not-found.tsx（404）を描画。flag OFF では本 block 不実行。
-    if (MAINLINE_SCOPE_ONLY && isArchivedRoute(req.nextUrl.pathname)) {
+    if (MAINLINE_SCOPE_ONLY && (isArchivedRoute(req.nextUrl.pathname) || isArchivedApi(req.nextUrl.pathname))) {
         const nf = req.nextUrl.clone();
         nf.pathname = "/_archived_not_found";
+        nf.search = "";
         const res404 = NextResponse.rewrite(nf);
         applySecurityHeaders(res404);
         res404.headers.set("X-Response-Time", `${(performance.now() - startTime).toFixed(1)}ms`);
         return res404;
+    }
+
+    // パブリックルートはそのまま通す
+    if (isPublicRoute(req.nextUrl.pathname)) {
+        return res;
     }
 
     // 未認証 → /login にリダイレクト（next パラメータ付き）

@@ -7,10 +7,6 @@
       "schedule": "0 3 * * *"
     },
     {
-      "path": "/api/cron/rendezvous-notification-dispatch",
-      "schedule": "0 6 * * *"
-    },
-    {
       "path": "/api/cron/stargazer-student-monitor?lookbackHours=168&sampleSize=50&limit=200",
       "schedule": "0 4 * * *"
     },
