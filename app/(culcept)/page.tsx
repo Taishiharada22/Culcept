@@ -7,6 +7,7 @@ import { emitVisualFlowFlagEvaluated } from "@/lib/alter-morning/visualFlow/anal
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import HomeSwipeContainer from "@/components/home/HomeSwipeContainer";
 import PlanClient from "./plan/PlanClient";
+import { buildPlanClientFeatureProps } from "./plan/planClientFeatureProps";
 
 /**
  * / の役割を1つに固定:
@@ -96,10 +97,17 @@ export default async function HomePage() {
         //   - Production 完全稼働には W1-Z production migration apply が必要
         const homeElement = <AneurasyncHome visualFlowEnabled={visualFlowEnabled} />;
         if (PLAN_FLAGS.homeSwipeEnabled) {
+            // HOME-SWIPE-PLAN-PARITY（2026-06-25）: pane の PlanClient にも /plan route と同じ
+            //   表示制御 props を渡し、5 タブ（カレンダー/リスト/マップ/バッテリー/CoAlter）+ LifeOps/Reality
+            //   カードを route と一致させる。displayMode のみ "pane"。source of truth = planClientFeatureProps.ts。
+            //   user は anon redirect（上）+ star_maps gate を通過済み＝非匿名・auth 済み。
+            //   searchParams は pane では未渡し（LifeOps PRG feedback toast は /plan route 専用・card 本体は出る）。
+            //   homeSwipeEnabled OFF（本番既定）では本 block 不実行＝server 計算ゼロ（従来挙動不変）。
+            const planFeatureProps = await buildPlanClientFeatureProps(supabase, user.id);
             return (
                 <HomeSwipeContainer
                     homePane={homeElement}
-                    planPane={<PlanClient displayMode="pane" />}
+                    planPane={<PlanClient displayMode="pane" {...planFeatureProps} />}
                 />
             );
         }
