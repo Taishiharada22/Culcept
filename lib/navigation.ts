@@ -30,11 +30,15 @@ export const HOME_QUICK_NAV: NavItem[] = [
   { href: "/rendezvous", label: "出会う", icon: "🤝" },
 ];
 
-/** 「他」メニューの中身 */
+/** 「他」メニューの中身
+ *  2026-06-25（CEO 判断）: Presence(/sns/profile)・外見分析(/body-color/avatar) は **凍結**のため除外。
+ *  - Presence は起動しない（useRequireBaseline の star_map 救済欠落で /baseline 弾き）が、修正でなく凍結方針。
+ *  - 外見分析 も凍結予定。
+ *  - 残すのは Genome(/aneurasync/genome) のみ。/ceo は HomeQuickAccess 側で CEO 判定時に別途付与（不変）。
+ *  凍結 route 本体（/sns/profile・/body-color/*）は削除せず残置（nav から外すだけ＝直 URL は引き続き存在）。
+ */
 export const HOME_MORE_NAV: NavItem[] = [
-  { href: "/body-color/avatar", label: "外見分析", icon: "🎨" },
   { href: "/aneurasync/genome", label: "Genome", icon: "🧬" },
-  { href: "/sns/profile", label: "Presence", icon: "🪞" },
 ];
 
 /** 探索ナビ（サブセクション） */
