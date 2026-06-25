@@ -13,7 +13,14 @@ const nextConfig = {
     images: {
         qualities: [75, 90, 95],
         remotePatterns: [
-            // Supabase Storage — ユーザーアップロード画像（アバター、商品、ショップ等）
+            // Supabase Storage — ユーザーアップロード画像（アバター、Genome 等）
+            // 新 production project（2026-06-26・clean prod = plodugvgmdkusifdrdfz）。
+            {
+                protocol: "https",
+                hostname: "plodugvgmdkusifdrdfz.supabase.co",
+                pathname: "/storage/v1/object/public/**",
+            },
+            // legacy project（archive・既存 URL 後方互換のため残置・無害）
             {
                 protocol: "https",
                 hostname: "aljavfujeqcwnqryjmhl.supabase.co",
@@ -42,6 +49,8 @@ const nextConfig = {
             // 画像をServer Actionで受けるなら必要（デフォは 1MB）
             bodySizeLimit: "100mb",
         },
+        // 大規模アプリの webpack production build の peak メモリ削減（OOM 対策・2026-06-26）。
+        webpackMemoryOptimizations: true,
     },
 
     typescript: {
