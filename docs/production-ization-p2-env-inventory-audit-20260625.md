@@ -119,3 +119,16 @@
 
 ---
 docs-only。値非表示・Vercel 非編集・`vercel env add` 不実行・deploy/push/flag ON なし・SQL/seed なし。
+
+---
+
+## 11. P2 ENV 入力中の CEO 確認への回答（2026-06-25・値非表示）
+**canonical domain = `aneurasync.com`（CEO 決定）。全 URL を統一済。前提=aneurasync.com を Vercel custom domain として接続＋DNS＋live（P5）。未接続なら aneurasync.vercel.app 配信で auth/OAuth が解決せず壊れる。**
+- URL env（確定・整合 OK）: `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_SITE_URL` = `https://aneurasync.com`。`GOOGLE_CALENDAR_REDIRECT_URI=https://aneurasync.com/api/calendar/google/callback`・`MICROSOFT_CALENDAR_REDIRECT_URI=https://aneurasync.com/api/calendar/microsoft/callback`。
+- **callback path（コード実証）**: google/microsoft の callback/connect route が `process.env.*_CALENDAR_REDIRECT_URI` を直接使用（APP_URL fallback なし）→ path は `/api/calendar/{google,microsoft}/callback` で正しい。**provider（Google Cloud Console / Azure）側の登録 redirect も完全一致必須**。
+- **Supabase Auth**: Site URL=`https://aneurasync.com` / Redirect allowlist=`/auth/callback`（route 実在 `app/(culcept)/auth/callback/route.ts`）+`/auth/reset-password`。email/password の確認・reset リンクが Site URL 使用。
+- **AI_INTERNAL_API_KEY / INTERNAL_API_KEY**: initial deploy をブロックしない（未設定でも throw せず unauthorized/401・user flow 動く）。cron/内部 AI/notifications の認証に必要 → CEO が `openssl rand -base64 32` で生成・設定推奨（値非表示）。
+- **GENOME_SHARE_SECRET**: insecure default fallback あり（未設定で動くが share 署名が公開鍵＝偽造可）→ 推奨（security）・生成設定。
+- **Sentry/Slack**: 未設定でも initial deploy 可（機能 degrade のみ）。
+- **flag 系**: `PLAN_SHIFT_DRAFT_HOST` は host でなく flag（dev route gate）→ 初期は入れない。全 flag 未設定（OFF）・`MAINLINE_SCOPE_ONLY=true` のみ。点火は P3 canary。
+- **残り追加 key**（値非表示）: 必須=OPENAI/ANTHROPIC_API_KEY・GEMINI_MODEL(+DEFAULT)/OPENAI_MODEL_DEFAULT・OAUTH_STATE_SECRET・OAUTH_TOKEN_ENCRYPTION_KEY・CRON_SECRET・AI_INTERNAL_API_KEY・INTERNAL_API_KEY・GOOGLE/MICROSOFT_CALENDAR_CLIENT_ID/SECRET。推奨=NEXT_PUBLIC_SENTRY_DSN/SENTRY_DSN/SLACK_WEBHOOK_URL/GENOME_SHARE_SECRET。入れない=PLAN_SHIFT_DRAFT_HOST/全flag/Stripe/TURN/UPSTASH/staging-test。
