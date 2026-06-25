@@ -1,5 +1,7 @@
 # P1 — CLEAN DB BUILD RUNBOOK（設計・手順書のみ / 2026-06-25）
 
+> **✅ P1 実行完了（2026-06-25・CEO 実行）**: 新 production project **`plodugvgmdkusifdrdfz`**（name=aneurasync）に **201/201 migration fresh apply 成功**。star_maps/profiles/stargazer_profiles/location_notes/genome_connections 実在・star_maps user_id unique+pk OK・core RLS enabled・public policies **541**・bucket **`talk-media`・`identity-verification`**（canonical 名は `talk-media`＝ハイフン・code/migration 一致）。unlink 済・`supabase/.temp/project-ref` 不在。**production DB 正本 = `plodugvgmdkusifdrdfz`**（legacy `aljavfujeqcwnqryjmhl`=archive 保存・staging `hjcrvndumgiovyfdacwc`=温存）。次=P2 Vercel env。
+
 > **本書は CEO 向け手順書（docs-only）。実行はしない。** 新 Supabase project 作成・migration apply・env 設定・Vercel 設定・deploy は **CEO（Supabase owner 権限保持者）GO**まで一切実行しない。
 > **実行体制（2026-06-25 CEO 補足）**: 別人物の DB owner は想定しない。**Supabase project / DB password / Vercel / production 判断は CEO が全管轄**。既存ユーザーは test user のみ＝データ保全用の別 owner 不要。**secret / DB password / service_role は CEO のみが扱う**（Claude は非扱い・実行不可）。安全ゲート（ref 二重確認 / legacy・staging へ誤 link しない / pending 201 / STOP 条件 / env・secret 非出力 / deploy・origin push は別 GO）は維持。
 > **P1-RUNBOOK-REVIEW-CLOSE（2026-06-25）で最終化**: CEO 採用済み。migration 数 **201 再確認済み**（新規増なし・最新 `20260624120000_stargazer_star_maps_clean_prod`）。
@@ -81,7 +83,7 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 1. **`cat supabase/.temp/project-ref` が `<NEW_REF>` でない**（legacy `aljavfujeqcwnqryjmhl` / staging `hjcrvndumgiovyfdacwc` に link した）。
 2. **`migration list --linked` の pending が 201 でない**（fresh のはずが既適用 or 数不一致）。
 3. **`supabase db push` が失敗**（部分適用の可能性→§4 で実態確認・CEO 判断・安易に再 push しない）。
-4. **§4 の確認に失敗**: RLS が主要 table で off / policies 0 / 主要 table（profiles・stargazer_*・plan_*・travel・lifeops・coalter_*・genome_*）不在 / **`stargazer_star_maps` 不在 or user_id UNIQUE 欠落** / storage bucket（`talk_media`・`identity-verification`）不在。
+4. **§4 の確認に失敗**: RLS が主要 table で off / policies 0 / 主要 table（profiles・stargazer_*・plan_*・travel・lifeops・coalter_*・genome_*）不在 / **`stargazer_star_maps` 不在 or user_id UNIQUE 欠落** / storage bucket（`talk-media`・`identity-verification`）不在。
 5. **service_role / DB password / env 値が画面・ログ・docs に露出しそう**（即停止・出力しない・CEO のみが扱う）。
 
 ## 4. apply 前後の確認項目
@@ -98,7 +100,7 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 | lifeops 系（lifeops_structured ほか） | `to_regclass` | 実在 |
 | coalter 系（coalter_plan_shelf / coalter_presence_states / coalter_memory_items / coalter_handoff_events 等） | `to_regclass` | 実在（CoAlter） |
 | genome 系（genome_connections / talk_threads / talk_messages / genome_card_talk） | `to_regclass` | 実在（Genome Card/Talk） |
-| storage buckets（migration 作成） | `SELECT id FROM storage.buckets` | **`talk_media`・`identity-verification`** 実在（migration `20260324210000`/`20260328100000` 由来） |
+| storage buckets（migration 作成） | `SELECT id FROM storage.buckets` | **`talk-media`・`identity-verification`** 実在（migration `20260324210000`/`20260328100000` 由来） |
 | FK CASCADE（account 削除の孤児防止） | `pg_constraint` confdeltype='c' for stargazer_* | star_maps 等 user_id FK が ON DELETE CASCADE |
 
 ## 5. Auth 設定（Supabase dashboard・migration では入らない）
@@ -113,7 +115,7 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 ## 6. Storage bucket 設定
 | bucket | 由来 | 新 production |
 |---|---|---|
-| `talk_media` | migration `20260324210000` | ✅ 自動作成（Talk 添付） |
+| `talk-media` | migration `20260324210000` | ✅ 自動作成（Talk 添付） |
 | `identity-verification` | migration `20260328100000` | ✅ 自動作成 |
 | `user-avatar`（`SUPABASE_USER_AVATAR_BUCKET`） | env 参照・dashboard 作成 | ✅ 作成（avatar・本線） |
 | `body`（`SUPABASE_BODY_BUCKET`） | env 参照（外見分析=凍結） | 🔺 凍結ゆえ任意（作らなくても nav 非露出。作るなら privacy 確認） |
