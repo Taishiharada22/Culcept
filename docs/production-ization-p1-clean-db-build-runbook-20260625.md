@@ -1,14 +1,20 @@
 # P1 — CLEAN DB BUILD RUNBOOK（設計・手順書のみ / 2026-06-25）
 
 > **本書は owner 向け手順書（docs-only）。実行はしない。** 新 Supabase project 作成・migration apply・env 設定・Vercel 設定・deploy は **CEO GO + DB owner 同席**まで一切実行しない。
-> 方針確定（既決）: D-1=**③ 新クリーンプロジェクト**／migration=**local main 201（staging と 1:1 一致・`b6d9254d0` 時点）**／rows 移植なし／fashion/commerce/rendezvous は本線非混入（page=D-7・API=D-9/9b・cron=D-8/8b で `MAINLINE_SCOPE_ONLY` 封じ込め済）。
-> 親: `…-master-runbook-20260625.md`（全体）/ `…-p0-preflight-findings`（migration 201 reconcile）。worktree=local main `4cbb84abe`。
+> **P1-RUNBOOK-REVIEW-CLOSE（2026-06-25）で最終化**: CEO 採用済み。migration 数 **201 再確認済み**（新規増なし・最新 `20260624120000_stargazer_star_maps_clean_prod`）。
+> 方針確定（既決）: D-1=**③ 新クリーンプロジェクト**／migration=**local main 201（staging と 1:1 一致・P0 実証）**／rows 移植なし／fashion/commerce/rendezvous は本線非混入（page=D-7・API=D-9/9b・cron=D-8/8b で `MAINLINE_SCOPE_ONLY` 封じ込め済）。
+> 親: `…-master-runbook-20260625.md`（全体）/ `…-p0-preflight-findings`（migration 201 reconcile）。
+> **正本コードの最新 tip（SHA は本書更新で進むため固定値を信用せず下記で確認）**:
+>   - branch `main`・worktree `/Users/haradataishi/Culcept-main-reflect-20260604`。
+>   - **常に最新 = backup branch `backup/local-main-after-freeze-roundup-20260624` と同期**。
+>   - tip 実値の確認コマンド: `git -C /Users/haradataishi/Culcept-main-reflect-20260604 log --oneline -1`。
+>   - REVIEW-CLOSE 直前 tip = `90b037636`（本 close commit で +1）。**owner は apply 直前に上記コマンドで実 tip を確認**。
 
 ---
 
 ## 0. 前提・登場人物
 - **実行者**: CEO（決裁）+ DB owner（Supabase project owner・DB password 保持・`supabase db push` 実行）。**Claude は手順設計のみ**（DB password/secret 非扱い・production 非接続）。
-- **正本コード**: local main（main-reflect・`4cbb84abe`）。**origin/main は `5a0c0f7ec` で凍結**（push=本番デプロイゆえ P4 まで触らない）。
+- **正本コード**: local main（branch `main`・worktree `/Users/haradataishi/Culcept-main-reflect-20260604`・最新 tip は冒頭の確認コマンド参照）。**origin/main は `5a0c0f7ec` で凍結**（push=本番デプロイゆえ P4 まで触らない）。
 - **正本 schema**: `supabase/migrations/` の **201 本**（最新 `20260624120000_stargazer_star_maps_clean_prod`）。staging 適用済みと double-side gap ゼロ（P0 実証）。
 
 ---
@@ -29,16 +35,53 @@
 | **DB password** | 強固・owner が password manager 保管。**Claude 非扱い**。`db push`/psql で使用。 |
 | **PITR / backup** | 有効化（rollback 方針 §10 の DB 復元前提）。 |
 
-## 3. local main 201 migrations fresh apply 手順（owner）
-> **新 project にのみ** apply。staging/legacy には触れない。CLI link ref を毎回二重確認。
+## 2b. ★ REF 取り違え防止表（apply 前に必ず照合）
+| 役割 | project ref | 本 P1 で |
+|---|---|---|
+| **legacy production**（fashion 397table・archive 保存） | `aljavfujeqcwnqryjmhl` | ❌ **絶対に link/apply しない** |
+| **staging**（migration 検証元・温存） | `hjcrvndumgiovyfdacwc` | ❌ apply しない（read-only 照合のみ済） |
+| **new production candidate**（本 P1 で新規作成） | `<NEW_REF>`（作成後に確定） | ✅ **ここにだけ** link/apply |
+> `<NEW_REF>` が上記 legacy/staging のどちらかと一致したら **即 STOP**。
 
-1. owner 端末で local main（`4cbb84abe`）の worktree（`Culcept-main-reflect-20260604`）へ。
-2. **新 project に link**: `supabase link --project-ref <NEW_REF>`（DB password 入力）。
-   - **直後に `supabase/.temp/project-ref` が `<NEW_REF>` であること、staging/legacy ref でないことを確認**（取り違え防止・本書 §0 事故源回避）。
-3. **pending 確認（apply 前）**: `supabase migration list --linked` → 新 project は **適用済み 0 / pending 201** のはず（fresh）。201 でなければ STOP（ref 取り違え or 既適用疑い）。
-4. **fresh apply**: `supabase db push`（201 本を順次適用）。冪等 migration ゆえ安全。所要時間・エラーを記録。
-5. apply 後、§4 の確認を全項目実施。
-6. 完了後 `supabase unlink`（link 残置しない）。
+## 3. local main 201 migrations fresh apply 手順（owner）
+> **新 project（`<NEW_REF>`）にのみ** apply。staging/legacy には触れない。CLI link ref を毎回二重確認。
+
+owner 端末で local main worktree（`/Users/haradataishi/Culcept-main-reflect-20260604`・branch `main`）へ移動し、以下を順に実行（**コピペ可・`<NEW_REF>` を実値に置換**）:
+
+```bash
+cd /Users/haradataishi/Culcept-main-reflect-20260604
+
+# 0) 正本 tip 確認（冒頭の値と一致を確認）
+git log --oneline -1
+
+# 1) 新 project に link（DB password を対話入力）
+supabase link --project-ref <NEW_REF>
+
+# 2) link 先 ref 二重確認（<NEW_REF> であること・aljav…/hjcrv… でないこと）
+cat supabase/.temp/project-ref
+#   → <NEW_REF> でなければ STOP（supabase unlink して中止）
+
+# 3) pending 確認（fresh project は 適用済み0 / pending 201 のはず）
+supabase migration list --linked
+#   → pending が 201 でなければ STOP（ref 取り違え or 既適用疑い）
+
+# 4) fresh apply（201 本を順次適用・冪等）
+supabase db push
+#   → エラーが出たら STOP（§4 で部分適用状態を確認・owner 判断）
+
+# 5) apply 後 read-only 確認（§4 の全項目・dashboard SQL editor で実施）
+
+# 6) link 残置しない
+supabase unlink
+cat supabase/.temp/project-ref   # → 空/なし を確認
+```
+
+### ★ STOP 条件（1つでも該当したら中断・apply しない / unlink して退避）
+1. **`cat supabase/.temp/project-ref` が `<NEW_REF>` でない**（legacy `aljavfujeqcwnqryjmhl` / staging `hjcrvndumgiovyfdacwc` に link した）。
+2. **`migration list --linked` の pending が 201 でない**（fresh のはずが既適用 or 数不一致）。
+3. **`supabase db push` が失敗**（部分適用の可能性→§4 で実態確認・owner 判断・安易に再 push しない）。
+4. **§4 の確認に失敗**: RLS が主要 table で off / policies 0 / 主要 table（profiles・stargazer_*・plan_*・travel・lifeops・coalter_*・genome_*）不在 / **`stargazer_star_maps` 不在 or user_id UNIQUE 欠落** / storage bucket（`talk_media`・`identity-verification`）不在。
+5. **service_role / DB password / env 値が画面・ログ・docs に露出しそう**（即停止・出力しない・owner のみが扱う）。
 
 ## 4. apply 前後の確認項目
 | 確認 | 方法（dashboard SQL editor or `migration list`） | 期待 |
@@ -135,9 +178,15 @@
 7. ☐ **origin/main / deploy GO**: origin/main を local main へ push（P4・**単独不可逆ゲート**）→ Vercel 本番デプロイ。
 8. ☐ **flag 点火 GO**: P3 canary 段階点火（段階毎再 smoke）。
 
+## 11b. ★ P1 実行は CEO + DB owner 同席が必須（再明記）
+- **新 project 作成・`supabase db push`・env 設定は DB owner が実行**（DB password / service_role を扱うため）。**Claude は実行不可**（規約: DB password/secret 非扱い・production 非接続）。
+- **CEO は決裁・各ゲート承認・authed smoke（実機）担当**。
+- 単独作業禁止: apply は **CEO + owner 同席**（ref 取り違え・STOP 条件の二人確認）。
+
 ## 12-15. 記録 / 停止
-- 本書は **docs-only**。新 project 作成・apply・env・deploy・production 接続・DB write 一切**未実施**。
-- 次アクション = ゲート2（CEO review）。承認後にゲート3-4（owner 同席で実 apply）へ。
+- 本書は **docs-only / REVIEW-CLOSE 最終版**。新 project 作成・apply・env・deploy・production 接続・DB write 一切**未実施**。
+- migration 数 **201 再確認済み**（新規増なし）。古い commit 参照（`4cbb84abe`/`b6d9254d0`）は除去し、最新 tip は確認コマンド + backup branch 同期に統一。
+- 次アクション = ゲート2（CEO review 済 → ゲート3 owner 同席日程確定）。承認後にゲート4（owner 同席で実 apply）へ。
 
 ---
 docs-only。production 非接続・DB write/apply/seed・origin/main push・Vercel env 変更・domain 一切なし。`.env.local`/secret 非扱い。
