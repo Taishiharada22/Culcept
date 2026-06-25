@@ -1,6 +1,7 @@
 # P1 — CLEAN DB BUILD RUNBOOK（設計・手順書のみ / 2026-06-25）
 
-> **本書は owner 向け手順書（docs-only）。実行はしない。** 新 Supabase project 作成・migration apply・env 設定・Vercel 設定・deploy は **CEO GO + DB owner 同席**まで一切実行しない。
+> **本書は CEO 向け手順書（docs-only）。実行はしない。** 新 Supabase project 作成・migration apply・env 設定・Vercel 設定・deploy は **CEO（Supabase owner 権限保持者）GO**まで一切実行しない。
+> **実行体制（2026-06-25 CEO 補足）**: 別人物の DB owner は想定しない。**Supabase project / DB password / Vercel / production 判断は CEO が全管轄**。既存ユーザーは test user のみ＝データ保全用の別 owner 不要。**secret / DB password / service_role は CEO のみが扱う**（Claude は非扱い・実行不可）。安全ゲート（ref 二重確認 / legacy・staging へ誤 link しない / pending 201 / STOP 条件 / env・secret 非出力 / deploy・origin push は別 GO）は維持。
 > **P1-RUNBOOK-REVIEW-CLOSE（2026-06-25）で最終化**: CEO 採用済み。migration 数 **201 再確認済み**（新規増なし・最新 `20260624120000_stargazer_star_maps_clean_prod`）。
 > 方針確定（既決）: D-1=**③ 新クリーンプロジェクト**／migration=**local main 201（staging と 1:1 一致・P0 実証）**／rows 移植なし／fashion/commerce/rendezvous は本線非混入（page=D-7・API=D-9/9b・cron=D-8/8b で `MAINLINE_SCOPE_ONLY` 封じ込め済）。
 > 親: `…-master-runbook-20260625.md`（全体）/ `…-p0-preflight-findings`（migration 201 reconcile）。
@@ -8,21 +9,21 @@
 >   - branch `main`・worktree `/Users/haradataishi/Culcept-main-reflect-20260604`。
 >   - **常に最新 = backup branch `backup/local-main-after-freeze-roundup-20260624` と同期**。
 >   - tip 実値の確認コマンド: `git -C /Users/haradataishi/Culcept-main-reflect-20260604 log --oneline -1`。
->   - REVIEW-CLOSE 直前 tip = `90b037636`（本 close commit で +1）。**owner は apply 直前に上記コマンドで実 tip を確認**。
+>   - REVIEW-CLOSE 直前 tip = `90b037636`（本 close commit で +1）。**CEO は apply 直前に上記コマンドで実 tip を確認**。
 
 ---
 
 ## 0. 前提・登場人物
-- **実行者**: CEO（決裁）+ DB owner（Supabase project owner・DB password 保持・`supabase db push` 実行）。**Claude は手順設計のみ**（DB password/secret 非扱い・production 非接続）。
+- **実行者**: **CEO（Supabase owner 権限保持者）が決裁も実行も担う**（project 作成・DB password 保持・`supabase db push`・env 設定・authed smoke）。別人物の DB owner はいない。**secret / DB password / service_role は CEO のみが扱う**。**Claude は手順設計のみ**（DB password/secret 非扱い・production 非接続・実行不可）。
 - **正本コード**: local main（branch `main`・worktree `/Users/haradataishi/Culcept-main-reflect-20260604`・最新 tip は冒頭の確認コマンド参照）。**origin/main は `5a0c0f7ec` で凍結**（push=本番デプロイゆえ P4 まで触らない）。
 - **正本 schema**: `supabase/migrations/` の **201 本**（最新 `20260624120000_stargazer_star_maps_clean_prod`）。staging 適用済みと double-side gap ゼロ（P0 実証）。
 
 ---
 
-## 1. 新 Supabase project 作成手順（owner・dashboard）
+## 1. 新 Supabase project 作成手順（CEO・dashboard）
 1. Supabase dashboard → 対象 org で **New project**。
 2. 下記「§2 確認項目」を入力（name/region/plan/DB password/org）。
-3. project 作成後、**project ref**（`xxxxxxxxxxxxxxxxxxxx`）と **DB password** を owner が安全に保管（password manager・Claude には渡さない）。
+3. project 作成後、**project ref**（`xxxxxxxxxxxxxxxxxxxx`）と **DB password** を CEO が安全に保管（password manager・Claude には渡さない）。
 4. **既存 staging(`hjcrvndumgiovyfdacwc`) / legacy production(`aljavfujeqcwnqryjmhl`) とは別の新規 project**であることを ref で二重確認（取り違え厳禁）。
 
 ## 2. project 名 / region / plan / password / org 確認項目
@@ -32,7 +33,7 @@
 | **name** | 例 `aneurasync-production`（staging/legacy と判別可能な名前）。 |
 | **region** | 主要ユーザー地域（日本中心なら `Northeast Asia (Tokyo) ap-northeast-1`）。staging と同 region 推奨（latency 整合）。 |
 | **plan** | 本番運用に足る plan（Pro 以上推奨・cron/PITR/backup 要件で判断）。 |
-| **DB password** | 強固・owner が password manager 保管。**Claude 非扱い**。`db push`/psql で使用。 |
+| **DB password** | 強固・CEO が password manager 保管。**Claude 非扱い**。`db push`/psql で使用。 |
 | **PITR / backup** | 有効化（rollback 方針 §10 の DB 復元前提）。 |
 
 ## 2b. ★ REF 取り違え防止表（apply 前に必ず照合）
@@ -43,10 +44,10 @@
 | **new production candidate**（本 P1 で新規作成） | `<NEW_REF>`（作成後に確定） | ✅ **ここにだけ** link/apply |
 > `<NEW_REF>` が上記 legacy/staging のどちらかと一致したら **即 STOP**。
 
-## 3. local main 201 migrations fresh apply 手順（owner）
+## 3. local main 201 migrations fresh apply 手順（CEO 実行）
 > **新 project（`<NEW_REF>`）にのみ** apply。staging/legacy には触れない。CLI link ref を毎回二重確認。
 
-owner 端末で local main worktree（`/Users/haradataishi/Culcept-main-reflect-20260604`・branch `main`）へ移動し、以下を順に実行（**コピペ可・`<NEW_REF>` を実値に置換**）:
+CEO 端末で local main worktree（`/Users/haradataishi/Culcept-main-reflect-20260604`・branch `main`）へ移動し、以下を順に実行（**コピペ可・`<NEW_REF>` を実値に置換**）:
 
 ```bash
 cd /Users/haradataishi/Culcept-main-reflect-20260604
@@ -67,7 +68,7 @@ supabase migration list --linked
 
 # 4) fresh apply（201 本を順次適用・冪等）
 supabase db push
-#   → エラーが出たら STOP（§4 で部分適用状態を確認・owner 判断）
+#   → エラーが出たら STOP（§4 で部分適用状態を確認・CEO 判断）
 
 # 5) apply 後 read-only 確認（§4 の全項目・dashboard SQL editor で実施）
 
@@ -79,9 +80,9 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 ### ★ STOP 条件（1つでも該当したら中断・apply しない / unlink して退避）
 1. **`cat supabase/.temp/project-ref` が `<NEW_REF>` でない**（legacy `aljavfujeqcwnqryjmhl` / staging `hjcrvndumgiovyfdacwc` に link した）。
 2. **`migration list --linked` の pending が 201 でない**（fresh のはずが既適用 or 数不一致）。
-3. **`supabase db push` が失敗**（部分適用の可能性→§4 で実態確認・owner 判断・安易に再 push しない）。
+3. **`supabase db push` が失敗**（部分適用の可能性→§4 で実態確認・CEO 判断・安易に再 push しない）。
 4. **§4 の確認に失敗**: RLS が主要 table で off / policies 0 / 主要 table（profiles・stargazer_*・plan_*・travel・lifeops・coalter_*・genome_*）不在 / **`stargazer_star_maps` 不在 or user_id UNIQUE 欠落** / storage bucket（`talk_media`・`identity-verification`）不在。
-5. **service_role / DB password / env 値が画面・ログ・docs に露出しそう**（即停止・出力しない・owner のみが扱う）。
+5. **service_role / DB password / env 値が画面・ログ・docs に露出しそう**（即停止・出力しない・CEO のみが扱う）。
 
 ## 4. apply 前後の確認項目
 | 確認 | 方法（dashboard SQL editor or `migration list`） | 期待 |
@@ -119,14 +120,14 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 | **`drop-images`（`SUPABASE_DROP_IMAGES_BUCKET`）** | fashion/drops | ❌ **持ち込まない**（archive） |
 | **`shop`（`SUPABASE_SHOP_BUCKET`）** | fashion/commerce | ❌ **持ち込まない**（archive） |
 | `rendezvous-photos` | rendezvous | ❌ 本線非対象（別 project 分離側） |
-- bucket の RLS/public 設定は staging と同方針で owner が設定（migration 作成 bucket は migration の policy 準拠）。
+- bucket の RLS/public 設定は staging と同方針で CEO が設定（migration 作成 bucket は migration の policy 準拠）。
 
-## 7. Vercel env checklist（production・secret は owner 投入・Claude 非扱い）
+## 7. Vercel env checklist（production・secret は CEO 投入・Claude 非扱い）
 | キー | 値の出所 | 必須 |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL`・`SUPABASE_URL` | **新 project URL** | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`・`SUPABASE_ANON_KEY` | 新 project anon key | ✅ |
-| `SUPABASE_SERVICE_ROLE_KEY` | 新 project service_role（**owner 投入・表示しない**） | ✅ |
+| `SUPABASE_SERVICE_ROLE_KEY` | 新 project service_role（**CEO 投入・表示しない**） | ✅ |
 | `OPENAI_API_KEY`・`ANTHROPIC_API_KEY`・`GEMINI_API_KEY`(+`*_MODEL*`)・`EXA_API_KEY` | 本番 LLM | ✅（Gemini「Budget 0」設定要修正） |
 | `GOOGLE_MAPS_API_KEY` | Maps | ✅（Travel 地図） |
 | `GOOGLE_CALENDAR_CLIENT_ID/SECRET/REDIRECT_URI`・`MICROSOFT_CALENDAR_*` | OAuth（本番 redirect） | ✅ |
@@ -147,7 +148,7 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 - fashion/commerce/drops/shops/old-dating/rendezvous は**本線新 production に入れない**（schema は migration に無い or 未作成 bucket・route/API/cron は `MAINLINE_SCOPE_ONLY` 封じ込め）。
 - staging(`hjcrvndumgiovyfdacwc`) は **staging として温存**（昇格しない＝③方針）。
 
-## 9. cutover 前 smoke（CEO/owner・**deploy 前に新 project へ向けて検証**）
+## 9. cutover 前 smoke（CEO・**deploy 前に新 project へ向けて検証**）
 > 順序: local/staging で機能確認 → 新 project に env 向けた preview/local で authed smoke。
 1. **schema smoke（新 project・read-only SQL）**: §4 全項目 green（star_maps/profiles/plan/travel/lifeops/coalter/genome/buckets/RLS/policies）。
 2. **authed smoke（新 project 接続の preview or local・CEO ログイン）**:
@@ -156,7 +157,7 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
    - Travel（day detail/map）・LifeOps card・Origin・Stargazer 深層観測。
    - 各 surface で 42P01/42703/500/console error ゼロ。
 3. **封じ込め smoke（`MAINLINE_SCOPE_ONLY=true`）**: fashion/rendezvous page/API/cron が 404、mainline が 200/正常（D-7/D-9 の dev 検証を新 project でも確認）。
-4. **Claude はログイン不可**ゆえ authed smoke は CEO 実機。schema smoke は read-only SQL で owner 実施可。
+4. **Claude はログイン不可**ゆえ authed smoke は CEO 実機。schema smoke は read-only SQL で CEO 実施可。
 
 ## 10. rollback 方針（各段階で可逆）
 | 段階 | rollback |
@@ -171,22 +172,21 @@ cat supabase/.temp/project-ref   # → 空/なし を確認
 ## 11. 実行ゲート（順次・各 CEO 承認）
 1. ☐ **P1 設計完了**（本書）。
 2. ☐ **CEO review**（本書承認）。
-3. ☐ **DB owner 同席**日程確定。
+3. ☐ **CEO（Supabase owner 権限保持者）実行枠**確保（別人物 owner は不要）。
 4. ☐ **apply GO**: 新 project 作成 + 201 fresh apply（§3）+ §4 検証 green。
 5. ☐ **env GO**: Vercel production env 設定（§7）+ Auth/Storage/OAuth 設定（§5/§6）。
 6. ☐ **cutover smoke GO**: §9 authed smoke green（CEO 実機）。
 7. ☐ **origin/main / deploy GO**: origin/main を local main へ push（P4・**単独不可逆ゲート**）→ Vercel 本番デプロイ。
 8. ☐ **flag 点火 GO**: P3 canary 段階点火（段階毎再 smoke）。
 
-## 11b. ★ P1 実行は CEO + DB owner 同席が必須（再明記）
-- **新 project 作成・`supabase db push`・env 設定は DB owner が実行**（DB password / service_role を扱うため）。**Claude は実行不可**（規約: DB password/secret 非扱い・production 非接続）。
-- **CEO は決裁・各ゲート承認・authed smoke（実機）担当**。
-- 単独作業禁止: apply は **CEO + owner 同席**（ref 取り違え・STOP 条件の二人確認）。
+## 11b. ★ P1 実行は CEO（Supabase owner 権限保持者）が担う（再明記）
+- **新 project 作成・`supabase db push`・env 設定・authed smoke は CEO が実行**（DB password / service_role を扱うため）。別人物の DB owner はいない。**secret / DB password / service_role は CEO のみが扱う**。**Claude は実行不可**（規約: DB password/secret 非扱い・production 非接続）。
+- 安全ゲートは維持: **apply 前に ref 二重確認・legacy/staging へ誤 link しない・pending 201 確認・STOP 条件確認**（CEO が単独実行時も各チェックを飛ばさない）。env 値・service_role・DB password は出力しない。**production deploy / origin/main push は別 GO**。
 
 ## 12-15. 記録 / 停止
 - 本書は **docs-only / REVIEW-CLOSE 最終版**。新 project 作成・apply・env・deploy・production 接続・DB write 一切**未実施**。
 - migration 数 **201 再確認済み**（新規増なし）。古い commit 参照（`4cbb84abe`/`b6d9254d0`）は除去し、最新 tip は確認コマンド + backup branch 同期に統一。
-- 次アクション = ゲート2（CEO review 済 → ゲート3 owner 同席日程確定）。承認後にゲート4（owner 同席で実 apply）へ。
+- 次アクション = ゲート2（CEO review 済 → ゲート3 CEO 実行枠確保）。承認後にゲート4（CEO 実行で実 apply）へ。
 
 ---
 docs-only。production 非接続・DB write/apply/seed・origin/main push・Vercel env 変更・domain 一切なし。`.env.local`/secret 非扱い。
