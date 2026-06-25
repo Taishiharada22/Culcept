@@ -969,28 +969,27 @@ export default function PlanClient({
           )}
           {/* P3 W2 (= CEO 2026-05-26): .ics import entry point は常時表示 (= useNewShell 不問)。
               「+ 教える」 が flag ON で非表示でも 取り込み 経路は user に必要。
-              CEO 補正 (= 2026-05-26): 既存独自 calendar svg + 「取り込み」 矢印 + gradient。 */}
-          {!isPane && (
-            <button
-              type="button"
-              onClick={() => setIcsImportOpen(true)}
-              className="text-[10px] px-2 py-1 rounded-md text-indigo-600 hover:text-purple-700 hover:bg-indigo-50 transition-colors inline-flex items-center gap-1.5 font-medium"
-              data-testid="plan-header-ics-import"
-              aria-label="カレンダー (.ics) から取り込む"
-            >
-              <IcsImportIcon />
-              <span>取り込む</span>
-            </button>
-          )}
-          {/* S1: シフト表（画像/PDF）取込 入口。flag OFF（本番既定）なら null = UI 不変。 */}
-          {!isPane && (
-            <PlanShiftImportEntry
-              draftLiveEnabled={draftLiveEnabled}
-              vlmInputMode={shiftDraftVlmInputMode}
-              saveEnabled={shiftImportSaveEnabled}
-              onSuccess={handleAddSuccess}
-            />
-          )}
+              CEO 補正 (= 2026-05-26): 既存独自 calendar svg + 「取り込み」 矢印 + gradient。
+              HOME-SWIPE-PLAN-PARITY (2026-06-25): pane でも表示（IcsImportModal は modal-lock 登録済→swipe 競合なし）。
+              header は flex-wrap ゆえ pane 幅でも折り返して収まる。 */}
+          <button
+            type="button"
+            onClick={() => setIcsImportOpen(true)}
+            className="text-[10px] px-2 py-1 rounded-md text-indigo-600 hover:text-purple-700 hover:bg-indigo-50 transition-colors inline-flex items-center gap-1.5 font-medium"
+            data-testid="plan-header-ics-import"
+            aria-label="カレンダー (.ics) から取り込む"
+          >
+            <IcsImportIcon />
+            <span>取り込む</span>
+          </button>
+          {/* S1: シフト表（画像/PDF）取込 入口。flag OFF（本番既定）なら null = UI 不変。
+              HOME-SWIPE-PLAN-PARITY (2026-06-25): pane でも表示（ShiftImportEntryInner が modal-lock 登録済）。 */}
+          <PlanShiftImportEntry
+            draftLiveEnabled={draftLiveEnabled}
+            vlmInputMode={shiftDraftVlmInputMode}
+            saveEnabled={shiftImportSaveEnabled}
+            onSuccess={handleAddSuccess}
+          />
         </div>
         {/* calendar タブは dashboard 側の day-context intro（その日の文脈文）が主役のため、
             固定 subtitle を出さない（重複・縦圧迫の解消、 CEO 承認の最小変更）。 他タブは従来通り。 */}

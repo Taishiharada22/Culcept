@@ -20,8 +20,9 @@
  *   本 component は保存 flag を**直読みしない**（prop で受けるだけ）。
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import { buildShiftFixture } from "@/lib/plan/shift/devFixtureHost";
 import { ShiftDraftInApp } from "./ShiftDraftInApp";
 import { ShiftImportModal } from "./ShiftImportModal";
@@ -47,6 +48,13 @@ export function ShiftImportEntryInner({
   onSuccess?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // HOME-SWIPE-PLAN-PARITY（2026-06-25）: Home swipe pane 内で開いた時、横スワイプで modal/確認画面が
+  //   pane と一緒に流れるのを防ぐ（AddAnchorModal 等と同パターン）。route 単独表示では no-op。
+  //   open は ShiftImportModal / ShiftDraftInApp 両経路を gate するので、ここ 1 箇所で両方を覆える。
+  useEffect(() => {
+    if (!open) return;
+    return registerHomeSwipeModalOpen();
+  }, [open]);
   // 確認画面に流す cells（fixture・live VLM 非依存・deterministic）。now は test 注入可。
   const fixture = useMemo(() => buildShiftFixture(now ?? new Date()), [now]);
 

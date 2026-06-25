@@ -28,6 +28,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 
+import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import {
   GlassButton,
   GlassModal,
@@ -135,6 +136,13 @@ export function IcsImportModal({
       setUrlGuideOpen(false);
       setExpandedGuideKey(null);
     }
+  }, [isOpen]);
+
+  // HOME-SWIPE-PLAN-PARITY（2026-06-25）: Home swipe pane 内で開いた時、横スワイプで modal が
+  //   pane と一緒に流れるのを防ぐ（AddAnchorModal 等と同パターン）。route 単独表示では no-op（影響なし）。
+  useEffect(() => {
+    if (!isOpen) return;
+    return registerHomeSwipeModalOpen();
   }, [isOpen]);
 
   // mount on open: status fetch

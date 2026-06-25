@@ -58,4 +58,34 @@
 - production / DB / migration 非接触・`/plan` 最新ロジック巻き戻しなし・Home/Alter composer 巻き戻しなし。
 
 ---
+
+## 11. 最終厳格監査（2026-06-25・CEO 依頼「/plan の logic/code が最新を保つか厳しく確認」）
+
+### A. 私の parity 変更の adversarial 自己レビュー（regression ゼロ検証）
+- `buildPlanClientFeatureProps` の **return キー = 19、`9a5c5e7ee` 時点の旧 `plan/page.tsx` が PlanClient に渡していた 19 props と完全一致（欠落 0・追加 0）**。`{...featureProps}` spread に余計な prop 漏れなし。`displayMode` のみ呼び出し側指定。→ **`/plan` route の挙動は退化していない**（tsc55・plan test 6557 pass で裏付け）。
+
+### B. pane/route の isPane 分岐分類（PlanClient 全 6 箇所）
+- 装飾（route/pane で差があってよい）: `containerClass`(L862 padding/bg)・eyebrow "ALTER·PLAN"(L902)・header title "Plan"↔"今日のプラン"(L908-920)・subtitle(L997)。
+- **機能（parity すべき）**: ics 取り込み(L973)・シフト表 import(L986)。→ **CEO 報告の「取り込み・シフト表が pane に出ない」と完全一致**。
+
+### C. /plan ロジック最新性・配線健全性
+- tab files 最終更新 = **2026-06-24（`39df44a6b`）**＝昨日の最新（HOME-SURFACE-VERIFY と整合）。
+- CoAlterTab は昨日の知性を**実 render**（L430 `<PlanIntelligenceLivePanel vm realityOsSurface>`・L432 `<PlanIntelligencePanel>`）＝import 死蔵でない。
+- critical path（PlanClient/page.tsx/helper/CoAlterTab）に **throw/TODO/FIXME/stub/未実装 = 0**。
+- shift entry は内部 flag `shiftImportEntryEnabled`（return null）で保護・`.env.local` で ON。
+
+### D. 取り込み・シフト表が pane で出なかった**根本原因**（CEO 報告の解明）
+- L973/L986 の `{!isPane && ...}` は **オーバーサイトでなく意図的な回避策**だった: ics の `IcsImportModal` と shift の `ShiftImportEntryInner` 配下 modal は **`registerHomeSwipeModalOpen`（HomeSwipe modal-lock）に未登録**（登録済みは AddAnchor/Edit/SourceList/AnchorDetail の 4 つだけ）。未登録 modal を pane で開くと横スワイプが disable されず、modal が pane と一緒に流れる UX バグになるため、trigger を pane で隠していた。
+
+## 12. Phase 2 修正（取り込み・シフト表 parity・上記 D の正しい解法）
+| file | 変更 |
+|---|---|
+| `app/(culcept)/plan/components/IcsImportModal.tsx` | `isOpen` 時に `registerHomeSwipeModalOpen()` を呼ぶ useEffect 追加（AddAnchorModal と同パターン）。 |
+| `app/(culcept)/plan/components/ShiftImportEntryInner.tsx` | `open` 時に `registerHomeSwipeModalOpen()`。`open` は ShiftImportModal/ShiftDraftInApp 両経路を gate するので 1 箇所で両 modal を覆う。 |
+| `app/(culcept)/plan/PlanClient.tsx` | ics 取り込み(旧 L973)/シフト表(旧 L986)の `!isPane` gate を除去 → **pane でも表示**。両 modal が lock 登録済になったので swipe 競合なし。header は flex-wrap ゆえ pane 幅でも折り返して収まる。 |
+- shift は内部 `shiftImportEntryEnabled` flag で更に gate されるため、flag OFF（本番既定）では pane でも従来どおり null（UI 不変）。
+- 検証: **tsc = 55**（touched file エラー 0）。**plan test = 397 files / 6557 passed / 0 failed（test-timeout=30s）**。`test-timeout` 既定 5s では `proposalPlanClientHelpers` の「PlanClient default export を `await import`」smoke が**並列負荷で timeout flake**（1↔2 件変動・単独実行は 2.1s で PASS・30s timeout で 0 failed）＝logic 退化でない（`home-swipe-modal-lock` は AddAnchorModal 経由で既に PlanClient のモジュールグラフ内→新規追加なし）。
+- compile 健全（/・/plan 200・touched file コンパイルエラー 0）。実機 pane の取り込み/シフト表ボタン視覚確認は CEO authed リロード（Home swipe）待ち。
+
+---
 read-only DB（write/apply/migration/seed ゼロ）。production 非接続・origin/main push なし。
