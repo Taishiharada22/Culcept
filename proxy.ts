@@ -134,6 +134,10 @@ const ARCHIVED_API_PREFIXES = [
     "/api/items", "/api/garment-profile", "/api/fit-color-score", "/api/discover",
     "/api/checkout", "/api/bulk-actions", "/api/auto-pricing", "/api/follows",
     "/api/uploads", "/api/ai-search", "/api/suggest",
+    // D-9b: outbound = drops 購入/リンク追跡（drop_outbound_events・/api/outbound + /export）。
+    "/api/outbound",
+    // D-9b: test = test ログイン等の debug endpoint（本番では auth bypass hygiene ゆえ閉じる）。
+    "/api/test",
     // fashion/commerce cron route（vercel.json 非掲載だが route 存在＝呼ばれたら 404）
     "/api/cron/precompute-recommendations", "/api/cron/expire-orders",
     "/api/cron/ai-promotion-review", "/api/cron/body-color-pipeline",

@@ -1,8 +1,9 @@
 name: Expire stale orders
 
+# D-8b（2026-06-25・production-ization）: commerce(orders) は archive 方針ゆえ **schedule(毎5分) を除去**。
+#   本線 production では /api/cron/expire-orders は proxy gate(MAINLINE_SCOPE_ONLY)で 404=no-op。
+#   commerce 復活時に備え workflow_dispatch（手動）のみ残置。自動発火はしない。
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
