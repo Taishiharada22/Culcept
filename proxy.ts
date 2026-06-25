@@ -88,6 +88,32 @@ function isPublicRoute(pathname: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Archived scope 封じ込め（production-ization D-7 / 2026-06-25）
+// ---------------------------------------------------------------------------
+// fashion/commerce/dating（CEO「復活させない」archive）+ rendezvous（別 project 分離）の
+// 旧 route を **本番でのみ** 404 化する単一ゲート。env `MAINLINE_SCOPE_ONLY === "true"` の時だけ作動。
+//   - dev/preview（既定 OFF）= 従来どおり到達（全 flag smoke を壊さない）。
+//   - 認証より優先（未認証でも login へ流さず 404＝archive の存在を露出しない）。
+//   - flag OFF で即時可逆。`/api/` は本ゲート対象外（PUBLIC_PREFIX で先に return・各 route 認証＝D-9 別途）。
+//   - mainline（plan/calendar/origin/genome-card/stargazer/talk/messages/my-page/settings/sns/body-color/type）は非対象。
+const MAINLINE_SCOPE_ONLY = process.env.MAINLINE_SCOPE_ONLY === "true";
+
+const ARCHIVED_PREFIXES = [
+    // fashion / commerce / dating（archive）
+    "/wardrobe", "/auction", "/ranking", "/products", "/shops", "/drops",
+    "/checkout", "/orders", "/my-drops", "/try-on", "/turntable", "/3d-viewer",
+    "/avatar-fitting", "/coordinate", "/feed", "/for-you", "/items", "/match",
+    "/stylist", "/visual-search", "/style-drive", "/style-quiz", "/style-profile",
+    "/explore", "/eye-analysis", "/search", "/tribes",
+    // rendezvous（別 project 分離・本番では当面封じ込め。route のみ／cron=vercel.json・api=D-9 別途）
+    "/rendezvous",
+];
+
+function isArchivedRoute(pathname: string): boolean {
+    return ARCHIVED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+}
+
+// ---------------------------------------------------------------------------
 // Main proxy handler
 // ---------------------------------------------------------------------------
 
@@ -137,6 +163,18 @@ export async function proxy(req: NextRequest) {
     // パブリックルートはそのまま通す
     if (isPublicRoute(req.nextUrl.pathname)) {
         return res;
+    }
+
+    // Archived scope 封じ込め（D-7・本番のみ）: fashion/rendezvous の旧 route を 404 化。
+    //   認証判定より前＝未認証でも login に流さず not-found（archive の存在を露出しない）。
+    //   未マッチ path への rewrite で App Router の not-found.tsx（404）を描画。flag OFF では本 block 不実行。
+    if (MAINLINE_SCOPE_ONLY && isArchivedRoute(req.nextUrl.pathname)) {
+        const nf = req.nextUrl.clone();
+        nf.pathname = "/_archived_not_found";
+        const res404 = NextResponse.rewrite(nf);
+        applySecurityHeaders(res404);
+        res404.headers.set("X-Response-Time", `${(performance.now() - startTime).toFixed(1)}ms`);
+        return res404;
     }
 
     // 未認証 → /login にリダイレクト（next パラメータ付き）

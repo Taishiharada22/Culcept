@@ -60,4 +60,16 @@
 コード変更・proxy/vercel.json 編集・production 接続・deploy・DB 操作 一切**未実施**。実 HTTP は local dev のみ（read-only GET）。本書は監査・設計のみ。
 
 ---
-read-only / docs-only。production 非接続・コード変更ゼロ・実 HTTP は local dev の GET のみ。
+
+## 7. D-7 実装（CEO GO「proxy 集中 gate・今実装」2026-06-25）
+- **実装**: `proxy.ts` に `MAINLINE_SCOPE_ONLY`（env・既定 OFF）+ `ARCHIVED_PREFIXES`（fashion 26 + `/rendezvous`）+ `isArchivedRoute()` を追加。auth 判定より前に `MAINLINE_SCOPE_ONLY && isArchivedRoute()` なら未マッチ path へ `NextResponse.rewrite` → App Router の `not-found.tsx`（**404**）。flag OFF では block 不実行＝従来不変。
+- **静的安全**: mainline 13 prefix × archive 28 prefix の総当り衝突チェック = **衝突ゼロ**（誤 404 なし）。MAIN_NAV/HOME_MORE_NAV に archive 対象なし・本線から archive route への直リンクなし。
+- **dev 実 HTTP 検証（local・staging 接続）**:
+  - **flag ON**: `/wardrobe /auction /drops /shops /products /try-on /match /feed /for-you /explore /search /tribes /rendezvous` = **全て 404** ／ mainline `/plan /calendar /origin /genome-card /talk /my-page /settings` = 307→login・`/stargazer /type` = 200（**404 化されず到達**）。
+  - **flag OFF（dev 既定・smoke 状態）**: `/wardrobe /drops /rendezvous` = 307→login に復帰（封じ込め無効）・mainline 不変。
+- **tsc = 55（proxy.ts エラー0）**・test 退化なし。
+- **未実施/残**: ① `/api/` の fashion/rendezvous 封じ込め（D-9・proxy では `/api/` は public 先 return ゆえ対象外）② `vercel.json` の rendezvous cron 3本除外（D-8）③ 本番 env で `MAINLINE_SCOPE_ONLY=true` 投入（P2・CEO）。
+- **一時検証フラグは撤去済**（`.env.local`=symlink `/Users/haradataishi/Culcept/.env.local` から `MAINLINE_SCOPE_ONLY` 行削除・dev=OFF 復帰）。production 非接続・origin push なし。
+
+---
+read-only 監査 + proxy.ts への flag-gated gate 実装（dev 検証のみ）。production 非接続・deploy/DB 操作ゼロ・origin/main push なし。`.env.local`/launch.json/node_modules/.next は commit 対象外。
