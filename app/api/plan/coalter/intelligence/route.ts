@@ -24,6 +24,9 @@ import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { buildTravelPlanDisplayResult } from "@/lib/shared/travel/travel-plan-display-adapter";
 import { derivePlanParams, deriveTravelTraits } from "@/lib/shared/personalization/derive";
 import { mapPersonalizationToM2SoftPreference } from "@/lib/shared/travel/personalization-to-m2-soft-preference";
+import { supabaseServer } from "@/lib/supabase/server";
+import { getPersonalizationSnapshot } from "@/lib/shared/personalization/snapshotReader";
+import type { PersonalizationSnapshot } from "@/lib/shared/personalization/types";
 import {
   COALTER_PLAN_SESSION_FIXTURES,
   type CoAlterPlanMode,
@@ -80,7 +83,25 @@ export async function GET(req: NextRequest) {
   //   ★ 実データ接続（#9・本番）: PLAN_FLAGS.coalterPersonalizationRealRead を gate に、auth client +
   //     getPersonalizationSnapshot(viewer) を read して下の realSelf に渡すだけで全 downstream が実軸で動く
   //     （partner は M2-B/RLS で demo 固定）。staging は軸なし→null→demo（挙動不変）。本 fetch は #9 の作業。
-  const realSelf = null; // ← #9 swap 点（実 fetch をここに）
+  //   #9 実データ接続: flag ON のとき viewer 自身の実軸を user-RLS client で read（self のみ）。
+  //   service_role 禁止・自 user の行のみ（RLS owner-gated）。partner は M2-B/RLS で demo 固定。
+  //   flag OFF / 未認証 / 軸ゼロ / query error → null → demo フォールバック（挙動不変・退化なし）。
+  let realSelf: PersonalizationSnapshot | null = null;
+  if (PLAN_FLAGS.coalterPersonalizationRealRead) {
+    try {
+      const supabase = await supabaseServer();
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth?.user) {
+        realSelf = await getPersonalizationSnapshot(
+          supabase,
+          auth.user.id,
+          new Date().toISOString(),
+        );
+      }
+    } catch {
+      realSelf = null; // fail-safe → demo
+    }
+  }
   const demo = resolveCoAlterPersonalizationPair(mode, { realSelf });
   const selfPlanParams = derivePlanParams(demo.self);
   const selfTravelTraits = deriveTravelTraits(demo.self);
@@ -158,5 +179,7 @@ export async function GET(req: NextRequest) {
     travelItinerary,
   });
 
-  return NextResponse.json({ vm });
+  // selfReal: viewer 自身の実軸が engine に入ったか（additive・partner は常に demo）。
+  //   true でも pair 出力の demo タグは partner が demo ゆえ維持（誤認防止）。UI 表示の精緻化は後続。
+  return NextResponse.json({ vm, selfReal: realSelf !== null });
 }
