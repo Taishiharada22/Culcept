@@ -35,9 +35,14 @@ describe("isCandidateLensUiEnabled — dogfood ON（dev）/ production hard bloc
     vi.stubEnv("NODE_ENV", "development");
     expect(isCandidateLensUiEnabled()).toBe(true);
   });
-  it("★production では常に false（const true でも NODE_ENV hard block・本番公開は別 GO）", () => {
+  it("★production は default false（NEXT_PUBLIC 未設定で本番非表示＝現挙動維持）", () => {
     vi.stubEnv("NODE_ENV", "production");
-    expect(isCandidateLensUiEnabled()).toBe(false); // ★実関数で本番排他を検証
+    expect(isCandidateLensUiEnabled()).toBe(false); // ★flag 未設定なら現本番と同一 false
+  });
+  it("★production でも NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI=true なら点火（本番公開 opt-in）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI", "true");
+    expect(isCandidateLensUiEnabled()).toBe(true);
   });
 });
 

@@ -30,7 +30,12 @@ import { applyPreferenceToAxes, type UserPlacePreference } from "@/lib/plan/cand
  */
 export const PLACE_CANDIDATE_LENS_UI_ENABLED = true;
 export function isCandidateLensUiEnabled(): boolean {
-  return PLACE_CANDIDATE_LENS_UI_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  // dev/dogfood は const で ON。production は default OFF（未設定で現本番と同一 false）だが、
+  // NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI=true で本番点火可（client surface ゆえ NEXT_PUBLIC・CEO opt-in）。
+  return (
+    (PLACE_CANDIDATE_LENS_UI_ENABLED && process.env.NODE_ENV !== "production") ||
+    process.env.NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI === "true"
+  );
 }
 
 /** ★E-b: ③ 行順 explanation note の UI flag（default OFF・dev-only・production hard block）。OFF で ③ は完全不変。 */
