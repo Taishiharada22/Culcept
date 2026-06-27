@@ -154,6 +154,21 @@ export const PLAN_FLAGS = {
   shiftImportSave: process.env.PLAN_SHIFT_IMPORT_SAVE === "true",
 
   /**
+   * P14: シフト本保存の **production-canary allowlist**（保存 flag とは独立の per-user gate）。
+   *   production 接続時は shiftImportSave=true に加えて user がこの allowlist に含まれる時だけ保存可。
+   *   staging は従来どおり allowlist 不要（接続先 guard が staging を許可）。
+   *   env: `PLAN_SHIFT_IMPORT_SAVE_CANARY_USER_IDS=uuid1,uuid2`（server-side・auth UUID・空=production 保存不可）。
+   *   ★LLM canary（PLAN_CANARY_USER_IDS）とは別機能ゆえ混用しない。
+   */
+  shiftImportSaveCanaryUserIds: (() => {
+    const raw = process.env.PLAN_SHIFT_IMPORT_SAVE_CANARY_USER_IDS ?? "";
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  })() as readonly string[],
+
+  /**
    * SR B1b-2C-9-FIX-2: VLM への画像入力形式（split / combined）。
    *
    *   - "split"（既定）: 旧経路。headerBlob + personRowBlob の **2 枚** を VLM に投げる。

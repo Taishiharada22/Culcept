@@ -262,7 +262,7 @@ describe("runShiftImportSave — S-save-0 接続先 guard", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("flag ON でも 接続先が production → disabled・auth(getUserId)/projection/repo 未到達", async () => {
+  it("flag ON + production 接続 + allowlist 外 → disabled・repo 未到達（保存しない）", async () => {
     let getUserIdCalled = false;
     const { repo, calls } = makeRepo(OK_RESULT);
     const r = await runShiftImportSave(
@@ -279,14 +279,56 @@ describe("runShiftImportSave — S-save-0 接続先 guard", () => {
           stagingRef: STAGING_PROJECT_REF,
           productionRef: PRODUCTION_PROJECT_REF,
         },
+        // P14: canary allowlist を渡さない（空）→ production 保存不可
       })
     );
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.kind).toBe("disabled");
     expect(r.message).toBe(SHIFT_IMPORT_ACTION_MESSAGES.disabled);
-    expect(getUserIdCalled).toBe(false); // ★ guard NG で auth/projection 未到達
-    expect(calls).toHaveLength(0); // ★ repo（RPC）未呼出
+    // ★P14: auth は allowlist 照合のため呼ばれるが、production 非カナリアなので repo（保存）に到達しない
+    expect(getUserIdCalled).toBe(true);
+    expect(calls).toHaveLength(0); // ★ repo（RPC）未呼出＝保存なし
+  });
+
+  it("P14: flag ON + production 接続 + canary allowlist 内 user → 保存成功（repo 呼出）", async () => {
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({
+        repo,
+        isEnabled: () => true,
+        getUserId: async () => "canary-user",
+        connection: {
+          supabaseUrl: PRODUCTION_URL,
+          stagingRef: STAGING_PROJECT_REF,
+          productionRef: PRODUCTION_PROJECT_REF,
+        },
+        canaryUserIds: ["canary-user"], // ★production-canary allowlist に含まれる
+      })
+    );
+    expect(r.ok).toBe(true);
+    expect(calls).toHaveLength(1); // ★ repo（RPC）に到達＝保存
+  });
+
+  it("P14: flag OFF なら canary allowlist 内でも保存しない（flag が優先）", async () => {
+    const { repo, calls } = makeRepo(OK_RESULT);
+    const r = await runShiftImportSave(
+      VALID_INPUT,
+      deps({
+        repo,
+        isEnabled: () => false,
+        getUserId: async () => "canary-user",
+        connection: {
+          supabaseUrl: PRODUCTION_URL,
+          stagingRef: STAGING_PROJECT_REF,
+          productionRef: PRODUCTION_PROJECT_REF,
+        },
+        canaryUserIds: ["canary-user"],
+      })
+    );
+    expect(r.ok).toBe(false);
+    expect(calls).toHaveLength(0);
   });
 
   it("staging ref を含まない URL → disabled・repo 未呼出", async () => {

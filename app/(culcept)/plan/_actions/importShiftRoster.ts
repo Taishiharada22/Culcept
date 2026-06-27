@@ -23,6 +23,7 @@ import { createSupabaseShiftImportRpcClient } from "@/lib/plan/shift/shiftImport
 import { createRpcShiftImportRepository } from "@/lib/plan/shift/shiftImportRepositoryRpc";
 import { HARADA_SPRIX_DICTIONARY } from "@/lib/plan/shift/shiftCodeDictionary";
 import { isShiftImportSaveEnabled } from "@/lib/plan/shift/shiftImportSave";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import {
   STAGING_PROJECT_REF,
   PRODUCTION_PROJECT_REF,
@@ -80,6 +81,8 @@ export async function importShiftRosterAction(
       stagingRef: STAGING_PROJECT_REF,
       productionRef: PRODUCTION_PROJECT_REF,
     },
+    // P14: production-canary allowlist。production 接続時のみ有効（staging は connection guard で許可）。
+    canaryUserIds: PLAN_FLAGS.shiftImportSaveCanaryUserIds,
     repo,
     dictionary: HARADA_SPRIX_DICTIONARY, // MVP seed（per-user 辞書は将来 gate）
   });

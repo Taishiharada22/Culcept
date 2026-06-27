@@ -39,3 +39,21 @@ export function isShiftImportSaveConnectionAllowed(
   const url = env.supabaseUrl ?? "";
   return url.includes(env.stagingRef) && !url.includes(env.productionRef);
 }
+
+/**
+ * P14: production 本番への保存を **canary allowlist** に限って許可する lane（pure）。
+ *   production に接続している ∧ userId が allowlist に含まれる時のみ true。
+ *   staging lane（isShiftImportSaveConnectionAllowed）とは OR で併存し、どちらかが true なら保存可。
+ *   allowlist 空 / userId null / production 非接続 はすべて false（fail-closed）。
+ *   ★これは flag（isShiftImportSaveEnabled）が既に true で、auth 済 userId を渡される前提の最終 gate。
+ */
+export function isShiftImportSaveProductionCanaryAllowed(
+  env: ShiftImportSaveConnectionEnv,
+  userId: string | null,
+  canaryUserIds: readonly string[]
+): boolean {
+  if (!userId) return false;
+  const url = env.supabaseUrl ?? "";
+  if (!url.includes(env.productionRef)) return false; // production 接続でなければ本 lane 対象外
+  return canaryUserIds.includes(userId);
+}

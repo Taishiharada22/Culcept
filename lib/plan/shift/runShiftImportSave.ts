@@ -31,6 +31,7 @@ import type {
 } from "./shiftImportRepository";
 import {
   isShiftImportSaveConnectionAllowed,
+  isShiftImportSaveProductionCanaryAllowed,
   type ShiftImportSaveConnectionEnv,
 } from "./shiftImportSaveGuard";
 
@@ -58,6 +59,11 @@ export interface RunShiftImportSaveDeps {
   isEnabled: () => boolean;
   /** S-save-0: 接続先 guard（staging allowlist + production deny）。fail-closed。 */
   connection: ShiftImportSaveConnectionEnv;
+  /**
+   * P14: production-canary allowlist（PLAN_SHIFT_IMPORT_SAVE_CANARY_USER_IDS の userId 群）。
+   *   空配列 = production 本番保存は不可（staging のみ）。production 接続 ∧ user ∈ allowlist の時だけ production 保存を許可。
+   */
+  canaryUserIds?: readonly string[];
   /** 保存先 repository（6B-apply-C: 実 Supabase RPC repo）。 */
   repo: ShiftImportRepository;
   /** rawCode 解決辞書（MVP: HARADA_SPRIX seed。per-user は将来）。 */
@@ -181,14 +187,7 @@ export async function runShiftImportSave(
     return { ok: false, kind: "disabled", message: SHIFT_IMPORT_ACTION_MESSAGES.disabled };
   }
 
-  // 0.5 S-save-0: 接続先 guard（staging allowlist + production deny。fail-closed）。
-  //     NG（接続先が production / staging 不一致 / URL 未設定）なら **auth/projection/RPC に到達せず**
-  //     disabled で停止。env 誤設定でも production への保存をコードで遮断する多重防御。
-  if (!isShiftImportSaveConnectionAllowed(deps.connection)) {
-    return { ok: false, kind: "disabled", message: SHIFT_IMPORT_ACTION_MESSAGES.disabled };
-  }
-
-  // 1. 認証（userId は server auth のみ。未認証は repo 未呼出で返す）
+  // 1. 認証（userId は server auth のみ。canary 判定にも必須なので接続 guard より前に取る）
   const userId = await deps.getUserId();
   if (!userId) {
     return {
@@ -196,6 +195,20 @@ export async function runShiftImportSave(
       kind: "unauthenticated",
       message: SHIFT_IMPORT_ACTION_MESSAGES.unauthenticated,
     };
+  }
+
+  // 1.5 接続先 guard: staging lane ∨ production-canary lane。
+  //     - staging lane: 接続先が staging（production deny）。従来どおり。
+  //     - P14 production-canary lane: production 接続 ∧ user ∈ allowlist（flag は 0 で確認済）。
+  //     どちらも不許可なら **projection/RPC に到達せず** disabled。env 誤設定でも production 無差別保存を遮断。
+  const stagingOk = isShiftImportSaveConnectionAllowed(deps.connection);
+  const prodCanaryOk = isShiftImportSaveProductionCanaryAllowed(
+    deps.connection,
+    userId,
+    deps.canaryUserIds ?? [],
+  );
+  if (!stagingOk && !prodCanaryOk) {
+    return { ok: false, kind: "disabled", message: SHIFT_IMPORT_ACTION_MESSAGES.disabled };
   }
 
   // 2. year/month 防御 → server 側で importRange 算出（client range を信頼しない）
