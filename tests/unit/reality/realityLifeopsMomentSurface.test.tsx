@@ -42,12 +42,14 @@ describe("c39 — gate（①②③・default OFF / production deny）", () => {
     expect(isLifeOpsMainlineAllowed({ mainline: true, planRouteLive: true, supabaseUrl: `https://${PRODUCTION_PROJECT_REF}.supabase.co` })).toBe(false);
     expect(isLifeOpsMainlineAllowed({ mainline: true, planRouteLive: true, supabaseUrl: `https://${STAGING_PROJECT_REF}.supabase.co` })).toBe(true);
   });
-  it("page: 表示条件 = mainline gate ∧ MOMENT flag ∧ surfaced 非 null（static）", () => {
-    const raw = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/page.tsx"), "utf8");
+  it("表示条件 = mainline gate ∧ MOMENT flag ∧ surfaced 非 null（static）", () => {
+    // P16 test-drift fix: HOME-SWIPE-PLAN-PARITY FIX(2026-06-25)で moment 表示条件は
+    //   page.tsx → planClientFeatureProps.ts に移動（route/pane parity 確保）。挙動は不変。
+    const raw = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/planClientFeatureProps.ts"), "utf8");
     expect(raw).toContain("PLAN_FLAGS.lifeopsMainlineMoment && model.dto.moment.surfaced");
     expect(raw).toContain("model.dto.moment.surfaced.phrase");
     expect(raw).toContain("model.dto.moment.surfaced.cautions");
-    // page は phrase/cautions だけ抽出（kind/suppression/silencedCount を props に乗せない）— comment 除去後の code で検証。
+    // phrase/cautions だけ抽出（kind/suppression/silencedCount を props に乗せない）— comment 除去後の code で検証。
     const code = raw.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
     expect(code).not.toContain("moment.surfaced.kind");
     expect(code).not.toContain("silencedCount");

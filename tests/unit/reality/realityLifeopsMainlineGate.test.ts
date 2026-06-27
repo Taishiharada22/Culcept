@@ -42,7 +42,10 @@ describe("c19/c23 — mainline gate consumer は公認 2 file のみ（無断拡
     expect(offenders.sort()).toEqual([
       "(culcept)/plan/_actions/lifeops-feedback-mainline.ts", // A-4-c23 本線 server action（gate+flag）
       "(culcept)/plan/_actions/lifeops-structured-input.ts", // A-4-c33 登録入口 server action（gate）
-      "(culcept)/plan/page.tsx", // A-4-c23 本線 card の gated 合成（gate+flag）
+      // P16 test-drift fix: HOME-SWIPE-PLAN-PARITY FIX(2026-06-25)以降、本線 card の gated 合成は
+      //   page.tsx ではなく planClientFeatureProps.ts に集約された（route と pane の parity 確保のため）。
+      //   page.tsx は auth + buildPlanClientFeatureProps 呼出のみで lifeops-mainline-gate を直接参照しない。
+      "(culcept)/plan/planClientFeatureProps.ts",
     ]);
   });
   it("barrel 非 export・gate は pure（DB/fetch/process.env なし）", () => {

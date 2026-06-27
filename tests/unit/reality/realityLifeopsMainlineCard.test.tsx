@@ -230,8 +230,10 @@ describe("c23 — 配線/静的安全（⑬⑯⑰）", () => {
     }
     expect(strip(src)).not.toContain("service_role");
   });
-  it("page: gated 合成（gate 通過時のみ）+ token allowlist + card/action props・page と action が同一 model helper", () => {
-    const src = read("app/(culcept)/plan/page.tsx");
+  it("gated 合成（gate 通過時のみ）+ token allowlist + card/action props・本線 wiring と action が同一 model helper", () => {
+    // P16 test-drift fix: HOME-SWIPE-PLAN-PARITY FIX(2026-06-25)で page.tsx の gated 合成は
+    //   planClientFeatureProps.ts に集約された（route/pane parity 確保）。挙動は不変・file 位置のみ移動。
+    const src = read("app/(culcept)/plan/planClientFeatureProps.ts");
     expect(src).toContain("isLifeOpsMainlineAllowed");
     expect(src).toContain("computeLifeOpsMainlineModel");
     expect(src).toContain("buildLifeOpsMainlineCardDto");

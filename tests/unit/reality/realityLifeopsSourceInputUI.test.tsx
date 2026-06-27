@@ -34,15 +34,17 @@ const render = (result?: "ok" | "already_exists" | "invalid", resultSourceType?:
   );
 
 describe("c33 — gate（①②③・page 配線 static）", () => {
-  it("①②production/default OFF では gate false（page は props 不渡し=非表示）③staging+両 flag で true", () => {
+  it("①②production/default OFF では gate false（props 不渡し=非表示）③staging+両 flag で true", () => {
     expect(PLAN_FLAGS.lifeopsMainline).toBe(false);
     expect(PLAN_FLAGS.lifeopsStructuredSourceWrite).toBe(false);
     expect(isLifeOpsMainlineAllowed({ mainline: true, planRouteLive: true, supabaseUrl: PROD_URL })).toBe(false); // production deny
     expect(isLifeOpsStructuredSourceWriteAllowed({ master: true, write: true, supabaseUrl: PROD_URL })).toBe(false);
     expect(isLifeOpsMainlineAllowed({ mainline: true, planRouteLive: true, supabaseUrl: STAGING_URL })).toBe(true);
-    const page = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/page.tsx"), "utf8");
-    expect(page).toContain("if (PLAN_FLAGS.lifeopsStructuredSourceWrite)"); // 入口は write flag も必要（gated block 内）
-    expect(page).toContain("LIFEOPS_SRC_TOKENS"); // token allowlist 検証
+    // P16 test-drift fix: HOME-SWIPE-PLAN-PARITY FIX(2026-06-25)で write flag gate と LIFEOPS_SRC_TOKENS は
+    //   page.tsx → planClientFeatureProps.ts に移動（route/pane parity 確保のため）。挙動は不変。
+    const featureProps = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/planClientFeatureProps.ts"), "utf8");
+    expect(featureProps).toContain("if (PLAN_FLAGS.lifeopsStructuredSourceWrite)"); // 入口は write flag も必要（gated block 内）
+    expect(featureProps).toContain("LIFEOPS_SRC_TOKENS"); // token allowlist 検証
   });
 });
 
@@ -167,9 +169,11 @@ describe("c33 — server action（⑦⑧⑨⑩⑪・static + pure）", () => {
     const cleanup = fs.readFileSync(path.join(process.cwd(), "scripts/lifeops-structured-dogfood-cleanup.ts"), "utf8");
     expect(cleanup).toContain("LIFEOPS_STRUCTURED_CLEANUP_TYPE");
     expect(cleanup).toContain('.eq("source_type", SOURCE_TYPE)');
-    const page = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/page.tsx"), "utf8");
-    expect(page).toContain("listLifeOpsCadenceInputOptions");
-    expect(page).toContain('sp?.lifeopsSrcType === "cadence"'); // type も検証して渡す
+    // P16 test-drift fix: HOME-SWIPE-PLAN-PARITY FIX(2026-06-25)で cadence option list と type 検証は
+    //   page.tsx → planClientFeatureProps.ts に移動。挙動は不変。
+    const featureProps = fs.readFileSync(path.join(process.cwd(), "app/(culcept)/plan/planClientFeatureProps.ts"), "utf8");
+    expect(featureProps).toContain("listLifeOpsCadenceInputOptions");
+    expect(featureProps).toContain('sp?.lifeopsSrcType === "cadence"'); // type も検証して渡す
   });
   it("⑭⑮既存 tab 不干渉・action に notification/R4/external なし", () => {
     for (const rel of ["app/(culcept)/plan/tabs/CalendarTab.tsx", "app/(culcept)/plan/tabs/FlowTab.tsx", "app/(culcept)/plan/tabs/MapTab.tsx"]) {

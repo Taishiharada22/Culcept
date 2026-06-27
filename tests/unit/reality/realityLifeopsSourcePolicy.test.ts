@@ -126,7 +126,12 @@ describe("c25 — gate 整理（⑥⑧⑨・多層防御）", () => {
     const model = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/lifeops/lifeops-mainline-model.ts"), "utf8");
     expect(model).toContain("resolveLifeOpsSourceMode");
     expect(model).toContain("baseLifeOpsInputsForMode");
-    for (const rel of ["app/(culcept)/plan/page.tsx", "app/(culcept)/plan/_actions/lifeops-feedback-mainline.ts"]) {
+    // P16 test-drift fix: HOME-SWIPE-PLAN-PARITY FIX(2026-06-25)で page.tsx の本線 wiring は
+    //   planClientFeatureProps.ts に集約された。helper 単一経由（迂回禁止）の検証先を実体に追従。
+    for (const rel of [
+      "app/(culcept)/plan/planClientFeatureProps.ts",
+      "app/(culcept)/plan/_actions/lifeops-feedback-mainline.ts",
+    ]) {
       const src = fs.readFileSync(path.join(process.cwd(), rel), "utf8");
       expect(src).toContain("computeLifeOpsMainlineModel");
       expect(src).not.toContain("computeLifeOpsPreviewModel"); // helper 迂回の禁止
