@@ -6,7 +6,10 @@
  *   - VLM / 入口 / live flag、raw画像/base64 とは無関係（純粋な接続先判定）。
  */
 import { describe, it, expect } from "vitest";
-import { isShiftImportSaveConnectionAllowed } from "@/lib/plan/shift/shiftImportSaveGuard";
+import {
+  isShiftImportSaveConnectionAllowed,
+  isShiftImportSaveUiEnabled,
+} from "@/lib/plan/shift/shiftImportSaveGuard";
 import {
   STAGING_PROJECT_REF,
   PRODUCTION_PROJECT_REF,
@@ -49,5 +52,49 @@ describe("isShiftImportSaveConnectionAllowed — staging allowlist ∧ productio
     const r = isShiftImportSaveConnectionAllowed(env(STAGING_URL));
     expect(typeof r).toBe("boolean");
     expect(r).toBe(true);
+  });
+});
+
+describe("isShiftImportSaveUiEnabled — UI active を server lane gate と一致（P14-B）", () => {
+  const CANARY = "canary-user-1";
+  const NON_CANARY = "other-user";
+  const ui = (over: Partial<Parameters<typeof isShiftImportSaveUiEnabled>[0]>) =>
+    isShiftImportSaveUiEnabled({
+      flagEnabled: true,
+      connection: env(STAGING_URL),
+      userId: CANARY,
+      canaryUserIds: [CANARY],
+      ...over,
+    });
+
+  it("flag ON ∧ staging 接続 ∧ auth → true（staging lane）", () => {
+    expect(ui({})).toBe(true);
+  });
+
+  it("flag ON ∧ production 接続 ∧ user ∈ allowlist → true（canary lane）", () => {
+    expect(ui({ connection: env(PRODUCTION_URL) })).toBe(true);
+  });
+
+  it("flag ON ∧ production 接続 ∧ user ∉ allowlist → false（偽 active を出さない）", () => {
+    expect(ui({ connection: env(PRODUCTION_URL), userId: NON_CANARY })).toBe(false);
+  });
+
+  it("flag OFF → 常に false（canary でも）", () => {
+    expect(ui({ flagEnabled: false })).toBe(false);
+    expect(
+      ui({ flagEnabled: false, connection: env(PRODUCTION_URL) })
+    ).toBe(false);
+  });
+
+  it("userId null（匿名） → false（fail-closed）", () => {
+    expect(ui({ userId: null })).toBe(false);
+  });
+
+  it("接続先不明（staging でも production でもない） → false", () => {
+    expect(ui({ connection: env("https://other.supabase.co") })).toBe(false);
+  });
+
+  it("boolean のみ返す", () => {
+    expect(typeof ui({})).toBe("boolean");
   });
 });

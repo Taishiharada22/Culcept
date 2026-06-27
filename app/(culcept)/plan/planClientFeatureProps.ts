@@ -19,6 +19,11 @@ import type { supabaseServer } from "@/lib/supabase/server";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { buildRealityOsSurfaceFixtureDisplay } from "@/lib/plan/realityPipeline/realityOsSurfaceFixture";
 import { resolveShiftDraftVlmInputMode } from "@/lib/plan/shift/shiftDraftVlmInputMode";
+import { isShiftImportSaveUiEnabled } from "@/lib/plan/shift/shiftImportSaveGuard";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
 import { computeLifeOpsMainlineModel } from "@/lib/plan/reality/lifeops/lifeops-mainline-model";
 import { buildLifeOpsMainlineCardDto, type LifeOpsMainlineCardDto } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
@@ -115,7 +120,21 @@ export async function buildPlanClientFeatureProps(
     lifeOpsMoment,
     draftLiveEnabled: PLAN_FLAGS.shiftDraftLiveEnabled,
     shiftDraftVlmInputMode: resolveShiftDraftVlmInputMode(process.env.PLAN_SHIFT_VLM_INPUT_MODE),
-    shiftImportSaveEnabled: PLAN_FLAGS.shiftImportSave,
+    // P14-B: 保存 CTA の UI active を **server lane の gate と一致**させる（flag ∧ auth ∧ (staging ∨ prod-canary)）。
+    //   flag 直渡しだと flag ON 時に非 canary でも CTA が active になり「押せるのに server で disabled」＝
+    //   偽の保存可能表示になる。canary 合成判定で UI active ⟺ server 受理を保証する（fail-closed）。
+    //   ★ 本 prop は live 経路（ShiftDraftInApp）にのみ素通る。fixture fallback は別途 false 固定（デモ保存防止）。
+    shiftImportSaveEnabled: isShiftImportSaveUiEnabled({
+      flagEnabled: PLAN_FLAGS.shiftImportSave,
+      connection: {
+        supabaseUrl:
+          process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+        stagingRef: STAGING_PROJECT_REF,
+        productionRef: PRODUCTION_PROJECT_REF,
+      },
+      userId,
+      canaryUserIds: PLAN_FLAGS.shiftImportSaveCanaryUserIds,
+    }),
     alterTabEnabled: PLAN_FLAGS.alterTabEnabled,
     dayStateStorageEnabled: PLAN_FLAGS.dayStateStorageEnabled,
     coalterPlanTabEnabled: PLAN_FLAGS.coalterPlanTabEnabled,

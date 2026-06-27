@@ -57,3 +57,35 @@ export function isShiftImportSaveProductionCanaryAllowed(
   if (!url.includes(env.productionRef)) return false; // production 接続でなければ本 lane 対象外
   return canaryUserIds.includes(userId);
 }
+
+/**
+ * P14-B: 保存 CTA を **UI で active にしてよいか**の合成判定（pure）。
+ *
+ * 目的: UI の `saveEnabled` を server lane（runShiftImportSave）の gate と**完全一致**させ、
+ *   「押せるのに server で disabled」＝偽の保存可能表示を構造的に排除する。
+ *   UI active ⟺ server が projection/RPC に到達する、を保証する（roster validity / RPC 失敗は
+ *   保存時の result で別途扱う＝ここは到達可否＝flag ∧ auth ∧ 接続先 lane のみを見る）。
+ *
+ *   gate（server lane と同順）:
+ *     1. flagEnabled（PLAN_SHIFT_IMPORT_SAVE）が true
+ *     2. userId 認証済（匿名 null は false）
+ *     3. staging lane（接続先 staging ∧ production deny） ∨ production-canary lane（接続先 production ∧ user ∈ allowlist）
+ *
+ *   いずれか欠ければ false（fail-closed）。pure（env/IO/DB を読まない）。
+ */
+export function isShiftImportSaveUiEnabled(args: {
+  flagEnabled: boolean;
+  connection: ShiftImportSaveConnectionEnv;
+  userId: string | null;
+  canaryUserIds: readonly string[];
+}): boolean {
+  if (!args.flagEnabled) return false;
+  if (!args.userId) return false;
+  const stagingOk = isShiftImportSaveConnectionAllowed(args.connection);
+  const prodCanaryOk = isShiftImportSaveProductionCanaryAllowed(
+    args.connection,
+    args.userId,
+    args.canaryUserIds
+  );
+  return stagingOk || prodCanaryOk;
+}
