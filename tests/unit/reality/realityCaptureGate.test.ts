@@ -8,10 +8,15 @@ import {
   CAPTURE_PROD_REF_DENYLIST,
   type CaptureGateInput,
 } from "@/lib/plan/reality/capture-gate";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
 
 const STAGING = "hjcrvndumgiovyfdacwc"; // culcept-staging
-const PROD = "aljavfujeqcwnqryjmhl"; // production
+const PROD = "aljavfujeqcwnqryjmhl"; // legacy production (archived・hard-coded for ref-authority regression)
+const ACTIVE_PROD = "plodugvgmdkusifdrdfz"; // ACTIVE clean-rebuild production (現行本番・ref-drift 監査で denylist 追加)
 const USER = "11111111-1111-1111-1111-111111111111";
 
 function input(p: Partial<CaptureGateInput> = {}): CaptureGateInput {
@@ -34,9 +39,11 @@ describe("A1-5-5a capture gate — canonical refs（A1-5-ref-fix 単一ソース
     expect(STAGING_PROJECT_REF).toBe(STAGING);
     expect(CAPTURE_STAGING_REF_ALLOWLIST).toEqual([STAGING]);
   });
-  it("production denylist = canonical PRODUCTION_PROJECT_REF（aljav）", () => {
+  it("production denylist = canonical legacy PRODUCTION_PROJECT_REF(aljav) + active CLEAN_PRODUCTION_PROJECT_REF(plod)", () => {
     expect(PRODUCTION_PROJECT_REF).toBe(PROD);
-    expect(CAPTURE_PROD_REF_DENYLIST).toEqual([PROD]);
+    expect(CLEAN_PRODUCTION_PROJECT_REF).toBe(ACTIVE_PROD);
+    // ref-drift 監査: all-production deny（active plod + legacy aljav）に拡張
+    expect(CAPTURE_PROD_REF_DENYLIST).toEqual([PROD, ACTIVE_PROD]);
   });
 });
 
@@ -73,8 +80,13 @@ describe("A1-5-5a capture gate — block / allow", () => {
     expect(v.allow).toBe(false);
     if (!v.allow) expect(v.reason).toBe("PRODUCTION_NODE_ENV");
   });
-  it("project ref = aljav（production）→ block PRODUCTION_PROJECT_REF", () => {
+  it("project ref = aljav（legacy production）→ block PRODUCTION_PROJECT_REF", () => {
     const v = evaluateCaptureGate(input({ supabaseUrl: `https://${PROD}.supabase.co` }));
+    expect(v.allow).toBe(false);
+    if (!v.allow) expect(v.reason).toBe("PRODUCTION_PROJECT_REF");
+  });
+  it("project ref = plod（ACTIVE production）→ block PRODUCTION_PROJECT_REF（ref-drift 監査で追加）", () => {
+    const v = evaluateCaptureGate(input({ supabaseUrl: `https://${ACTIVE_PROD}.supabase.co` }));
     expect(v.allow).toBe(false);
     if (!v.allow) expect(v.reason).toBe("PRODUCTION_PROJECT_REF");
   });
@@ -195,6 +207,7 @@ describe("A1-5-5a capture gate — 静的安全（Supabase/DB/runtime 0・pure�
   it("executable code に ref literal を hard-code しない（canonical 経由）", () => {
     expect(CODE).not.toContain(`"${STAGING}"`);
     expect(CODE).not.toContain(`"${PROD}"`);
+    expect(CODE).not.toContain(`"${ACTIVE_PROD}"`);
   });
   it("reality barrel(index.ts) が capture-gate を再 export しない", () => {
     const idx = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/index.ts"), "utf8");

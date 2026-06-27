@@ -23,6 +23,7 @@
 import {
   STAGING_PROJECT_REF,
   PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
 } from "./devFixtureHost";
 
 export interface DraftHostEnv {
@@ -39,6 +40,6 @@ export function isShiftDraftHostAllowed(env: DraftHostEnv): boolean {
   const draftMode = env.draftMode === "true";
   const url = env.supabaseUrl ?? "";
   const isStaging = url.includes(STAGING_PROJECT_REF);
-  const isProduction = url.includes(PRODUCTION_PROJECT_REF);
+  const isProduction = url.includes(PRODUCTION_PROJECT_REF) || url.includes(CLEAN_PRODUCTION_PROJECT_REF);
   return draftMode && isStaging && !isProduction;
 }

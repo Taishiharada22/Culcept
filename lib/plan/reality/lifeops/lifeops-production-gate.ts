@@ -14,7 +14,7 @@
  *   - source safety（real_only 恒久）は本 gate の対象外＝fixture は何段階でも production に出ない。
  */
 
-import { PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import { CLEAN_PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
 
 /** 解禁段階（P2/P3/P4 に対応・順序の単調性は運用 checklist が担保）。 */
 export type LifeOpsProductionStage = "read_visibility" | "input_ui" | "structured_write" | "feedback_write";
@@ -43,7 +43,7 @@ export function parseLifeOpsProdAllowlist(csv: string | undefined): ReadonlySet<
  */
 export function isLifeOpsProductionStageAllowed(stage: LifeOpsProductionStage, env: LifeOpsProductionGateEnv): boolean {
   const url = env.supabaseUrl ?? "";
-  if (!url.includes(PRODUCTION_PROJECT_REF)) return false; // production 専用（staging は既存 gate 群の領分）
+  if (!url.includes(CLEAN_PRODUCTION_PROJECT_REF)) return false; // ACTIVE production(plod) 専用（staging は既存 gate 群の領分・legacy aljav は archived ゆえ対象外）
   if (env.stageFlags[stage] !== true) return false; // 段階 flag（default OFF）
   const allowlist = parseLifeOpsProdAllowlist(env.allowlistCsv);
   if (allowlist.size === 0) return false; // 空 allowlist=全 false（事故で全開しない）

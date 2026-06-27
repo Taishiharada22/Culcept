@@ -15,12 +15,18 @@ import { computeLifeOpsPreviewModel } from "@/lib/plan/reality/lifeops/lifeops-p
 import { buildLifeOpsMainlineCardDto, routeLifeOpsMainlineActionRequest } from "@/lib/plan/reality/lifeops/lifeops-mainline-card";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
 import { isLifeOpsFeedbackWriteAllowed } from "@/lib/plan/reality/lifeops/lifeops-feedback-write";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
 import type { WorldState } from "@/lib/plan/reality/world-state/world-state";
 import type { CadenceObservation } from "@/lib/lifeops/candidate-types";
 
 const STAGING_URL = `https://${STAGING_PROJECT_REF}.supabase.co`;
 const PROD_URL = `https://${PRODUCTION_PROJECT_REF}.supabase.co`;
+// ref-drift 監査: ACTIVE production(plod) も real_only を返すことを固定する。
+const ACTIVE_PROD_URL = `https://${CLEAN_PRODUCTION_PROJECT_REF}.supabase.co`;
 const NOW_MS = Date.parse("2026-06-10T09:00:00+09:00");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const iso = (d: number) => new Date(NOW_MS + d * DAY_MS).toISOString();
@@ -46,9 +52,11 @@ const modelFor = (supabaseUrl: string | undefined, realCadence?: readonly Cadenc
   });
 
 describe("c25 — source mode（fail-safe・flag では開けない）", () => {
-  it("staging → fixture_allowed / production → real_only / 不明 host・未設定 → real_only（fail-safe）", () => {
+  it("staging → fixture_allowed / production(active plod + legacy aljav) → real_only / 不明 host・未設定 → real_only（fail-safe）", () => {
     expect(resolveLifeOpsSourceMode({ supabaseUrl: STAGING_URL })).toBe("fixture_allowed");
     expect(resolveLifeOpsSourceMode({ supabaseUrl: PROD_URL })).toBe("real_only");
+    // ref-drift 監査: ACTIVE production(plod) も明示分岐で real_only（catch-all 救済ではなく explicit deny）
+    expect(resolveLifeOpsSourceMode({ supabaseUrl: ACTIVE_PROD_URL })).toBe("real_only");
     expect(resolveLifeOpsSourceMode({ supabaseUrl: "https://unknown-host.supabase.co" })).toBe("real_only");
     expect(resolveLifeOpsSourceMode({ supabaseUrl: undefined })).toBe("real_only");
     expect(baseLifeOpsInputsForMode("fixture_allowed")).toBeUndefined(); // compute 既定 fixture

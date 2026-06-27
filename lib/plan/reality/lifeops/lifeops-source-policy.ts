@@ -15,7 +15,11 @@
  */
 
 import type { LifeOpsInputs } from "../../../lifeops/candidate-collector";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../../shift/devFixtureHost";
 
 export type LifeOpsSourceMode = "fixture_allowed" | "real_only";
 
@@ -24,7 +28,8 @@ export type LifeOpsSourceMode = "fixture_allowed" | "real_only";
  */
 export function resolveLifeOpsSourceMode(env: { readonly supabaseUrl: string | undefined }): LifeOpsSourceMode {
   const url = env.supabaseUrl ?? "";
-  if (url.includes(PRODUCTION_PROJECT_REF)) return "real_only"; // production: fixture 構造的禁止
+  if (url.includes(CLEAN_PRODUCTION_PROJECT_REF) || url.includes(PRODUCTION_PROJECT_REF))
+    return "real_only"; // production（active plod + legacy aljav）: fixture 構造的禁止
   if (url.includes(STAGING_PROJECT_REF)) return "fixture_allowed"; // staging: dogfood 用途で fixture 可
   return "real_only"; // 不明 host/未設定: fixture を出さない（fail-safe）
 }

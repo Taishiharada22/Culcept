@@ -13,7 +13,11 @@
  * 厳守: pure（IO/env 読み取りなし・caller が PLAN_FLAGS を束ねて渡す）・default OFF・throw しない。
  */
 
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../../shift/devFixtureHost";
 
 export interface LifeOpsMainlineEnv {
   /** PLAN_FLAGS.lifeopsMainline（default OFF）。 */
@@ -29,5 +33,5 @@ export interface LifeOpsMainlineEnv {
  */
 export function isLifeOpsMainlineAllowed(env: LifeOpsMainlineEnv): boolean {
   const url = env.supabaseUrl ?? "";
-  return env.mainline === true && env.planRouteLive === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF);
+  return env.mainline === true && env.planRouteLive === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF) && !url.includes(CLEAN_PRODUCTION_PROJECT_REF);
 }

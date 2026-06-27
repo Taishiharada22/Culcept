@@ -20,7 +20,11 @@ import { listMvpCadences, cadenceKey, type BeautyMenu } from "../../../lifeops/c
 import { lifeOpsFeedbackHandle, parseLifeOpsFeedbackHandle } from "./lifeops-feedback-source";
 import { deriveLifeOpsOccurrenceKey, deriveLifeOpsCadenceOccurrenceKey } from "./lifeops-structured-source";
 import type { LifeOpsStructuredSourceRow } from "./lifeops-structured-storage";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../../shift/devFixtureHost";
 
 /**
  * A-4-c33: deadline 入力 picker の選択肢（**辞書 `money_admin` group 由来**・表示名は辞書 label・自由文なし）。
@@ -176,5 +180,5 @@ export function isLifeOpsStructuredSourceWriteAllowed(env: {
   readonly supabaseUrl: string | undefined;
 }): boolean {
   const url = env.supabaseUrl ?? "";
-  return env.master === true && env.write === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF);
+  return env.master === true && env.write === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF) && !url.includes(CLEAN_PRODUCTION_PROJECT_REF);
 }

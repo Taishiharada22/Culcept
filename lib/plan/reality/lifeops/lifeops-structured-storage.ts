@@ -20,7 +20,11 @@ import {
   type LifeOpsStructuredCadenceSource,
 } from "./lifeops-structured-source";
 import type { LifeOpsCadenceConfidence } from "./lifeops-cadence-real-source";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../../shift/devFixtureHost";
 
 export const LIFEOPS_STRUCTURED_SOURCES_TABLE = "lifeops_structured_sources";
 
@@ -134,5 +138,5 @@ export function isLifeOpsStructuredSourceReadAllowed(env: {
   readonly supabaseUrl: string | undefined;
 }): boolean {
   const url = env.supabaseUrl ?? "";
-  return env.master === true && env.structured === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF);
+  return env.master === true && env.structured === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF) && !url.includes(CLEAN_PRODUCTION_PROJECT_REF);
 }

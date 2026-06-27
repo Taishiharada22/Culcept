@@ -20,7 +20,11 @@ import type { BeautyMenu } from "../../../lifeops/cadence-model";
 import { getCadenceSpec, daysBetween } from "../../../lifeops/cadence-model";
 import type { CadenceObservation } from "../../../lifeops/candidate-types";
 import { lifeOpsFeedbackHandle, parseLifeOpsFeedbackHandle, type LifeOpsFeedbackObservation } from "./lifeops-feedback-source";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../../shift/devFixtureHost";
 
 export type LifeOpsCadenceConfidence = "high" | "medium" | "low";
 export type LifeOpsCadenceFreshness = "fresh" | "stale" | "unknown";
@@ -103,5 +107,5 @@ export function countCadenceKeyConflicts(a: readonly CadenceObservation[], b: re
 /** gate（master ∧ cadence ∧ staging ∧ !production・**default OFF**・LIFEOPS_MAINLINE とは独立・pure）。 */
 export function isLifeOpsCadenceReadAllowed(env: { readonly master: boolean; readonly cadence: boolean; readonly supabaseUrl: string | undefined }): boolean {
   const url = env.supabaseUrl ?? "";
-  return env.master === true && env.cadence === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF);
+  return env.master === true && env.cadence === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF) && !url.includes(CLEAN_PRODUCTION_PROJECT_REF);
 }

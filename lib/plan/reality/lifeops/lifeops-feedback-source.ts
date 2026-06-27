@@ -16,7 +16,11 @@
 import { LIFE_OPS_CATEGORY_MODEL, type LifeOpsCategoryId } from "../../../lifeops/category-model";
 import type { BeautyMenu } from "../../../lifeops/cadence-model";
 import type { CadenceObservation } from "../../../lifeops/candidate-types";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../../shift/devFixtureHost";
 
 /** 将来の lifeops feedback write（別 gate）と読み側の共有規約。 */
 export const LIFEOPS_FEEDBACK_HANDLE_PREFIX = "lifeops:";
@@ -97,5 +101,5 @@ export function feedbackToCadence(observations: readonly LifeOpsFeedbackObservat
 /** gate（master ∧ feedback ∧ staging ∧ !production・**default OFF 前提**・pure）。 */
 export function isLifeOpsFeedbackReadAllowed(env: { readonly master: boolean; readonly feedback: boolean; readonly supabaseUrl: string | undefined }): boolean {
   const url = env.supabaseUrl ?? "";
-  return env.master === true && env.feedback === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF);
+  return env.master === true && env.feedback === true && url.includes(STAGING_PROJECT_REF) && !url.includes(PRODUCTION_PROJECT_REF) && !url.includes(CLEAN_PRODUCTION_PROJECT_REF);
 }

@@ -20,7 +20,7 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   STAGING_PROJECT_REF,
-  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
 } from "@/lib/plan/shift/devFixtureHost";
 import { createGeminiDraftExtractionAdapter } from "@/lib/plan/shift/draftExtractionGeminiAdapter.server";
 import { isDraftExtractionFlagAllowed } from "@/lib/plan/shift/draftExtractionFlagGate";
@@ -55,7 +55,8 @@ export async function extractShiftDraftAction(
           : "split",
     },
     stagingRef: STAGING_PROJECT_REF,
-    productionRef: PRODUCTION_PROJECT_REF,
+    // ref-drift 監査: ACTIVE production(plod) を deny する（legacy aljav は staging-positive 句で別 deny）。
+    productionRef: CLEAN_PRODUCTION_PROJECT_REF,
     getUserId: async () => {
       const { data } = await client.auth.getUser();
       return data?.user?.id ?? null;

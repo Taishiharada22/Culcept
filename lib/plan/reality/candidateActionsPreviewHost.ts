@@ -13,7 +13,11 @@
  * 不変原則: pure（IO / DB / DOM / Date / random / env / fetch なし）。throw しない。env を**受け取って**判定するだけ。
  */
 
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
 
 export interface CandidateActionsPreviewEnv {
   /** `REALITY_CANDIDATE_ACTIONS_DEV_HOST` 値。明示的に "true" のみ通す（"1"/"yes" は false）。 */
@@ -27,6 +31,6 @@ export function isCandidateActionsPreviewHostAllowed(env: CandidateActionsPrevie
   const enabled = env.hostMode === "true";
   const url = env.supabaseUrl ?? "";
   const isStaging = url.includes(STAGING_PROJECT_REF);
-  const isProduction = url.includes(PRODUCTION_PROJECT_REF);
+  const isProduction = url.includes(PRODUCTION_PROJECT_REF) || url.includes(CLEAN_PRODUCTION_PROJECT_REF);
   return enabled && isStaging && !isProduction;
 }

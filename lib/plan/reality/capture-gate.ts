@@ -15,12 +15,23 @@
  *   - DB / Supabase / runtime / route / UI なし。server-only 不要（pure）。barrel 非 export。
  */
 
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "../shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "../shift/devFixtureHost";
 
 /** 許可 staging ref（capture は staging のみ・canonical 参照）。 */
 export const CAPTURE_STAGING_REF_ALLOWLIST: readonly string[] = [STAGING_PROJECT_REF];
-/** 拒否 production ref（capture を絶対に向けない・canonical 参照）。 */
-export const CAPTURE_PROD_REF_DENYLIST: readonly string[] = [PRODUCTION_PROJECT_REF];
+/**
+ * 拒否 production ref（capture を絶対に向けない・canonical 参照）。
+ * legacy PRODUCTION_PROJECT_REF(aljav・archived) と ACTIVE CLEAN_PRODUCTION_PROJECT_REF(plod・現行) の
+ * 両方を含めて all-production を多重防御で deny する（plod 上で isProductionRef=true→hard-block）。
+ */
+export const CAPTURE_PROD_REF_DENYLIST: readonly string[] = [
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+];
 
 /** gate の入力（全て呼び出し側が注入・pure）。 */
 export interface CaptureGateInput {

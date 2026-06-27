@@ -19,11 +19,18 @@ import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mai
 import { isLifeOpsFeedbackWriteAllowed } from "@/lib/plan/reality/lifeops/lifeops-feedback-write";
 import { isLifeOpsStructuredSourceWriteAllowed } from "@/lib/plan/reality/lifeops/lifeops-structured-write";
 import { isLifeOpsStructuredSourceReadAllowed } from "@/lib/plan/reality/lifeops/lifeops-structured-storage";
-import { STAGING_PROJECT_REF, PRODUCTION_PROJECT_REF } from "@/lib/plan/shift/devFixtureHost";
+import {
+  STAGING_PROJECT_REF,
+  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
+} from "@/lib/plan/shift/devFixtureHost";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 
 const STAGING_URL = `https://${STAGING_PROJECT_REF}.supabase.co`;
-const PROD_URL = `https://${PRODUCTION_PROJECT_REF}.supabase.co`;
+// P14-B / ref-drift 監査後: production stage gate は ACTIVE production(plod) を識別する。
+//   PROD_URL は plod に固定し、legacy aljav は別 const として保持して deny 検証に併用する。
+const PROD_URL = `https://${CLEAN_PRODUCTION_PROJECT_REF}.supabase.co`;
+const LEGACY_PROD_URL = `https://${PRODUCTION_PROJECT_REF}.supabase.co`;
 const STAGES: readonly LifeOpsProductionStage[] = ["read_visibility", "input_ui", "structured_write", "feedback_write"];
 const allOn = { read_visibility: true, input_ui: true, structured_write: true, feedback_write: true } as const;
 const allOff = { read_visibility: false, input_ui: false, structured_write: false, feedback_write: false } as const;
@@ -75,6 +82,8 @@ describe("c35 — production stage gate（dormant・AND 三条件）", () => {
 describe("c35 — 既存 gate との分離・恒久条項（①③④⑤）", () => {
   it("①production fixture 永久不使用: source policy は flag 非依存（URL 由来）＋実効 mode も real_only から動かない", () => {
     expect(resolveLifeOpsSourceMode({ supabaseUrl: PROD_URL })).toBe("real_only");
+    // ref-drift 監査: active plod に加えて legacy aljav も real_only を返すことを固定（all-production deny の明示）。
+    expect(resolveLifeOpsSourceMode({ supabaseUrl: LEGACY_PROD_URL })).toBe("real_only");
     expect(resolveEffectiveLifeOpsSourceMode("real_only", false)).toBe("real_only");
     expect(resolveEffectiveLifeOpsSourceMode("real_only", true)).toBe("real_only");
     const policy = fs.readFileSync(path.join(process.cwd(), "lib/plan/reality/lifeops/lifeops-source-policy.ts"), "utf8")
@@ -85,11 +94,13 @@ describe("c35 — 既存 gate との分離・恒久条項（①③④⑤）", ()
     // 別関数で実装されている（同一 helper への統合を検出）
     expect(isLifeOpsStructuredSourceReadAllowed).not.toBe(isLifeOpsStructuredSourceWriteAllowed);
     expect(isLifeOpsFeedbackWriteAllowed).not.toBe(isLifeOpsStructuredSourceWriteAllowed);
-    // ⑤既存 gate の production deny は維持（flag ON でも false）
-    expect(isLifeOpsMainlineAllowed({ mainline: true, planRouteLive: true, supabaseUrl: PROD_URL })).toBe(false);
-    expect(isLifeOpsStructuredSourceReadAllowed({ master: true, structured: true, supabaseUrl: PROD_URL })).toBe(false);
-    expect(isLifeOpsStructuredSourceWriteAllowed({ master: true, write: true, supabaseUrl: PROD_URL })).toBe(false);
-    expect(isLifeOpsFeedbackWriteAllowed({ master: true, write: true, supabaseUrl: PROD_URL })).toBe(false);
+    // ⑤既存 gate の production deny は維持（flag ON でも false）。active(plod) + legacy(aljav) 両方 deny。
+    for (const url of [PROD_URL, LEGACY_PROD_URL]) {
+      expect(isLifeOpsMainlineAllowed({ mainline: true, planRouteLive: true, supabaseUrl: url })).toBe(false);
+      expect(isLifeOpsStructuredSourceReadAllowed({ master: true, structured: true, supabaseUrl: url })).toBe(false);
+      expect(isLifeOpsStructuredSourceWriteAllowed({ master: true, write: true, supabaseUrl: url })).toBe(false);
+      expect(isLifeOpsFeedbackWriteAllowed({ master: true, write: true, supabaseUrl: url })).toBe(false);
+    }
   });
   it("dormant: app/ に production-gate / prod stage flag の consumer 0（解禁は段階ごとの別 CEO GO）", () => {
     const offenders: string[] = [];
