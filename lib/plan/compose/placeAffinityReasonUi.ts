@@ -11,6 +11,7 @@
  *   - sensitive/redacted は P2 集計時に既に除外済（destKey null）。
  *   - raw score/visitCount/strength/内部値を出さない（reason 文字列のみ）。人格診断にしない。
  */
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
 import { placeAffinityReasonLine, type PlaceAffinityReadiness } from "@/lib/plan/compose/placeAffinityReadiness";
 import {
@@ -28,7 +29,7 @@ export const PLACE_AFFINITY_REASON_UI_ENABLED = true;
 
 /** 場所候補に観測 reason を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isPlaceAffinityReasonEnabled(): boolean {
-  return PLACE_AFFINITY_REASON_UI_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (PLACE_AFFINITY_REASON_UI_ENABLED && process.env.NODE_ENV !== "production") || isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF・reason 表示のみ・順位不変）
 }
 
 /**

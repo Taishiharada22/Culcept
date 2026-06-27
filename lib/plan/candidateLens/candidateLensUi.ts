@@ -22,6 +22,7 @@ import {
   type ComparisonRow,
 } from "@/lib/plan/candidateLens/candidateLensResolver";
 import { applyPreferenceToAxes, type UserPlacePreference } from "@/lib/plan/candidateLens/userPlacePreference";
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 
 /**
  * ★候補レンズ UI flag（lens ①②③ 全体のマスター）。
@@ -34,14 +35,15 @@ export function isCandidateLensUiEnabled(): boolean {
   // NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI=true で本番点火可（client surface ゆえ NEXT_PUBLIC・CEO opt-in）。
   return (
     (PLACE_CANDIDATE_LENS_UI_ENABLED && process.env.NODE_ENV !== "production") ||
-    process.env.NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI === "true"
+    process.env.NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI === "true" ||
+    isAneuraReadoutProdEnabled() // 統一 master flag でも本番点火（既存 flag と OR・default OFF）
   );
 }
 
 /** ★E-b: ③ 行順 explanation note の UI flag（default OFF・dev-only・production hard block）。OFF で ③ は完全不変。 */
 export const PLACE_CANDIDATE_LENS_EXPLANATION_ENABLED = false;
 export function isCandidateLensExplanationEnabled(): boolean {
-  return PLACE_CANDIDATE_LENS_EXPLANATION_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (PLACE_CANDIDATE_LENS_EXPLANATION_ENABLED && process.env.NODE_ENV !== "production") || isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF）
 }
 
 /**

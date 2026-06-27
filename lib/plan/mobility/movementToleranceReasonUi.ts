@@ -15,6 +15,7 @@
  *   - sensitive / redacted / readOnly は **呼び側が沈黙**（本 module は呼ばれた観測だけ読む）。
  *   - raw count / score / confidence / 内部値は出さない（reason 文字列のみ）。trait / 人格診断にしない。
  */
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import type { MobilityObservation, Timeband, WeekdayBucket } from "@/lib/plan/mobility/mobilityObservationStore";
 import type { HypothesisFeedbackStore } from "@/lib/plan/mobility/hypothesisFeedbackStore";
 import type { WeatherKind } from "@/lib/plan/context/contextModifier";
@@ -34,7 +35,7 @@ export const MOVEMENT_TOLERANCE_REASON_UI_ENABLED = true;
 
 /** 移動耐性 reason を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isMovementToleranceReasonUiEnabled(): boolean {
-  return MOVEMENT_TOLERANCE_REASON_UI_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (MOVEMENT_TOLERANCE_REASON_UI_ENABLED && process.env.NODE_ENV !== "production") || isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF）
 }
 
 /** 今の文脈（条件一致用）。null は「その次元では一致判定しない」。 */

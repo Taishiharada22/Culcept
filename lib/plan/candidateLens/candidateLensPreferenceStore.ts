@@ -9,13 +9,14 @@
  *   生の場所名・住所・座標・placeId・予定タイトル本文・userId は保存しない。
  * ★不変: client-only / SSR・localStorage 不在/破損/quota は fail-open / flag default OFF / production hard block / fire-and-forget。
  */
+import { isAneuraObserveProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import { normalizeLocationText } from "@/lib/plan/mobility/mobilityObservationStore";
 import type { PreferenceObservation } from "@/lib/plan/candidateLens/candidateLensPreferenceObs";
 
 /** ★shadow 記録 flag（P3-b・default OFF・dev-only・production hard block）。default は false。 */
 export const PLACE_CANDIDATE_LENS_PREF_OBS_ENABLED = false;
 export function isCandidateLensPrefObsEnabled(): boolean {
-  return PLACE_CANDIDATE_LENS_PREF_OBS_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (PLACE_CANDIDATE_LENS_PREF_OBS_ENABLED && process.env.NODE_ENV !== "production") || isAneuraObserveProdEnabled(); // observe master flag で本番解放（default OFF・localStorage のみ）
 }
 
 /**
@@ -24,7 +25,7 @@ export function isCandidateLensPrefObsEnabled(): boolean {
  */
 export const PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED = false;
 export function isCandidateLensPrefApplyEnabled(): boolean {
-  return PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED && process.env.NODE_ENV !== "production") || isAneuraObserveProdEnabled(); // observe master flag で本番解放（default OFF・localStorage のみ）
 }
 
 const PREF_OBS_KEY = "aneurasync.candidateLens.prefObs.v1";

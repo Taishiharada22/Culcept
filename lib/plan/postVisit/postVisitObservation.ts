@@ -15,6 +15,7 @@
  *
  * ★pure: Date/Math.random/network/DB/外部 API なし。`at` は呼び出し側が渡す（store が stamp）。
  */
+import { isAneuraObserveProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import type { PurposeLens } from "@/lib/plan/candidateLens/purposeLens";
 import { opaquePlaceKey } from "@/lib/plan/candidateLens/candidateLensPreferenceStore";
 import { sanitizeContextSnapshot, type PostVisitContextSnapshot } from "./postVisitContext";
@@ -26,7 +27,7 @@ import { sanitizeContextSnapshot, type PostVisitContextSnapshot } from "./postVi
  */
 export const POST_VISIT_CHECK_ENABLED = false;
 export function isPostVisitCheckEnabled(): boolean {
-  if (process.env.NODE_ENV === "production") return false; // ★production hard block（env でも必ず false）
+  if (process.env.NODE_ENV === "production") return isAneuraObserveProdEnabled(); // observe master flag で本番解放（default OFF・localStorage のみ）
   return POST_VISIT_CHECK_ENABLED || process.env.NEXT_PUBLIC_ANEURASYNC_POST_VISIT_DOGFOOD === "1";
 }
 

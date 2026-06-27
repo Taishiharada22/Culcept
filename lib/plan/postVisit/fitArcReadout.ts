@@ -8,6 +8,7 @@
  * ★ranking/推薦には一切影響しない（表示専用の readout）。
  * ★pure: Date/network/DB なし。入力は Stage 0 の local 観測のみ。
  */
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import type { PostVisitObservation, PostVisitResponse } from "./postVisitObservation";
 
 /**
@@ -17,7 +18,7 @@ import type { PostVisitObservation, PostVisitResponse } from "./postVisitObserva
  */
 export const FIT_ARC_READOUT_ENABLED = false;
 export function isFitArcReadoutEnabled(): boolean {
-  if (process.env.NODE_ENV === "production") return false; // ★production hard block（env でも必ず false）
+  if (process.env.NODE_ENV === "production") return isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF）
   return FIT_ARC_READOUT_ENABLED || process.env.NEXT_PUBLIC_ANEURASYNC_FIT_ARC_DOGFOOD === "1";
 }
 

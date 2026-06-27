@@ -20,6 +20,7 @@
  *
  * pure / READ のみ / Date 不使用 / DB・network なし / 予定を動かさない。
  */
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import { rehearseDay } from "@/lib/plan/dayRehearsal/dayRehearsal";
 import {
   DEFAULT_REHEARSAL_CONFIG,
@@ -40,7 +41,7 @@ import {
  */
 export const DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED = true;
 export function isScenarioComparisonEnabled(): boolean {
-  return DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (DAY_REHEARSAL_SCENARIO_COMPARISON_ENABLED && process.env.NODE_ENV !== "production") || isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF）
 }
 
 /** 診断レンズ（予定変更でない）。 */

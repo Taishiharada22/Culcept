@@ -16,6 +16,7 @@
  *   - sparse（not_enough）/ 一致 signal なし → null（沈黙）。sensitive/readOnly は呼び側が沈黙。
  *   - raw count / score / confidence / 内部値は出さない（reason 文字列のみ）。trait（朝型/夜型）にしない。
  */
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import type { MobilityObservation, Timeband } from "@/lib/plan/mobility/mobilityObservationStore";
 import { buildEnergyRhythm, energyRhythmReasonLine } from "@/lib/plan/mobility/energyRhythm";
 
@@ -28,7 +29,7 @@ export const ENERGY_RHYTHM_REASON_UI_ENABLED = true;
 
 /** 活動時間帯 reason を出してよいか（flag ON ∧ 非 production・default OFF）。 */
 export function isEnergyRhythmReasonUiEnabled(): boolean {
-  return ENERGY_RHYTHM_REASON_UI_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (ENERGY_RHYTHM_REASON_UI_ENABLED && process.env.NODE_ENV !== "production") || isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF）
 }
 
 /**

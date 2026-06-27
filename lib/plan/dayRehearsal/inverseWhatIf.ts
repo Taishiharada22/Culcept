@@ -20,6 +20,7 @@
  *
  * pure / READ のみ / Date 不使用 / DB・network なし / 予定を動かさない。
  */
+import { isAneuraReadoutProdEnabled } from "@/lib/plan/aneuraReadoutGate";
 import {
   rehearseDay,
 } from "@/lib/plan/dayRehearsal/dayRehearsal";
@@ -42,7 +43,7 @@ import {
  */
 export const DAY_REHEARSAL_INVERSE_ENABLED = true;
 export function isInverseWhatIfEnabled(): boolean {
-  return DAY_REHEARSAL_INVERSE_ENABLED && process.env.NODE_ENV !== "production"; // ★production hard block
+  return (DAY_REHEARSAL_INVERSE_ENABLED && process.env.NODE_ENV !== "production") || isAneuraReadoutProdEnabled(); // master flag で本番解放（default OFF）
 }
 
 /** 守らない対象の typed scenario（実予定を壊す変更でない）。 */
