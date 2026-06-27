@@ -51,20 +51,39 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
+  // clean prod の列 drift（baseline_home_* / occupation 等が未適用）に耐える:
+  //   full select が 42703（undefined column）等で失敗したら、bias に必須の core 列だけで再取得する。
+  //   これで「列が 1 つ欠けると baseline GET 全体が 500 → /my-page に保存が反映されない・bias 不達」を防ぐ。
+  const FULL_COLUMNS =
+    "gender, date_of_birth, prefecture, city, occupation, occupation_detail, baseline_completed_at, baseline_home_label, baseline_home_place_type, baseline_home_lat, baseline_home_lng";
+  const CORE_COLUMNS = "prefecture, city, baseline_completed_at";
+
+  let data: Record<string, unknown> | null = null;
+  const full = await supabase
     .from("profiles")
-    .select(
-      "gender, date_of_birth, prefecture, city, occupation, occupation_detail, baseline_completed_at, baseline_home_label, baseline_home_place_type, baseline_home_lat, baseline_home_lng",
-    )
+    .select(FULL_COLUMNS)
     .eq("id", user.id)
     .maybeSingle();
-
-  if (error) {
-    console.error("[baseline] GET error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (full.error) {
+    console.warn(
+      "[baseline] GET full select failed (column drift?), retrying core:",
+      full.error.message,
+    );
+    const core = await supabase
+      .from("profiles")
+      .select(CORE_COLUMNS)
+      .eq("id", user.id)
+      .maybeSingle();
+    if (core.error) {
+      console.error("[baseline] GET error:", core.error);
+      return NextResponse.json({ ok: false, error: core.error.message }, { status: 500 });
+    }
+    data = (core.data as Record<string, unknown> | null) ?? null;
+  } else {
+    data = (full.data as Record<string, unknown> | null) ?? null;
   }
 
-  const prefecture = data?.prefecture ?? null;
+  const prefecture = (data?.prefecture as string | null | undefined) ?? null;
   const homeLat = data?.baseline_home_lat !== undefined && data?.baseline_home_lat !== null
     ? Number(data.baseline_home_lat)
     : null;
