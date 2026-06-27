@@ -22,7 +22,7 @@ import { resolveShiftDraftVlmInputMode } from "@/lib/plan/shift/shiftDraftVlmInp
 import { isShiftImportSaveUiEnabled } from "@/lib/plan/shift/shiftImportSaveGuard";
 import {
   STAGING_PROJECT_REF,
-  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
 } from "@/lib/plan/shift/devFixtureHost";
 import { isLifeOpsMainlineAllowed } from "@/lib/plan/reality/lifeops/lifeops-mainline-gate";
 import { computeLifeOpsMainlineModel } from "@/lib/plan/reality/lifeops/lifeops-mainline-model";
@@ -130,7 +130,8 @@ export async function buildPlanClientFeatureProps(
         supabaseUrl:
           process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
         stagingRef: STAGING_PROJECT_REF,
-        productionRef: PRODUCTION_PROJECT_REF,
+        // P14-B fix: UI active も server lane（importShiftRoster）と同じ clean prod 基準で判定。
+        productionRef: CLEAN_PRODUCTION_PROJECT_REF,
       },
       userId,
       canaryUserIds: PLAN_FLAGS.shiftImportSaveCanaryUserIds,

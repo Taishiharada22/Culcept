@@ -8,15 +8,18 @@
 import { describe, it, expect } from "vitest";
 import {
   isShiftImportSaveConnectionAllowed,
+  isShiftImportSaveProductionCanaryAllowed,
   isShiftImportSaveUiEnabled,
 } from "@/lib/plan/shift/shiftImportSaveGuard";
 import {
   STAGING_PROJECT_REF,
   PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
 } from "@/lib/plan/shift/devFixtureHost";
 
 const STAGING_URL = `https://${STAGING_PROJECT_REF}.supabase.co`;
 const PRODUCTION_URL = `https://${PRODUCTION_PROJECT_REF}.supabase.co`;
+const CLEAN_PRODUCTION_URL = `https://${CLEAN_PRODUCTION_PROJECT_REF}.supabase.co`;
 const env = (supabaseUrl: string | undefined) => ({
   supabaseUrl,
   stagingRef: STAGING_PROJECT_REF,
@@ -96,5 +99,61 @@ describe("isShiftImportSaveUiEnabled — UI active を server lane gate と一�
 
   it("boolean のみ返す", () => {
     expect(typeof ui({})).toBe("boolean");
+  });
+});
+
+describe("clean production canary lane — 現行本番(plod)を認識する（P14-B 根因修正）", () => {
+  const CANARY = "canary-user-1";
+  const cleanProdEnv = (url: string | undefined) => ({
+    supabaseUrl: url,
+    stagingRef: STAGING_PROJECT_REF,
+    // ★shift-save lane は clean prod(plod)を本番として使う（legacy aljav ではない）
+    productionRef: CLEAN_PRODUCTION_PROJECT_REF,
+  });
+
+  it("clean prod ref は plodugvgmdkusifdrdfz で legacy aljav とは別物", () => {
+    expect(CLEAN_PRODUCTION_PROJECT_REF).toBe("plodugvgmdkusifdrdfz");
+    expect(CLEAN_PRODUCTION_PROJECT_REF).not.toBe(PRODUCTION_PROJECT_REF);
+  });
+
+  it("clean prod(plod) 接続 ∧ canary user → canary lane true（本番保存可）", () => {
+    expect(
+      isShiftImportSaveProductionCanaryAllowed(
+        cleanProdEnv(CLEAN_PRODUCTION_URL),
+        CANARY,
+        [CANARY]
+      )
+    ).toBe(true);
+  });
+
+  it("legacy prod(aljav) 接続は canary lane で false（shift-save は legacy を本番扱いしない）", () => {
+    expect(
+      isShiftImportSaveProductionCanaryAllowed(
+        cleanProdEnv(PRODUCTION_URL),
+        CANARY,
+        [CANARY]
+      )
+    ).toBe(false);
+  });
+
+  it("clean prod 基準でも staging 接続は staging lane で許可（退化なし）", () => {
+    expect(isShiftImportSaveConnectionAllowed(cleanProdEnv(STAGING_URL))).toBe(true);
+  });
+
+  it("clean prod 接続は staging lane では拒否（canary lane の領分）", () => {
+    expect(
+      isShiftImportSaveConnectionAllowed(cleanProdEnv(CLEAN_PRODUCTION_URL))
+    ).toBe(false);
+  });
+
+  it("UI active も clean prod canary で true（server lane と一致）", () => {
+    expect(
+      isShiftImportSaveUiEnabled({
+        flagEnabled: true,
+        connection: cleanProdEnv(CLEAN_PRODUCTION_URL),
+        userId: CANARY,
+        canaryUserIds: [CANARY],
+      })
+    ).toBe(true);
   });
 });

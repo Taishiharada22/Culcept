@@ -26,7 +26,7 @@ import { isShiftImportSaveEnabled } from "@/lib/plan/shift/shiftImportSave";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import {
   STAGING_PROJECT_REF,
-  PRODUCTION_PROJECT_REF,
+  CLEAN_PRODUCTION_PROJECT_REF,
 } from "@/lib/plan/shift/devFixtureHost";
 import {
   runShiftImportSave,
@@ -79,7 +79,11 @@ export async function importShiftRosterAction(
       supabaseUrl:
         process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
       stagingRef: STAGING_PROJECT_REF,
-      productionRef: PRODUCTION_PROJECT_REF,
+      // P14-B fix: canary lane は **clean production（plod）** を本番として認識する。
+      //   legacy PRODUCTION_PROJECT_REF（aljav）のままだと、現行本番 plod 上で canary lane が
+      //   常に false → 本保存に到達できなかった（local が staging を指していた時のみ動いていた）。
+      //   staging deny も plod 基準で安全（staging は許可・legacy aljav は両 lane false で依然 deny）。
+      productionRef: CLEAN_PRODUCTION_PROJECT_REF,
     },
     // P14: production-canary allowlist。production 接続時のみ有効（staging は connection guard で許可）。
     canaryUserIds: PLAN_FLAGS.shiftImportSaveCanaryUserIds,

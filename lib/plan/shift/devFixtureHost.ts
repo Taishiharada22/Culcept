@@ -16,8 +16,22 @@ import type { ShiftReviewCell } from "./shiftReviewClassification";
 
 /** staging project ref（許可）。 */
 export const STAGING_PROJECT_REF = "hjcrvndumgiovyfdacwc";
-/** production project ref（拒否）。 */
+/**
+ * legacy production project ref（拒否）。
+ * ★注意（2026-06-27）: これは **旧 production**（fashion/EC legacy・clean-rebuild 前）。
+ *   plan/reality/lifeops/capture の production-deny gate 群が canonical production 識別子として
+ *   今もこれを参照している（system 全体が aljav→plod 移行に未追従＝ref drift）。
+ *   **global に変更すると全 gate に波及するため、ここは変更しない**。
+ *   clean production（plod）を対象にする lane は下の CLEAN_PRODUCTION_PROJECT_REF を使う。
+ */
 export const PRODUCTION_PROJECT_REF = "aljavfujeqcwnqryjmhl";
+/**
+ * clean production project ref（現行の本番・clean-rebuild 後）。
+ * NEXT_PUBLIC_SUPABASE_URL が指す現行 production。shift-import 本保存の **production-canary lane**
+ * （flag + auth + allowlist で本番保存を許可する経路）が「本番に接続しているか」を判定するのに使う。
+ * legacy PRODUCTION_PROJECT_REF（aljav）とは別物。混同しない。
+ */
+export const CLEAN_PRODUCTION_PROJECT_REF = "plodugvgmdkusifdrdfz";
 
 export interface FixtureHostEnv {
   /** PLAN_SHIFT_FIXTURE_HOST（明示 opt-in） */
