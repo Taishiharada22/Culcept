@@ -9,6 +9,7 @@ import {
   type PrmLearningEventWriteClient,
 } from "@/lib/plan/reality/learning/supabase-prm-learning-event-repository";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import { isRealityWriteConnectionAllowed } from "@/lib/plan/reality/realityWriteConnectionGuard";
 
 /**
  * A1-6-6 Candidate Action Route — POST `{ handle, action }` → `{ ok, data }`（**status-only・user-RLS・no UI・no production**）
@@ -49,7 +50,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //   entries は **transition 前に capture 済**ゆえ accept→consumed / dismiss→rejected でも acted candidate の context を解決でき、
   //   accept/dismiss/later の 3 action すべてで write できる（A1-7-23 bug 修正）。
   //   flag OFF → 本 block を skip（entries は未使用・surfaceable load は従来と同一 1 read ゆえ挙動不変）。
-  if (PLAN_FLAGS.realityLearningEventWrite) {
+  //   P18: flag に加え接続先 guard を AND（staging-positive ∧ all-production-deny）。
+  //   plod(clean prod)/aljav(legacy)/不明 host では flag ON でも learning event を書かない（fail-closed 二重防御）。
+  const realityWriteUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  if (PLAN_FLAGS.realityLearningEventWrite && isRealityWriteConnectionAllowed(realityWriteUrl)) {
     await writeLearningEventOnAction({
       flagEnabled: true,
       rawBody: body,

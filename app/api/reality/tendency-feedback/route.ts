@@ -16,6 +16,7 @@ import {
 } from "@/lib/plan/reality/learning/supabase-prm-model-entry-repository";
 import { executeTendencyFeedback } from "@/lib/plan/reality/learning/tendency-feedback-core";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import { isRealityWriteConnectionAllowed } from "@/lib/plan/reality/realityWriteConnectionGuard";
 
 /**
  * A1-7-35 Tendency Feedback Route — POST `{ tendencyKey, feedback, correctionKind? }` → redacted feedback result
@@ -48,7 +49,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // flag OFF → no-op（M2/M3 write 0・既存挙動不変）
-  if (!PLAN_FLAGS.realityTendencyFeedbackWrite) {
+  // P18: flag に加え接続先 guard を AND（staging-positive ∧ all-production-deny）。
+  //   plod(clean prod)/aljav(legacy)/不明 host では flag ON でも write 0（fail-closed 二重防御）。
+  const realityWriteUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  if (!PLAN_FLAGS.realityTendencyFeedbackWrite || !isRealityWriteConnectionAllowed(realityWriteUrl)) {
     return NextResponse.json({ ok: false, feedback: null, reviewed: false, modelEntryCreated: false, corrected: false, retracted: false, reason: "disabled", partialFailure: null });
   }
 

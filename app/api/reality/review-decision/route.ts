@@ -16,6 +16,7 @@ import {
 } from "@/lib/plan/reality/learning/supabase-prm-model-entry-repository";
 import { executeReviewDecision } from "@/lib/plan/reality/learning/review-flow-route-core";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import { isRealityWriteConnectionAllowed } from "@/lib/plan/reality/realityWriteConnectionGuard";
 
 /**
  * A1-7-33 Review Decision Route — POST `{ proposalFingerprint, decision }` → redacted review result
@@ -47,7 +48,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // flag OFF → no-op（M2/M3 write 0・既存挙動不変）
-  if (!PLAN_FLAGS.realityReviewWrite) {
+  // P18: flag に加え接続先 guard を AND（staging-positive ∧ all-production-deny）。
+  //   plod(clean prod)/aljav(legacy)/不明 host では flag ON でも write 0（fail-closed 二重防御）。
+  const realityWriteUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+  if (!PLAN_FLAGS.realityReviewWrite || !isRealityWriteConnectionAllowed(realityWriteUrl)) {
     return NextResponse.json({ ok: false, reviewed: false, decision: null, modelEntryCreated: false, reason: "disabled", partialFailure: null });
   }
 
