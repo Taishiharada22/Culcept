@@ -47,13 +47,57 @@ function FitBadge({ kind, label, fit }: { kind: string; label: string; fit: FitL
   );
 }
 
-function LiveCandidateCard({ c }: { c: CandidateVM }) {
+/**
+ * P17: 案の温度差ラベル（live path・display-only・ranking 非接触）。
+ *   vm.candidates の **配列 index** から守り/中間/攻め を機械的に決定する。
+ *   - 3 案: [守り, 中間, 攻め] / 2 案: [守り, 攻め] / 1 案 or 4+ : null（差が無い/モデル破綻）
+ *   - candidate ranking, personalization, action, DB write には一切影響しない。
+ *   - fixture path (PlanIntelligencePanel) の getProposalTemperatureLabel と同一意味論。
+ */
+const LIVE_TEMPERATURE_LABELS = ["守り", "中間", "攻め"] as const;
+const LIVE_TEMPERATURE_TONES = [
+  "bg-emerald-100/80 text-emerald-700 ring-emerald-200/60",
+  "bg-slate-100/90 text-slate-600 ring-slate-200/60",
+  "bg-rose-100/80 text-rose-700 ring-rose-200/60",
+] as const;
+function getLiveTemperatureLabel(
+  index: number,
+  total: number
+): { label: string; tone: string } | null {
+  if (total <= 1 || total > 3) return null;
+  if (total === 2) {
+    if (index === 0) return { label: LIVE_TEMPERATURE_LABELS[0], tone: LIVE_TEMPERATURE_TONES[0] };
+    if (index === 1) return { label: LIVE_TEMPERATURE_LABELS[2], tone: LIVE_TEMPERATURE_TONES[2] };
+    return null;
+  }
+  if (index < 0 || index >= 3) return null;
+  return { label: LIVE_TEMPERATURE_LABELS[index], tone: LIVE_TEMPERATURE_TONES[index] };
+}
+
+function LiveCandidateCard({
+  c,
+  temperature,
+}: {
+  c: CandidateVM;
+  /** P17: 案の温度ラベル（display-only・null なら chip 非表示）。 */
+  temperature: { label: string; tone: string } | null;
+}) {
   return (
     <div className={`w-56 shrink-0 ${CARD} p-3`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">
-          {c.angleLabel}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 px-2 py-0.5 text-[10px] font-bold text-white">
+            {c.angleLabel}
+          </span>
+          {temperature && (
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${temperature.tone}`}
+              aria-label={`案の温度: ${temperature.label}`}
+            >
+              {temperature.label}
+            </span>
+          )}
+        </div>
         {c.recommended && (
           <span className="inline-flex items-center gap-0.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 px-2 py-0.5 text-[10px] font-bold text-white">
             <CheckIcon size={9} /> おすすめ
@@ -344,7 +388,13 @@ function ReadyView({ vm }: { vm: PlanIntelligenceLiveReadyVM }) {
         <h3 className={CHIP}>候補プラン</h3>
         <div className="-mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1 pb-1">
           {vm.candidates.length > 0 ? (
-            vm.candidates.map((c) => <LiveCandidateCard key={c.candidateId} c={c} />)
+            vm.candidates.map((c, index) => (
+              <LiveCandidateCard
+                key={c.candidateId}
+                c={c}
+                temperature={getLiveTemperatureLabel(index, vm.candidates.length)}
+              />
+            ))
           ) : (
             <p className="px-1 text-[11px] text-slate-400">条件を満たす案がまだありません。</p>
           )}

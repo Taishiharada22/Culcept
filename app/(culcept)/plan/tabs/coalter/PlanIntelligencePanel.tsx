@@ -53,6 +53,44 @@ const CONDITION_ICON_TONE: Record<SharedConditionFixture["kind"], string> = {
   other: "text-slate-400",
 };
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P17: 案の温度差ラベル（display-only・index-based・ranking 非接触）
+//   3 案カードが「守り/中間/攻め」のどれかをユーザーが一目で分かるための小 chip。
+//   ★完全に display-only:
+//     - 順序は変えない（session.candidates の配列順 index を読むだけ）
+//     - personalization / ranking / candidate.stats に一切影響しない
+//     - chip は recommended バッジと並列の追加表示のみ・click 不可
+//   ★既存データに closed-enum の tier/tone field が存在しないため index ベースで fallback。
+//     将来 generator/projection 側に semantic field が追加されたら本関数を読み替える。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const PROPOSAL_TEMPERATURE_LABELS = ["守り", "中間", "攻め"] as const;
+const PROPOSAL_TEMPERATURE_TONES = [
+  "bg-emerald-100/80 text-emerald-700 ring-emerald-200/60", // 守り=安心色（緑寄り）
+  "bg-slate-100/90 text-slate-600 ring-slate-200/60",      // 中間=ニュートラル
+  "bg-rose-100/80 text-rose-700 ring-rose-200/60",         // 攻め=温度高（赤寄り）
+] as const;
+/**
+ * 表示位置（index）と総数から温度 chip を返す。
+ *   - total=3 の通常分布: [0,1,2] → 守り/中間/攻め
+ *   - total=2: 先頭=守り・末尾=攻め（中間はスキップ・偽の「中間」を出さない）
+ *   - total=1: null（1 案だけなら温度差自体が無いので chip を出さない）
+ *   - total>=4 (将来の拡張): null（3 段モデルが破綻するため安全側に倒し chip を消す）
+ */
+function getProposalTemperatureLabel(
+  index: number,
+  total: number
+): { label: string; tone: string } | null {
+  if (total <= 1 || total > 3) return null;
+  if (total === 2) {
+    if (index === 0) return { label: PROPOSAL_TEMPERATURE_LABELS[0], tone: PROPOSAL_TEMPERATURE_TONES[0] };
+    if (index === 1) return { label: PROPOSAL_TEMPERATURE_LABELS[2], tone: PROPOSAL_TEMPERATURE_TONES[2] };
+    return null;
+  }
+  // total === 3
+  if (index < 0 || index >= 3) return null;
+  return { label: PROPOSAL_TEMPERATURE_LABELS[index], tone: PROPOSAL_TEMPERATURE_TONES[index] };
+}
+
 export interface PlanIntelligencePanelProps {
   readonly session: CoAlterPlanSessionFixture;
   readonly selectedCandidateId: string;
@@ -163,7 +201,7 @@ export function PlanIntelligencePanel({
               </span>
             </div>
             <div className="-mx-1 mt-1.5 flex gap-2 overflow-x-auto px-1 pb-1">
-              {session.candidates.map((candidate) => (
+              {session.candidates.map((candidate, index) => (
                 <FloatingCandidateCard
                   key={candidate.id}
                   candidate={candidate}
@@ -171,6 +209,7 @@ export function PlanIntelligencePanel({
                   isConfirmed={candidate.id === confirmedCandidateId}
                   appliedAdjustments={appliedAdjustments}
                   onSelect={() => onSelectCandidate(candidate.id)}
+                  temperature={getProposalTemperatureLabel(index, session.candidates.length)}
                 />
               ))}
             </div>
@@ -297,7 +336,7 @@ export function PlanIntelligencePanel({
           </span>
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 @2xl:grid-cols-3">
-          {session.candidates.map((candidate) => (
+          {session.candidates.map((candidate, index) => (
             <CandidateCard
               key={candidate.id}
               candidate={candidate}
@@ -305,6 +344,7 @@ export function PlanIntelligencePanel({
               isConfirmed={candidate.id === confirmedCandidateId}
               appliedAdjustments={appliedAdjustments}
               onSelect={() => onSelectCandidate(candidate.id)}
+              temperature={getProposalTemperatureLabel(index, session.candidates.length)}
             />
           ))}
         </div>
@@ -414,12 +454,15 @@ function FloatingCandidateCard({
   isConfirmed,
   appliedAdjustments,
   onSelect,
+  temperature,
 }: {
   candidate: PlanCandidateFixture;
   isSelected: boolean;
   isConfirmed: boolean;
   appliedAdjustments: readonly AdjustmentSuggestionFixture[];
   onSelect: () => void;
+  /** P17: 案の温度差ラベル（display-only・null なら非表示）。 */
+  temperature: { label: string; tone: string } | null;
 }) {
   const display = deriveDisplayStats(candidate, appliedAdjustments);
   return (
@@ -437,6 +480,16 @@ function FloatingCandidateCard({
       {candidate.recommended && (
         <span className="absolute left-3 top-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm">
           おすすめ
+        </span>
+      )}
+      {temperature && (
+        <span
+          className={`absolute top-3 rounded-full px-1.5 py-0.5 text-[9px] font-bold ring-1 shadow-sm ${
+            candidate.recommended ? "left-[58px]" : "left-3"
+          } ${temperature.tone}`}
+          aria-label={`案の温度: ${temperature.label}`}
+        >
+          {temperature.label}
         </span>
       )}
       {isConfirmed && (
@@ -520,12 +573,15 @@ function CandidateCard({
   isConfirmed,
   appliedAdjustments,
   onSelect,
+  temperature,
 }: {
   candidate: PlanCandidateFixture;
   isSelected: boolean;
   isConfirmed: boolean;
   appliedAdjustments: readonly AdjustmentSuggestionFixture[];
   onSelect: () => void;
+  /** P17: 案の温度差ラベル（display-only・null なら非表示）。 */
+  temperature: { label: string; tone: string } | null;
 }) {
   const display = deriveDisplayStats(candidate, appliedAdjustments);
   return (
@@ -549,6 +605,16 @@ function CandidateCard({
       {candidate.recommended && (
         <span className="absolute -top-2.5 left-3 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
           おすすめ
+        </span>
+      )}
+      {temperature && (
+        <span
+          className={`absolute -top-2.5 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 shadow-sm ${
+            candidate.recommended ? "left-[72px]" : "left-3"
+          } ${temperature.tone}`}
+          aria-label={`案の温度: ${temperature.label}`}
+        >
+          {temperature.label}
         </span>
       )}
       {isConfirmed && (
