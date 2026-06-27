@@ -52,8 +52,7 @@ import { DayGraphTimeline } from "../components/DayGraphTimeline";
 // ★評価OS Stage 3-B/3-C: 経過済み×場所付き予定に控えめ post-visit 答え合わせ（選択日で最大1件・flag OFF で null＝DOM 不変・local shadow only）
 import { PostVisitCheckCard } from "../components/PostVisitCheckCard";
 import { isPostVisitCheckEnabled } from "@/lib/plan/postVisit/postVisitObservation";
-import { selectPostVisitAnchorForDay, buildContextSnapshotFromAnchor, gapMinutesToNextAnchor } from "@/lib/plan/postVisit/postVisitAnchorContext";
-import { lastSkipAt, lastElicitAtForPlace } from "@/lib/plan/postVisit/postVisitStore";
+import { isPastAnchorWithPlace, deriveAnchorElicitFlags, buildContextSnapshotFromAnchor, gapMinutesToNextAnchor } from "@/lib/plan/postVisit/postVisitAnchorContext";
 import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
 import { useCalendarTabFeasibilityDisplay } from "./_useCalendarTabFeasibilityDisplay";
 import {
@@ -263,21 +262,12 @@ export function CalendarTab({
     () => anchorsForDay(anchors, selectedDateObj),
     [anchors, selectedDateObj],
   );
-  // ★Stage 3-C: one-per-day guard — 選択日の eligible 過去 anchor から答え合わせ対象を **最大1件** 選ぶ。
-  //   flag OFF では isPostVisitCheckEnabled() 短絡で何も評価しない（Date.now()/store も触らず＝CalendarTab DOM 不変）。
-  const selectedPostVisit = isPostVisitCheckEnabled()
-    ? selectPostVisitAnchorForDay(selectedDayAnchors, Date.now(), {
-        lastSkippedAt: (k) => lastSkipAt(k),
-        lastSimilarElicitAt: (k) => lastElicitAtForPlace(k),
-      })
-    : null;
-  // ★Stage 4-A: 選ばれた anchor の文脈スナップショット（coarse/redacted）。回答時に観測へ付与。
-  const selectedPostVisitContext = selectedPostVisit
-    ? buildContextSnapshotFromAnchor(
-        selectedPostVisit.anchor,
-        gapMinutesToNextAnchor(selectedDayAnchors, selectedPostVisit.anchor),
-      )
-    : null;
+  // ★P13: 答え合わせ導線を discoverable に — 選択日の **経過済み×場所付き全 anchor** に答え合わせを出す
+  //   （旧 Stage 3-C は最大1件だったため過去予定があっても気づきにくかった）。
+  //   flag OFF では isPostVisitCheckEnabled() 短絡で評価ゼロ（Date.now()/store も触らず＝DOM 不変）。
+  //   per-place の出し過ぎ抑止（home/work/habitual/直近skip/直近elicit）は PostVisitCheckCard 内 shouldElicit が担保。
+  const postVisitEnabled = isPostVisitCheckEnabled();
+  const postVisitNowTs = postVisitEnabled ? Date.now() : 0;
   // SR #216 D3: 選択日の休み/希望休 badge（anchor list と別レイヤー）
   const selectedDayIndicator = dayIndicatorByIso?.get(selectedDate);
 
@@ -981,10 +971,10 @@ export function CalendarTab({
               // Phase 2-F: Compact density (primary only)、title に fullLabel
               const { primary: locationPrimary, fullLabel: locationFullLabel } =
                 formatLocationDisplayParts(anchor);
-              // ★Stage 3-C: 選択日で選ばれた **1件のみ** 答え合わせを出す（選定済みフラグを再利用）。
+              // ★P13: 経過済み×場所付き anchor すべてに答え合わせを出す（home/work/habitual 等の抑止は card 内 shouldElicit）。
               const postVisitFlags =
-                selectedPostVisit && anchor.id === selectedPostVisit.anchor.id
-                  ? selectedPostVisit.flags
+                postVisitEnabled && isPastAnchorWithPlace(anchor, postVisitNowTs)
+                  ? deriveAnchorElicitFlags(anchor)
                   : null;
               return (
                 <li
@@ -1090,7 +1080,12 @@ export function CalendarTab({
                         isHomeOrWork={postVisitFlags.isHomeOrWork}
                         isHabitual={postVisitFlags.isHabitual}
                         hideMirror
-                        contextSnapshot={selectedPostVisitContext ?? undefined}
+                        contextSnapshot={
+                          buildContextSnapshotFromAnchor(
+                            anchor,
+                            gapMinutesToNextAnchor(selectedDayAnchors, anchor),
+                          ) ?? undefined
+                        }
                       />
                     </div>
                   )}
