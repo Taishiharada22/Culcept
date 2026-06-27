@@ -145,7 +145,7 @@ export function MobilityLegCard({
          */}
         {!readOnly && movementToleranceReason && (
           <p data-testid="mobility-movement-tolerance" className="mt-2 text-[11px] text-slate-400">
-            {movementToleranceReason}
+            <span className="text-slate-400">移動のクセ · </span>{movementToleranceReason}
           </p>
         )}
         {/*
@@ -154,7 +154,7 @@ export function MobilityLegCard({
          */}
         {!readOnly && !movementToleranceReason && energyRhythmReason && (
           <p data-testid="mobility-energy-rhythm" className="mt-2 text-[11px] text-slate-400">
-            {energyRhythmReason}
+            <span className="text-slate-400">活動の波 · </span>{energyRhythmReason}
           </p>
         )}
         {hypothesisCopy && hypothesisCopy.surface && (

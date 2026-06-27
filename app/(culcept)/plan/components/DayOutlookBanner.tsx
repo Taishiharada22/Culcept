@@ -84,6 +84,7 @@ export function DayOutlookBanner({
       {/* ★A3 What-if: inverse（守る意味）/ comparison（診断レンズ）の reason-only 行（最大 2・copy のみ・空は沈黙）。 */}
       {a3ReasonLines.length > 0 && (
         <div data-testid="plan-day-outlook-a3" className="mt-1 space-y-0.5 text-[11px] text-slate-500">
+          <span className="text-slate-400">もしもの見立て · </span>
           {a3ReasonLines.map((line, i) => (
             <p key={i}>{line}</p>
           ))}
