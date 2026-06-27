@@ -85,8 +85,18 @@ export interface ExtractShiftDraftDeps {
   env: ExtractShiftDraftEnv;
   /** staging allowlist 用 ref（既存 devFixtureHost と同 pattern） */
   stagingRef: string;
-  /** production deny 用 ref */
+  /**
+   * production lane 用 ref（clean-prod のみ・legacy aljav は staging 句で別 deny）。
+   * P15-C: 単純 deny ではなく canary lane の対象識別子。production URL ∧ user ∈ canaryUserIds の時のみ
+   *   extract 続行（save lane と同 pattern）。canaryUserIds 空（default）= production への extract 不可。
+   */
   productionRef: string;
+  /**
+   * P15-C: production lane の canary user allowlist（PLAN_SHIFT_IMPORT_SAVE_CANARY_USER_IDS）。
+   *   空 / undefined（default）= production への extract は不可（staging のみ）。
+   *   非 production URL（staging）では本 list を一切参照しない（既存 staging 挙動を退化させない）。
+   */
+  canaryUserIds?: readonly string[];
   /** 認証 user の id（未認証なら null）。action は supabase.auth.getUser() を wire */
   getUserId: () => Promise<string | null>;
   /** adapter factory（action は server-only Gemini factory を wire） */
@@ -217,9 +227,15 @@ export async function runExtractShiftDraft(
   // ── ① flag ──
   if (!deps.env.flagOn) return fail("flag_disabled");
 
-  // ── ② env: staging allowlist + production deny ──
+  // ── ② env coarse: staging ∨ production ref を含むことを要求（auth 不要・既存挙動）──
+  //   不明 host / 未設定は coarse 段で fail（auth 呼ばずに早期 fail＝既存 test 順序を維持）。
+  //   ★既存挙動は「staging を含む ∧ production を含まない」だったが、P15-C で production lane を
+  //   canary 限定で許容するため、coarse 段では「いずれかを含む」までに緩め、production 経路の最終
+  //   許容判定は auth 後の fine 段（canary 判定）で行う。staging URL は fine 段を skip して従来通り。
   const url = deps.env.supabaseUrl ?? "";
-  if (!url.includes(deps.stagingRef) || url.includes(deps.productionRef)) {
+  const stagingMatch = url.includes(deps.stagingRef);
+  const productionMatch = url.includes(deps.productionRef);
+  if (!stagingMatch && !productionMatch) {
     return fail("env_misconfigured");
   }
 
@@ -234,6 +250,17 @@ export async function runExtractShiftDraft(
   const userId = await deps.getUserId();
   if (userId === null || userId === undefined || userId === "") {
     return fail("unauthenticated");
+  }
+
+  // ── ④.5 P15-C: production lane の canary 判定（fine 段・auth 後）──
+  //   staging URL（productionMatch=false）は本段を skip → 既存挙動と完全一致。
+  //   production URL は canary user のみ extract 続行（save lane と同 OR pattern・二重防御）。
+  //   非 canary は env_misconfigured で fail（client へ理由を細分化せず・所属漏洩を防ぐ）。
+  if (productionMatch) {
+    const canaryList = deps.canaryUserIds ?? [];
+    if (!canaryList.includes(userId)) {
+      return fail("env_misconfigured");
+    }
   }
 
   // ── ⑤ mode 決定（server-side env で再評価。client は信用しない）──

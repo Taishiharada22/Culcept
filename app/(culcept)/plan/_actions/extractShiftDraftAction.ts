@@ -22,6 +22,7 @@ import {
   STAGING_PROJECT_REF,
   CLEAN_PRODUCTION_PROJECT_REF,
 } from "@/lib/plan/shift/devFixtureHost";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { createGeminiDraftExtractionAdapter } from "@/lib/plan/shift/draftExtractionGeminiAdapter.server";
 import { isDraftExtractionFlagAllowed } from "@/lib/plan/shift/draftExtractionFlagGate";
 import {
@@ -55,8 +56,12 @@ export async function extractShiftDraftAction(
           : "split",
     },
     stagingRef: STAGING_PROJECT_REF,
-    // ref-drift 監査: ACTIVE production(plod) を deny する（legacy aljav は staging-positive 句で別 deny）。
+    // P15-C: ACTIVE production(plod) は canary lane の対象識別子。production URL + canary user の時のみ
+    //   extract 続行。非 canary user / 空 allowlist は env_misconfigured で fail（legacy aljav は別 deny）。
     productionRef: CLEAN_PRODUCTION_PROJECT_REF,
+    // P15-C: production lane を canary 限定で許可（save lane と同 allowlist で一貫性）。
+    //   PLAN_SHIFT_IMPORT_SAVE_CANARY_USER_IDS 未設定なら空配列＝production extract 不可。
+    canaryUserIds: PLAN_FLAGS.shiftImportSaveCanaryUserIds,
     getUserId: async () => {
       const { data } = await client.auth.getUser();
       return data?.user?.id ?? null;

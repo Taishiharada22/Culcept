@@ -252,6 +252,97 @@ describe("runExtractShiftDraft — gates（adapter 未呼出）", () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+describe("runExtractShiftDraft — P15-C production canary lane", () => {
+  const CANARY = "canary-user-1";
+  const NON_CANARY = "other-user";
+  const prodUrl = `https://${PROD_REF}.supabase.co`;
+
+  it("production URL + canary user → 全 gate 通過し成功（既存 staging 成功と同じ result.ok=true）", async () => {
+    const result = await runExtractShiftDraft(
+      validFormData(),
+      defaultDeps({
+        env: { ...defaultDeps().env, supabaseUrl: prodUrl },
+        getUserId: async () => CANARY,
+        canaryUserIds: [CANARY],
+        // createAdapter は default の makeWorkingAdapter（成功固定）に任せる
+      })
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("production URL + non-canary user → env_misconfigured / adapter 未呼出", async () => {
+    const { createAdapter, callCount } = makeSpyAdapter();
+    const result = await runExtractShiftDraft(
+      validFormData(),
+      defaultDeps({
+        env: { ...defaultDeps().env, supabaseUrl: prodUrl },
+        getUserId: async () => NON_CANARY,
+        canaryUserIds: [CANARY],
+        createAdapter,
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("env_misconfigured");
+    expect(callCount.value).toBe(0);
+  });
+
+  it("production URL + canaryUserIds 未指定（default 空）→ env_misconfigured（事故で全開しない）", async () => {
+    const { createAdapter, callCount } = makeSpyAdapter();
+    const result = await runExtractShiftDraft(
+      validFormData(),
+      defaultDeps({
+        env: { ...defaultDeps().env, supabaseUrl: prodUrl },
+        // canaryUserIds 渡さない（optional default 空配列）
+        getUserId: async () => CANARY,
+        createAdapter,
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("env_misconfigured");
+    expect(callCount.value).toBe(0);
+  });
+
+  it("staging URL + canary user → 全 gate 通過し成功（canary 判定は production 専用・staging を退化させない）", async () => {
+    const result = await runExtractShiftDraft(
+      validFormData(),
+      defaultDeps({
+        // default staging URL のまま
+        canaryUserIds: [CANARY],
+        getUserId: async () => CANARY,
+      })
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("staging URL + non-canary user → 全 gate 通過し成功（既存 staging 挙動は canary list と独立）", async () => {
+    const result = await runExtractShiftDraft(
+      validFormData(),
+      defaultDeps({
+        canaryUserIds: [CANARY],
+        getUserId: async () => NON_CANARY,
+      })
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("production URL + canary user + auth fail → unauthenticated が先（canary 判定に到達しない）", async () => {
+    const { createAdapter, callCount } = makeSpyAdapter();
+    const result = await runExtractShiftDraft(
+      validFormData(),
+      defaultDeps({
+        env: { ...defaultDeps().env, supabaseUrl: prodUrl },
+        canaryUserIds: [CANARY],
+        getUserId: async () => null,
+        createAdapter,
+      })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("unauthenticated");
+    expect(callCount.value).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
 describe("runExtractShiftDraft — invalid input（adapter 未呼出）", () => {
   it("header 未設定 → invalid_input", async () => {
     const fd = validFormData();
