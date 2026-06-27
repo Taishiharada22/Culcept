@@ -51,6 +51,12 @@ export interface TextSearchOptions {
   languageCode?: string;
   /** 最大結果数（コスト節約のため最小限に） */
   maxResultCount?: number;
+  /**
+   * regionCode: 検索の地域コード（CLDR・例 "JP"）。
+   * 未指定だと region 無制限＝呼び側（サーバ）の IP 地域に依存し、locationBias も無いと US 寄りの結果が返る。
+   * 日本固定で検索したい場合は "JP" を渡す（languageCode は言語のみで地域は制限しないため別途必要）。
+   */
+  regionCode?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -92,6 +98,10 @@ export async function searchPlacesByText(
     languageCode: options.languageCode ?? "ja",
     maxResultCount: options.maxResultCount ?? 5,
   };
+
+  if (options.regionCode) {
+    body.regionCode = options.regionCode;
+  }
 
   if (options.locationBias) {
     body.locationBias = {

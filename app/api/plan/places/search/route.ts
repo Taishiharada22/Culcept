@@ -252,6 +252,7 @@ export async function POST(request: Request) {
         textQuery: finalTextQuery,
         maxResultCount: MAX_RESULTS,
         languageCode: "ja",
+        regionCode: REGION_CODE, // ★日本固定（bias 無し時に US 既定へ落ちるのを防ぐ・§3.5）
         ...(bias
           ? {
               locationBias: {
@@ -302,11 +303,7 @@ export async function POST(request: Request) {
   }
 }
 
-// regionCode は server で固定値として Places API call に渡す想定だが、
-// 現 placesApiClient.searchPlacesByText の signature には regionCode parameter がない。
-// Phase 2-D v1 では languageCode="ja" + locationBias で日本ロケール bias が効くので、
-// regionCode 未指定でも JP-region 寄りの results が返る (Places API 仕様)。
-// 厳密な regionCode 制限は Phase 2-D+ で placesApiClient に option 追加 (Alter Morning 整合性保証必要)。
-// 本 v1 では languageCode + bias で十分とする。
-// — 上記 REGION_CODE 定数は future-proof で保持、現実装では未使用。
-void REGION_CODE;
+// regionCode = "JP" を Places API call に固定で渡す（searchPlacesByText の regionCode option 経由）。
+// languageCode="ja" は結果の言語のみで地域は制限しないため、bias（居住地座標）が無い環境では
+// サーバ IP（Vercel US）依存で US の場所が返っていた。regionCode="JP" でこれを構造的に防ぐ。
+// bias がある時はさらに居住地付近へ偏重（locationBias）。両者は併存。

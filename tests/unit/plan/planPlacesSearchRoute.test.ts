@@ -361,10 +361,11 @@ describe("POST /api/plan/places/search", () => {
 
       // 送信 field の集合を strict 検証
       const sentKeys = Object.keys(callArg).sort();
-      expect(sentKeys).toEqual(["languageCode", "maxResultCount", "textQuery"]);
+      expect(sentKeys).toEqual(["languageCode", "maxResultCount", "regionCode", "textQuery"]);
       expect(callArg.textQuery).toBe("成田のスタバ");
       expect(callArg.languageCode).toBe("ja");
       expect(callArg.maxResultCount).toBe(5);
+      expect(callArg.regionCode).toBe("JP"); // ★日本固定（bias 無し時の US フォールバック防止）
 
       // anchor metadata が含まれていないこと
       expect((callArg as Record<string, unknown>).anchorId).toBeUndefined();
@@ -383,7 +384,7 @@ describe("POST /api/plan/places/search", () => {
       );
       const callArg = mockSearchPlaces.mock.calls[0]![0] as Record<string, unknown>;
       const sentKeys = Object.keys(callArg).sort();
-      expect(sentKeys).toEqual(["languageCode", "locationBias", "maxResultCount", "textQuery"]);
+      expect(sentKeys).toEqual(["languageCode", "locationBias", "maxResultCount", "regionCode", "textQuery"]);
     });
   });
 
@@ -512,7 +513,7 @@ describe("POST /api/plan/places/search", () => {
       expect(callArg.title).toBeUndefined();
       // 送信 keys は { textQuery, maxResultCount, languageCode } のみ (= bias なし)
       const sentKeys = Object.keys(callArg).sort();
-      expect(sentKeys).toEqual(["languageCode", "maxResultCount", "textQuery"]);
+      expect(sentKeys).toEqual(["languageCode", "maxResultCount", "regionCode", "textQuery"]);
     });
   });
 });
