@@ -364,7 +364,7 @@ describe("POST /api/plan/places/search", () => {
       expect(sentKeys).toEqual(["languageCode", "maxResultCount", "regionCode", "textQuery"]);
       expect(callArg.textQuery).toBe("成田のスタバ");
       expect(callArg.languageCode).toBe("ja");
-      expect(callArg.maxResultCount).toBe(5);
+      expect(callArg.maxResultCount).toBe(20); // P12-B: guard 再ランク用に多め取得（call 課金・追加コストなし）
       expect(callArg.regionCode).toBe("JP"); // ★日本固定（bias 無し時の US フォールバック防止）
 
       // anchor metadata が含まれていないこと

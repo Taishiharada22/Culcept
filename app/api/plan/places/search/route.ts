@@ -42,11 +42,18 @@ import {
   checkAndIncrementPlaceSearchRate,
 } from "@/lib/plan/geocodeRateLimit";
 import { buildPlaceSearchQuery } from "@/lib/plan/placeSearchQueryBuilder";
+import { rankByLocalBias } from "@/lib/plan/places/localBiasGuard";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const MAX_QUERY_LENGTH = 300;
-const MAX_RESULTS = 5;
+const MAX_RESULTS = 5; // panel に返す最終件数
+/**
+ * P12-B: Places から取得する候補数。MAX_RESULTS より多く取り、local bias guard で
+ * 入力エリア/居住地周辺を上位へ再ランクしてから上位 MAX_RESULTS を返す。
+ * Places(New) は call 単位課金（件数非依存・上限 20）ゆえ追加課金は発生しない。
+ */
+const FETCH_RESULTS = 20;
 const REGION_CODE = "JP"; // §3.5 default
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -250,7 +257,7 @@ export async function POST(request: Request) {
     try {
       const places = await searchPlacesByText({
         textQuery: finalTextQuery,
-        maxResultCount: MAX_RESULTS,
+        maxResultCount: FETCH_RESULTS, // P12-B: guard 再ランク用に多め取得（call 課金・追加コストなし）
         languageCode: "ja",
         regionCode: REGION_CODE, // ★日本固定（bias 無し時に US 既定へ落ちるのを防ぐ・§3.5）
         ...(bias
@@ -282,9 +289,16 @@ export async function POST(request: Request) {
         });
       }
 
+      // P12-B Local Bias Guard: 入力エリア（locationText）/居住地 bias 周辺を上位へ再ランク
+      //   → 上位 MAX_RESULTS を返す。prominence で東京等が上位を占めるのを是正（pure・追加 fetch なし）。
+      const guarded = rankByLocalBias(results, {
+        biasRadiusMeters: bias?.radiusMeters ?? null,
+        localityText: query,
+      }).slice(0, MAX_RESULTS);
+
       return NextResponse.json({
         ok: true,
-        data: { results, apiAvailable: true } satisfies SearchData,
+        data: { results: guarded, apiAvailable: true } satisfies SearchData,
       });
     } catch (err) {
       // fail-open: audit log は userId + outcome のみ、query 実値 / response body は log しない
