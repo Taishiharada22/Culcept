@@ -215,10 +215,12 @@ export async function POST(req: NextRequest) {
   if (occupation) updatePayload.occupation = occupation;
   if (occupationDetail) updatePayload.occupation_detail = occupationDetail;
 
+  // profiles 行が無い user（auth はあるが profiles row 未作成）でも保存できるよう upsert で ensure。
+  //   update だと行が無いと 0 行 no-op（エラーも出ず「保存できてない」）になる。
+  //   public_id は DEFAULT generate_public_id()、locale/created_at/updated_at も DEFAULT で埋まる。
   const { error } = await supabaseAdmin
     .from("profiles")
-    .update(updatePayload)
-    .eq("id", user.id);
+    .upsert({ id: user.id, ...updatePayload }, { onConflict: "id" });
 
   if (error) {
     console.error("[baseline] POST error:", error);
