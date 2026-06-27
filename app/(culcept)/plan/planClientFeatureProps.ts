@@ -20,6 +20,7 @@ import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { buildRealityOsSurfaceFixtureDisplay } from "@/lib/plan/realityPipeline/realityOsSurfaceFixture";
 import { resolveShiftDraftVlmInputMode } from "@/lib/plan/shift/shiftDraftVlmInputMode";
 import { isShiftImportSaveUiEnabled } from "@/lib/plan/shift/shiftImportSaveGuard";
+import { isShiftDraftLiveUiAllowed } from "@/lib/plan/shift/shiftDraftLiveGuard";
 import {
   STAGING_PROJECT_REF,
   CLEAN_PRODUCTION_PROJECT_REF,
@@ -118,7 +119,22 @@ export async function buildPlanClientFeatureProps(
     lifeOpsInputResult,
     lifeOpsInputResultType,
     lifeOpsMoment,
-    draftLiveEnabled: PLAN_FLAGS.shiftDraftLiveEnabled,
+    // P15-B: live VLM 経路（ShiftDraftInApp）の UI 表示を **canary user 限定**にする。
+    //   flag 直渡しだと flag ON 時に全ユーザーに live UI が見えてしまう（fixture fallback の意義消失）。
+    //   gate = flag ∧ auth ∧ (staging ∨ clean-prod-canary)。fail-closed default で
+    //     非 canary / 未認証 / 不明 host → 従来の fixture fallback modal（saveEnabled=false 固定）。
+    //   保存は別 gate（shiftImportSaveEnabled）が更に通過しないと不可＝二重防御。
+    draftLiveEnabled: isShiftDraftLiveUiAllowed({
+      flagEnabled: PLAN_FLAGS.shiftDraftLiveEnabled,
+      connection: {
+        supabaseUrl:
+          process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+        stagingRef: STAGING_PROJECT_REF,
+        productionRef: CLEAN_PRODUCTION_PROJECT_REF,
+      },
+      userId,
+      canaryUserIds: PLAN_FLAGS.shiftImportSaveCanaryUserIds,
+    }),
     shiftDraftVlmInputMode: resolveShiftDraftVlmInputMode(process.env.PLAN_SHIFT_VLM_INPUT_MODE),
     // P14-B: 保存 CTA の UI active を **server lane の gate と一致**させる（flag ∧ auth ∧ (staging ∨ prod-canary)）。
     //   flag 直渡しだと flag ON 時に非 canary でも CTA が active になり「押せるのに server で disabled」＝
