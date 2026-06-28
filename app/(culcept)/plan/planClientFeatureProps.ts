@@ -18,6 +18,7 @@
 import type { supabaseServer } from "@/lib/supabase/server";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { buildRealityOsSurfaceFixtureDisplay } from "@/lib/plan/realityPipeline/realityOsSurfaceFixture";
+import { resolveHeroCanarySurface } from "@/lib/plan/realityPipeline/heroCanaryResolver";
 import { resolveShiftDraftVlmInputMode } from "@/lib/plan/shift/shiftDraftVlmInputMode";
 import { isShiftImportSaveUiEnabled } from "@/lib/plan/shift/shiftImportSaveGuard";
 import { isShiftDraftLiveUiAllowed } from "@/lib/plan/shift/shiftDraftLiveGuard";
@@ -107,6 +108,14 @@ export async function buildPlanClientFeatureProps(
   // P3-9-wire: Reality OS dormant seam。flag ON 時のみ fixture-backed redacted 表示 VM。default OFF → undefined。
   const realityOsSurface = PLAN_FLAGS.realityOsSurfaceProd ? buildRealityOsSurfaceFixtureDisplay() : undefined;
 
+  // E1: hero canary 実 read。triple gate(flag ∧ canary user ∧ read接続先guard)通過時のみ
+  //   column-restricted な実 anchor を read して成立判定+理由を組む。flag OFF / 非canary / 非staging → undefined。
+  const realityHeroCanary = await resolveHeroCanarySurface(
+    supabase,
+    userId,
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+  );
+
   return {
     composeTimelineEnabled: PLAN_FLAGS.composeTimelineEnabled,
     lifeOpsCard,
@@ -157,5 +166,6 @@ export async function buildPlanClientFeatureProps(
     coalterPlanTabEnabled: PLAN_FLAGS.coalterPlanTabEnabled,
     viewerUserId: userId,
     realityOsSurface,
+    realityHeroCanary,
   };
 }

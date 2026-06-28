@@ -165,3 +165,18 @@ export async function composeHeroCanarySurface(
   const rows = await reader.readColumnRestrictedAnchors(userId);
   return presentHeroAnchorReadout(evaluateHeroAnchorFeasibility(rows, targetAnchorId));
 }
+
+/**
+ * viewer の anchor 全件から **最も早い開始**を target に hero surface を組む（v0 の「1 件」選択）。
+ * anchor 0 件 / 時刻なし → null（hero なし）。reader が column-restricted・fail-open。
+ */
+export async function composeHeroCanaryForViewer(
+  reader: HeroAnchorReader,
+  userId: string,
+): Promise<HeroCanarySurfaceV0 | null> {
+  const rows = await reader.readColumnRestrictedAnchors(userId);
+  const dated = rows.filter((r) => toMinutes(r.start_time) !== null);
+  if (dated.length === 0) return null;
+  const target = [...dated].sort((a, b) => (toMinutes(a.start_time)! - toMinutes(b.start_time)!))[0]!;
+  return presentHeroAnchorReadout(evaluateHeroAnchorFeasibility(rows, target.id));
+}

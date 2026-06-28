@@ -130,6 +130,7 @@ import { AlterTab } from "./tabs/AlterTab";
 // UX-2b: CoAlter（ふたりのプラン）タブ — fixture-only UI プロトタイプ・anchors fetch と独立に描画。
 import { CoAlterTab } from "./tabs/coalter/CoAlterTab";
 import type { RealityOsSurfaceDisplayV0 } from "@/lib/plan/realityPipeline/realityOsSurfacePresenter";
+import type { HeroCanarySurfaceV0 } from "@/lib/plan/realityPipeline/heroAnchorFeasibility";
 import { LifeOpsMainlineCard, type LifeOpsMainlineResultToken } from "./LifeOpsMainlineCard";
 import { LifeOpsSourceInputCard, type LifeOpsSourceInputResultToken, type LifeOpsSourceInputSourceType } from "./LifeOpsSourceInputCard";
 import { LifeOpsMomentCard } from "./LifeOpsMomentCard";
@@ -272,6 +273,12 @@ export interface PlanClientProps {
    * fixture-backed redacted 表示VM を渡す。**default OFF → undefined → CoAlter 非描画・既存挙動不変**。
    */
   realityOsSurface?: RealityOsSurfaceDisplayV0;
+  /**
+   * E1: hero canary（成立判定+理由）の表示 VM。server が triple gate（flag ∧ canary user ∧ read guard）
+   * 通過時のみ実 anchor から組んで渡す。**default OFF / 非 canary → undefined → 非描画・既存挙動不変**。
+   * 描画（render）と本番 canary 点火は production-canary GO（統合セッション・live 検証）案件。
+   */
+  realityHeroCanary?: HeroCanarySurfaceV0;
 }
 
 export default function PlanClient({
