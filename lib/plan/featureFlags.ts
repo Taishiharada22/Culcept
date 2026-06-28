@@ -33,6 +33,19 @@ export const PLAN_FLAGS = {
   realityOsSurfaceProd: process.env.REALITY_OS_SURFACE_PROD === "true",
 
   /**
+   * E1 hero canary: 実予定 1 件の「成立判定 + 理由」を canary user に出す入口。
+   *   true  : `realityCanaryUserIds` ∧ read 接続先 guard（staging/canary・production deny）を満たす時のみ
+   *           column-restricted な実 anchor を read して hero surface を出す
+   *   false : 完全 dormant（本番デフォルト・実 read なし・従来挙動不変）
+   *
+   * env: REALITY_OS_HERO_CANARY=true で有効化（**server-side のみ評価・NEXT_PUBLIC_ なし**）。
+   *
+   * 設計: docs/reality-os-e1-hero-canary-preflight.md。flag OFF では実 read せず seam は描画されない。
+   *   実 Supabase client 注入 / canary user 指定 / smoke は CEO GO 案件（本 flag は OFF 既定の dormant seam）。
+   */
+  realityOsHeroCanary: process.env.REALITY_OS_HERO_CANARY === "true",
+
+  /**
    * Home 横スワイプ統合を有効化するか（W1-Home-Swipe）。
    *   true  : Home が <HomeSwipeContainer> でラップされ、Plan pane が swipe で到達可能
    *   false : Home は従来通り単独 <AneurasyncHome />（本番デフォルト、CEO 補正 2026-05-19）
