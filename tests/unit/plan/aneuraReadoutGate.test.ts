@@ -34,11 +34,10 @@ const A_GATES: ReadonlyArray<readonly [string, () => boolean]> = [
   ["candidateLensExplanation", isCandidateLensExplanationEnabled],
 ];
 
-// B: localStorage 観測（OBSERVE master）
+// B: localStorage 観測の **記録**（OBSERVE master）。※ P3-c apply は B から decouple 済（下記 C 参照）。
 const B_GATES: ReadonlyArray<readonly [string, () => boolean]> = [
   ["postVisitCheck", isPostVisitCheckEnabled],
   ["candidateLensPrefObs", isCandidateLensPrefObsEnabled],
-  ["candidateLensPrefApply", isCandidateLensPrefApplyEnabled],
 ];
 
 describe("aneuraReadoutGate helpers", () => {
@@ -92,6 +91,27 @@ describe("B 一族（OBSERVE master）— production default false / observe tru
       expect(gate()).toBe(false);
     });
   }
+});
+
+// C: P3-c apply（OBSERVE から decouple・2026-06-28）— どちらの master でも本番点火しない・独自 P3-c GO を要する
+describe("C: candidateLensPrefApply は OBSERVE/READOUTS どちらの master でも本番点火しない（decouple）", () => {
+  it("production + OBSERVE master=true でも false（apply は OBSERVE で開かない＝記録だけ開く）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_ANEURASYNC_OBSERVE_PROD", "true");
+    // 記録(P3-b)は OBSERVE で開く
+    expect(isCandidateLensPrefObsEnabled()).toBe(true);
+    // 供給(P3-c apply・順位/比較表行順を変える)は OBSERVE で開かない
+    expect(isCandidateLensPrefApplyEnabled()).toBe(false);
+  });
+  it("production + READOUTS master=true でも false", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_ANEURASYNC_READOUTS_PROD", "true");
+    expect(isCandidateLensPrefApplyEnabled()).toBe(false);
+  });
+  it("production + 両 master 未設定 → false（退化なし）", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    expect(isCandidateLensPrefApplyEnabled()).toBe(false);
+  });
 });
 
 describe("既存個別 flag 互換（壊さない）", () => {

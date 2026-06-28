@@ -25,7 +25,10 @@ export function isCandidateLensPrefObsEnabled(): boolean {
  */
 export const PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED = false;
 export function isCandidateLensPrefApplyEnabled(): boolean {
-  return (PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED && process.env.NODE_ENV !== "production") || isAneuraObserveProdEnabled(); // observe master flag で本番解放（default OFF・localStorage のみ）
+  // ★P3-c apply は OBSERVE master（localStorage 観測=P3-b）から **decouple**（2026-06-28）。
+  //   OBSERVE を本番解放しても apply（候補/③比較表の行順を変える preference 供給）は開かない。
+  //   apply の本番解放は独自 P3-c GO を要する＝obs と独立・default OFF・production hard block。
+  return PLACE_CANDIDATE_LENS_PREF_APPLY_ENABLED && process.env.NODE_ENV !== "production";
 }
 
 const PREF_OBS_KEY = "aneurasync.candidateLens.prefObs.v1";
