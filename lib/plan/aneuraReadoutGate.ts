@@ -12,21 +12,24 @@
  *   - localStorage 観測（postVisit / candidate-lens preference）は別 flag（isAneuraObserveProdEnabled）。
  *   - 既存の個別 flag（NEXT_PUBLIC_PLACE_CANDIDATE_LENS_UI / 各 dogfood）は壊さず OR で併存。
  *   - client surface ゆえ NEXT_PUBLIC_（build 時 inline・反映に redeploy 要）。
+ *   - ★canary scope guard（2026-06-28・safety baseline）: env true でも **runtime opt-in を AND**。
+ *     env true = 全 production ユーザー rollout を防ぐ。非 opt-in には表示も観測もしない（[[aneuraCanaryOptIn]]）。
  */
+import { isAneuraCanaryOptedIn } from "@/lib/plan/aneuraCanaryOptIn";
 
 /**
  * 評価OS / Aneura readout 一族（A・純表示）の production 解放。
- *   env: NEXT_PUBLIC_ANEURASYNC_READOUTS_PROD === "true"（default OFF）。
+ *   env: NEXT_PUBLIC_ANEURASYNC_READOUTS_PROD === "true"（default OFF） **∧ canary opt-in**。
  */
 export function isAneuraReadoutProdEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_ANEURASYNC_READOUTS_PROD === "true";
+  return process.env.NEXT_PUBLIC_ANEURASYNC_READOUTS_PROD === "true" && isAneuraCanaryOptedIn();
 }
 
 /**
  * localStorage 観測（B・postVisit 答え合わせ / candidate-lens preference）の production 解放。
- *   env: NEXT_PUBLIC_ANEURASYNC_OBSERVE_PROD === "true"（default OFF）。
+ *   env: NEXT_PUBLIC_ANEURASYNC_OBSERVE_PROD === "true"（default OFF） **∧ canary opt-in**。
  *   DB write / network なし・localStorage のみ。表示 flag（READOUTS）とは分離。初回 canary では OFF 想定。
  */
 export function isAneuraObserveProdEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_ANEURASYNC_OBSERVE_PROD === "true";
+  return process.env.NEXT_PUBLIC_ANEURASYNC_OBSERVE_PROD === "true" && isAneuraCanaryOptedIn();
 }

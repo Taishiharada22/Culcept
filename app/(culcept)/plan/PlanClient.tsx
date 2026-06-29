@@ -35,6 +35,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // P3-A-1-1-h: Google Calendar OAuth banner 用 (= URL query 読み取り + clean 化)
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+// 評価OS S1/S2 canary scope guard: ?evalOsCanary=1/0 を localStorage に永続/削除（mount で1回）
+import { syncAneuraCanaryOptInFromUrl } from "@/lib/plan/aneuraCanaryOptIn";
 
 import {
   GlassBadge,
@@ -390,6 +392,8 @@ export default function PlanClient({
       const reader = createStorageBackedDismissLogReader(storage);
       setDismissEvents(reader.readAll());
     }
+    // ★評価OS S1/S2 canary scope guard: URL ?evalOsCanary=1/0 を localStorage に永続/削除（非 opt-in には表示も観測も出さない）
+    syncAneuraCanaryOptInFromUrl(window.location.search);
   }, []);
 
   const proposalsByDate = useMemo<
