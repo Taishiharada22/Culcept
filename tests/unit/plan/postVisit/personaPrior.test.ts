@@ -81,3 +81,21 @@ describe("estimatePersonaPrior — 全軸 + dormant", () => {
     }
   });
 });
+
+describe("estimateAxisTendency — partial pooling（shrinkage 改善）", () => {
+  it("★薄い証拠は strength を baseline へ縮約（ε 未満へ＝証拠量解離の解消）", () => {
+    // morning=[conditional,not_today](mean .475,n2) / evening=[not_today,not_today](mean .35,n2)
+    const data = [
+      obs("conditional", cs({ timeOfDay: "morning" })),
+      obs("not_today", cs({ timeOfDay: "morning" })),
+      obs("not_today", cs({ timeOfDay: "evening" })),
+      obs("not_today", cs({ timeOfDay: "evening" })),
+    ];
+    const t = estimateAxisTendency(data, "timeOfDay");
+    expect(t.preferredValue).toBe("morning");
+    expect(t.strength).toBeGreaterThan(0);
+    // 縮約後: (raw .475 − baseline .4125)·n/(n+k)=0.0625·2/4=0.03125 < ε（旧実装なら clampEps(.0625)=.05）
+    expect(t.strength).toBeLessThan(PERSONA_EPSILON);
+    expect(t.strength).toBeCloseTo(0.03125, 4);
+  });
+});

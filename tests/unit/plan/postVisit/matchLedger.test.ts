@@ -85,3 +85,22 @@ describe("buildMatchLedger — place-pair 集約 + leader", () => {
     expect(buildMatchLedger(data)).toEqual(buildMatchLedger(data));
   });
 });
+
+describe("buildMatchLedger — margin-weighted（改善）", () => {
+  it("★count-tied でも決定的 margin 差で leader が立つ（旧 win-rate なら null）", () => {
+    const data = [
+      // morning: Good=keep(1.0) vs Bad=no_more(0.0) → Good 決定的 win（margin 1.0）
+      obs("Good", "keep", cs({ timeOfDay: "morning" })),
+      obs("Bad", "no_more", cs({ timeOfDay: "morning" })),
+      // evening: Good=not_today(0.35) vs Bad=conditional(0.6) → Bad 僅差 win（margin 0.25）
+      obs("Good", "not_today", cs({ timeOfDay: "evening" })),
+      obs("Bad", "conditional", cs({ timeOfDay: "evening" })),
+    ];
+    const e = buildMatchLedger(data)[0]!;
+    expect(e.evidenceCount).toBe(2);
+    expect(e.aWins).toBe(1);
+    expect(e.bWins).toBe(1); // count は互角
+    expect(e.confidence).toBeCloseTo(0.6); // |1.0−0.25|/1.25
+    expect(e.leader).toBe(keyOf("Good")); // 決定的勝者が leader
+  });
+});

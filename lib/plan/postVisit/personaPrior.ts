@@ -14,6 +14,7 @@
 import type { PostVisitObservation, PostVisitResponse } from "./postVisitObservation";
 import { hasContextSnapshot } from "./postVisitObservation";
 import type { PostVisitContextSnapshot } from "./postVisitContext";
+import { SHRINKAGE_PRIOR_STRENGTH } from "./shadowFusion";
 
 const RESPONSE_FIT: Record<PostVisitResponse, number> = { keep: 1.0, conditional: 0.6, not_today: 0.35, no_more: 0.0 };
 
@@ -83,10 +84,15 @@ export function estimateAxisTendency(observations: readonly PostVisitObservation
     return { axis, label, preferredValue: null, strength: 0, confidence: "insufficient", evidenceCount: total, note: "観測不足（推定しません）" };
   }
   const baseline = grandSum / total;
-  // fit 最大の値（同点は値名で安定）
-  eligible.sort((a, b) => b[1].sum / b[1].n - a[1].sum / a[1].n || (a[0] < b[0] ? -1 : 1));
+  // ★partial pooling（shadowFusion と同じ k を共有）: 各値の平均を baseline へ n/(n+k) 縮約してから比較・strength 化。
+  //   証拠量が少ない値ほど baseline 寄り＝「2件でも clamp 上限」という証拠量解離を解消（cold-start 過信防止）。
+  const k = SHRINKAGE_PRIOR_STRENGTH;
+  const shrunkMean = (s: { sum: number; n: number }) => (s.sum + baseline * k) / (s.n + k);
+  // 縮約後の平均が最大の値（同点は値名で安定）
+  eligible.sort((a, b) => shrunkMean(b[1]) - shrunkMean(a[1]) || (a[0] < b[0] ? -1 : 1));
   const [topValue, topStat] = eligible[0]!;
-  const strength = clampEps(topStat.sum / topStat.n - baseline);
+  // strength = clampEps((rawMean − baseline) · n/(n+k))＝証拠量で減衰した bounded prior。
+  const strength = clampEps(shrunkMean(topStat) - baseline);
   const confidence: PersonaConfidence = total >= OBSERVED_TOTAL && eligible.length >= 2 ? "observed" : "hypothesis";
   return {
     axis,

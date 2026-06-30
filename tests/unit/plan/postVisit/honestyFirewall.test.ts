@@ -7,6 +7,7 @@ import {
   enforceInsufficientNull,
   checkConditionalHasContext,
   detectRawPii,
+  assertAllowedKeys,
   preflightHonesty,
 } from "@/lib/plan/postVisit/honestyFirewall";
 
@@ -76,5 +77,43 @@ describe("preflightHonesty — ③前の集約 guard", () => {
     });
     expect(r.ok).toBe(false);
     expect(r.violations.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("detectRawPii — 追加 PII RE（電話/メール/URL/生座標）", () => {
+  it("★電話/メール/URL/生座標ペアを検出", () => {
+    expect(detectRawPii("090-1234-5678").some((v) => v.rule === "raw_pii_phone")).toBe(true);
+    expect(detectRawPii("taro@example.com").some((v) => v.rule === "raw_pii_email")).toBe(true);
+    expect(detectRawPii("https://maps.google.com/x").some((v) => v.rule === "raw_pii_url")).toBe(true);
+    expect(detectRawPii("35.659, 139.700").some((v) => v.rule === "raw_pii_latlng")).toBe(true);
+  });
+  it("★clean な opaque key + bucket は誤検出しない", () => {
+    expect(detectRawPii({ placeKey: "pabc123", gapBucket: "under_30", state: "observed" })).toEqual([]);
+  });
+});
+
+describe("assertAllowedKeys — allowlist 反転（privacy-by-design）", () => {
+  const allowed = new Set(["placeKey", "state", "evidenceCount"]);
+  it("★許可キーのみ → 違反ゼロ", () => {
+    expect(assertAllowedKeys({ placeKey: "p", state: "observed", evidenceCount: 3 }, allowed)).toEqual([]);
+  });
+  it("★allowlist 外のキー（denylist に無い未知キーでも）→ unexpected_key", () => {
+    const v = assertAllowedKeys({ placeKey: "p", futureField: "x" }, allowed);
+    expect(v.some((x) => x.rule === "unexpected_key")).toBe(true);
+  });
+  it("★allowed 空 set は無効化（後方互換）", () => {
+    expect(assertAllowedKeys({ anything: 1 }, new Set())).toEqual([]);
+  });
+});
+
+describe("preflightHonesty — allowlist 連携", () => {
+  it("★allowedKeys 指定で denylist に無い許可外キーも ok=false", () => {
+    const r = preflightHonesty({ payload: { placeKey: "p", futureField: "x" }, allowedKeys: new Set(["placeKey"]) });
+    expect(r.ok).toBe(false);
+    expect(r.violations.some((v) => v.rule === "unexpected_key")).toBe(true);
+  });
+  it("★allowedKeys 未指定なら従来どおり（denylist のみ）", () => {
+    const r = preflightHonesty({ payload: { placeKey: "p", futureField: "x" } });
+    expect(r.ok).toBe(true); // futureField は denylist 非該当ゆえ素通り（allowlist 未指定）
   });
 });
